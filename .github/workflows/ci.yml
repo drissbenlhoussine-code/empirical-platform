@@ -1,0 +1,71 @@
+name: foundation
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: python -m pip install -e ".[dev,test,security,build]"
+      - name: Syntax compile
+        run: python -m compileall -q src tests tools migrations
+      - name: Format check
+        run: python -m ruff format --check .
+      - name: Lint
+        run: python -m ruff check .
+      - name: Type check
+        run: python -m mypy
+      - name: Tests
+        run: python -m pytest
+      - name: Architecture boundaries
+        run: python tools/check_architecture.py .
+      - name: Negative architecture fixture
+        shell: pwsh
+        run: |
+          python tools/check_architecture.py tests/fixtures/illegal_imports
+          if ($LASTEXITCODE -eq 0) {
+            throw "Negative architecture fixture did not report a violation."
+          }
+      - name: Dependency audit
+        run: python -m pip_audit
+      - name: Secret scan
+        shell: pwsh
+        run: |
+          $SecretScanTargets = @(
+            ".dockerignore",
+            ".editorconfig",
+            ".env.example",
+            ".github",
+            ".gitignore",
+            "LICENSE",
+            "README.md",
+            "alembic.ini",
+            "docs",
+            "infra",
+            "migrations",
+            "pyproject.toml",
+            "scripts",
+            "src",
+            "tests",
+            "tools",
+            "MILESTONE_004_REPOSITORY_SCAFFOLDING_AND_TOOLCHAIN_BOOTSTRAP.md"
+          )
+          $SecretScanOutput = & python -m detect_secrets scan @SecretScanTargets
+          if ($LASTEXITCODE -ne 0) {
+            throw "Secret scan command failed."
+          }
+          $SecretScanJson = $SecretScanOutput | ConvertFrom-Json
+          $SecretFindings = @($SecretScanJson.results.PSObject.Properties | Where-Object { $_.MemberType -eq "NoteProperty" })
+          if ($SecretFindings.Count -ne 0) {
+            $SecretScanOutput
+            throw "Potential secrets detected in source targets."
+          }
+      - name: Build
+        run: python -m build

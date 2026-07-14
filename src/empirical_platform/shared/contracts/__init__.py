@@ -1,0 +1,1 @@
+"""Shared typed contract boundary."""

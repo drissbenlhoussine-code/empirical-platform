@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=80,<81", "wheel>=0.45,<0.46"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "empirical-platform"
+version = "0.0.0"
+description = "Foundation scaffold for a governance-aware empirical validation platform."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = { text = "Proprietary" }
+authors = [{ name = "Research Lead" }]
+dependencies = [
+  "pydantic>=2.13,<3",
+  "pydantic-settings>=2.8,<3",
+  "python-dotenv>=1.0,<2",
+  "structlog>=25,<26",
+]
+
+[project.optional-dependencies]
+persistence = [
+  "sqlalchemy>=2.0,<3",
+  "alembic>=1.16,<2",
+  "psycopg[binary]>=3.2,<4",
+]
+object-storage = [
+  "boto3>=1.35,<2",
+]
+compute = [
+  "polars>=1.32,<2",
+  "duckdb>=1.3,<2",
+]
+dev = [
+  "ruff>=0.12,<1",
+  "mypy>=1.16,<2",
+  "pre-commit>=4.2,<5",
+]
+test = [
+  "pytest>=9.0.3,<10",
+  "pytest-cov>=6.2,<7",
+  "pytest-xdist>=3.7,<4",
+  "hypothesis>=6.135,<7",
+  "freezegun>=1.5,<2",
+]
+security = [
+  "detect-secrets>=1.5,<2",
+  "pip-audit>=2.9,<3",
+]
+build = [
+  "build>=1.2,<2",
+]
+
+[project.scripts]
+empirical-platform-health = "empirical_platform.entrypoints.health:main"
+empirical-platform-version = "empirical_platform.entrypoints.version:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "N", "ANN"]
+ignore = [
+  "S101",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+packages = ["empirical_platform"]
+
+[tool.pytest.ini_options]
+minversion = "8.4"
+testpaths = ["tests"]
+addopts = [
+  "--strict-markers",
+  "--strict-config",
+  "--cov=empirical_platform",
+  "--cov-report=term-missing",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["empirical_platform"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
