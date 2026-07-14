@@ -82,6 +82,9 @@ packages = ["empirical_platform"]
 [tool.pytest.ini_options]
 minversion = "8.4"
 testpaths = ["tests"]
+markers = [
+  "integration: tests that require local external dependencies",
+]
 addopts = [
   "--strict-markers",
   "--strict-config",

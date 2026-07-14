@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: ${EMPIRICAL_PLATFORM_LOCAL_POSTGRES_PASSWORD:?set EMPIRICAL_PLATFORM_LOCAL_POSTGRES_PASSWORD}
       POSTGRES_DB: empirical_platform
     ports:
-      - "5432:5432"
+      - "${EMPIRICAL_PLATFORM_LOCAL_POSTGRES_PORT:-55432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
 

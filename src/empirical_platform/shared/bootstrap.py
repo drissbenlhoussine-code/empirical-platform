@@ -21,7 +21,9 @@ from empirical_platform.shared.interfaces.clock import (
     SystemWallClock,
     WallClock,
 )
+from empirical_platform.shared.interfaces.persistence import PersistenceService
 from empirical_platform.shared.logging.configure import FoundationLogger, configure_logging
+from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +36,7 @@ class FoundationRuntime:
     identifiers: RuntimeIdentifierGenerator
     logger: FoundationLogger
     health: HealthReport
+    persistence: PersistenceService | None = None
 
 
 def initialize_foundation_runtime(
@@ -84,4 +87,60 @@ def initialize_foundation_runtime(
         ),
     )
     runtime.logger.info("foundation_runtime_initialized")
+    return runtime
+
+
+def initialize_foundation_runtime_with_postgresql(
+    environ: Mapping[str, str] | None = None,
+    *,
+    wall_clock: WallClock | None = None,
+    monotonic_clock: MonotonicClock | None = None,
+    identifiers: RuntimeIdentifierGenerator | None = None,
+    logger: FoundationLogger | None = None,
+    persistence: PersistenceService | None = None,
+) -> FoundationRuntime:
+    """Initialize process-local foundations and mandatory PostgreSQL persistence."""
+    config = resolve_foundation_config(environ)
+    configure_logging(LoggingSettings(log_level=config.logging.log_level))
+    persistence_service = persistence or PostgresPersistenceService(config.postgresql)
+    persistence_service.initialize()
+    runtime = FoundationRuntime(
+        config=config,
+        wall_clock=wall_clock or SystemWallClock(),
+        monotonic_clock=monotonic_clock or SystemMonotonicClock(),
+        identifiers=identifiers or UuidRuntimeIdentifierGenerator(),
+        logger=logger or FoundationLogger(),
+        health=HealthReport.from_layers(
+            [
+                LayerHealth.internal(
+                    "configuration",
+                    liveness=HealthState.PASS,
+                    readiness=HealthState.PASS,
+                ),
+                LayerHealth.internal(
+                    "wall_clock",
+                    liveness=HealthState.PASS,
+                    readiness=HealthState.PASS,
+                ),
+                LayerHealth.internal(
+                    "monotonic_clock",
+                    liveness=HealthState.PASS,
+                    readiness=HealthState.PASS,
+                ),
+                LayerHealth.internal(
+                    "identifier",
+                    liveness=HealthState.PASS,
+                    readiness=HealthState.PASS,
+                ),
+                LayerHealth.internal(
+                    "logging",
+                    liveness=HealthState.PASS,
+                    readiness=HealthState.PASS,
+                ),
+                persistence_service.health(),
+            ]
+        ),
+        persistence=persistence_service,
+    )
+    runtime.logger.info("foundation_runtime_initialized_with_postgresql")
     return runtime

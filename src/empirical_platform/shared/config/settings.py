@@ -9,6 +9,7 @@ from functools import lru_cache
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import URL
 
 from empirical_platform.shared.config.redaction import redact_mapping
 from empirical_platform.shared.errors import FoundationError, FoundationErrorCategory
@@ -96,6 +97,55 @@ class LoggingConfigSnapshot(BaseModel):
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
 
 
+class PostgreSQLConfigSnapshot(BaseModel):
+    """Immutable PostgreSQL connectivity configuration snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
+    host: str = "localhost"
+    port: int = Field(default=5432, ge=1, le=65535)
+    database: str = "empirical_platform"
+    user: str = "empirical"
+    password: SecretStr | None = None
+    pool_size: int = Field(default=5, ge=1, le=50)
+    max_overflow: int = Field(default=0, ge=0, le=50)
+    connection_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    application_name: str = "empirical-platform"
+
+    def sqlalchemy_url(self) -> URL:
+        """Build a SQLAlchemy PostgreSQL URL without exposing it in diagnostics."""
+        if self.password is None:
+            raise FoundationError(
+                category=FoundationErrorCategory.CONFIGURATION,
+                message="PostgreSQL password is required for connectivity",
+                layer="configuration",
+                operation="postgresql_url",
+                context=self.safe_context(),
+            )
+        return URL.create(
+            "postgresql+psycopg",
+            username=self.user,
+            password=self.password.get_secret_value(),
+            host=self.host,
+            port=self.port,
+            database=self.database,
+        )
+
+    def safe_context(self) -> dict[str, object]:
+        """Return redacted PostgreSQL connectivity diagnostics."""
+        return {
+            "host": self.host,
+            "port": self.port,
+            "database": self.database,
+            "user": self.user,
+            "password_configured": self.password is not None,
+            "pool_size": self.pool_size,
+            "max_overflow": self.max_overflow,
+            "connection_timeout_seconds": self.connection_timeout_seconds,
+            "application_name": self.application_name,
+        }
+
+
 class FoundationConfigSnapshot(BaseModel):
     """Canonical immutable process-local configuration snapshot."""
 
@@ -103,6 +153,7 @@ class FoundationConfigSnapshot(BaseModel):
 
     app: AppConfigSnapshot = Field(default_factory=AppConfigSnapshot)
     logging: LoggingConfigSnapshot = Field(default_factory=LoggingConfigSnapshot)
+    postgresql: PostgreSQLConfigSnapshot = Field(default_factory=PostgreSQLConfigSnapshot)
 
     def safe_context(self) -> dict[str, object]:
         """Return a redacted context representation."""
@@ -127,8 +178,28 @@ def resolve_foundation_config(
             logging=LoggingConfigSnapshot(
                 log_level=source.get("EMPIRICAL_PLATFORM_LOG_LEVEL", "INFO")
             ),
+            postgresql=PostgreSQLConfigSnapshot(
+                host=source.get("EMPIRICAL_PLATFORM_POSTGRES_HOST", "localhost"),
+                port=int(source.get("EMPIRICAL_PLATFORM_POSTGRES_PORT", "5432")),
+                database=source.get("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "empirical_platform"),
+                user=source.get("EMPIRICAL_PLATFORM_POSTGRES_USER", "empirical"),
+                password=(
+                    SecretStr(source["EMPIRICAL_PLATFORM_POSTGRES_PASSWORD"])
+                    if "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD" in source
+                    else None
+                ),
+                pool_size=int(source.get("EMPIRICAL_PLATFORM_POSTGRES_POOL_SIZE", "5")),
+                max_overflow=int(source.get("EMPIRICAL_PLATFORM_POSTGRES_MAX_OVERFLOW", "0")),
+                connection_timeout_seconds=int(
+                    source.get("EMPIRICAL_PLATFORM_POSTGRES_CONNECT_TIMEOUT_SECONDS", "5")
+                ),
+                application_name=source.get(
+                    "EMPIRICAL_PLATFORM_POSTGRES_APPLICATION_NAME",
+                    "empirical-platform",
+                ),
+            ),
         )
-    except ValidationError as exc:
+    except (ValueError, ValidationError) as exc:
         raise FoundationError.wrap(
             exc,
             category=FoundationErrorCategory.CONFIGURATION,
