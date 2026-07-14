@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from empirical_platform.shared.config.redaction import redact_mapping
+from empirical_platform.shared.errors import FoundationError, FoundationErrorCategory
 
 
 class Environment(StrEnum):
@@ -72,6 +77,66 @@ class LoggingSettings(BaseSettings):
     )
 
     log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+
+
+class AppConfigSnapshot(BaseModel):
+    """Immutable application configuration snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
+    environment: Environment = Environment.DEVELOPMENT
+    correlation_id_header: str = "x-correlation-id"
+
+
+class LoggingConfigSnapshot(BaseModel):
+    """Immutable logging configuration snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
+    log_level: str = Field(default="INFO", pattern="^(DEBUG|INFO|WARNING|ERROR|CRITICAL)$")
+
+
+class FoundationConfigSnapshot(BaseModel):
+    """Canonical immutable process-local configuration snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
+    app: AppConfigSnapshot = Field(default_factory=AppConfigSnapshot)
+    logging: LoggingConfigSnapshot = Field(default_factory=LoggingConfigSnapshot)
+
+    def safe_context(self) -> dict[str, object]:
+        """Return a redacted context representation."""
+        return redact_mapping(self.model_dump(mode="json"))
+
+
+def resolve_foundation_config(
+    environ: Mapping[str, str] | None = None,
+) -> FoundationConfigSnapshot:
+    """Resolve the process-local foundation configuration once."""
+    source = os.environ if environ is None else environ
+    try:
+        return FoundationConfigSnapshot(
+            app=AppConfigSnapshot(
+                environment=Environment(
+                    source.get("EMPIRICAL_PLATFORM_ENVIRONMENT", Environment.DEVELOPMENT)
+                ),
+                correlation_id_header=source.get(
+                    "EMPIRICAL_PLATFORM_CORRELATION_ID_HEADER", "x-correlation-id"
+                ),
+            ),
+            logging=LoggingConfigSnapshot(
+                log_level=source.get("EMPIRICAL_PLATFORM_LOG_LEVEL", "INFO")
+            ),
+        )
+    except ValidationError as exc:
+        raise FoundationError.wrap(
+            exc,
+            category=FoundationErrorCategory.CONFIGURATION,
+            message="Foundation configuration resolution failed",
+            layer="configuration",
+            operation="resolve_foundation_config",
+            context={"environment_keys": sorted(source.keys())},
+        ) from exc
 
 
 class Settings:
