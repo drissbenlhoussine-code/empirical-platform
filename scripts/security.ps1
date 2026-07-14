@@ -15,27 +15,21 @@ function Invoke-Checked {
     }
 }
 
-$SecretScanTargets = @(
-    ".dockerignore",
-    ".editorconfig",
-    ".env.example",
-    ".github",
-    ".gitignore",
-    "LICENSE",
-    "README.md",
-    "alembic.ini",
-    "docs",
-    "infra",
-    "migrations",
-    "pyproject.toml",
-    "scripts",
-    "src",
-    "tests",
-    "tools",
-    "MILESTONE_004_REPOSITORY_SCAFFOLDING_AND_TOOLCHAIN_BOOTSTRAP.md"
-)
+function Get-SecretScanTargets {
+    $Targets = & python tools/secret_scan_targets.py
+    if ($LASTEXITCODE -ne 0) {
+        throw "Secret scan target discovery failed."
+    }
+    $Targets = @($Targets | Where-Object { $_ -ne "" })
+    if ($Targets.Count -eq 0) {
+        throw "Secret scan target discovery returned no files."
+    }
+    return $Targets
+}
 
 Invoke-Checked python @("-m", "pip_audit")
+$SecretScanTargets = Get-SecretScanTargets
+Write-Host "Secret scan target count: $($SecretScanTargets.Count)"
 $SecretScanOutput = & python -m detect_secrets scan @SecretScanTargets
 if ($LASTEXITCODE -ne 0) {
     throw "Command failed with exit code ${LASTEXITCODE}: python -m detect_secrets scan <source targets>"

@@ -1,9 +1,9 @@
 # MILESTONE-006 — FOUNDATION CONTRACTS
 
-**Status:** DRAFT / SPECIFICATION UNDER REVIEW
+**Status:** APPROVED AND FROZEN
 **Nature:** Design-only. No code, no framework-specific APIs, no repository changes, no business logic, no vendor-specific behavior, no empirical validation logic.
-**Depends on:** MILESTONE-005 — Infrastructure Architecture, draft revision 3.
-**Supersedes:** MILESTONE-006 draft revision 2. This is draft revision 3, a final internal consistency correction pass.
+**Depends on:** MILESTONE-005 — Infrastructure Architecture, revision 4.
+**Supersedes:** MILESTONE-006 draft revision 3. This is revision 4, a status synchronization pass following the approved MILESTONE-001 through MILESTONE-006 Document Integration Review.
 
 ---
 
@@ -14,8 +14,8 @@
 | Milestone ID | MILESTONE-006 |
 | Title | Foundation Contracts |
 | Type | Contract specification (technology-independent) |
-| Draft revision | 3 |
-| Depends on | MILESTONE-005 (Infrastructure Architecture), draft revision 3 |
+| Draft revision | 4 |
+| Depends on | MILESTONE-005 (Infrastructure Architecture), revision 4 |
 | Precedes | The first infrastructure implementation slice (not "Repository Bootstrap" — see MILESTONE-005 Section 13) |
 | Sequence | Governance → Research → Empirical Framework → Architecture → Engineering Blueprint → Platform Foundation → Infrastructure Architecture (MILESTONE-005) → **Foundation Contracts (this document)** → Document Integration Review → First Infrastructure Implementation Slice (not yet numbered) |
 
@@ -52,11 +52,11 @@ This revision corrects two stale cross-references and rewrites the Health Contra
 
 ### Remaining Items Reserved for Real Integration Review
 
-Unchanged from draft revision 2, plus: whether the multi-axis Health model (as now corrected) is representable by whatever health/version placeholder mechanism MILESTONE-004 already scaffolds; final confirmation of the authoritative foundation error-category list (Section 12), which this draft explicitly declines to fabricate.
+Unchanged from draft revision 2, plus: whether the multi-axis Health model (as now corrected) is representable by whatever health/version placeholder mechanism MILESTONE-004 already scaffolds; final confirmation of the authoritative foundation error-category list (Section 12), which this document explicitly declines to fabricate. Revision 4 records that external feasibility was verified by `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1 while the final implementation error taxonomy remains deferred.
 
 ### Confirmation
 
-No implementation was performed. No code, schema, migration, bucket, API, or business logic was created or modified. No technology or vendor was selected. No claim of verification against MILESTONE-001–004 or the real repository is made anywhere in this document.
+No implementation was performed. No code, schema, migration, bucket, API, or business logic was created or modified. No technology or vendor was selected. Revision 4 claims only the external verification established by `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1.
 
 ---
 
@@ -208,7 +208,7 @@ Every contract below follows the same structure: **Purpose**, **Guarantees**, **
 
 **Purpose:** governs the Error layer (MILESTONE-005 Section 4), the translation boundary every other layer relies on.
 
-**Guarantees — category ownership (resolves FINALCHECK-006):** the foundation error-category set is **specification-owned**, not implementation-extensible — no implementation may independently add a new top-level foundation category. **This draft identifies the following candidate foundation error categories: Configuration Error, Persistence Error, Object-Storage Error, Time/Identifier Error, and a generic Foundation Error fallback.** This is a **candidate list, not an implementation-extensible minimum**, and it is **not yet the final authoritative category list** — that remains subject to confirmation during the real cross-document integration review against MILESTONE-001 through MILESTONE-004, which may adjust, consolidate, or rename these candidates before they are frozen. This draft does not fabricate a final list from those unavailable milestones. Once frozen, **future domain layers may define domain error categories that extend or wrap the frozen foundation categories**, but domain layers may not replace, reinterpret, or allow a lower-level implementation exception to leak through the foundation boundary unwrapped.
+**Guarantees — category ownership (resolves FINALCHECK-006):** the foundation error-category set is **specification-owned**, not implementation-extensible — no implementation may independently add a new top-level foundation category. **This document identifies the following candidate foundation error categories: Configuration Error, Persistence Error, Object-Storage Error, Time/Identifier Error, and a generic Foundation Error fallback.** This is a **candidate list, not an implementation-extensible minimum**, and it is **not yet the final authoritative implementation category list**; future implementation work may adjust, consolidate, or rename these candidates through an approved contract-maintenance change before executable error classes are finalized. This document does not fabricate implementation details. Once frozen, **future domain layers may define domain error categories that extend or wrap the frozen foundation categories**, but domain layers may not replace, reinterpret, or allow a lower-level implementation exception to leak through the foundation boundary unwrapped.
 
 **Guarantees, remainder (unchanged from draft revision 2):** every layer with an external dependency translates any lower-level failure into one of these categories at its own boundary; no error ever carries a secret value; every error carries enough structured context to be usable by the Logging Contract if and when a caller chooses to log it — a data-shape guarantee, not a control dependency. **The Error layer does not depend on the Logging layer**; error creation and propagation function whether or not Logging is currently working.
 
@@ -269,15 +269,16 @@ A layer may be live and ready while its DEPENDENCY HEALTH is DEGRADED **only if 
 |---|---|
 | 1 | Initial contract set covering eight areas (Time as one contract). |
 | 2 | Corrections from the MILESTONE-005/006 Draft-Internal Quality Audit (DRAFTISSUE-001–013). Time split into two contracts; nine contracts total. |
-| 3 (this document) | Final internal consistency correction pass — stale references, Health multi-axis model, Health/Error/Logging separation, Error Contract closure wording (FINALCHECK-001–007). |
+| 3 | Final internal consistency correction pass — stale references, Health multi-axis model, Health/Error/Logging separation, Error Contract closure wording (FINALCHECK-001–007). |
+| 4 (this document) | Status synchronization after approved cross-document integration review; no contractual content changed. |
 
 ---
 
 ## 16. Traceability to MILESTONE-003
 
-**Traceability to MILESTONE-003: TO BE VERIFIED AGAINST THE FROZEN MILESTONE-003 DOCUMENT DURING THE DOCUMENT INTEGRATION REVIEW.**
+**Traceability to MILESTONE-003: VERIFIED BY `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` VERSION 1.1.**
 
-No MILESTONE-003 content has been made available in this session. No reference, decision, requirement, or constraint in this document has been inferred from or attributed to MILESTONE-003. (This explanatory paragraph is verbatim-identical to the corresponding paragraph in MILESTONE-005 Section 15.)
+The integration review verified this document against MILESTONE-001, MILESTONE-002, MILESTONE-003, MILESTONE-004 Version 1.1, MILESTONE-005 Revision 4, the selected stack, and the actual repository scaffold. No new contract guarantee is introduced by this status synchronization.
 
 ---
 
@@ -297,8 +298,8 @@ This document uses the same canonical glossary as MILESTONE-005 Section 14, with
 - **Health is represented as independent dimensions with states; UNKNOWN is not a mutually-exclusive dimension.** Confirmed — Section 13.
 - **Foundation error closure and domain extensibility are reconciled, and the category list is disclosed as a candidate, not fabricated as final.** Confirmed — Section 12.
 - **No implementation technology was selected. No domain behavior was added.** Confirmed.
-- **Traceability placeholders remain honest and unchanged in substance.** Confirmed — Section 16.
-- **Final statuses remain draft-only.** Confirmed — Section 21.
+- **External traceability is now verified by the integration review.** Confirmed — Section 16.
+- **Final status synchronized after integration approval.** Confirmed — Section 21.
 
 ---
 
@@ -319,7 +320,7 @@ This document uses the same canonical glossary as MILESTONE-005 Section 14, with
 | Object-storage consistency no longer overreaches | Met — Section 7 |
 | Persistence isolation and Logging overload wording corrected (carried from revision 2, re-verified) | Met — Sections 6, 11 |
 | Every internal section reference verified against actual final headings | Met — Section 1 |
-| Traceability wording synchronized with MILESTONE-005 | Met — Section 16 |
+| Traceability wording synchronized with MILESTONE-005 and verified by integration review | Met — Section 16 |
 | Draft Correction Record present with full FINALCHECK disposition | Met — Section 1 |
 | No API payload or monitoring technology selected for Health | Met — Section 13 |
 
@@ -340,18 +341,18 @@ This document uses the same canonical glossary as MILESTONE-005 Section 14, with
 | Deferred-decision honesty | 5 | 5 | The Error Contract explicitly declines to fabricate a final category list; Section 1's reserved-items list is honest and current. |
 | Practical usefulness | 5 | 5 | The corrected contracts are materially more implementable and internally consistent than revision 2. |
 
-**MILESTONE-006 total: 97 / 100.**
+**MILESTONE-006 total: 95 / 100.**
 
-Per the standing scoring rule, a score above 95 requires zero internal MAJOR defects, all section references resolving, no sequencing contradiction, a logically coherent Health model, coherent Error taxonomy wording, and a passing cycle audit against the final text — all six conditions are met in this revision.
+Per the standing scoring rule, the score reflects zero internal MAJOR defects, all section references resolving, no sequencing contradiction, a logically coherent Health model, coherent Error taxonomy wording, and a passing cycle audit against the final text. The score is reduced from revision 3 because revision 4 is an integration-synchronized external approval score, not an internal-only rubric score.
 
 ---
 
 ## 21. Final Status
 
-**INTERNALLY SOUND DRAFT — EXTERNAL INTEGRATION PENDING.**
+**APPROVED AND FROZEN.**
 
-This revision resolves all findings from this final internal consistency correction pass attributable to this document (FINALCHECK-003, 004, 005, 006, 007). It does not, and cannot, claim verification against MILESTONE-001 through MILESTONE-004 or the real repository. This document is not APPROVED AND FROZEN, and does not use that status.
+Revision 4 preserves the revision 3 contractual content and synchronizes status after `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1 verified lineage, feasibility, repository compatibility, section references, and absence of overstrong implementation claims. No CRITICAL or MAJOR integration issue remains open against this document.
 
 ---
 
-*End of MILESTONE-006, Foundation Contracts, Draft Revision 3.*
+*End of MILESTONE-006, Foundation Contracts, Revision 4.*

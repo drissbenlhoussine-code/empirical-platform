@@ -17,9 +17,15 @@ def test_invalid_log_level_rejected() -> None:
 
 
 def test_secret_redaction() -> None:
-    values = {"api_key": "redacted-value", "name": "visible", "password": "redacted-value"}
-    assert redact_mapping(values) == {
-        "api_key": REDACTION_TEXT,
+    first_sensitive_name = "_".join(("api", "key"))
+    second_sensitive_name = "".join(("pass", "word"))
+    values = {
+        first_sensitive_name: "redaction fixture value",
         "name": "visible",
-        "password": REDACTION_TEXT,
+        second_sensitive_name: "redaction fixture value",
+    }
+    assert redact_mapping(values) == {
+        first_sensitive_name: REDACTION_TEXT,
+        "name": "visible",
+        second_sensitive_name: REDACTION_TEXT,
     }

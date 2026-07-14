@@ -1,8 +1,8 @@
 # MILESTONE-005 — INFRASTRUCTURE ARCHITECTURE
 
-**Status:** DRAFT / SPECIFICATION UNDER REVIEW
+**Status:** APPROVED AND FROZEN
 **Nature:** Design-only. No code, no framework-specific APIs, no behavioral contracts, no repository changes, no business logic.
-**Supersedes:** MILESTONE-005 draft revision 2. This is draft revision 3, a final internal consistency correction pass — sequencing, section references, and the Health model.
+**Supersedes:** MILESTONE-005 draft revision 3. This is revision 4, a status synchronization pass following the approved MILESTONE-001 through MILESTONE-006 Document Integration Review.
 
 ---
 
@@ -13,11 +13,11 @@
 | Milestone ID | MILESTONE-005 |
 | Title | Infrastructure Architecture |
 | Type | Architecture specification (technology-independent, contract-independent) |
-| Draft revision | 3 |
+| Draft revision | 4 |
 | Depends on | MILESTONE-004 (Repository Scaffolding and Toolchain Bootstrap) |
 | Produces | The architectural basis that MILESTONE-006 (Foundation Contracts) is written against |
 | Sequence | Governance → Research → Empirical Framework → Architecture → Engineering Blueprint → Platform Foundation → **Infrastructure Architecture (this document)** → Foundation Contracts (MILESTONE-006) → Document Integration Review → First Infrastructure Implementation Slice (not yet numbered) |
-| Change reason | This is a final internal consistency correction pass, limited to defects visible from MILESTONE-005 and MILESTONE-006 themselves — not the real cross-document integration review. It corrects a stale sequencing reference, multiple stale internal section cross-references (found by direct extraction and reconciliation against the actual final headings, not by relying on prior asserted verification), and a genuine structural defect in the Health model. See Section 1 (Draft Correction Record) for the full disposition. |
+| Change reason | Revision 4 synchronizes status after `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1 approved MILESTONE-005. No architecture, layer, dependency, failure-domain, trust-boundary, scalability, or extensibility content is changed. |
 
 ---
 
@@ -52,11 +52,15 @@ This revision corrects reference numbers and the Health model's internal structu
 
 ### Remaining Items Reserved for Real Integration Review
 
-Unchanged from draft revision 2 (Section 1 of that revision): whether the optional Identifier→Time capability dependency matches MILESTONE-002's eventual identifier strategy; whether the Health layer's multi-axis model (as now corrected) is compatible with MILESTONE-004's existing static health/version placeholder; general feasibility confirmation for every architectural claim against the real, selected technology stack. None of these can be resolved without MILESTONE-001 through MILESTONE-004.
+Unchanged from draft revision 2 (Section 1 of that revision): whether the optional Identifier→Time capability dependency matches MILESTONE-002's eventual identifier strategy; whether the Health layer's multi-axis model (as now corrected) is compatible with MILESTONE-004's existing static health/version placeholder; general feasibility confirmation for every architectural claim against the real, selected technology stack. Revision 4 records that these external checks were completed by `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1.
+
+### Integration Review Synchronization
+
+Revision 4 closes the prior external-integration-pending state. `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1 verified lineage to MILESTONE-001 through MILESTONE-004, confirmed compatibility with the MILESTONE-004 Version 1.1 scaffold, and approved this document for freeze. No FINALCHECK identifier is reused or renumbered.
 
 ### Confirmation
 
-No implementation was performed. No code, schema, migration, bucket, API, or business logic was created or modified. No claim of verification against MILESTONE-001–004 or the real repository is made anywhere in this document.
+No implementation was performed. No code, schema, migration, bucket, API, or business logic was created or modified. Revision 4 claims only the external verification established by `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1.
 
 ---
 
@@ -203,13 +207,14 @@ This document defines the layers and their relationships. **MILESTONE-006 — Fo
 |---|---|
 | 1 | Initial refactor separating architecture from the original, contract-mixed "Infrastructure Foundation Specification." |
 | 2 | Corrections from the MILESTONE-005/006 Draft-Internal Quality Audit (DRAFTISSUE-001–013). |
-| 3 (this document) | Final internal consistency correction pass — sequencing, section references, and the Health model (FINALCHECK-001–007). |
+| 3 | Final internal consistency correction pass — sequencing, section references, and the Health model (FINALCHECK-001–007). |
+| 4 (this document) | Status synchronization after approved cross-document integration review; no architectural content changed. |
 
 ---
 
 ## 13. Next Milestone After Integration
 
-The milestone following the real cross-document integration review (once MILESTONE-001–004 are available) is **the first infrastructure implementation slice**, derived from the verified MILESTONE-005/006 content and the actual MILESTONE-004 scaffold. It is explicitly **not** a "Repository Bootstrap" milestone, since repository scaffolding already belongs to MILESTONE-004. This document does not name or number that milestone, since its exact scope depends on verification not yet performed. The correct sequence, stated once and consistently (FINALCHECK-001), is: Infrastructure Architecture → Foundation Contracts → Document Integration Review → First Infrastructure Implementation Slice.
+The milestone following the approved real cross-document integration review is **the first infrastructure implementation slice**, derived from the verified MILESTONE-005/006 content and the actual MILESTONE-004 scaffold. It is explicitly **not** a "Repository Bootstrap" milestone, since repository scaffolding already belongs to MILESTONE-004. The correct sequence, stated once and consistently (FINALCHECK-001), is: Infrastructure Architecture → Foundation Contracts → Document Integration Review → First Infrastructure Implementation Slice.
 
 ---
 
@@ -248,9 +253,9 @@ DRAFTISSUE-007/008 (resolved in the prior revision) and FINALCHECK-004 (this rev
 
 ## 15. Traceability to MILESTONE-003
 
-**Traceability to MILESTONE-003: TO BE VERIFIED AGAINST THE FROZEN MILESTONE-003 DOCUMENT DURING THE DOCUMENT INTEGRATION REVIEW.**
+**Traceability to MILESTONE-003: VERIFIED BY `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` VERSION 1.1.**
 
-No MILESTONE-003 content has been made available in this session. No reference, decision, requirement, or constraint in this document has been inferred from or attributed to MILESTONE-003. (This explanatory paragraph is verbatim-identical to the corresponding paragraph in MILESTONE-006 Section 16.)
+The integration review verified this document against MILESTONE-001, MILESTONE-002, MILESTONE-003, MILESTONE-004 Version 1.1, the selected stack, and the actual repository scaffold. No new architecture claim is introduced by this status synchronization.
 
 ---
 
@@ -263,7 +268,7 @@ No MILESTONE-003 content has been made available in this session. No reference, 
 - **No stale "Repository Bootstrap" or "MILESTONE-007" sequencing claim remains.** Confirmed — Section 0's Sequence field corrected (FINALCHECK-001); Section 13's mention is an explicit negation, not a stale assertion.
 - **Every internal "Section N" reference resolves to its correct heading.** Confirmed by direct extraction and reconciliation against Section 0 through Section 19's actual headings (FINALCHECK-002).
 - **No implementation technology was selected. No domain behavior was added.** Confirmed.
-- **Traceability placeholder remains honest and unchanged in substance.** Confirmed — Section 15.
+- **External traceability is now verified by the integration review.** Confirmed — Section 15.
 
 ---
 
@@ -281,7 +286,7 @@ No MILESTONE-003 content has been made available in this session. No reference, 
 | No stale "Repository Bootstrap"/"MILESTONE-007" sequencing claim | Met — Section 0, Section 13 |
 | Every internal section reference verified against actual final headings | Met — Section 1, Section 16 |
 | Draft Correction Record present with full FINALCHECK disposition | Met — Section 1 |
-| No fabricated MILESTONE-003 traceability | Met |
+| MILESTONE-003 and repository traceability verified by integration review | Met — Section 15 |
 | No code, repository change, schema, migration, bucket, API, or business logic | Met |
 
 ---
@@ -301,7 +306,7 @@ No MILESTONE-003 content has been made available in this session. No reference, 
 | Deferred-decision honesty | 5 | 5 | Section 1's reserved-items list and the backward-compatibility statement are both honest about what changed and what remains open. |
 | Practical usefulness | 5 | 5 | The corrected, multi-axis Health model is materially more implementable than the single-category version it replaces. |
 
-**MILESTONE-005 total: 99 / 100.**
+**MILESTONE-005 total: 96 / 100.**
 
 Per the standing scoring rule, a score above 95 requires zero internal MAJOR defects, all section references resolving, no sequencing contradiction, a logically coherent Health model, and a passing cycle audit against the final text — all five conditions are met in this revision.
 
@@ -309,10 +314,10 @@ Per the standing scoring rule, a score above 95 requires zero internal MAJOR def
 
 ## 19. Final Status
 
-**INTERNALLY SOUND DRAFT — EXTERNAL INTEGRATION PENDING.**
+**APPROVED AND FROZEN.**
 
-This revision resolves all seven findings from this final internal consistency correction pass (FINALCHECK-001 through 007, of which 001, 002, 004, 005, and 007 are attributable to this document). It does not, and cannot, claim verification against MILESTONE-001 through MILESTONE-004 or the real repository. This document is not APPROVED AND FROZEN, and does not use that status.
+Revision 4 preserves the revision 3 architectural content and synchronizes status after `MILESTONE_001_006_DOCUMENT_INTEGRATION_REVIEW.md` Version 1.1 verified lineage, feasibility, repository compatibility, section references, and absence of overstrong implementation claims. No CRITICAL or MAJOR integration issue remains open against this document.
 
 ---
 
-*End of MILESTONE-005, Infrastructure Architecture, Draft Revision 3.*
+*End of MILESTONE-005, Infrastructure Architecture, Revision 4.*
