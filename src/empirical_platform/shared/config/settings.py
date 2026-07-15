@@ -6,6 +6,7 @@ import os
 from collections.abc import Mapping
 from enum import StrEnum
 from functools import lru_cache
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -51,7 +52,7 @@ class DatabaseSettings(BaseSettings):
 
 
 class ObjectStorageSettings(BaseSettings):
-    """Object-storage settings without concrete read/write behavior."""
+    """Object-storage settings without domain bucket or key behavior."""
 
     model_config = SettingsConfigDict(
         env_prefix="EMPIRICAL_PLATFORM_OBJECT_STORAGE_",
@@ -60,11 +61,16 @@ class ObjectStorageSettings(BaseSettings):
         extra="ignore",
     )
 
-    endpoint: str = "http://localhost:9000"
+    endpoint_url: str = "http://localhost:9000"
     region: str = "us-east-1"
-    bucket_prefix: str = "empirical-platform-dev"
+    foundation_bucket: str = "empirical-platform-foundation"
     access_key: SecretStr | None = None
     secret_key: SecretStr | None = None
+    secure: bool = False
+    path_style: bool = True
+    connection_timeout_seconds: int = 5
+    operation_timeout_seconds: int = 5
+    create_bucket_if_missing: bool = False
 
 
 class LoggingSettings(BaseSettings):
@@ -146,6 +152,59 @@ class PostgreSQLConfigSnapshot(BaseModel):
         }
 
 
+class ObjectStorageConfigSnapshot(BaseModel):
+    """Immutable S3-compatible connectivity configuration snapshot."""
+
+    model_config = ConfigDict(frozen=True)
+
+    endpoint_url: str = "http://localhost:9000"
+    region: str = "us-east-1"
+    foundation_bucket: str = Field(default="empirical-platform-foundation", min_length=3)
+    access_key: SecretStr | None = None
+    secret_key: SecretStr | None = None
+    secure: bool = False
+    path_style: bool = True
+    connection_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    operation_timeout_seconds: int = Field(default=5, ge=1, le=300)
+    create_bucket_if_missing: bool = False
+
+    def credentials_required(self) -> tuple[str, str]:
+        """Return configured credentials or fail without leaking values."""
+        if self.access_key is None or self.secret_key is None:
+            raise FoundationError(
+                category=FoundationErrorCategory.CONFIGURATION,
+                message="Object-storage access key and secret key are required for connectivity",
+                layer="configuration",
+                operation="object_storage_credentials",
+                context=self.safe_context(),
+            )
+        return self.access_key.get_secret_value(), self.secret_key.get_secret_value()
+
+    def safe_endpoint(self) -> str:
+        """Return an endpoint URL with any embedded credentials removed."""
+        parsed = urlsplit(self.endpoint_url)
+        hostname = parsed.hostname or ""
+        netloc = hostname
+        if parsed.port is not None:
+            netloc = f"{netloc}:{parsed.port}"
+        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
+
+    def safe_context(self) -> dict[str, object]:
+        """Return redacted object-storage connectivity diagnostics."""
+        return {
+            "endpoint_url": self.safe_endpoint(),
+            "region": self.region,
+            "foundation_bucket": self.foundation_bucket,
+            "access_key_configured": self.access_key is not None,
+            "secret_key_configured": self.secret_key is not None,
+            "secure": self.secure,
+            "path_style": self.path_style,
+            "connection_timeout_seconds": self.connection_timeout_seconds,
+            "operation_timeout_seconds": self.operation_timeout_seconds,
+            "create_bucket_if_missing": self.create_bucket_if_missing,
+        }
+
+
 class FoundationConfigSnapshot(BaseModel):
     """Canonical immutable process-local configuration snapshot."""
 
@@ -154,6 +213,7 @@ class FoundationConfigSnapshot(BaseModel):
     app: AppConfigSnapshot = Field(default_factory=AppConfigSnapshot)
     logging: LoggingConfigSnapshot = Field(default_factory=LoggingConfigSnapshot)
     postgresql: PostgreSQLConfigSnapshot = Field(default_factory=PostgreSQLConfigSnapshot)
+    object_storage: ObjectStorageConfigSnapshot = Field(default_factory=ObjectStorageConfigSnapshot)
 
     def safe_context(self) -> dict[str, object]:
         """Return a redacted context representation."""
@@ -197,6 +257,46 @@ def resolve_foundation_config(
                     "EMPIRICAL_PLATFORM_POSTGRES_APPLICATION_NAME",
                     "empirical-platform",
                 ),
+            ),
+            object_storage=ObjectStorageConfigSnapshot(
+                endpoint_url=source.get(
+                    "EMPIRICAL_PLATFORM_OBJECT_STORAGE_ENDPOINT_URL",
+                    source.get(
+                        "EMPIRICAL_PLATFORM_OBJECT_STORAGE_ENDPOINT", "http://localhost:9000"
+                    ),
+                ),
+                region=source.get("EMPIRICAL_PLATFORM_OBJECT_STORAGE_REGION", "us-east-1"),
+                foundation_bucket=source.get(
+                    "EMPIRICAL_PLATFORM_OBJECT_STORAGE_FOUNDATION_BUCKET",
+                    "empirical-platform-foundation",
+                ),
+                access_key=(
+                    SecretStr(source["EMPIRICAL_PLATFORM_OBJECT_STORAGE_ACCESS_KEY"])
+                    if "EMPIRICAL_PLATFORM_OBJECT_STORAGE_ACCESS_KEY" in source
+                    else None
+                ),
+                secret_key=(
+                    SecretStr(source["EMPIRICAL_PLATFORM_OBJECT_STORAGE_SECRET_KEY"])
+                    if "EMPIRICAL_PLATFORM_OBJECT_STORAGE_SECRET_KEY" in source
+                    else None
+                ),
+                secure=source.get("EMPIRICAL_PLATFORM_OBJECT_STORAGE_SECURE", "false").lower()
+                in {"1", "true", "yes"},
+                path_style=source.get(
+                    "EMPIRICAL_PLATFORM_OBJECT_STORAGE_PATH_STYLE", "true"
+                ).lower()
+                in {"1", "true", "yes"},
+                connection_timeout_seconds=int(
+                    source.get("EMPIRICAL_PLATFORM_OBJECT_STORAGE_CONNECT_TIMEOUT_SECONDS", "5")
+                ),
+                operation_timeout_seconds=int(
+                    source.get("EMPIRICAL_PLATFORM_OBJECT_STORAGE_OPERATION_TIMEOUT_SECONDS", "5")
+                ),
+                create_bucket_if_missing=source.get(
+                    "EMPIRICAL_PLATFORM_OBJECT_STORAGE_CREATE_BUCKET_IF_MISSING",
+                    "false",
+                ).lower()
+                in {"1", "true", "yes"},
             ),
         )
     except (ValueError, ValidationError) as exc:

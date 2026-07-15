@@ -16,7 +16,7 @@ function Invoke-Checked {
 }
 
 Invoke-Checked python @("--version")
-Invoke-Checked python @("-m", "pip", "install", "-e", ".[dev,test,security,build,persistence]")
+Invoke-Checked python @("-m", "pip", "install", "-e", ".[dev,test,security,build,persistence,object-storage]")
 Invoke-Checked python @("-m", "compileall", "-q", "src", "tests", "tools", "migrations")
 Invoke-Checked python @("-m", "ruff", "format", "--check", ".")
 Invoke-Checked python @("-m", "ruff", "check", ".")
