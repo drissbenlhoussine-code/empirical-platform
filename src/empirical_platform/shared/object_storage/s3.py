@@ -45,6 +45,10 @@ class _S3ClientProtocol(Protocol):
         """Create a bucket."""
         ...
 
+    def delete_bucket(self, *, Bucket: str) -> None:  # noqa: N803 - boto3 API shape
+        """Delete an empty bucket."""
+        ...
+
     def put_object(self, **kwargs: object) -> Mapping[str, object]:
         """Put an object."""
         ...
