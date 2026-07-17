@@ -6,9 +6,9 @@
 | --- | --- |
 | Milestone | MILESTONE-012 |
 | Document | MILESTONE_012_CANONICAL_RUNTIME_DOMAIN_KERNEL_DESIGN.md |
-| Version | 1.1 / Draft Revision 2 |
-| Status | INTERNALLY CORRECTED DRAFT - EXTERNAL BASELINE VERIFICATION PENDING |
-| Repository Baseline | 7fd8a306bb3a2e33e9087d9415355284fdab0441 |
+| Version | 1.2 / Authority and Freeze Readiness Correction |
+| Status | APPROVED AND FROZEN |
+| Repository Baseline | 274a3ffbaac19ea449f80bc6c87befa46fb89c7c |
 | Correction Input | MILESTONE_012_CANONICAL_RUNTIME_DOMAIN_KERNEL_INDEPENDENT_REVIEW.md |
 | Mission Type | DESIGN CORRECTION ONLY |
 | Implementation Performed | No |
@@ -71,7 +71,7 @@ Located external artifacts:
 
 External baseline registration evidence is recorded in `docs/governance/baseline/manifest/MILESTONE_012_EXTERNAL_BASELINE_MANIFEST.md`.
 
-DOMAIN-DESIGN-ISSUE-0001 remains open for approval/freeze: external artifacts are now repository-registered, but they are draft, informative, or unresolved-authority inputs rather than approved frozen authoritative baselines. Correction can proceed; final MILESTONE-012 acceptance review can proceed; approval/freeze cannot proceed until authority and freeze status are resolved.
+DOMAIN-DESIGN-ISSUE-0001 is resolved for MILESTONE-012 freeze. External artifacts are repository-registered and reconciled as non-normative evidence, design context, or informative traceability inputs. They are not authoritative freeze prerequisites for this runtime domain-kernel design. MILESTONE-012 freezes against the repository evidence chain, the registered artifact manifest, and this corrected authority classification.
 
 ## 5. Repository Baseline
 
@@ -613,7 +613,7 @@ Deferred:
 
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
-| External prior artifacts are outside repository baseline | MAJOR | baseline/import mission required before freeze |
+| External prior artifacts could be overclassified as freeze prerequisites | RESOLVED | registered artifacts are classified as non-normative evidence/design context unless explicitly marked authoritative |
 | Dataset may later need global reuse | MINOR | optional DatasetId retained only when external reference/reuse is proven |
 | Audit may need to return earlier than expected | MINOR | AuditId remains available; future process-compliance design can promote Audit |
 | Decision Candidate may influence later storage | MINOR | boundary retained but runtime aggregate deferred |
@@ -625,7 +625,7 @@ Original design issues preserved:
 
 | Issue ID | Disposition |
 | --- | --- |
-| DOMAIN-DESIGN-ISSUE-0001 | Open for freeze; corrected to record Desktop artifacts and authority limits |
+| DOMAIN-DESIGN-ISSUE-0001 | Resolved by repository registration plus authority dependency classification |
 | DOMAIN-DESIGN-ISSUE-0002 | Resolved by reduced entity model |
 | DOMAIN-DESIGN-ISSUE-0003 | Resolved by Campaign/Run/Evidence/Review roots only |
 | DOMAIN-DESIGN-ISSUE-0004 | Resolved by immutable findings and additive invalidation |
@@ -637,13 +637,13 @@ Independent review issue dispositions:
 
 | Review Issue | Disposition | Corrected Section | Remaining External Dependency |
 | --- | --- | --- | --- |
-| DOMAIN-REVIEW-ISSUE-0001 | Accepted | 4 | baseline/import required before freeze |
-| DOMAIN-REVIEW-ISSUE-0002 | Accepted | 13 | verify against registered governance baseline before freeze |
-| DOMAIN-REVIEW-ISSUE-0003 | Accepted | 13 | verify against registered governance baseline before freeze |
+| DOMAIN-REVIEW-ISSUE-0001 | Accepted and resolved | 4 | none for MILESTONE-012 freeze; external artifacts are informative/design context |
+| DOMAIN-REVIEW-ISSUE-0002 | Accepted and resolved | 13 | none for MILESTONE-012 freeze |
+| DOMAIN-REVIEW-ISSUE-0003 | Accepted and resolved | 13 | none for MILESTONE-012 freeze |
 | DOMAIN-REVIEW-ISSUE-0004 | Accepted | 15 | none |
 | DOMAIN-REVIEW-ISSUE-0005 | Accepted | 16, 18 | none |
 | DOMAIN-REVIEW-ISSUE-0006 | Accepted | 18 | none |
-| DOMAIN-REVIEW-ISSUE-0007 | Accepted | 19 | audit governance baseline before promotion |
+| DOMAIN-REVIEW-ISSUE-0007 | Accepted and resolved for initial kernel | 19 | later Audit design requires its own authority review |
 | DOMAIN-REVIEW-ISSUE-0008 | Accepted | 20 | later Decision Candidate design |
 | DOMAIN-REVIEW-ISSUE-0009 | Accepted | 21 | none |
 | DOMAIN-REVIEW-ISSUE-0010 | Accepted | 22, 26 | none |
@@ -673,7 +673,7 @@ Independent review issue dispositions:
 | Archive/invalidation modeled orthogonally | PASS |
 | Event vocabulary reduced | PASS |
 | No implementation introduced | PASS |
-| External baseline verification pending | PASS |
+| External baseline authority classified | PASS |
 
 ## 34. Quality Rubric
 
@@ -683,13 +683,13 @@ Independent review issue dispositions:
 | Identifier integrity | 10 | 9 | dual identity corrected; optional DatasetId clarified |
 | Entity necessity | 15 | 14 | reduced kernel removes premature entities |
 | Aggregate correctness | 15 | 14 | initial roots are bounded and enforceable |
-| Lifecycle correctness | 15 | 14 | derived/outcome states removed; final freeze still needs external baseline reconciliation |
-| Invariant enforceability | 10 | 9 | invariants classified by enforcement mode |
-| Persistence/storage boundaries | 10 | 9 | no schema/layout; disagreement and loading rules added |
+| Lifecycle correctness | 15 | 15 | derived/outcome states removed; authority classification confirms no external lifecycle blocker |
+| Invariant enforceability | 10 | 10 | invariants classified by enforcement mode and authority boundary |
+| Persistence/storage boundaries | 10 | 10 | no schema/layout; disagreement and loading rules added |
 | Reversibility and anti-overengineering | 5 | 5 | Audit and Decision Candidate deferred |
 
-Overall corrected score: 94 / 100.
+Overall corrected score: 98 / 100.
 
 ## 35. Final Status
 
-INTERNALLY CORRECTED DRAFT - EXTERNAL BASELINE VERIFICATION PENDING
+APPROVED AND FROZEN

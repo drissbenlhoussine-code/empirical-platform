@@ -20,7 +20,19 @@
 | Missing expected artifacts | 0 expected listed artifacts missing |
 | Duplicate conflicts | 0 blocking duplicate conflicts |
 | Unresolved authority records | 7 baseline-registration package records |
-| Frozen authoritative baselines | 0 |
+| Frozen authoritative baselines | 0 external artifacts; not required for MILESTONE-012 freeze |
+
+## Authority Dependency Summary
+
+| Artifact Group | Dependency Type | Required for MILESTONE-012 Freeze | Notes |
+| --- | --- | --- | --- |
+| Repository MILESTONE-004 through MILESTONE-011 | Normative repository baseline | Yes | Defines implemented foundation and domain-kernel scope boundary |
+| MILESTONE-012 design/review/reconciliation package | Normative milestone evidence | Yes | Direct freeze basis |
+| Registered external architecture artifacts | Design reference | No | Registered for traceability and contradiction review only |
+| Registered empirical/protocol artifacts | Informational/design reference | No | Do not authorize empirical execution or runtime design expansion |
+| Registered master-governance artifacts | Governance context | No | Draft context; not runtime-kernel authority |
+| Registered baseline-registration package | Evidence of prior gaps | No | Does not become normative by registration |
+| Registered CAMP-0001 artifacts | Informational example | No | Draft campaign artifacts only |
 
 ## Registered Artifacts
 
