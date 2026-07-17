@@ -1,1 +1,7 @@
-"""Dataset boundary. No dataset business behavior is implemented."""
+"""Dataset boundary. No aggregate behavior is implemented."""
+
+from empirical_platform.datasets.manifest import DatasetManifest
+
+__all__ = [
+    "DatasetManifest",
+]

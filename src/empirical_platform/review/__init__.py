@@ -1,1 +1,8 @@
-"""Review boundary. No review workflow behavior is implemented."""
+"""Review boundary. No aggregate behavior is implemented."""
+
+from empirical_platform.review.lifecycle import ReviewDisposition, ReviewLifecycleState
+
+__all__ = [
+    "ReviewDisposition",
+    "ReviewLifecycleState",
+]

@@ -1,5 +1,6 @@
 """Identifier value objects."""
 
+from empirical_platform.identifiers.pairs import DomainIdentity, pair_identity
 from empirical_platform.identifiers.types import (
     AuditId,
     CampaignId,
@@ -16,8 +17,10 @@ __all__ = [
     "CampaignId",
     "DatasetId",
     "DecisionCandidateId",
+    "DomainIdentity",
     "EvidencePackageId",
     "Identifier",
     "ReviewId",
     "RunId",
+    "pair_identity",
 ]
