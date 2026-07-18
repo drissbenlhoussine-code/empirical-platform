@@ -7,7 +7,7 @@
 | Document ID | MILESTONE-016 |
 | Title | Run Aggregate Boundary Reconciliation Decision |
 | Version | 1.0 |
-| Status | BOUNDARY DECISION READY FOR INDEPENDENT REVIEW |
+| Status | APPROVED AND FROZEN |
 | Mission type | Architecture boundary decision only |
 | Baseline | `91be63a212af8c1113652d8fe53c6dcdfc327e91` |
 | Implementation performed | None |
@@ -80,8 +80,8 @@ Boundary:
 
 ```text
 run -> datasets
-run -> campaign lifecycle or relocated lifecycle after explicit decision
-campaign -> identifiers and future Run summary/reference surface only
+run -> campaign lifecycle only if separately approved before Run code
+campaign -> identifiers only until a separate Run status/reference contract is approved
 campaign !-> datasets
 ```
 
@@ -96,7 +96,7 @@ Risks:
 
 - Requires future package creation.
 - Requires future architecture-rule update to include `run`.
-- Requires a later decision on whether `RunLifecycleState` stays in `campaign` or is re-exported/moved.
+- Requires a later pre-code decision on whether `RunLifecycleState` stays in `campaign`, is re-exported from `run`, or is moved.
 
 Disposition: selected.
 
@@ -247,7 +247,7 @@ Future Run aggregate behavior belongs in `empirical_platform.run`, not in `empir
 
 `RunLifecycleState` currently remains in `empirical_platform.campaign.lifecycle`. This decision does not move it.
 
-A later implementation milestone must decide explicitly whether future `empirical_platform.run` imports `RunLifecycleState` from `campaign`, re-exports it from `run`, or performs a separately reviewed lifecycle relocation. No lifecycle relocation is required before the next Run scope-selection mission, but the choice must be resolved before or during Run implementation.
+A later Run scope-selection or correction milestone must decide explicitly whether future `empirical_platform.run` imports `RunLifecycleState` from `campaign`, re-exports it from `run`, or performs a separately reviewed lifecycle relocation. No lifecycle relocation is required before the next Run scope-selection mission, but this choice is blocking before Run aggregate code may be implemented.
 
 ## 11. DatasetManifest Ownership and Placement
 
@@ -271,7 +271,7 @@ The selected future architecture permits these directions after an explicit impl
 run -> datasets
 run -> identifiers
 run -> shared
-run -> campaign lifecycle only if lifecycle remains physically in campaign
+run -> campaign lifecycle only if explicitly approved before Run aggregate code
 datasets -> identifiers
 datasets -> shared
 evidence -> identifiers
@@ -279,7 +279,7 @@ evidence -> datasets
 review -> evidence
 campaign -> identifiers
 campaign -> shared
-campaign -> future run identity/summary surface only if explicitly introduced later
+campaign -> identifiers only in the current frozen architecture
 ```
 
 No dependency-direction change is made in this document.
@@ -304,6 +304,8 @@ shared -> any domain package
 
 Future Campaign behavior may depend on Run identities or bounded summaries only after a separately reviewed public surface exists. It must not load Run internals or Dataset Manifest records directly.
 
+No `campaign -> run` import is approved by this decision. Any future Campaign dependency on Run status, Run summaries, or Run references requires a separately reviewed public contract and matching architecture-rule update.
+
 ## 14. Campaign Boundary
 
 Campaign remains a separate aggregate boundary.
@@ -312,7 +314,8 @@ Campaign may reference:
 
 - `CampaignId`;
 - `RunId`;
-- future bounded Run summary/reference data if explicitly introduced later.
+
+Future bounded Run status, summary, or reference data is not defined by this decision. Campaign may use such data only after a later milestone defines a public contract, dependency direction, and architecture-rule protection.
 
 Campaign must not:
 
@@ -355,7 +358,7 @@ Deferred source changes include:
 - adding future Run tests;
 - adding future Run package exports;
 - importing `DatasetManifest` from future Run behavior;
-- deciding whether to re-export or relocate `RunLifecycleState`;
+- deciding whether future Run code imports, re-exports, or relocates `RunLifecycleState`;
 - updating import paths if a lifecycle move is separately approved.
 
 None of these changes are performed or authorized for execution in this milestone.
@@ -366,8 +369,9 @@ Deferred architecture-rule changes include:
 
 - adding `run` to `tools/check_architecture.py`;
 - defining allowed imports for `run`;
-- defining whether `campaign -> run` is allowed for public summaries or remains forbidden;
+- preserving `campaign -> run` as forbidden unless a later milestone defines a public Run status/reference contract;
 - adding negative fixtures for forbidden `campaign -> datasets` and `datasets -> run` imports;
+- adding a negative fixture for `campaign -> run` unless a later milestone explicitly permits a narrow public contract;
 - adding positive tests for future `run -> datasets` if implemented.
 
 The current architecture checker remains unchanged.
@@ -380,7 +384,7 @@ The future Run implementation scope must define:
 
 - exact Run module path;
 - allowed Run imports;
-- whether `RunLifecycleState` remains imported from `campaign`;
+- whether `RunLifecycleState` remains imported from `campaign`, is re-exported from `run`, or is moved;
 - Run identity pairing;
 - Campaign context representation as immutable `CampaignId`;
 - Dataset Manifest append/supersession behavior;
@@ -400,6 +404,8 @@ The future scope must still exclude repositories, schemas, persistence mappings,
 | Campaign may later overreach into Run internals | MAJOR | This decision forbids Campaign direct access to Dataset Manifest and Run internals |
 | DatasetManifest physical placement may be mistaken for aggregate ownership | MAJOR | This decision separates conceptual ownership from package placement |
 | Future persistence design may overfit to current package placement | MINOR | Persistence remains deferred and tied to aggregate ownership, not package location alone |
+| Undefined bounded Run summaries could become speculative Campaign coupling | MAJOR | Campaign remains identifier-only until a later public Run status/reference contract is reviewed |
+| Lifecycle placement could block Run code if left as an implementation detail | MAJOR | Lifecycle import/re-export/relocation is now classified as blocking before Run aggregate code, but not before Run scope selection |
 
 ## 21. Decision Consequences
 
@@ -414,13 +420,13 @@ Negative consequences:
 
 - A new top-level `run` package will likely be required later.
 - Architecture checker changes are deferred but unavoidable if Run implementation proceeds.
-- `RunLifecycleState` remains physically in `campaign` until a later reviewed decision.
+- `RunLifecycleState` remains physically in `campaign` until a later reviewed decision; that decision is required before Run aggregate code.
 
 Deferred costs:
 
 - future package creation;
 - future architecture-rule update;
-- future lifecycle import/re-export/relocation decision;
+- future lifecycle import/re-export/relocation decision before Run aggregate code;
 - future Run tests and fixtures.
 
 ## 22. Compatibility Guarantees
@@ -459,6 +465,8 @@ Stop future work if:
 | M016-DECISION-ISSUE-0003 | MAJOR | DatasetManifest | Initial draft needed explicit preservation of public export ownership. | Existing tests import `DatasetManifest` from `empirical_platform.datasets`. | Could break public API. | Added public export compatibility and no-move decision. | Resolved |
 | M016-DECISION-ISSUE-0004 | MINOR | Run lifecycle | Initial draft needed to avoid smuggling lifecycle relocation. | `RunLifecycleState` currently lives in `campaign.lifecycle`. | Could imply source movement. | Marked lifecycle movement as deferred and not required here. | Resolved |
 | M016-DECISION-ISSUE-0005 | MINOR | Persistence | Initial draft needed to avoid schema implications. | M012 defers repository/schema decisions; `migrations/versions` is empty. | Could leak persistence design. | Added explicit persistence deferral and compatibility guarantees. | Resolved |
+| M016-FREEZE-REVIEW-ISSUE-0001 | MAJOR | Campaign boundary | "Bounded Run summaries" was not defined and could be read as an approved future `campaign -> run` dependency. | M012 permits Campaign summaries from Run status, but no Run public surface exists. | Could create speculative coupling. | Narrowed Campaign to identifiers only until a separate public Run status/reference contract is reviewed. | Resolved |
+| M016-FREEZE-REVIEW-ISSUE-0002 | MAJOR | Run lifecycle | Lifecycle placement remained too open for implementation readiness. | `RunLifecycleState` currently lives in `campaign.lifecycle`; future `run` package does not exist. | Could leave Run implementation inventing import direction. | Classified lifecycle import/re-export/relocation as required before Run aggregate code, but not before Run scope selection. | Resolved |
 
 ## 25. Final Decision
 
@@ -469,12 +477,12 @@ Keep DatasetManifest in empirical_platform.datasets.
 Create future Run aggregate behavior under a new empirical_platform.run package.
 Permit future run -> datasets dependency after an explicit implementation milestone updates architecture rules.
 Forbid campaign -> datasets.
-Keep Campaign limited to Run identity or later bounded Run summary/reference surfaces.
+Keep Campaign limited to Run identity until a separately reviewed Run status/reference public contract exists.
 Defer all source moves, public re-exports, architecture-rule changes, repositories, schemas, migrations, APIs, workers, and runtime behavior.
 ```
 
 Final status:
 
 ```text
-BOUNDARY DECISION READY FOR INDEPENDENT REVIEW
+APPROVED AND FROZEN
 ```
