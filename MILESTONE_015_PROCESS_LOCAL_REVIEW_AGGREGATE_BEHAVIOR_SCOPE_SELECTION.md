@@ -44,6 +44,7 @@ This document does not alter the frozen MILESTONE-014 implementation or any earl
 | M015-EVID-0007 | `src/empirical_platform/review/__init__.py` | States the Review boundary has no aggregate behavior implemented |
 | M015-EVID-0008 | `tools/check_architecture.py` | Allows `review` to depend on `shared`, `identifiers`, and `evidence` only |
 | M015-EVID-0009 | `migrations/versions` | Remains empty, preserving no-schema scope |
+| M015-EVID-0010 | `tests/unit/test_evidence_package_aggregate.py` | Establishes local aggregate test conventions for versioning, transition history, rejection atomicity, and deferred infrastructure checks |
 
 ## 4. Completed Capability Context
 
@@ -134,6 +135,8 @@ This scope is selected because:
 - architecture rules already permit `review` to depend on `evidence`;
 - local Review behavior can be tested without persistence, APIs, workers, or cross-aggregate loading.
 
+The selected scope is narrowed to Evidence-Package-target Review behavior only. Run-target Review behavior is deferred because no Run aggregate behavior exists yet and implementing Run target semantics now would force unresolved Run reviewability rules into MILESTONE-015.
+
 ## 9. Scope Boundary
 
 The selected scope is limited to process-local Review aggregate behavior.
@@ -141,8 +144,8 @@ The selected scope is limited to process-local Review aggregate behavior.
 Allowed future behavior:
 
 - construct a Review with `DomainIdentity[ReviewId]`;
-- record one immutable primary review target reference;
-- allow an Evidence Package target reference without loading or validating that target;
+- record one immutable primary Review target reference;
+- allow exactly one Evidence Package target reference by `EvidencePackageId`;
 - store reviewer assignment context as local immutable value data;
 - transition `ASSIGNED` to `IN_PROGRESS`;
 - transition `IN_PROGRESS` to `COMPLETED`;
@@ -154,6 +157,23 @@ Allowed future behavior:
 - append transition history as historical process-local data only.
 
 The selected scope must not validate target existence, target sealed state, reviewer independence, conflict-of-interest sufficiency, evidence staleness, or campaign authorization. Those are cross-aggregate, governance-gate, or reconciliation concerns.
+
+### M015 scope constants
+
+| Decision | Required MILESTONE-015 rule |
+| --- | --- |
+| Target kind | `EVIDENCE_PACKAGE` only |
+| Target identity | `EvidencePackageId` only |
+| Run target support | Deferred |
+| Target mutation | Prohibited |
+| Reviewer identity | Opaque non-empty local reference string; data only, not authority |
+| Initial lifecycle state | `ASSIGNED` |
+| Terminal lifecycle states | `COMPLETED`, `CANCELLED` |
+| Review disposition initial value | Unset |
+| Review disposition final value | Set exactly once on completion |
+| Completion minimum content | At least one finding plus one final disposition rationale |
+| Cancellation content | Non-empty cancellation reason |
+| Revision/reopen/withdrawal | Deferred; new Review or future supersession record required |
 
 ## 10. Allowed Deliverables
 
@@ -171,6 +191,7 @@ The implementation report must include:
 - scope traceability;
 - lifecycle and disposition evidence;
 - local versus cross-aggregate boundary audit;
+- explicit identity, target-reference, reviewer-reference, finding, disposition, versioning, and transition-history traceability;
 - requirement-to-test matrix;
 - validation evidence;
 - issue register;
@@ -225,6 +246,14 @@ The future implementation must not assume:
 - invalidation is a lifecycle state;
 - Review transition records are domain events or outbox messages.
 
+It must also not assume that:
+
+- Run targets are in scope;
+- reviewer identity proves authorization or independence;
+- target identity uniqueness can be enforced locally;
+- duplicate Review prevention for the same target can be enforced locally;
+- Review content can be edited after completion or cancellation.
+
 ## 14. Local Versus Cross-Aggregate Boundary
 
 | Rule or behavior | Classification | MILESTONE-015 treatment |
@@ -234,9 +263,12 @@ The future implementation must not assume:
 | Review lifecycle transition shape | Local synchronous | In scope |
 | Review disposition recorded at completion | Local synchronous | In scope |
 | Findings are immutable owned records | Local synchronous | In scope if bounded |
+| Reviewer reference format is non-empty | Local synchronous | In scope |
+| Review content is immutable after terminal state | Local synchronous | In scope |
 | Target exists | Cross-aggregate command-time | Deferred |
 | Target is reviewable or sealed | Cross-aggregate command-time | Deferred |
 | Reviewer independence is recorded | Governance gate | Deferred |
+| Duplicate active Review for the same target | Cross-aggregate command-time | Deferred |
 | Evidence invalidation affects prior Review | Eventual reconciliation | Deferred |
 | Completed Review affects Decision Candidate sufficiency | Governance gate | Deferred |
 
@@ -261,17 +293,25 @@ If implementation discovers that Review target modeling requires a new shared pr
 | M015-SCOPE-RISK-0003 | MAJOR | Review disposition could be confused with lifecycle state | Use separate primitives and tests that prohibit disposition values as lifecycle states |
 | M015-SCOPE-RISK-0004 | MINOR | Finding model could become unbounded or schema-like | Keep findings bounded, immutable, and process-local |
 | M015-SCOPE-RISK-0005 | MINOR | Completion could imply Decision Candidate readiness | State explicitly that Review completion has no decision authority |
+| M015-SCOPE-RISK-0006 | MAJOR | Scope could force implementation to invent material content semantics | Freeze target, reviewer, finding, disposition, versioning, and terminal-state rules in this scope document |
 
 ## 17. Required Design Questions
 
-The implementation mission must answer before coding:
+The implementation mission must answer only mechanical code-placement questions before coding. The following domain decisions are already fixed for the MILESTONE-015 scope:
 
-1. Should the selected target type be limited to Evidence Package for MILESTONE-015, with Run target Review deferred?
-2. What is the minimal immutable representation of a Review target reference?
-3. What fields are required for a bounded Review finding without creating audit-ledger semantics?
-4. Does cancellation require a reason, an actor, and a transition record?
-5. Does completion require at least one finding, or only a disposition?
-6. Which rejected transitions must be tested for atomicity?
+1. Target type is limited to Evidence Package.
+2. Target reference is an immutable local value containing target kind `EVIDENCE_PACKAGE` and `EvidencePackageId`.
+3. Reviewer reference is a non-empty opaque string stored as data only.
+4. Review findings are bounded immutable owned records with aggregate-local positive sequence numbers, non-empty finding text, optional non-empty rationale, and optional opaque non-empty evidence-reference strings.
+5. Findings may be appended only while the Review is `IN_PROGRESS`.
+6. Appending a finding increments `AggregateVersion` but does not append lifecycle transition history.
+7. Completion requires at least one finding, one `ReviewDisposition`, and one non-empty final disposition rationale.
+8. Setting the final disposition increments `AggregateVersion` as part of the completion operation and appends the lifecycle transition record from `IN_PROGRESS` to `COMPLETED`.
+9. Cancellation requires actor, occurred-at timestamp, and non-empty cancellation reason.
+10. Cancellation appends lifecycle transition history and leaves disposition unset.
+11. `COMPLETED` and `CANCELLED` are terminal for MILESTONE-015.
+12. Reopen, withdrawal, revision, replacement, and supersession are deferred.
+13. Rejected commands must be atomic and leave identity, target, reviewer reference, lifecycle state, version, transition sequence, transition history, findings, and disposition unchanged.
 
 If any answer requires persistence, repository lookup, target loading, campaign execution, audit behavior, or Decision Candidate behavior, implementation must stop.
 
@@ -281,6 +321,13 @@ The future implementation must pass:
 
 - focused Review aggregate unit tests;
 - lifecycle/disposition separation tests;
+- target-kind and EvidencePackageId-only tests;
+- reviewer-reference data-only tests;
+- finding append, ordering, duplicate-sequence prevention, and blank-value tests;
+- completion requirement tests for findings, disposition, and rationale;
+- cancellation reason tests;
+- terminal immutability tests;
+- versioning tests that distinguish content version increments from lifecycle transition sequence increments;
 - transition-history and versioning tests;
 - rejection atomicity tests;
 - architecture checker;
@@ -311,7 +358,8 @@ Hostile-review findings during this scope selection:
 | --- | --- | --- | --- |
 | M015-SCOPE-ISSUE-0001 | MAJOR | Initial Review scope could overclaim target reviewability. | Scope narrowed to immutable target reference only; target existence and reviewability are deferred. |
 | M015-SCOPE-ISSUE-0002 | MAJOR | Reviewer independence could be read as an aggregate invariant. | Independence is classified as governance-gate evidence outside the aggregate. |
-| M015-SCOPE-ISSUE-0003 | MINOR | Run-target Review could require Run aggregate behavior before it exists. | Implementation design must decide whether MILESTONE-015 is Evidence-Package-target only and stop if Run target is required. |
+| M015-SCOPE-ISSUE-0003 | MINOR | Run-target Review could require Run aggregate behavior before it exists. | Scope is fixed as Evidence-Package-target only; Run-target Review is deferred. |
+| M015-SCOPE-ISSUE-0004 | MAJOR | Scope left material Review content and lifecycle completion rules to the implementation mission. | Scope now fixes target kind, reviewer reference, finding model, disposition requirements, terminal behavior, versioning, transition history, and atomicity rules. |
 
 All hostile-review findings are resolved for scope selection.
 
