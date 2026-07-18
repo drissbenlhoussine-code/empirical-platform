@@ -185,8 +185,8 @@ Final validation:
 | --- | --- |
 | `python --version` | `Python 3.13.14` |
 | `powershell -ExecutionPolicy Bypass -File .\scripts\security.ps1` | Passed; secret scan target count `156`; no known vulnerabilities found |
-| `powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1` | Passed; `136 passed`, `9 skipped`; coverage `92.32%` |
-| `python -m pytest tests\unit\test_review_aggregate.py --no-cov` | `17 passed` |
+| `powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1` | Passed; `141 passed`, `9 skipped`; coverage `92.32%` |
+| `python -m pytest tests\unit\test_review_aggregate.py --no-cov` | `22 passed` |
 | `python -m ruff format --check .` | `91 files already formatted` |
 | `python -m ruff check .` | `All checks passed` |
 | `python -m mypy` | `Success: no issues found in 55 source files` |
@@ -216,6 +216,7 @@ Final validation:
 | Issue ID | Severity | Finding | Resolution |
 | --- | --- | --- | --- |
 | M015-IMPLEMENTATION-ISSUE-0001 | MINOR | Initial focused test run identified repeated completion error text that did not expose terminal state. | Error message was tightened while preserving behavior; focused tests passed afterward. |
+| M015-IMPLEMENTATION-ISSUE-0002 | MINOR | Independent hostile review found missing explicit tests for duplicate finding content semantics, all canonical dispositions, completion after cancellation, non-string final rationale, and non-string evidence-reference entries. | Added M015-scoped contract tests without changing aggregate behavior; final focused and full validation passed. |
 
 No MAJOR or CRITICAL implementation issues remain.
 

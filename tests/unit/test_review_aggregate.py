@@ -257,6 +257,10 @@ def test_add_finding_rejection_paths_are_atomic_after_prior_success() -> None:
             {"text": "Second finding.", "evidence_references": ["ref"]},
             "tuple",
         ),
+        (
+            {"text": "Second finding.", "evidence_references": (123,)},
+            "evidence reference",
+        ),
     ):
         before = _snapshot(review)
         with pytest.raises((TypeError, ValueError), match=error):
@@ -315,6 +319,17 @@ def test_complete_requires_in_progress_findings_disposition_and_rationale() -> N
         )
     assert _snapshot(blank_rationale) == before_blank_rationale
 
+    wrong_rationale_type = _review_with_finding()
+    before_wrong_rationale_type = _snapshot(wrong_rationale_type)
+    with pytest.raises(TypeError, match="final disposition rationale"):
+        wrong_rationale_type.complete(
+            disposition=ReviewDisposition.ACCEPTED,
+            final_disposition_rationale=123,  # type: ignore[arg-type]
+            actor="Reviewer",
+            occurred_at=OCCURRED_AT,
+        )
+    assert _snapshot(wrong_rationale_type) == before_wrong_rationale_type
+
 
 def test_complete_records_disposition_once_and_preserves_findings() -> None:
     review = _review_with_finding()
@@ -353,6 +368,42 @@ def test_complete_records_disposition_once_and_preserves_findings() -> None:
             occurred_at=OCCURRED_AT,
         )
     assert _snapshot(review) == before_repeated
+
+
+@pytest.mark.parametrize("disposition", tuple(ReviewDisposition))
+def test_all_canonical_dispositions_are_accepted_without_downstream_effects(
+    disposition: ReviewDisposition,
+) -> None:
+    review = _review_with_finding()
+
+    review.complete(
+        disposition=disposition,
+        final_disposition_rationale="Final rationale.",
+        actor="Reviewer",
+        occurred_at=OCCURRED_AT,
+    )
+
+    assert review.disposition is disposition
+    assert review.state is ReviewLifecycleState.COMPLETED
+    assert not hasattr(review, "audit")
+    assert not hasattr(review, "decision_candidate")
+    assert not hasattr(review, "dispatch")
+
+
+def test_identical_finding_content_is_allowed_and_distinguished_by_sequence() -> None:
+    review = _in_progress_review()
+
+    review.add_finding(text="Duplicate content.", rationale="Same rationale.")
+    review.add_finding(text="Duplicate content.", rationale="Same rationale.")
+
+    assert [finding.sequence for finding in review.findings] == [1, 2]
+    assert [finding.text for finding in review.findings] == [
+        "Duplicate content.",
+        "Duplicate content.",
+    ]
+    assert review.version == AggregateVersion(3)
+    assert review.next_transition_sequence == TransitionSequence(2)
+    assert len(review.transition_history) == 1
 
 
 def test_cancellation_from_assigned_and_in_progress_records_reason_without_disposition() -> None:
@@ -435,6 +486,13 @@ def test_terminal_immutability_blocks_findings_lifecycle_changes_and_reopen() ->
         cancelled.add_finding(text="late finding")
     with pytest.raises(ValueError, match="CANCELLED"):
         cancelled.start(actor="Reviewer", occurred_at=OCCURRED_AT)
+    with pytest.raises(ValueError, match="CANCELLED"):
+        cancelled.complete(
+            disposition=ReviewDisposition.REJECTED,
+            final_disposition_rationale="late completion",
+            actor="Reviewer",
+            occurred_at=OCCURRED_AT,
+        )
     assert _snapshot(cancelled) == before_cancelled
     assert not hasattr(cancelled, "reopen")
     assert not hasattr(completed, "replace_disposition")
