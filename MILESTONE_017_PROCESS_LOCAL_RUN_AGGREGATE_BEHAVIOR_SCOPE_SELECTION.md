@@ -122,8 +122,8 @@ MILESTONE-017 may select a future implementation that includes only:
 | 15. Rejection atomicity | Invalid transition, wrong manifest Run ID, duplicate manifest identity where present, invalid actor/timestamp/reason, and terminal mutation attempts leave observable aggregate state unchanged. |
 | 16. Local vs cross-aggregate invariants | Local invariants are enforced in Run; Campaign authorization, entitlement/license validity, Evidence Package seal, Review dispositions, Audit, and Decision Candidate sufficiency remain external/deferred. |
 | 17. Package location | Future implementation belongs under `src/empirical_platform/run/`. |
-| 18. Import direction | Future `run` may import `datasets`, `identifiers`, `shared`, and the chosen Run lifecycle source; `campaign -> datasets` remains forbidden. |
-| 19. RunLifecycleState placement/import strategy | M017 implementation must decide before code whether to import `RunLifecycleState` from `campaign`, re-export it from `run`, or relocate it through reviewed change. This scope permits the decision but performs no move. |
+| 18. Import direction | Future `run` may import `datasets`, `identifiers`, `shared`, and `campaign` for the existing `RunLifecycleState` only; `campaign -> datasets` remains forbidden. |
+| 19. RunLifecycleState placement/import strategy | M017 implementation must import the existing `RunLifecycleState` from `empirical_platform.campaign.lifecycle`; it must not move or duplicate the enum and must not create a second public owner. |
 | 20. Explicit non-goals | Persistence, repositories, schemas, migrations, APIs, workers, runtime orchestration, Campaign implementation, Audit, Decision Candidate, Decision Freeze, trading, market data, Evidence Package behavior, Review behavior. |
 
 ## 8. Candidate Implementation Boundary
@@ -167,7 +167,8 @@ Future Run behavior may:
 - append the manifest to an immutable manifest collection;
 - reject a manifest for another Run;
 - reject duplicate `DatasetId` values when both existing and incoming manifests define one;
-- treat supersession as appending a new immutable manifest;
+- treat supersession as appending a new immutable manifest after the previous one;
+- expose the latest appended manifest as the current manifest without mutating older records;
 - expose manifests through immutable tuple views.
 
 Future Run behavior must not:
@@ -177,7 +178,11 @@ Future Run behavior must not:
 - assign retention policy;
 - create a persistence schema;
 - load all historical manifests from storage;
+- add a supersession field to `DatasetManifest`;
+- create a separate manifest lifecycle;
 - validate vendor data content.
+
+The first Run aggregate implementation must use append order as the only process-local supersession signal. A richer supersession reference or qualification record remains deferred because the current frozen `DatasetManifest` primitive has no supersession field and must not be redesigned in MILESTONE-017.
 
 ## 11. Local and Cross-Aggregate Boundary
 
@@ -212,7 +217,7 @@ Required future architecture-checker decision:
 - allow `run -> datasets`;
 - allow `run -> identifiers`;
 - allow `run -> shared`;
-- handle `RunLifecycleState` source explicitly;
+- allow `run -> campaign` only for the existing `RunLifecycleState` source;
 - keep `campaign -> datasets` forbidden;
 - keep `datasets -> run` forbidden;
 - keep `run -> evidence` and `run -> review` forbidden for the initial Run aggregate.
@@ -266,8 +271,9 @@ A future implementation mission must include:
 | Run implementation | This is scope selection only |
 | `empirical_platform.run` package creation | Deferred to implementation mission |
 | Run architecture-checker rules | Deferred to implementation mission with negative fixtures |
-| `RunLifecycleState` import/re-export/relocation choice | Must be resolved before code in implementation mission |
+| `RunLifecycleState` re-export/relocation | Not selected; initial M017 implementation must import from `campaign.lifecycle` |
 | Authorized scope snapshot value object | Requires separate scope if not represented as opaque local reference |
+| Rich Dataset Manifest supersession reference | Deferred because current `DatasetManifest` has no supersession field |
 | Rerun link record behavior | M012 preserves concept, but implementation details are not required for first Run aggregate behavior |
 | Campaign aggregate behavior | Coordination-heavy and downstream of Run |
 | Run-target Review behavior | Deferred by M015 |
@@ -284,11 +290,19 @@ Stop any future M017 implementation if:
 - `campaign -> datasets` is introduced;
 - `datasets -> run` is introduced;
 - Run behavior imports Evidence Package or Review internals;
-- lifecycle placement remains unresolved at the point code would be written;
+- `RunLifecycleState` is moved, duplicated, or publicly re-owned by `run`;
+- manifest supersession requires editing existing `DatasetManifest` records;
 - execution-stage names introduce actual acquisition, normalization, validation, vendor, or market-data behavior;
 - persistence, schemas, repositories, APIs, workers, job ledger, or outbox appear.
 
-## 17. Final Decision
+## 17. Independent Scope Review Findings
+
+| Finding ID | Severity | Section | Finding | Correction | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| M017-SCOPE-REVIEW-ISSUE-0001 | MAJOR | Required Scope Answers / Package and Architecture Scope | Initial scope deferred `RunLifecycleState` import/re-export/relocation instead of selecting an implementation strategy, leaving a blocker before code. | Selected the initial strategy: future Run implementation imports existing `RunLifecycleState` from `empirical_platform.campaign.lifecycle`; no enum move, duplication, or public re-ownership. | Resolved |
+| M017-SCOPE-REVIEW-ISSUE-0002 | MAJOR | Dataset Manifest Scope | Initial scope allowed supersession by appending a manifest but did not state how replacement is represented without modifying `DatasetManifest`. | Defined append order as the first process-local supersession signal, exposed latest manifest as current, and deferred richer supersession references. | Resolved |
+
+## 18. Final Decision
 
 The selected next implementation scope is:
 
