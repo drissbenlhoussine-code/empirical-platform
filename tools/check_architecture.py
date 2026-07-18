@@ -15,6 +15,7 @@ ALLOWED: dict[str, set[str]] = {
     "governance": {"shared", "identifiers", "registry"},
     "campaign": {"shared", "identifiers", "governance", "registry"},
     "datasets": {"shared", "identifiers", "campaign"},
+    "run": {"shared", "identifiers", "datasets", "campaign"},
     "evidence": {"shared", "identifiers", "datasets", "validation"},
     "acquisition": {"shared", "identifiers", "campaign", "datasets", "evidence"},
     "normalization": {"shared", "identifiers", "datasets", "evidence"},
