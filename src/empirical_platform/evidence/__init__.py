@@ -1,9 +1,12 @@
-"""Evidence boundary. No aggregate behavior is implemented."""
+"""Evidence boundary."""
 
 from empirical_platform.evidence.lifecycle import EvidencePackageLifecycleState
+from empirical_platform.evidence.package import ArtifactReference, EvidencePackage
 from empirical_platform.evidence.results import CriterionResult
 
 __all__ = [
+    "ArtifactReference",
     "CriterionResult",
+    "EvidencePackage",
     "EvidencePackageLifecycleState",
 ]
