@@ -11,6 +11,7 @@
 | Frozen baseline | `e864d72c000911ed6cfa6fd137b5db3cd353c733` |
 | Baseline meaning | MILESTONE-015 approved and frozen |
 | Mission type | Repository evidence scope selection only |
+| Selected next milestone type | Architecture boundary decision milestone |
 | Implementation performed | None |
 | Source modified | No |
 | Schemas or migrations created | No |
@@ -92,7 +93,7 @@ Remaining domain aggregates and runtime concepts include Run, Campaign, Audit, D
 
 ### Process-local Run aggregate behavior
 
-Run is the correct next domain area, but direct implementation is not yet safe. M012 says Run owns Dataset Manifests, while the current architecture checker allows `datasets` to import `campaign`, not the reverse. Because `RunLifecycleState` currently lives in `campaign` and `DatasetManifest` lives in `datasets`, coding Run behavior now would either avoid required Dataset Manifest ownership or alter dependency direction without a frozen decision.
+Run is the correct next domain area, but direct implementation is not yet safe. M012 says Run owns Dataset Manifests, while the current architecture checker allows `datasets` to import `campaign`, not the reverse. Because `RunLifecycleState` currently lives in `campaign` and `DatasetManifest` lives in `datasets`, coding Run behavior under the current `campaign` package would either avoid required Dataset Manifest ownership or alter dependency direction without a frozen decision.
 
 ### Process-local Campaign aggregate behavior
 
@@ -140,6 +141,14 @@ Domain architecture / scope reconciliation
 
 This is a documentation-only milestone. It is not Run aggregate implementation.
 
+MILESTONE-016 is classified as:
+
+```text
+ARCHITECTURE BOUNDARY DECISION MILESTONE
+```
+
+It is not a source/package refactor milestone and not an architecture-rule implementation milestone.
+
 ## 9. Scope Boundary
 
 MILESTONE-016 may define only:
@@ -152,7 +161,57 @@ MILESTONE-016 may define only:
 - which future implementation files would be allowed after MILESTONE-016 freezes;
 - which tests would be required for a later Run implementation.
 
-## 10. Explicit Non-Goals
+MILESTONE-016 must explicitly distinguish:
+
+- domain ownership;
+- physical package placement;
+- import/reference direction;
+- lifecycle authority;
+- persistence ownership.
+
+These are not interchangeable. Conceptual Run ownership of Dataset Manifest records does not by itself require physically moving `DatasetManifest`, changing its public export, or changing architecture rules.
+
+## 10. Required Boundary Questions
+
+MILESTONE-016 must answer each question below with repository evidence:
+
+1. Which aggregate conceptually owns Dataset Manifest records?
+2. Which package physically defines `DatasetManifest`?
+3. Which packages may import `DatasetManifest`?
+4. Where will future Run aggregate code live?
+5. May future Run behavior depend directly on `empirical_platform.datasets`?
+6. May future Campaign behavior depend on future Run behavior?
+7. May future Campaign behavior depend directly on `empirical_platform.datasets`?
+8. Does Campaign need `DatasetManifest` at all, or only Run identity/status summaries?
+9. Is a public re-export allowed, and from which package if allowed?
+10. Is a new shared contract prohibited, allowed, or deferred?
+11. Are source moves allowed in MILESTONE-016?
+12. Are architecture-rule changes allowed in MILESTONE-016?
+13. What remains deferred to Run implementation?
+14. What remains deferred to Campaign implementation?
+15. What compatibility guarantees from MILESTONE-012 through MILESTONE-015 must remain frozen?
+
+If any of these questions cannot be answered without source changes, MILESTONE-016 must stop and report `REVISION REQUIRED` rather than implementing the change.
+
+## 11. Required Deliverables
+
+MILESTONE-016 must produce documentation only:
+
+- exact conflict statement;
+- package and public-export inventory;
+- ownership matrix;
+- allowed dependency-direction decision;
+- public-interface decision;
+- future Run aggregate location decision;
+- DatasetManifest placement decision;
+- compatibility analysis against MILESTONE-012 through MILESTONE-015;
+- explicit deferral of any migration, refactor, package move, or architecture-rule change not authorized by the decision;
+- downstream prerequisites for a later Run implementation;
+- independent review, correction pass if required, and freeze decision.
+
+MILESTONE-016 must not silently authorize moving `DatasetManifest`, changing imports, changing package exports, modifying the architecture checker, or creating Run aggregate code.
+
+## 12. Explicit Non-Goals
 
 MILESTONE-016 must not implement:
 
@@ -170,7 +229,9 @@ MILESTONE-016 must not implement:
 - campaign execution;
 - market-data, vendor, or trading behavior.
 
-## 11. Dependencies
+MILESTONE-016 must not perform source-file moves, public re-exports, or architecture-rule changes unless the boundary decision explicitly classifies them as deferred follow-up work. This scope-selection document authorizes no such change.
+
+## 13. Dependencies
 
 | Dependency | Required role |
 | --- | --- |
@@ -180,7 +241,7 @@ MILESTONE-016 must not implement:
 | MILESTONE-015 | Review behavior is now frozen and remains downstream of Run/Evidence |
 | Architecture checker | Current package-dependency truth source |
 
-## 12. Validation Expectations
+## 14. Validation Expectations
 
 A future MILESTONE-016 document must be accepted only if:
 
@@ -192,7 +253,7 @@ A future MILESTONE-016 document must be accepted only if:
 - it defines stop conditions for any future Run implementation;
 - `security.ps1`, `verify.ps1`, `git diff --check`, and `git status --short` pass.
 
-## 13. Hostile-Review Focus
+## 15. Hostile-Review Focus
 
 The hostile review must look for:
 
@@ -206,7 +267,7 @@ The hostile review must look for:
 - persistence ownership claims;
 - premature evidence/review reconciliation.
 
-## 14. Stop Conditions
+## 16. Stop Conditions
 
 Stop MILESTONE-016 if:
 
@@ -217,7 +278,15 @@ Stop MILESTONE-016 if:
 - architecture changes cannot be justified from frozen M012-M015 evidence;
 - the package-boundary decision remains unresolved.
 
-## 15. Final Decision
+## 17. Issue Register
+
+| Issue ID | Severity | Finding | Correction | Disposition |
+| --- | --- | --- | --- | --- |
+| M016-SCOPE-REVIEW-ISSUE-0001 | MAJOR | Initial scope did not explicitly classify MILESTONE-016 as an architecture boundary decision milestone. | Added explicit milestone-type classification and prohibited source/package refactor or architecture-rule implementation scope. | Resolved |
+| M016-SCOPE-REVIEW-ISSUE-0002 | MAJOR | Initial scope did not enumerate the required boundary questions needed to make the milestone actionable. | Added mandatory boundary-question list covering ownership, placement, imports, Run location, Campaign dependencies, source moves, architecture-rule changes, and deferrals. | Resolved |
+| M016-SCOPE-REVIEW-ISSUE-0003 | MINOR | Initial scope could imply conceptual ownership and package placement are the same concern. | Added explicit distinction among domain ownership, package placement, reference direction, lifecycle authority, and persistence ownership. | Resolved |
+
+## 18. Final Decision
 
 The next bounded milestone is:
 
