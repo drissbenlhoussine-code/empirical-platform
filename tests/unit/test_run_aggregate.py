@@ -464,6 +464,83 @@ def test_mixed_sequence_has_exact_cumulative_version_sequence_history_and_manife
     ]
 
 
+def test_cancellation_after_manifest_append_has_exact_cumulative_effects() -> None:
+    run = _run()
+    manifest = _manifest(source="authorized manifest")
+
+    run.authorize(actor="Campaign Operator", occurred_at=OCCURRED_AT)
+    run.append_manifest(manifest)
+    run.cancel(
+        reason="no execution should begin",
+        actor="Campaign Operator",
+        occurred_at=OCCURRED_AT,
+    )
+
+    assert run.state is RunLifecycleState.CANCELLED
+    assert run.version == AggregateVersion(3)
+    assert run.next_transition_sequence == TransitionSequence(3)
+    assert run.manifests == (manifest,)
+    assert run.current_manifest == manifest
+    assert [record.to_state for record in run.transition_history] == [
+        "AUTHORIZED",
+        "CANCELLED",
+    ]
+    assert [record.sequence for record in run.transition_history] == [
+        TransitionSequence(1),
+        TransitionSequence(2),
+    ]
+    assert [record.version for record in run.transition_history] == [
+        AggregateVersion(1),
+        AggregateVersion(3),
+    ]
+    assert run.transition_history[-1].reason == "no execution should begin"
+
+
+@pytest.mark.parametrize(
+    ("state", "failure_reason", "expected_version", "expected_sequence"),
+    (
+        (
+            RunLifecycleState.ACQUIRING,
+            "acquisition failure",
+            AggregateVersion(4),
+            TransitionSequence(4),
+        ),
+        (
+            RunLifecycleState.NORMALIZING,
+            "normalization failure",
+            AggregateVersion(5),
+            TransitionSequence(5),
+        ),
+        (
+            RunLifecycleState.VALIDATING,
+            "validation failure",
+            AggregateVersion(6),
+            TransitionSequence(6),
+        ),
+    ),
+)
+def test_failure_paths_after_manifest_append_have_exact_cumulative_effects(
+    state: RunLifecycleState,
+    failure_reason: str,
+    expected_version: AggregateVersion,
+    expected_sequence: TransitionSequence,
+) -> None:
+    run = _run_at_state(state)
+    manifest = _manifest(source=f"{state.value.lower()} manifest")
+    run.append_manifest(manifest)
+
+    run.fail(reason=failure_reason, actor="Run Operator", occurred_at=OCCURRED_AT)
+
+    assert run.state is RunLifecycleState.FAILED
+    assert run.version == expected_version
+    assert run.next_transition_sequence == expected_sequence
+    assert run.manifests == (manifest,)
+    assert run.current_manifest == manifest
+    assert run.transition_history[-1].from_state == state.value
+    assert run.transition_history[-1].to_state == "FAILED"
+    assert run.transition_history[-1].reason == failure_reason
+
+
 def test_terminal_immutability_blocks_lifecycle_and_manifest_mutation() -> None:
     terminal_runs = (
         _run_at_state(RunLifecycleState.EXECUTION_COMPLETED),

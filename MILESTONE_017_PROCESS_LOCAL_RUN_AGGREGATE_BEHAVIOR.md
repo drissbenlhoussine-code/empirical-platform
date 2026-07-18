@@ -7,7 +7,7 @@
 | Document ID | MILESTONE-017 |
 | Title | Process-Local Run Aggregate Behavior |
 | Version | 1.0 |
-| Status | IMPLEMENTED / AWAITING INDEPENDENT FREEZE REVIEW |
+| Status | APPROVED AND FROZEN |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Frozen architecture baseline | `17e4a43fe97ca3fa23b5c9aedc54f65a7b7d0d52` |
 | Implementation baseline | `44141a2034bf5cffd97273e5b519caf4ac28fbb0` |
@@ -34,7 +34,7 @@ The Run aggregate manages one execution attempt lifecycle, immutable Campaign co
 | `empirical_platform.run.aggregate` | Process-local Run aggregate root |
 | `empirical_platform.run.__init__` | Public Run package export |
 | `tests.unit.test_run_aggregate` | Focused Run behavior, invariant, lifecycle, manifest, and boundary tests |
-| `tools.check_architecture` | Narrow top-level `run` dependency rule |
+| `tools.check_architecture` | Narrow `run` dependency rule with exact `campaign.lifecycle` allowance |
 | `tests.fixtures.illegal_imports` | Negative architecture fixtures for forbidden reverse and premature dependencies |
 
 ## 4. Requirement-to-Code Traceability
@@ -164,16 +164,23 @@ manifest count = 2
 `tools/check_architecture.py` now registers one new top-level domain package:
 
 ```text
-run -> shared, identifiers, datasets, campaign
+run -> shared, identifiers, datasets
 ```
 
-This is the narrow dependency set authorized by the hardened M017 scope. The `campaign` dependency is only for the existing canonical `RunLifecycleState` source.
+It also registers one exact import allowance:
+
+```text
+run -> empirical_platform.campaign.lifecycle
+```
+
+This is the narrow dependency set authorized by the hardened M017 scope. The `campaign.lifecycle` dependency is only for the existing canonical `RunLifecycleState` source. Broad `run -> campaign` imports remain forbidden.
 
 Negative architecture fixtures now verify:
 
 - `datasets -> run` remains forbidden;
 - `campaign -> datasets` remains forbidden;
 - `campaign -> run` remains forbidden;
+- broad `run -> campaign` remains forbidden;
 - `evidence -> run` remains forbidden;
 - `review -> run` remains forbidden;
 - existing `review -> acquisition` remains forbidden.
@@ -217,14 +224,14 @@ python -m pytest tests\unit\test_run_aggregate.py tests\architecture\test_module
 Focused result:
 
 ```text
-32 passed
+36 passed
 ```
 
 Static validation:
 
 ```text
 Python 3.13.14
-ruff format --check: 99 files already formatted
+ruff format --check: 100 files already formatted
 ruff check: passed
 mypy: passed in strict mode across 57 source files
 architecture checker: passed
@@ -237,7 +244,7 @@ Security validation:
 ```text
 Python 3.13.14
 security.ps1 passed
-Secret scan target count: 168
+Secret scan target count: 169
 No known vulnerabilities found
 ```
 
@@ -246,7 +253,7 @@ Full verification:
 ```text
 Python 3.13.14
 verify.ps1 passed
-171 passed, 9 skipped
+175 passed, 9 skipped
 Coverage: 92.81%
 Architecture checker passed
 Negative architecture fixtures passed
@@ -310,6 +317,8 @@ Setuptools emitted an existing deprecation warning for project.license TOML tabl
 | --- | --- | --- | --- |
 | M017-IMPLEMENTATION-ISSUE-0001 | MINOR | Initial full validation commands were invoked from a subprocess that used global Python 3.14 instead of the canonical `.venv` Python 3.13.14. | Reran `security.ps1` and `verify.ps1` with `.venv` activated in the same PowerShell process; both passed. |
 | M017-IMPLEMENTATION-ISSUE-0002 | MINOR | Initial lint found test helper function calls in default arguments. | Replaced defaults with a sentinel-backed helper while preserving unidentified-manifest test behavior; focused and full validation passed. |
+| M017-IMPLEMENTATION-ISSUE-0003 | MAJOR | Independent hostile review found `run -> campaign` was implemented as a broad top-level architecture permission even though only `campaign.lifecycle` was authorized. | Replaced the broad permission with an exact import allowance for `empirical_platform.campaign.lifecycle` and added a negative fixture proving broad `run -> campaign` remains forbidden. |
+| M017-IMPLEMENTATION-ISSUE-0004 | MINOR | Independent hostile review requested stronger mixed-path tests for cancellation and failure after manifest appends. | Added cancellation-after-manifest and execution-stage failure-after-manifest tests covering cumulative version, sequence, history, manifest order, and reason behavior. |
 
 No CRITICAL or MAJOR implementation issue remains open.
 
@@ -355,12 +364,10 @@ Modified:
 
 ## 18. Final Decision
 
-MILESTONE-017 implementation is accepted for review.
+MILESTONE-017 implementation is approved and frozen after independent hostile review and M017-scoped hardening.
 
-Final implementation status:
+Final status:
 
 ```text
-IMPLEMENTED / AWAITING INDEPENDENT FREEZE REVIEW
+APPROVED AND FROZEN
 ```
-
-This document does not approve or freeze MILESTONE-017. Freeze requires a separate independent hostile-review mission.

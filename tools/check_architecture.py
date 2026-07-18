@@ -15,7 +15,7 @@ ALLOWED: dict[str, set[str]] = {
     "governance": {"shared", "identifiers", "registry"},
     "campaign": {"shared", "identifiers", "governance", "registry"},
     "datasets": {"shared", "identifiers", "campaign"},
-    "run": {"shared", "identifiers", "datasets", "campaign"},
+    "run": {"shared", "identifiers", "datasets"},
     "evidence": {"shared", "identifiers", "datasets", "validation"},
     "acquisition": {"shared", "identifiers", "campaign", "datasets", "evidence"},
     "normalization": {"shared", "identifiers", "datasets", "evidence"},
@@ -25,6 +25,10 @@ ALLOWED: dict[str, set[str]] = {
     "decision_candidate": {"shared", "identifiers", "audit", "evidence"},
     "archive": {"shared", "identifiers", "evidence", "audit", "decision_candidate"},
     "entrypoints": {"shared"},
+}
+
+ALLOWED_EXACT_IMPORTS: dict[str, set[str]] = {
+    "run": {"empirical_platform.campaign.lifecycle"},
 }
 
 
@@ -39,8 +43,8 @@ def module_for_path(path: Path, root: Path) -> str | None:
     return parts[2]
 
 
-def imported_top_level(node: ast.AST) -> str | None:
-    """Return imported empirical_platform top-level module if present."""
+def imported_module(node: ast.AST) -> str | None:
+    """Return imported empirical_platform module if present."""
     name: str | None = None
     if isinstance(node, ast.ImportFrom):
         name = node.module
@@ -48,6 +52,14 @@ def imported_top_level(node: ast.AST) -> str | None:
         names = [alias.name for alias in node.names]
         name = next((candidate for candidate in names if candidate.startswith(PACKAGE)), None)
     if not name or not name.startswith(f"{PACKAGE}."):
+        return None
+    return name
+
+
+def imported_top_level(node: ast.AST) -> str | None:
+    """Return imported empirical_platform top-level module if present."""
+    name = imported_module(node)
+    if name is None:
         return None
     parts = name.split(".")
     if len(parts) > 1 and parts[1].startswith("_"):
@@ -64,9 +76,13 @@ def check_path(root: Path) -> list[str]:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         allowed = ALLOWED.get(source_module, set())
+        allowed_exact = ALLOWED_EXACT_IMPORTS.get(source_module, set())
         for node in ast.walk(tree):
+            imported_name = imported_module(node)
             imported = imported_top_level(node)
             if imported is None or imported == source_module:
+                continue
+            if imported_name in allowed_exact:
                 continue
             if imported not in allowed:
                 violations.append(f"{path}: {source_module} may not import {imported}")
