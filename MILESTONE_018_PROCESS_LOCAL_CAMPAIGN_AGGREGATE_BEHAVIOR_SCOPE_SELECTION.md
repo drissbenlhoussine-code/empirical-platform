@@ -7,7 +7,7 @@
 | Document ID | MILESTONE-018 |
 | Title | Process-Local Campaign Aggregate Behavior Scope Selection |
 | Version | 1.0 |
-| Status | SCOPE CANDIDATE SELECTED |
+| Status | SCOPE APPROVED FOR IMPLEMENTATION |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Baseline | `f09ade88e687c0198473ce1cda35ad01707f7f5c` |
 | Baseline meaning | MILESTONE-017 approved and frozen |
@@ -160,14 +160,16 @@ Domain aggregate behavior / process-local only
 
 ## 9. Scope Boundary
 
-MILESTONE-018 may select a future implementation that includes only:
+MILESTONE-018 selects a future implementation that includes only:
 
 - a process-local `Campaign` aggregate root under `empirical_platform.campaign`;
 - construction with `DomainIdentity[CampaignId]`;
 - initial lifecycle state `CampaignLifecycleState.DRAFT`;
-- local lifecycle transitions from M012;
-- Campaign-local draft scope data represented by bounded immutable value objects or opaque text/reference values;
-- readiness markers needed to move from `DRAFT` to `READY_FOR_AUTHORIZATION` only if they are local facts, not governance gate outcomes;
+- exact local lifecycle transitions from M012 using the method names and semantics in Section 10;
+- one Campaign-local `CampaignScopeStatement` value object, represented by a non-empty string and immutable after construction;
+- scope-statement replacement only while the Campaign remains `DRAFT`;
+- no owner, sponsor, reviewer, authorization, activation, completion, or Run collection fields on the aggregate;
+- readiness represented only by the `READY_FOR_AUTHORIZATION` lifecycle state and its transition record;
 - aggregate version advancement;
 - transition sequence advancement;
 - immutable transition-history records;
@@ -204,41 +206,188 @@ MILESTONE-018 must not include:
 - vendor behavior;
 - trading logic.
 
-## 10. Required Scope Answers For Future Implementation
+## 10. Implementation-Ready Scope Decisions
 
-A future M018 implementation scope must answer before code:
+The future M018 implementation is authorized to implement only the following process-local Campaign contract.
 
-1. Campaign aggregate identity.
-2. Initial lifecycle state.
-3. Exact lifecycle transition method names.
-4. Whether `DRAFT -> READY_FOR_AUTHORIZATION` is local readiness marking or external authorization readiness.
-5. Whether `READY_FOR_AUTHORIZATION -> AUTHORIZED` is allowed as local state recording without executing authorization.
-6. How `AUTHORIZED -> ACTIVE` avoids Run lookup while preserving M012 preconditions as caller responsibility.
-7. How `ACTIVE -> COMPLETED` is represented without active-run or review queries, or whether completion is deferred.
-8. Cancellation reason requirements by state.
-9. Campaign-local scope data representation.
-10. Versioning rules.
-11. Transition sequence rules.
-12. Transition history rules.
-13. Rejection atomicity snapshot.
-14. Package/export boundaries.
-15. Architecture-checker changes, if any.
-16. Explicit non-goals.
+### Identity
+
+Campaign aggregate identity:
+
+```text
+DomainIdentity[CampaignId]
+```
+
+The identity is immutable after construction. Campaign name, title, description, objective, owner, sponsor, reviewer, authorization reference, and Run relationship are not identity.
+
+### Content Model
+
+The only Campaign-local content selected for M018 is:
+
+```text
+CampaignScopeStatement(value: str)
+```
+
+Rules:
+
+- `value` must be a string;
+- `value.strip()` must be non-empty;
+- the value object is immutable;
+- it grants no authority;
+- it contains no Run IDs, Dataset references, Evidence references, Review references, repository references, storage references, credentials, schedule, vendor, market-data, or trading behavior.
+
+Construction requires one valid `CampaignScopeStatement`.
+
+Scope mutation:
+
+| Operation | Required state | Effect | Version | Sequence | History |
+| --- | --- | --- | --- | --- | --- |
+| `revise_scope_statement` | `DRAFT` | Replace scope statement with a new immutable `CampaignScopeStatement` | +1 | unchanged | unchanged |
+
+Rejected scope mutation leaves identity, lifecycle state, version, sequence, transition history, and scope statement unchanged.
+
+No other descriptive/contextual fields are authorized in M018.
+
+### Readiness Model
+
+M018 does not implement an independent readiness checklist, readiness boolean, readiness score, readiness object, or readiness calculation.
+
+Readiness is represented only by the lifecycle transition:
+
+```text
+DRAFT -> READY_FOR_AUTHORIZATION
+```
+
+The transition records that a caller is asserting local readiness for authorization review. It does not verify governance gates, reviewer assignment, risk closure, dependencies, licenses, evidence, Runs, Datasets, Reviews, or external systems.
+
+### Run Relationship
+
+M018 Campaign stores no Run IDs and no Run summaries.
+
+The future implementation must not define:
+
+- `tuple[RunId, ...]`;
+- active-run counters;
+- run status summaries;
+- run append/remove methods;
+- run existence checks;
+- run lifecycle inspection;
+- DatasetManifest access.
+
+Run relationship semantics remain cross-aggregate and deferred.
+
+### Lifecycle Method Matrix
+
+Allowed lifecycle operations:
+
+| Current state | Method | Next state | Reason required | Reason semantics |
+| --- | --- | --- | --- | --- |
+| `DRAFT` | `prepare_for_authorization` | `READY_FOR_AUTHORIZATION` | No | Optional local readiness note only |
+| `READY_FOR_AUTHORIZATION` | `record_authorization` | `AUTHORIZED` | Yes | Opaque authorization-review reference or rationale; no authorization execution |
+| `AUTHORIZED` | `activate` | `ACTIVE` | Yes | Opaque activation basis supplied by caller; no Run lookup |
+| `ACTIVE` | `suspend` | `SUSPENDED` | Yes | Opaque governed pause reason |
+| `SUSPENDED` | `resume` | `ACTIVE` | Yes | Opaque restoration reason supplied by caller |
+| `ACTIVE` | `complete` | `COMPLETED` | Yes | Opaque completion basis supplied by caller; no Run or Review query |
+| `DRAFT` | `cancel` | `CANCELLED` | No | Optional abandonment note |
+| `READY_FOR_AUTHORIZATION` | `cancel` | `CANCELLED` | No | Optional abandonment note |
+| `AUTHORIZED` | `cancel` | `CANCELLED` | Yes | Required cancellation reason |
+| `ACTIVE` | `cancel` | `CANCELLED` | Yes | Required cancellation reason |
+| `SUSPENDED` | `cancel` | `CANCELLED` | Yes | Required cancellation reason |
+
+All other state-operation pairs are rejected.
+
+Terminal states:
+
+```text
+COMPLETED
+CANCELLED
+```
+
+Terminal Campaigns reject all lifecycle and content mutation. No reopen, restart, retry, revision, archive, Decision Freeze, or supersession behavior is authorized.
+
+### Version, Sequence, and History
+
+Initial state:
+
+```text
+CampaignLifecycleState.DRAFT
+```
+
+Initial version:
+
+```text
+AggregateVersion.initial()
+```
+
+Initial next transition sequence:
+
+```text
+TransitionSequence.initial()
+```
+
+Accepted lifecycle transitions:
+
+- increment `AggregateVersion` exactly once;
+- record the current `TransitionSequence`;
+- advance the next `TransitionSequence` exactly once;
+- append exactly one `StateTransitionRecord`;
+- store `reason` in the transition record when supplied or required.
+
+Accepted scope-statement replacement:
+
+- increments `AggregateVersion` exactly once;
+- does not advance `TransitionSequence`;
+- does not append transition history.
+
+Construction, reads, and rejected operations do not increment version, advance sequence, or append history.
+
+### Rejection Atomicity
+
+Every rejected operation must leave unchanged:
+
+- Campaign identity;
+- lifecycle state;
+- version;
+- next transition sequence;
+- transition history;
+- scope statement.
+
+### Package and Export Boundary
+
+Future implementation location:
+
+```text
+src/empirical_platform/campaign/aggregate.py
+src/empirical_platform/campaign/__init__.py
+tests/unit/test_campaign_aggregate.py
+```
+
+Allowed imports for Campaign implementation:
+
+- `empirical_platform.campaign.lifecycle`;
+- `empirical_platform.identifiers`;
+- `empirical_platform.shared.domain`;
+- Python standard-library modules required for immutable values and timestamps.
+
+The existing architecture checker already permits the selected implementation boundary. No architecture-rule change is selected unless a future independent review identifies an exact need without broadening `campaign -> run` or `campaign -> datasets`.
 
 ## 11. Local Versus Cross-Aggregate Boundary
 
 | Rule or invariant | Classification | M018 treatment |
 | --- | --- | --- |
 | Campaign has immutable `CampaignId` identity | Local | Include |
-| Campaign lifecycle state changes | Local with caller-supplied authority facts | Include only as state recording |
-| Draft scope text/reference is mutable before authorization | Local | Include if bounded and immutable after transition |
+| Campaign lifecycle state changes | Local with caller-supplied opaque reasons | Include only as state recording |
+| Draft scope statement is replaceable before authorization | Local | Include as `CampaignScopeStatement` replacement in `DRAFT` only |
+| Readiness checklist or score | Cross-aggregate/governance | Exclude; readiness is lifecycle state only |
+| Owner, sponsor, reviewer, or authorization identity | Governance/application-service | Exclude; transition actor is history metadata only |
 | Campaign owns all Runs | False | Exclude; Run references Campaign |
+| Campaign stores Run IDs | Cross-aggregate relationship | Exclude from M018 |
 | Campaign imports Run aggregate | Forbidden | Exclude |
 | Campaign imports Dataset Manifest | Forbidden | Exclude |
-| Campaign completion requires no active Runs | Cross-aggregate command-time | Defer or require caller-supplied summary without query behavior |
+| Campaign completion requires no active Runs | Cross-aggregate command-time | Defer enforcement; local `complete` records caller-supplied opaque completion basis only |
 | Required Review dispositions complete | Cross-aggregate command-time | Defer |
-| Authorization review passes | Governance gate / command-time | Defer execution; local state recording only if caller supplies authorization fact |
-| Campaign activation requires at least one Run authorized or operation opened | Cross-aggregate or local operation marker | Must be explicitly narrowed before implementation |
+| Authorization review passes | Governance gate / command-time | Defer execution; `record_authorization` records caller-supplied opaque reason only |
+| Campaign activation requires at least one Run authorized or operation opened | Cross-aggregate or local operation marker | Defer enforcement; `activate` records caller-supplied opaque reason only |
 
 ## 12. Validation Expectations For Future Implementation
 
@@ -248,6 +397,9 @@ A future M018 implementation mission must include:
 - tests for every accepted lifecycle transition;
 - tests for every rejected lifecycle transition;
 - tests for cancellation from every allowed state;
+- tests for `CampaignScopeStatement` validation, immutability, and DRAFT-only replacement;
+- tests proving no readiness checklist, score, Run ID collection, owner authority, authorization execution, or completion query was introduced;
+- tests for exact version, sequence, history, and rejection atomicity behavior;
 - tests proving Campaign does not import Run, Dataset, Evidence, Review, persistence, repository, schema, API, worker, outbox, vendor, market-data, trading, Audit, Decision Candidate, or Decision Freeze behavior;
 - architecture-boundary tests preserving forbidden directions;
 - full `security.ps1`;
@@ -259,10 +411,11 @@ A future M018 implementation mission must include:
 | Deferred item | Reason |
 | --- | --- |
 | Campaign implementation | This is scope selection only |
-| Campaign completion command details | Requires active-run/review summary boundary to be explicitly narrowed |
+| Campaign completion enforcement | Active-run and Review checks remain cross-aggregate and external to Campaign |
 | Campaign authorization gate execution | Governance/application-service responsibility |
 | Campaign owner and reviewer assignment records | Requires authorization/workflow scope |
 | Campaign to Run orchestration | Cross-aggregate and execution behavior |
+| Campaign Run ID collection | Deferred to a separate relationship/reference scope if needed |
 | Run-target Review | Separate Review target-model scope |
 | Repository contracts | Depends on completed aggregate boundaries |
 | Schema/migration design | Depends on repository contracts |
@@ -275,15 +428,28 @@ A future M018 implementation mission must include:
 Stop any future M018 implementation if:
 
 - Campaign imports `run`, `datasets`, `evidence`, or `review`;
+- Campaign stores Run IDs or Run summaries;
 - Campaign loads or mutates another aggregate;
 - Campaign completion queries active Runs or Review dispositions inside the aggregate;
 - authorization review, reviewer independence, or COI checks are executed inside the aggregate;
+- a readiness checklist, score, or external dependency check is implemented inside Campaign;
 - persistence, repositories, schemas, migrations, APIs, workers, job ledger, or outbox appear;
 - event dispatch or reconstruction behavior is introduced;
 - Audit, Decision Candidate, or Decision Freeze behavior appears;
 - market-data, vendor, trading, or empirical campaign execution behavior appears.
 
-## 15. Final Decision
+## 15. Scope Review Issue Register
+
+| Issue ID | Severity | Finding | Correction | Disposition |
+| --- | --- | --- | --- | --- |
+| M018-SCOPE-REVIEW-ISSUE-0001 | MAJOR | Initial scope left Campaign-local scope/readiness data generic and not implementation-ready. | Selected a single `CampaignScopeStatement` content model and made readiness lifecycle-only. | Resolved |
+| M018-SCOPE-REVIEW-ISSUE-0002 | MAJOR | Initial scope left lifecycle method names, authorization recording, activation, completion, and cancellation reason semantics to future implementation. | Added an exact lifecycle method matrix with opaque reason semantics and no authority execution. | Resolved |
+| M018-SCOPE-REVIEW-ISSUE-0003 | MAJOR | Initial scope did not explicitly decide whether Campaign may hold Run IDs. | Excluded Run ID collections and Run summaries from M018. | Resolved |
+| M018-SCOPE-REVIEW-ISSUE-0004 | MINOR | Initial scope did not explicitly define version, sequence, history, and content-mutation effects. | Added exact version, sequence, history, and rejection atomicity rules. | Resolved |
+
+No CRITICAL or MAJOR scope issue remains open.
+
+## 16. Final Decision
 
 The selected next milestone is:
 
@@ -294,7 +460,7 @@ MILESTONE-018 - Process-Local Campaign Aggregate Behavior
 Final scope-selection status:
 
 ```text
-SCOPE CANDIDATE SELECTED
+SCOPE APPROVED FOR IMPLEMENTATION
 ```
 
 This document does not implement Campaign behavior. It defines the exact next local aggregate boundary for independent review and a later implementation mission.
