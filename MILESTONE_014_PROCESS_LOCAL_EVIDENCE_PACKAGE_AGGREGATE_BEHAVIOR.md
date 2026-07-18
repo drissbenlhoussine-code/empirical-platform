@@ -138,6 +138,7 @@ The implementation does not introduce:
 | M014-IMPLEMENTATION-ISSUE-0001 | MINOR | Initial focused pytest command passed behavior tests but failed the global coverage threshold because it intentionally ran only one test file. | Resolved by using `--no-cov` for focused behavior tests and full `verify.ps1` for canonical project coverage. |
 | M014-IMPLEMENTATION-ISSUE-0002 | MINOR | Initial implementation required formatting and line-length cleanup. | Resolved with `ruff format` and `ruff check --fix`; final formatting and lint passed. |
 | M014-IMPLEMENTATION-ISSUE-0003 | MINOR | Hostile review identified untested deterministic rejection branches for wrong content object types, wrong timestamp type, and non-string invalidation reason. | Resolved with focused atomicity tests. |
+| M014-IMPLEMENTATION-ISSUE-0004 | MINOR | Independent hostile review identified missing explicit tests for seal failure with only artifact references and repeated invalidation rejection. | Resolved with focused atomicity tests and correction commit. |
 
 No CRITICAL or MAJOR implementation issue remains open.
 
@@ -165,7 +166,7 @@ python -m pytest tests/unit/test_evidence_package_aggregate.py --no-cov
 Focused result:
 
 ```text
-17 passed
+17 passed before hostile-review correction; 17 passed after correction
 ```
 
 Static validation:

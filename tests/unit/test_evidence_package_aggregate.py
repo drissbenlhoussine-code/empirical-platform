@@ -249,6 +249,13 @@ def test_seal_requires_contents_and_records_lifecycle_transition() -> None:
         no_contents.seal(actor="Evidence Manager", occurred_at=OCCURRED_AT)
     assert _snapshot(no_contents) == before_no_contents
 
+    only_reference = _collecting_package()
+    only_reference.add_artifact_reference(ArtifactReference("artifact://opaque/reference"))
+    before_only_reference = _snapshot(only_reference)
+    with pytest.raises(ValueError, match="Criterion Result"):
+        only_reference.seal(actor="Evidence Manager", occurred_at=OCCURRED_AT)
+    assert _snapshot(only_reference) == before_only_reference
+
     no_reference = _collecting_package()
     no_reference.add_criterion_result(_result())
     before_no_reference = _snapshot(no_reference)
@@ -349,6 +356,15 @@ def test_invalidate_requires_reason_and_preserves_sealed_contents() -> None:
     assert package.transition_history[2].to_state == "INVALIDATED"
     assert package.transition_history[2].reason == "digest mismatch"
     assert package.transition_history[2].correlation_id == "corr-2"
+
+    before_repeated_invalidation = _snapshot(package)
+    with pytest.raises(ValueError, match="INVALIDATED"):
+        package.invalidate(
+            reason="second invalidation attempt",
+            actor="Evidence Manager",
+            occurred_at=OCCURRED_AT,
+        )
+    assert _snapshot(package) == before_repeated_invalidation
 
 
 def test_collection_views_are_immutable_and_preserve_insertion_order() -> None:
