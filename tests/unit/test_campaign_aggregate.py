@@ -137,18 +137,47 @@ def test_scope_replacement_is_draft_only_and_does_not_advance_sequence_or_histor
     assert campaign.transition_history == ()
 
 
-def test_scope_replacement_rejects_wrong_type_and_non_draft_state_atomically() -> None:
+def test_equal_scope_replacement_is_allowed_in_draft_and_counts_as_content_mutation() -> None:
+    campaign = _campaign()
+    same_value = CampaignScopeStatement(campaign.scope_statement.value)
+
+    campaign.revise_scope_statement(same_value)
+
+    assert campaign.scope_statement == same_value
+    assert campaign.version == AggregateVersion(1)
+    assert campaign.next_transition_sequence == TransitionSequence.initial()
+    assert campaign.transition_history == ()
+
+
+def test_scope_replacement_rejects_wrong_type_atomically() -> None:
     campaign = _campaign()
     before_type = _snapshot(campaign)
     with pytest.raises(TypeError, match="CampaignScopeStatement"):
         campaign.revise_scope_statement("replacement")  # type: ignore[arg-type]
     assert _snapshot(campaign) == before_type
 
-    campaign.prepare_for_authorization(actor="Campaign Owner", occurred_at=OCCURRED_AT)
-    before_state = _snapshot(campaign)
+
+@pytest.mark.parametrize(
+    "state",
+    (
+        CampaignLifecycleState.READY_FOR_AUTHORIZATION,
+        CampaignLifecycleState.AUTHORIZED,
+        CampaignLifecycleState.ACTIVE,
+        CampaignLifecycleState.SUSPENDED,
+        CampaignLifecycleState.COMPLETED,
+        CampaignLifecycleState.CANCELLED,
+    ),
+)
+def test_scope_replacement_rejects_every_non_draft_state_atomically(
+    state: CampaignLifecycleState,
+) -> None:
+    campaign = _campaign_at_state(state)
+    before = _snapshot(campaign)
+
     with pytest.raises(ValueError, match="DRAFT"):
         campaign.revise_scope_statement(CampaignScopeStatement("too late"))
-    assert _snapshot(campaign) == before_state
+
+    assert _snapshot(campaign) == before
 
 
 @pytest.mark.parametrize(
@@ -447,6 +476,37 @@ def test_suspend_resume_repeat_and_terminal_rejections_are_atomic() -> None:
     with pytest.raises(ValueError, match="COMPLETED"):
         completed.resume(reason="restore terminal", actor="Campaign Owner", occurred_at=OCCURRED_AT)
     assert _snapshot(completed) == before_completed
+
+
+def test_multiple_suspend_resume_cycles_are_allowed_and_sequence_exact() -> None:
+    campaign = _campaign_at_state(CampaignLifecycleState.ACTIVE)
+
+    campaign.suspend(reason="first pause", actor="Campaign Owner", occurred_at=OCCURRED_AT)
+    campaign.resume(reason="first restoration", actor="Campaign Owner", occurred_at=OCCURRED_AT)
+    campaign.suspend(reason="second pause", actor="Campaign Owner", occurred_at=OCCURRED_AT)
+    campaign.resume(reason="second restoration", actor="Campaign Owner", occurred_at=OCCURRED_AT)
+
+    assert campaign.state is CampaignLifecycleState.ACTIVE
+    assert campaign.version == AggregateVersion(7)
+    assert campaign.next_transition_sequence == TransitionSequence(8)
+    assert [record.to_state for record in campaign.transition_history] == [
+        "READY_FOR_AUTHORIZATION",
+        "AUTHORIZED",
+        "ACTIVE",
+        "SUSPENDED",
+        "ACTIVE",
+        "SUSPENDED",
+        "ACTIVE",
+    ]
+    assert [record.sequence for record in campaign.transition_history] == [
+        TransitionSequence(1),
+        TransitionSequence(2),
+        TransitionSequence(3),
+        TransitionSequence(4),
+        TransitionSequence(5),
+        TransitionSequence(6),
+        TransitionSequence(7),
+    ]
 
 
 def test_terminal_immutability_blocks_lifecycle_and_scope_mutation() -> None:

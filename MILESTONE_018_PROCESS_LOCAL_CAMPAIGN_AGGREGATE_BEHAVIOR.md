@@ -179,7 +179,7 @@ Rejected operations leave identity, scope statement, state, version, next sequen
 
 ## 11. Tests Added
 
-`tests/unit/test_campaign_aggregate.py` adds 38 focused tests covering:
+`tests/unit/test_campaign_aggregate.py` adds 46 focused tests covering:
 
 - construction and wrong identity rejection;
 - immutable identity and absence of authority/Run surfaces;
@@ -203,11 +203,11 @@ Rejected operations leave identity, scope statement, state, version, next sequen
 | Check | Result |
 | --- | --- |
 | Python | `3.13.14` |
-| Focused tests | `38 passed` |
-| Full test suite | `213 passed, 9 skipped` |
+| Focused tests | `46 passed` |
+| Full test suite | `221 passed, 9 skipped` |
 | Coverage | `93.24%` |
 | `security.ps1` | Passed |
-| Secret scan target count | `172` |
+| Secret scan target count | `173` |
 | Dependency audit | No known vulnerabilities; local package skipped because it is not on PyPI |
 | `ruff format --check .` | `102 files already formatted` |
 | `ruff check .` | Passed |
@@ -252,6 +252,8 @@ Known warning:
 | --- | --- | --- | --- | --- |
 | M018-IMPLEMENTATION-ISSUE-0001 | MINOR | Initial implementation had one overlong error string. | Wrapped message without behavior change. | Resolved |
 | M018-IMPLEMENTATION-ISSUE-0002 | MINOR | `cancel` required an explicit type narrowing for post-authorization required reason semantics. | Added explicit `None` rejection before non-empty validation. | Resolved |
+| M018-IMPLEMENTATION-ISSUE-0003 | MINOR | Hostile review required explicit equal scope replacement, all non-DRAFT scope rejection, and repeated suspend/resume cycle coverage. | Added focused contract tests without behavior change. | Resolved |
+| M018-IMPLEMENTATION-ISSUE-0004 | MINOR | Secret scan target count changed after the implementation report was added. | Updated validation evidence to the independently rerun target count. | Resolved |
 
 No CRITICAL or MAJOR M018 implementation issues remain open.
 
