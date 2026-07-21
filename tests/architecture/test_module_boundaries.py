@@ -17,3 +17,8 @@ def test_negative_fixture_detects_illegal_import() -> None:
     assert any("run may not import campaign" in violation for violation in violations)
     assert any("evidence may not import run" in violation for violation in violations)
     assert any("review may not import run" in violation for violation in violations)
+    assert any(
+        "campaign may not import empirical_platform.shared.persistence" in violation
+        for violation in violations
+    )
+    assert any("review may not import sqlalchemy" in violation for violation in violations)

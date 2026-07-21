@@ -31,6 +31,39 @@ ALLOWED_EXACT_IMPORTS: dict[str, set[str]] = {
     "run": {"empirical_platform.campaign.lifecycle"},
 }
 
+FORBIDDEN_IMPORT_PREFIXES: dict[str, tuple[str, ...]] = {
+    "campaign": (
+        "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+    "run": (
+        "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+    "evidence": (
+        "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+    "review": (
+        "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+    "shared": (
+        "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+}
+
 
 def module_for_path(path: Path, root: Path) -> str | None:
     """Return the top-level empirical_platform module for a file."""
@@ -79,6 +112,20 @@ def check_path(root: Path) -> list[str]:
         allowed_exact = ALLOWED_EXACT_IMPORTS.get(source_module, set())
         for node in ast.walk(tree):
             imported_name = imported_module(node)
+            raw_imported_name = imported_name
+            if raw_imported_name is None and isinstance(node, ast.Import):
+                raw_imported_name = next((alias.name for alias in node.names), None)
+            elif raw_imported_name is None and isinstance(node, ast.ImportFrom):
+                raw_imported_name = node.module
+            forbidden_prefixes = FORBIDDEN_IMPORT_PREFIXES.get(source_module, ())
+            if source_module == "shared" and "domain" not in path.parts:
+                forbidden_prefixes = ()
+            if raw_imported_name is not None and any(
+                raw_imported_name == forbidden or raw_imported_name.startswith(f"{forbidden}.")
+                for forbidden in forbidden_prefixes
+            ):
+                violations.append(f"{path}: {source_module} may not import {raw_imported_name}")
+                continue
             imported = imported_top_level(node)
             if imported is None or imported == source_module:
                 continue
