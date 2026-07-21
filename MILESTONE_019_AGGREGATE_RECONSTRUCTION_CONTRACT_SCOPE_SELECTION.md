@@ -59,6 +59,7 @@ The domain model is behavior-complete for process-local mutation, but it is not 
 | --- | --- | --- |
 | Trusted reconstruction authority is undefined | Campaign, Run, Evidence Package, Review | Repositories would need to bypass public constructors without inventing ad hoc private mutation patterns |
 | Persistence-neutral state shape is undefined | Campaign, Run, Evidence Package, Review | Schemas could accidentally become the domain state contract |
+| Validation-versus-trust boundary is undefined | Campaign, Run, Evidence Package, Review | A future loader could either over-trust malformed state or over-validate historical facts that cannot be proven locally |
 | Version restoration rules are undefined | All aggregates | Optimistic concurrency cannot be mapped safely without knowing how `AggregateVersion` is restored |
 | Transition-sequence restoration rules are undefined | All aggregates | Repositories could corrupt append-only lifecycle history ordering |
 | Transition-history completeness rules are undefined | All aggregates | The system has no rule for full, partial, or absent history loads |
@@ -150,8 +151,11 @@ MILESTONE-019 shall define:
 - invariant preservation after reconstruction;
 - rejection atomicity after reconstruction;
 - separation between reconstruction contracts and public behavior methods;
+- validation-versus-trust classification for restored state;
+- malformed-state rejection expectations;
+- defensive-copying expectations for restored collections and histories;
 - repository/schema neutrality rules;
-- test expectations for any later implementation milestone.
+- unit-test expectations for any later implementation milestone.
 
 MILESTONE-019 shall not implement any code or select a physical persistence model.
 
@@ -177,8 +181,10 @@ MILESTONE-019 must not include:
 
 - source code;
 - aggregate implementation changes;
+- concrete state-record implementation;
 - schemas, tables, columns, migrations, or ORM mappings;
 - repository interfaces or concrete repositories;
+- unit of work design or transaction-boundary design;
 - SQLAlchemy domain mappings;
 - object-storage layout;
 - APIs;
@@ -219,6 +225,21 @@ The future design must decide whether reconstruction is expressed as:
 - separate domain-state loader contract;
 - other persistence-neutral approach.
 
+The future design must compare each viable location option against:
+
+- encapsulation;
+- authority control;
+- type safety;
+- domain purity;
+- testability;
+- aggregate coupling;
+- generic-abstraction risk;
+- persistence leakage;
+- public API impact;
+- frozen-behavior compatibility.
+
+No generic public `from_state` or `reconstruct` API may be selected without explicit authority analysis. Ordinary application code must not be able to fabricate aggregate state through an unrestricted public convenience constructor.
+
 The selected approach must:
 
 - avoid calling public lifecycle methods to rebuild historical state;
@@ -242,15 +263,28 @@ MILESTONE-019 must define:
 
 No database locking, isolation level, transaction boundary, or repository method may be designed by this milestone.
 
+MILESTONE-019 must preserve this concurrency separation:
+
+- reconstruction restores the current `AggregateVersion`;
+- reconstruction itself performs no optimistic-concurrency check;
+- persistence must not increment versions during load;
+- expected-version save behavior remains deferred to a later repository-contract milestone;
+- malformed restored versions belong to reconstruction validation.
+
 ## 15. Transition-History Considerations
 
 MILESTONE-019 must define:
 
+- whether `TransitionSequence` in aggregate state represents the next sequence or the latest consumed sequence;
 - whether transition history is mandatory for reconstruction;
 - whether partial history is allowed for command handling;
+- whether empty history is allowed for any non-initial lifecycle state;
 - how `next_transition_sequence` is derived or restored;
 - how transition record identity references are restored;
 - how lifecycle state and final transition history are checked for consistency;
+- how duplicate, missing, out-of-order, or gapped transition sequences are handled;
+- whether lifecycle path validity is locally verified or trusted from persistence;
+- whether transition records are defensively copied on reconstruction;
 - how missing or inconsistent transition history is reported in a future implementation;
 - whether transition history remains historical data only and not an outbox/event stream.
 
@@ -267,7 +301,80 @@ MILESTONE-019 must define ordered restoration semantics for:
 
 The design must specify whether order is persisted explicitly, derived from insertion order, or supplied by a future repository contract, without defining schema columns.
 
-## 17. Domain/Persistence Separation
+The design must also specify:
+
+- Run manifest duplicate rules and `current_manifest` derivation;
+- Criterion Result criterion-identity uniqueness and Evidence Package identity matching;
+- ArtifactReference exact-value duplicate handling;
+- ReviewFinding positive sequence validation and whether sequences must be contiguous or merely ordered;
+- that reconstruction must not silently sort, normalize, deduplicate, merge, or overwrite persisted collection contents.
+
+## 17. Terminal Metadata Considerations
+
+MILESTONE-019 must define terminal metadata restoration expectations for:
+
+| Aggregate | Terminal metadata question |
+| --- | --- |
+| Campaign | Whether transition history alone carries completion/cancellation reasons and whether hidden owner or authority state remains absent |
+| Run | Whether failure/cancellation reasons are transition-history-only and how terminal execution completion is represented |
+| Evidence Package | Whether invalidation reason is transition-history-only and how sealed contents remain immutable |
+| Review | Completed disposition, final rationale, cancellation reason, and invalid combinations with non-terminal states |
+
+Malformed combinations must be rejected or explicitly classified as trusted-state assumptions. The design must not invent hidden authority, archive, Audit, Decision Candidate, or Decision Freeze state while solving terminal metadata.
+
+## 18. Validation and Trust Boundary
+
+MILESTONE-019 must classify every reconstruction check as exactly one:
+
+- STRUCTURAL VALIDATION: locally checkable type and shape rules;
+- INTERNAL CONSISTENCY VALIDATION: locally checkable relationships among restored fields;
+- TRUSTED HISTORICAL FACT: facts accepted from the persistence source of truth because the aggregate cannot independently prove them;
+- DEFERRED CROSS-AGGREGATE VALIDATION: checks requiring another aggregate, read model, repository, governance registry, storage service, or future application service.
+
+Required structural validation questions include:
+
+- canonical identity types;
+- lifecycle enum types;
+- `AggregateVersion`;
+- `TransitionSequence`;
+- `StateTransitionRecord`;
+- owned collection element types;
+- optional-value types.
+
+Required internal consistency validation questions include:
+
+- history sequence ordering;
+- history aggregate identity matching;
+- final history state versus restored current state;
+- next sequence versus latest history sequence;
+- version sufficiency for restored mutations;
+- `current_manifest` derivation from ordered manifests;
+- Review finding sequence ordering;
+- duplicate rules for owned collections;
+- terminal metadata compatibility with lifecycle state.
+
+Historical truth questions that cannot be proven locally must not be disguised as validation. Examples include whether every historical timestamp is true, whether every actor had authority, whether every prior command input is available, and whether every version increment can be externally explained without a full command log.
+
+## 19. State-Representation Relationship
+
+MILESTONE-019 must explicitly resolve this design question:
+
+```text
+Can the reconstruction contract be completed using field-level requirements only,
+or are persistence-neutral immutable state records required as part of the design?
+```
+
+The scope authorizes deciding the relationship between reconstruction contracts and persistence-neutral state representation, but it does not authorize implementing state-record classes.
+
+Allowed outcomes for the future design:
+
+- CONTRACT-ONLY: field-level requirements are sufficient and concrete state records are deferred;
+- CONTRACT-PLUS-STATE-DESIGN: immutable persistence-neutral state record shapes are designed in documentation only;
+- STATE-DESIGN-DEFERRED: M019 records that a separate state-record design milestone is required before repository contracts.
+
+Any outcome that creates source code, dataclasses, protocols, repository interfaces, schemas, mapper code, or migrations is out of scope.
+
+## 20. Domain/Persistence Separation
 
 The selected M019 scope must preserve these boundary rules:
 
@@ -279,7 +386,7 @@ The selected M019 scope must preserve these boundary rules:
 - aggregate reconstruction does not imply campaign execution, validation execution, or authorization execution;
 - PostgreSQL remains future metadata source of truth only at the architecture level, not a domain import or schema design.
 
-## 18. Required Design Questions
+## 21. Required Design Questions
 
 MILESTONE-019 must answer:
 
@@ -292,9 +399,14 @@ MILESTONE-019 must answer:
 7. How are terminal states restored without making them mutable?
 8. How are versions and transition sequences restored without incrementing?
 9. How does reconstruction preserve rejection atomicity for later commands?
-10. What remains deferred to repository, schema, and mapper milestones?
+10. What structural validation, internal consistency validation, trusted historical facts, and deferred cross-aggregate checks exist?
+11. How are malformed restored states reported without introducing infrastructure exceptions?
+12. How are restored histories and collections defensively copied?
+13. What is the relationship between the reconstruction contract and persistence-neutral state records?
+14. What unit-test strategy is required for future reconstruction implementation?
+15. What remains deferred to repository, schema, mapper, transaction, and Unit-of-Work milestones?
 
-## 19. Risks
+## 22. Risks
 
 | Risk | Severity | Mitigation required in M019 |
 | --- | --- | --- |
@@ -306,8 +418,11 @@ MILESTONE-019 must answer:
 | Scope expands to all persistence | CRITICAL | Stop if repository contracts, schemas, migrations, mappers, or runtime composition are introduced |
 | Owned collection ordering remains ambiguous | MINOR | Require collection-ordering policy for each owned collection |
 | Future optimistic concurrency remains underdefined | MINOR | Define version restoration and stale-version expectations without database design |
+| Validation and trust are conflated | MAJOR | Require explicit classification of local validation, trusted historical facts, and deferred cross-aggregate checks |
+| Reconstruction location is selected by convenience | MAJOR | Require option comparison before selecting classmethod, factory, protocol, or other approach |
+| State-record design is implemented prematurely | CRITICAL | Permit only documentation-level state relationship decisions; prohibit source state-record implementation |
 
-## 20. Validation Expectations
+## 23. Validation Expectations
 
 The M019 design mission must run the repository's current verification gates and keep the working tree limited to documentation:
 
@@ -324,7 +439,7 @@ git status --short
 
 No source file, test file, migration file, infrastructure file, or runtime configuration file may change during M019 design.
 
-## 21. Hostile-Review Criteria
+## 24. Hostile-Review Criteria
 
 The independent review for M019 must verify:
 
@@ -336,23 +451,31 @@ The independent review for M019 must verify:
 - no cross-aggregate behavior is introduced;
 - public constructors remain creation-oriented unless explicitly and safely differentiated from reconstruction;
 - terminal, version, sequence, and history semantics are preserved;
+- validation and trust boundaries are explicit;
+- reconstruction location options are compared before selection;
+- state-record relationship is resolved without implementation;
+- terminal metadata is covered for all four aggregates;
 - transition history is not reclassified as an event stream or outbox;
 - object-storage layout remains deferred;
 - the milestone does not begin Audit, Decision Candidate, Decision Freeze, or campaign execution behavior.
 
-## 22. Acceptance Gate
+## 25. Acceptance Gate
 
 MILESTONE-019 may be accepted only if:
 
-- it selects exactly one reconstruction-contract approach or records a bounded unresolved decision with a blocking status;
+- it selects exactly one reconstruction-contract approach or records a bounded unresolved decision with a blocking status after comparing reconstruction location options;
 - it defines aggregate-by-aggregate reconstruction state requirements;
+- it resolves the relationship between reconstruction contracts and persistence-neutral state representation;
+- it distinguishes local validation from trusted historical facts and deferred cross-aggregate checks;
+- it defines terminal metadata handling for all four aggregates;
+- it defines defensive-copying expectations and unit-test strategy for any future implementation;
 - it keeps persistence and storage concerns outside the domain model;
 - it clearly rejects premature repository, schema, migration, mapper, API, worker, outbox, and orchestration work;
 - it preserves M012-M018 frozen behavior;
 - it leaves source code unchanged;
 - all validation gates pass.
 
-## 23. Stop Conditions
+## 26. Stop Conditions
 
 Stop M019 immediately if:
 
@@ -364,7 +487,7 @@ Stop M019 immediately if:
 - Audit or Decision Candidate behavior becomes part of the scope;
 - a contradiction with M012-M018 frozen behavior cannot be resolved by documentation alone.
 
-## 24. Deferred Work
+## 27. Deferred Work
 
 Deferred beyond M019:
 
@@ -382,7 +505,7 @@ Deferred beyond M019:
 - Decision Freeze;
 - campaign execution and empirical validation behavior.
 
-## 25. Hostile Self-Review
+## 28. Review Issue Register
 
 | Issue ID | Severity | Finding | Correction | Status |
 | --- | --- | --- | --- | --- |
@@ -391,10 +514,15 @@ Deferred beyond M019:
 | M019-SCOPE-SELF-REVIEW-0003 | MINOR | Transition-history restoration could be underspecified. | Added a dedicated transition-history section and acceptance criteria. | Resolved |
 | M019-SCOPE-SELF-REVIEW-0004 | MINOR | A Campaign-only or Run-only bridge would leave the aggregate set inconsistent. | Required coverage of Campaign, Run, Evidence Package, and Review. | Resolved |
 | M019-SCOPE-SELF-REVIEW-0005 | MAJOR | State shape could be mistaken for physical schema. | Added persistence-neutrality rules and a stop condition against table/column/ORM design. | Resolved |
+| M019-SCOPE-REVIEW-ISSUE-0001 | MAJOR | Original scope did not explicitly require validation-versus-trust classification. | Added Section 18 and acceptance-gate requirements for structural validation, internal consistency validation, trusted historical facts, and deferred cross-aggregate validation. | Resolved |
+| M019-SCOPE-REVIEW-ISSUE-0002 | MAJOR | Original scope listed reconstruction location options but did not require option evaluation criteria or public API authority review. | Added option comparison criteria and a prohibition on unrestricted public `from_state` or `reconstruct` APIs. | Resolved |
+| M019-SCOPE-REVIEW-ISSUE-0003 | MAJOR | Original scope did not explicitly resolve whether persistence-neutral state records are included in M019 design or deferred. | Added Section 19 requiring an explicit documentation-only state-representation relationship decision. | Resolved |
+| M019-SCOPE-REVIEW-ISSUE-0004 | MINOR | Original scope did not separately call out terminal metadata for each aggregate. | Added Section 17 with aggregate-specific terminal metadata questions. | Resolved |
+| M019-SCOPE-REVIEW-ISSUE-0005 | MINOR | Original scope did not explicitly require defensive copying and unit-test strategy. | Added defensive-copying and unit-test strategy requirements in Sections 9, 21, and 25. | Resolved |
 
 No MAJOR or CRITICAL self-review issue remains open.
 
-## 26. Final Decision
+## 29. Final Decision
 
 The next bounded post-domain milestone is:
 
