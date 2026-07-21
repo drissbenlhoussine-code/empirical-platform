@@ -303,6 +303,178 @@ def test_campaign_reconstruction_restores_terminal_history_without_scope_revisio
         campaign.revise_scope_statement(CampaignScopeStatement("late"))
 
 
+def test_campaign_reconstruction_rejects_missing_required_transition_reasons() -> None:
+    identity = _campaign_identity()
+    required_reason_edges = (
+        ("READY_FOR_AUTHORIZATION", "AUTHORIZED", CampaignLifecycleState.AUTHORIZED),
+        ("AUTHORIZED", "ACTIVE", CampaignLifecycleState.ACTIVE),
+        ("ACTIVE", "SUSPENDED", CampaignLifecycleState.SUSPENDED),
+        ("SUSPENDED", "ACTIVE", CampaignLifecycleState.ACTIVE),
+        ("ACTIVE", "COMPLETED", CampaignLifecycleState.COMPLETED),
+        ("AUTHORIZED", "CANCELLED", CampaignLifecycleState.CANCELLED),
+        ("ACTIVE", "CANCELLED", CampaignLifecycleState.CANCELLED),
+        ("SUSPENDED", "CANCELLED", CampaignLifecycleState.CANCELLED),
+    )
+
+    prefix_by_from_state: dict[str, tuple[StateTransitionRecord[DomainIdentity[Any]], ...]] = {
+        "READY_FOR_AUTHORIZATION": (
+            _record(
+                identity=identity,
+                from_state="DRAFT",
+                to_state="READY_FOR_AUTHORIZATION",
+                version=1,
+                sequence=1,
+            ),
+        ),
+        "AUTHORIZED": (
+            _record(
+                identity=identity,
+                from_state="DRAFT",
+                to_state="READY_FOR_AUTHORIZATION",
+                version=1,
+                sequence=1,
+            ),
+            _record(
+                identity=identity,
+                from_state="READY_FOR_AUTHORIZATION",
+                to_state="AUTHORIZED",
+                version=2,
+                sequence=2,
+                reason="authorization accepted",
+            ),
+        ),
+        "ACTIVE": (
+            _record(
+                identity=identity,
+                from_state="DRAFT",
+                to_state="READY_FOR_AUTHORIZATION",
+                version=1,
+                sequence=1,
+            ),
+            _record(
+                identity=identity,
+                from_state="READY_FOR_AUTHORIZATION",
+                to_state="AUTHORIZED",
+                version=2,
+                sequence=2,
+                reason="authorization accepted",
+            ),
+            _record(
+                identity=identity,
+                from_state="AUTHORIZED",
+                to_state="ACTIVE",
+                version=3,
+                sequence=3,
+                reason="activation accepted",
+            ),
+        ),
+        "SUSPENDED": (
+            _record(
+                identity=identity,
+                from_state="DRAFT",
+                to_state="READY_FOR_AUTHORIZATION",
+                version=1,
+                sequence=1,
+            ),
+            _record(
+                identity=identity,
+                from_state="READY_FOR_AUTHORIZATION",
+                to_state="AUTHORIZED",
+                version=2,
+                sequence=2,
+                reason="authorization accepted",
+            ),
+            _record(
+                identity=identity,
+                from_state="AUTHORIZED",
+                to_state="ACTIVE",
+                version=3,
+                sequence=3,
+                reason="activation accepted",
+            ),
+            _record(
+                identity=identity,
+                from_state="ACTIVE",
+                to_state="SUSPENDED",
+                version=4,
+                sequence=4,
+                reason="pause",
+            ),
+        ),
+    }
+
+    for from_state, to_state, restored_state in required_reason_edges:
+        prefix = prefix_by_from_state[from_state]
+        history = (
+            *prefix,
+            _record(
+                identity=identity,
+                from_state=from_state,
+                to_state=to_state,
+                version=len(prefix) + 1,
+                sequence=len(prefix) + 1,
+            ),
+        )
+        with pytest.raises(ReconstructionError) as exc_info:
+            _reconstruct_campaign(
+                CampaignReconstructionState(
+                    identity=identity,
+                    scope_statement=CampaignScopeStatement("current scope"),
+                    state=restored_state,
+                    version=AggregateVersion(len(history)),
+                    next_transition_sequence=TransitionSequence(len(history) + 1),
+                    transition_history=history,
+                )
+            )
+        assert exc_info.value.category is ReconstructionErrorCategory.INCONSISTENT_TERMINAL_METADATA
+
+
+def test_campaign_reconstruction_allows_optional_pre_authorization_reasons() -> None:
+    identity = _campaign_identity()
+    ready_history = (
+        _record(
+            identity=identity,
+            from_state="DRAFT",
+            to_state="READY_FOR_AUTHORIZATION",
+            version=1,
+            sequence=1,
+        ),
+    )
+    cancelled_history = (
+        _record(
+            identity=identity,
+            from_state="READY_FOR_AUTHORIZATION",
+            to_state="CANCELLED",
+            version=2,
+            sequence=2,
+        ),
+    )
+
+    ready = _reconstruct_campaign(
+        CampaignReconstructionState(
+            identity=identity,
+            scope_statement=CampaignScopeStatement("ready scope"),
+            state=CampaignLifecycleState.READY_FOR_AUTHORIZATION,
+            version=AggregateVersion(1),
+            next_transition_sequence=TransitionSequence(2),
+            transition_history=ready_history,
+        )
+    )
+    cancelled = _reconstruct_campaign(
+        CampaignReconstructionState(
+            identity=identity,
+            scope_statement=CampaignScopeStatement("cancelled scope"),
+            state=CampaignLifecycleState.CANCELLED,
+            version=AggregateVersion(2),
+            next_transition_sequence=TransitionSequence(3),
+            transition_history=(*ready_history, *cancelled_history),
+        )
+    )
+
+    assert ready.transition_history[-1].reason is None
+    assert cancelled.transition_history[-1].reason is None
+
+
 def test_run_reconstruction_restores_manifest_order_and_current_manifest() -> None:
     identity = _run_identity()
     first = _manifest(source="first")

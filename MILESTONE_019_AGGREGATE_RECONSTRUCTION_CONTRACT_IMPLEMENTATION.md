@@ -199,8 +199,10 @@ python -m mypy
 Observed full-suite evidence before final report creation:
 
 - Python: `3.13.14`;
-- full test suite: `242 passed, 9 skipped`;
-- coverage: `91.90%`;
+- focused reconstruction and architecture tests: `25 passed`;
+- full test suite: `244 passed, 9 skipped`;
+- coverage: `91.93%`;
+- secret scan target count: `185`;
 - architecture checker: passed;
 - negative fixtures: passed;
 - build/import/version checks: passed.
@@ -216,6 +218,7 @@ Final validation must be rerun before commit.
 | M019-IMPLEMENTATION-ISSUE-0003 | MINOR | State-record annotations initially used `Iterable` after post-init tuple materialization. | Changed state fields to tuple annotations while preserving defensive runtime materialization. | Resolved |
 | M019-IMPLEMENTATION-ISSUE-0004 | MINOR | Focused tests initially missed several hostile malformed cases. | Added tests for terminal-following-history, identity mismatch, version floors, invalidated evidence, cancelled review, and unidentified manifests. | Resolved |
 | M019-IMPLEMENTATION-ISSUE-0005 | MAJOR | EvidencePackage history validation initially treated `SEALED` as a terminal lifecycle state, rejecting the frozen `SEALED -> INVALIDATED` transition path. | Changed EvidencePackage terminal-following validation so only `INVALIDATED` blocks later transitions. Sealed content immutability remains aggregate behavior, not terminal-history blocking. | Resolved |
+| M019-IMPLEMENTATION-ISSUE-0006 | MAJOR | Campaign reconstruction initially accepted histories missing reasons for frozen Campaign transitions that require reasons: authorization, activation, suspension, resume, completion, and post-authorization cancellation. | Added aggregate-specific Campaign transition reason validation and regression tests while preserving optional pre-authorization reason paths. | Resolved |
 
 No unresolved M019 implementation issue remains in this report.
 

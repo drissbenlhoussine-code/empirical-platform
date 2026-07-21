@@ -135,6 +135,24 @@ def _reconstruct_campaign(state: CampaignReconstructionState) -> Campaign:
 def _validate_campaign_terminal_reason(state: CampaignReconstructionState) -> None:
     if not state.transition_history:
         return
+    required_reason_edges = {
+        ("READY_FOR_AUTHORIZATION", "AUTHORIZED"),
+        ("AUTHORIZED", "ACTIVE"),
+        ("ACTIVE", "SUSPENDED"),
+        ("SUSPENDED", "ACTIVE"),
+        ("ACTIVE", "COMPLETED"),
+        ("AUTHORIZED", "CANCELLED"),
+        ("ACTIVE", "CANCELLED"),
+        ("SUSPENDED", "CANCELLED"),
+    }
+    for record in state.transition_history:
+        if (record.from_state or "", record.to_state) in required_reason_edges:
+            if record.reason is None:
+                raise ReconstructionError(
+                    ReconstructionErrorCategory.INCONSISTENT_TERMINAL_METADATA,
+                    "Campaign transition requires a reason",
+                    field="transition_history",
+                )
     final_record = state.transition_history[-1]
     if state.state is CampaignLifecycleState.CANCELLED and final_record.from_state in {
         "AUTHORIZED",
