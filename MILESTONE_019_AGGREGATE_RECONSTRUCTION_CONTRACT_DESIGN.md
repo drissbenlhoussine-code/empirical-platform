@@ -7,7 +7,7 @@
 | Document ID | MILESTONE-019 |
 | Title | Aggregate Reconstruction Contract Design |
 | Version | 1.0 |
-| Status | DESIGN READY FOR INDEPENDENT REVIEW |
+| Status | APPROVED AND FROZEN |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Design baseline | `4d0deed0e5b9a844e3c14400aec84ba85385fc63` |
 | Scope authority | `MILESTONE_019_AGGREGATE_RECONSTRUCTION_CONTRACT_SCOPE_SELECTION.md` |
@@ -97,14 +97,22 @@ Aggregate-specific internal reconstructor/factory
 
 Future implementation may introduce package-internal reconstructors, conceptually:
 
-- Campaign internal reconstructor;
-- Run internal reconstructor;
-- EvidencePackage internal reconstructor;
-- Review internal reconstructor.
+- `empirical_platform.campaign._reconstruction`;
+- `empirical_platform.run._reconstruction`;
+- `empirical_platform.evidence._reconstruction`;
+- `empirical_platform.review._reconstruction`.
 
 The reconstructors are trusted domain-side construction helpers. They receive persistence-neutral state data, validate it, allocate a fully restored aggregate, set its internal state atomically, and return the aggregate without invoking public behavior methods.
 
 The design does not require a shared generic reconstruction protocol. Each aggregate has distinct owned state and terminal metadata, so generic reconstruction would add abstraction before evidence supports it.
+
+Factory placement rules:
+
+- reconstruction modules are not exported from public package `__init__.py` files;
+- aggregate modules may be imported by reconstruction modules, but aggregate modules must not import reconstruction modules;
+- reconstruction modules may import only same-package aggregate objects, lifecycle/value types required by the aggregate, `identifiers`, and `shared.domain`;
+- reconstruction modules must not import `shared.persistence`, PostgreSQL adapters, SQLAlchemy, psycopg, object-storage adapters, runtime composition, repositories, mappers, APIs, workers, or tests;
+- future architecture checker updates must prevent public/domain callers from importing reconstruction modules outside the authorized implementation boundary.
 
 ## 8. Authority Model
 
@@ -154,16 +162,18 @@ M019 designs documentation-level, persistence-neutral, aggregate-specific state 
 
 Documentation-level record names:
 
-| Record | Purpose |
-| --- | --- |
-| `CampaignReconstructionState` | Complete Campaign restoration input |
-| `RunReconstructionState` | Complete Run restoration input |
-| `EvidencePackageReconstructionState` | Complete Evidence Package restoration input |
-| `ReviewReconstructionState` | Complete Review restoration input |
+| Record | Purpose | Future concrete representation |
+| --- | --- | --- |
+| `CampaignReconstructionState` | Complete Campaign restoration input | May be implemented together with reconstructors in one later bounded milestone |
+| `RunReconstructionState` | Complete Run restoration input | May be implemented together with reconstructors in one later bounded milestone |
+| `EvidencePackageReconstructionState` | Complete Evidence Package restoration input | May be implemented together with reconstructors in one later bounded milestone |
+| `ReviewReconstructionState` | Complete Review restoration input | May be implemented together with reconstructors in one later bounded milestone |
 
 These are not implementation classes. A later implementation milestone may choose dataclasses, typed dicts, protocols, or another Python representation after independent review.
 
 The state records are aggregate-specific because the four aggregates do not share the same collections, terminal metadata, or context identity.
+
+No separate state-record design milestone is required before reconstruction implementation scope selection. The next implementation scope may include concrete aggregate-specific immutable state-record classes and internal reconstructors together, provided it remains bounded to reconstruction and does not introduce repositories, schemas, mappers, persistence adapters, or runtime behavior.
 
 ## 11. Shared Contract
 
@@ -193,14 +203,14 @@ Shared guarantees:
 
 Documentation-level `CampaignReconstructionState` fields:
 
-| Field | Classification | Rule |
-| --- | --- | --- |
-| `identity: DomainIdentity[CampaignId]` | STRUCTURALLY VALIDATED | Governance ID must be `CampaignId` |
-| `scope_statement: CampaignScopeStatement` | STRUCTURALLY VALIDATED | Must be valid current scope statement |
-| `state: CampaignLifecycleState` | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
-| `version: AggregateVersion` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be non-negative and sufficient for visible restored state |
-| `next_transition_sequence: TransitionSequence` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow transition-history rule |
-| `transition_history` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered tuple of Campaign transition records |
+| Field | Required? | Derived? | Classification | Rule |
+| --- | --- | --- | --- | --- |
+| `identity: DomainIdentity[CampaignId]` | Yes | No | STRUCTURALLY VALIDATED | Governance ID must be `CampaignId` |
+| `scope_statement: CampaignScopeStatement` | Yes | No | STRUCTURALLY VALIDATED | Must be valid current scope statement |
+| `state: CampaignLifecycleState` | Yes | No | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
+| `version: AggregateVersion` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be non-negative and sufficient for visible restored state |
+| `next_transition_sequence: TransitionSequence` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow transition-history rule |
+| `transition_history: tuple[StateTransitionRecord[DomainIdentity[CampaignId]], ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered tuple of Campaign transition records |
 
 Lifecycle transition path:
 
@@ -210,7 +220,7 @@ ACTIVE -> COMPLETED
 DRAFT/READY_FOR_AUTHORIZATION/AUTHORIZED/ACTIVE/SUSPENDED -> CANCELLED
 ```
 
-Empty history is compatible only with `DRAFT`, version `0`, next sequence `1`, unless a future data migration is explicitly documented. Campaign scope revisions are not reconstructable as historical records because the current aggregate stores only the current `CampaignScopeStatement`; reconstruction must not invent scope-revision audit history.
+Empty history is compatible only with `DRAFT` and next sequence `1`, unless a future data migration is explicitly documented. Version may be `0` or positive while still `DRAFT`, because prior `revise_scope_statement` calls increment version without lifecycle history. Positive `DRAFT` version with empty history is a TRUSTED HISTORICAL FACT representing prior scope revisions that are no longer individually reconstructable. Campaign scope revisions are not reconstructable as historical records because the current aggregate stores only the current `CampaignScopeStatement`; reconstruction must not invent scope-revision audit history.
 
 Campaign terminal reasons live only in transition history. No hidden owner, authorization, archive, Audit, or Decision Candidate state is restored.
 
@@ -218,15 +228,16 @@ Campaign terminal reasons live only in transition history. No hidden owner, auth
 
 Documentation-level `RunReconstructionState` fields:
 
-| Field | Classification | Rule |
-| --- | --- | --- |
-| `identity: DomainIdentity[RunId]` | STRUCTURALLY VALIDATED | Governance ID must be `RunId` |
-| `campaign_id: CampaignId` | STRUCTURALLY VALIDATED | Immutable context only; no Campaign lookup |
-| `state: RunLifecycleState` | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
-| `manifests` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `DatasetManifest` values |
-| `version: AggregateVersion` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be sufficient for restored lifecycle and manifests |
-| `next_transition_sequence: TransitionSequence` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow history rule |
-| `transition_history` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered Run transition records |
+| Field | Required? | Derived? | Classification | Rule |
+| --- | --- | --- | --- | --- |
+| `identity: DomainIdentity[RunId]` | Yes | No | STRUCTURALLY VALIDATED | Governance ID must be `RunId` |
+| `campaign_id: CampaignId` | Yes | No | STRUCTURALLY VALIDATED | Immutable context only; no Campaign lookup |
+| `state: RunLifecycleState` | Yes | No | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
+| `manifests: tuple[DatasetManifest, ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `DatasetManifest` values |
+| `current_manifest` | No | Yes | INTERNALLY CONSISTENCY-VALIDATED | Derived as last manifest or `None`; must not be supplied |
+| `version: AggregateVersion` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be sufficient for restored lifecycle and manifests |
+| `next_transition_sequence: TransitionSequence` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow history rule |
+| `transition_history: tuple[StateTransitionRecord[DomainIdentity[RunId]], ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered Run transition records |
 
 Run lifecycle path:
 
@@ -251,16 +262,16 @@ Run failure/cancellation reasons live only in transition history. `EXECUTION_COM
 
 Documentation-level `EvidencePackageReconstructionState` fields:
 
-| Field | Classification | Rule |
-| --- | --- | --- |
-| `identity: DomainIdentity[EvidencePackageId]` | STRUCTURALLY VALIDATED | Governance ID must be `EvidencePackageId` |
-| `run_id: RunId` | STRUCTURALLY VALIDATED | Immutable Run context only; no Run lookup |
-| `state: EvidencePackageLifecycleState` | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
-| `criterion_results` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `CriterionResult` values |
-| `artifact_references` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `ArtifactReference` values |
-| `version: AggregateVersion` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be sufficient for restored lifecycle and contents |
-| `next_transition_sequence: TransitionSequence` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow history rule |
-| `transition_history` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered Evidence Package transition records |
+| Field | Required? | Derived? | Classification | Rule |
+| --- | --- | --- | --- | --- |
+| `identity: DomainIdentity[EvidencePackageId]` | Yes | No | STRUCTURALLY VALIDATED | Governance ID must be `EvidencePackageId` |
+| `run_id: RunId` | Yes | No | STRUCTURALLY VALIDATED | Immutable Run context only; no Run lookup |
+| `state: EvidencePackageLifecycleState` | Yes | No | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
+| `criterion_results: tuple[CriterionResult, ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `CriterionResult` values |
+| `artifact_references: tuple[ArtifactReference, ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `ArtifactReference` values |
+| `version: AggregateVersion` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be sufficient for restored lifecycle and contents |
+| `next_transition_sequence: TransitionSequence` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow history rule |
+| `transition_history: tuple[StateTransitionRecord[DomainIdentity[EvidencePackageId]], ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered Evidence Package transition records |
 
 Lifecycle path:
 
@@ -287,19 +298,20 @@ Lifecycle/content compatibility:
 
 Documentation-level `ReviewReconstructionState` fields:
 
-| Field | Classification | Rule |
-| --- | --- | --- |
-| `identity: DomainIdentity[ReviewId]` | STRUCTURALLY VALIDATED | Governance ID must be `ReviewId` |
-| `target: ReviewTargetReference` | STRUCTURALLY VALIDATED | Evidence Package target only |
-| `reviewer: ReviewerReference` | STRUCTURALLY VALIDATED | Opaque non-empty reviewer reference |
-| `state: ReviewLifecycleState` | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
-| `findings` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `ReviewFinding` values |
-| `disposition` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Required only when completed |
-| `final_disposition_rationale` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Required only when completed |
-| `cancellation_reason` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Required only when cancelled |
-| `version: AggregateVersion` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be sufficient for restored lifecycle and findings |
-| `next_transition_sequence: TransitionSequence` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow history rule |
-| `transition_history` | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered Review transition records |
+| Field | Required? | Derived? | Classification | Rule |
+| --- | --- | --- | --- | --- |
+| `identity: DomainIdentity[ReviewId]` | Yes | No | STRUCTURALLY VALIDATED | Governance ID must be `ReviewId` |
+| `target: ReviewTargetReference` | Yes | No | STRUCTURALLY VALIDATED | Evidence Package target only |
+| `reviewer: ReviewerReference` | Yes | No | STRUCTURALLY VALIDATED | Opaque non-empty reviewer reference |
+| `state: ReviewLifecycleState` | Yes | No | STRUCTURALLY VALIDATED | Must be canonical lifecycle state |
+| `findings: tuple[ReviewFinding, ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered `ReviewFinding` values |
+| `next_finding_sequence` | No | Yes | INTERNALLY CONSISTENCY-VALIDATED | Derived as max finding sequence plus one, or `1` when empty; must not be supplied |
+| `disposition: ReviewDisposition | None` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Required only when completed |
+| `final_disposition_rationale: str | None` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Required only when completed |
+| `cancellation_reason: str | None` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Required only when cancelled |
+| `version: AggregateVersion` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must be sufficient for restored lifecycle and findings |
+| `next_transition_sequence: TransitionSequence` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Must follow history rule |
+| `transition_history: tuple[StateTransitionRecord[DomainIdentity[ReviewId]], ...]` | Yes | No | STRUCTURALLY VALIDATED and INTERNALLY CONSISTENCY-VALIDATED | Ordered Review transition records |
 
 Lifecycle path:
 
@@ -346,6 +358,17 @@ Minimum version rule:
 
 This is an internal consistency floor, not a reconstruction of the full mutation count. Historical version truth beyond visible aggregate state remains trusted from persistence.
 
+Aggregate-specific floors:
+
+| Aggregate | Minimum accepted version |
+| --- | --- |
+| Campaign | `0` for `DRAFT` with empty history; highest transition record version for lifecycle history; positive `DRAFT` with empty history allowed as trusted prior scope revision |
+| Run | maximum of highest transition record version and manifest count |
+| EvidencePackage | maximum of highest transition record version and count of Criterion Results plus ArtifactReferences added as content mutations |
+| Review | maximum of highest transition record version and finding count |
+
+These floors reject impossible under-versioned state without requiring exact historical mutation reconstruction.
+
 ## 17. Sequence Rules
 
 Canonical decision:
@@ -374,6 +397,7 @@ Every supplied `StateTransitionRecord` must be structurally valid and internally
 - record type is canonical;
 - identity reference is absent or matches the aggregate identity;
 - `from_state` and `to_state` are valid lifecycle values for the aggregate;
+- the first history record starts from the aggregate's canonical initial lifecycle state;
 - transition is allowed by the frozen lifecycle matrix;
 - sequence order follows Section 17;
 - record version is an `AggregateVersion`;
@@ -385,6 +409,8 @@ Every supplied `StateTransitionRecord` must be structurally valid and internally
 Timestamp monotonicity is not required. The repository currently does not prove a monotonic timestamp invariant, and reconstructors must not invent one.
 
 Transition history is not an event-sourcing stream. It is historical lifecycle data only and cannot be replayed to restore content mutations.
+
+Non-initial lifecycle state with empty history is rejected for all four aggregates. The only empty-history states are Campaign `DRAFT`, Run `CREATED`, EvidencePackage `INITIALIZED`, and Review `ASSIGNED`, subject to version and content compatibility rules.
 
 ## 19. Collection Validation
 
@@ -435,13 +461,23 @@ Review:
 | `COMPLETED` | set | set | unset |
 | `CANCELLED` | unset | unset | set |
 
+Review `COMPLETED` also requires at least one finding, matching frozen completion behavior. Review `CANCELLED` may have zero or more findings because cancellation is allowed from both `ASSIGNED` and `IN_PROGRESS`.
+
 No terminal metadata may be invented during reconstruction.
 
 ## 21. Error Model
 
-M019 designs conceptual reconstruction errors only. No source errors are implemented.
+M019 designs the future error shape only. No source errors are implemented.
 
-Future reconstruction errors should be domain-level and persistence-neutral:
+Selected future error model:
+
+```text
+one common ReconstructionError with a required reason/category enum
+```
+
+The common error keeps caller handling simple and persistence-neutral while avoiding a large aggregate-specific exception tree before implementation evidence exists. The reason/category enum must be specific enough for focused tests.
+
+Future reconstruction errors must use these categories:
 
 | Error category | Meaning |
 | --- | --- |
@@ -458,6 +494,8 @@ Future reconstruction errors should be domain-level and persistence-neutral:
 | `UnauthorizedReconstructionPath` | reconstruction was attempted outside the approved internal boundary |
 
 Database, ORM, SQLAlchemy, psycopg, S3, object-storage, and runtime exceptions must not appear in domain reconstruction errors.
+
+No separate error-model design milestone is required before implementation scope selection.
 
 ## 22. Defensive Copying
 
@@ -484,6 +522,8 @@ Future implementation should not add unrestricted public `from_state` methods to
 
 The reconstruction path must not appear in normal creation examples, public README usage, command-handler examples, or ordinary application-service flows.
 
+Public package `__init__.py` files must not re-export reconstruction state records, factories, or errors unless a later review explicitly proves a public reconstruction surface is required. The default public API impact is therefore zero.
+
 ## 24. Testing Strategy
 
 Future implementation tests must cover:
@@ -497,6 +537,8 @@ Successful reconstruction:
 - exact next-sequence preservation;
 - exact transition-history preservation;
 - continued mutation after reconstruction uses restored version and sequence correctly.
+
+Tests should assert public aggregate state for externally visible behavior and may inspect internal slots only in reconstruction-specific tests where no public property exists for required internal state, such as Review `_next_finding_sequence`. Private-field assertions must remain isolated to reconstruction tests and must not become normal aggregate behavior tests.
 
 Malformed state:
 
@@ -585,6 +627,12 @@ Deferred:
 | M019-DESIGN-ISSUE-0004 | MINOR | 18 | Timestamp ordering was tempting but not proven. | Could reject valid historical data. | Explicitly rejected monotonicity requirement. | Resolved |
 | M019-DESIGN-ISSUE-0005 | MINOR | 20 | Campaign cancellation reason differs before and after authorization. | Could overreject draft cancellations. | Terminal matrix distinguishes pre- and post-authorization cancellation. | Resolved |
 | M019-DESIGN-ISSUE-0006 | MAJOR | 19 | Review findings needed exact sequence policy. | Could allow inconsistent `_next_finding_sequence`. | Required positive, strictly increasing, contiguous sequences. | Resolved |
+| M019-DESIGN-REVIEW-ISSUE-0001 | MAJOR | 7 | Factory placement was conceptual and did not identify exact future module convention. | Implementation could invent package locations and public export behavior. | Added exact `_reconstruction` module paths, no-re-export rule, and architecture-checker expectations. | Resolved |
+| M019-DESIGN-REVIEW-ISSUE-0002 | MAJOR | 10-15 | Documentation-level state records did not state required/derived field status and exact tuple types. | Implementation could invent state-record optionality and derived fields. | Added required/derived columns and exact conceptual field types for all four states. | Resolved |
+| M019-DESIGN-REVIEW-ISSUE-0003 | MAJOR | 12, 16 | Campaign `DRAFT` with prior scope revisions was incorrectly constrained to version `0` when history is empty. | Would reject historically valid Campaign state after DRAFT scope revisions. | Allowed positive `DRAFT` version with empty history as trusted prior scope-revision fact. | Resolved |
+| M019-DESIGN-REVIEW-ISSUE-0004 | MAJOR | 18 | First-history origin and non-initial empty-history rules were not explicit. | Implementation could accept impossible lifecycle histories. | Required first record from canonical initial state and rejected non-initial empty history. | Resolved |
+| M019-DESIGN-REVIEW-ISSUE-0005 | MINOR | 21 | Error model categories existed, but the future shape was not selected. | Implementation could invent exception hierarchy. | Selected one common `ReconstructionError` with required reason/category enum. | Resolved |
+| M019-DESIGN-REVIEW-ISSUE-0006 | MINOR | 24 | Testing strategy did not say whether private-field inspection is permitted. | Tests could either miss internal restoration or overcouple broadly. | Limited private-field assertions to reconstruction-specific tests when no public property exists. | Resolved |
 
 No MAJOR or CRITICAL self-review issue remains open.
 
@@ -596,7 +644,9 @@ No MAJOR or CRITICAL self-review issue remains open.
 | All four aggregate contracts complete | PASS |
 | Reconstruction authority selected | PASS |
 | Reconstruction location selected | PASS |
+| Exact factory placement defined | PASS |
 | State-representation relationship selected | PASS |
+| State-record field optionality and derived fields complete | PASS |
 | Validation/trust rules explicit | PASS |
 | Version rules explicit | PASS |
 | Sequence rules explicit | PASS |
@@ -616,5 +666,5 @@ MILESTONE-019 selects aggregate-specific internal reconstructors/factories, back
 Final status:
 
 ```text
-DESIGN READY FOR INDEPENDENT REVIEW
+APPROVED AND FROZEN
 ```
