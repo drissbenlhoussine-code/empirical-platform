@@ -138,12 +138,16 @@ It is not implementation, schema design, mapper design, runtime integration, rep
 In scope:
 
 - repository contract purpose and placement;
+- repository contract layer-location comparison;
 - aggregate coverage and identity inputs;
+- synchronous versus asynchronous contract shape;
 - load/not-found semantics;
+- load identity shape, locking, tracking, and caching semantics;
 - create/update/save semantics;
 - duplicate identity semantics;
 - optimistic-concurrency contract;
 - expected persisted version semantics;
+- explicit aggregate-version vocabulary;
 - stale-write and create-conflict errors;
 - invalid persisted state boundary;
 - save result shape;
@@ -181,13 +185,20 @@ All-four coverage is justified because the repository/concurrency contract must 
 MILESTONE-020 must answer:
 
 - whether repositories are aggregate-specific, generic, or shared primitives plus aggregate-specific interfaces;
+- whether repository contracts are synchronous or asynchronous;
+- whether load accepts canonical `DomainIdentity[...]`, raw aggregate IDs, or aggregate-specific identity parameters;
 - whether load returns aggregate roots only;
 - whether repository interfaces expose reconstruction states;
 - whether `get`/`load` returns optional, result type, or raises not-found;
+- whether repository load behavior is tracked, detached, or explicitly outside identity-map semantics;
+- whether repository contracts include locking terms or defer lock mechanics to later implementation design;
+- whether repository contracts include cache semantics or explicitly prohibit cache assumptions;
 - whether `add` and `save` are separate;
 - whether update requires an expected persisted version;
 - whether create requires proof of non-existence;
 - whether unchanged save is allowed and what it returns;
+- whether repeated idempotent saves are valid, rejected, or implementation-defined;
+- whether save accepts an explicit transaction context or remains transaction-context-neutral;
 - whether delete is prohibited;
 - whether list/query/read-model operations are excluded;
 - whether cross-aggregate loading is prohibited;
@@ -204,6 +215,18 @@ MILESTONE-020 must evaluate:
 | Shared save/load primitives plus aggregate-specific interfaces | Balances consistency and domain specificity | Requires careful boundary to avoid a premature framework |
 
 No generic repository abstraction may be selected merely because operations look similar.
+
+MILESTONE-020 must also compare repository contract placement options:
+
+| Location option | Strength | Risk |
+| --- | --- | --- |
+| Aggregate domain packages | Keeps contracts next to aggregate vocabulary | May pull persistence-facing concerns into pure domain packages |
+| Application package | Keeps domain pure and expresses use-case-facing ownership | May create an application layer before use cases exist |
+| Shared persistence package | Reuses existing persistence boundary | Would likely leak aggregate concepts into infrastructure primitives |
+| New repository-contract package | Creates an explicit stable contract layer | Adds a package that must be justified by architecture rules |
+| Aggregate-specific repository packages | Preserves aggregate isolation and type clarity | May duplicate common contract concepts |
+
+The design must select or defer contract location with explicit dependency-direction reasoning. It must not rely on package convenience, and it must identify any future architecture-checker rule changes required by the selected location.
 
 ## 14. Concurrency Questions
 
@@ -223,6 +246,15 @@ MILESTONE-020 must define:
 
 The initial evidence favors domain-managed `AggregateVersion`: aggregate public behavior increments versions before save. Repository save must not increment aggregate versions unless a later design explicitly supersedes this.
 
+MILESTONE-020 must keep these version concepts distinct:
+
+- aggregate current domain version: the version currently held by the in-memory aggregate after domain behavior has run;
+- persisted version observed when loaded: the version known to have existed in storage at reconstruction/load time;
+- expected persisted version supplied on save: the caller-provided concurrency precondition for update;
+- new-aggregate no-persisted-version state: the create precondition for an aggregate that must not already exist.
+
+The design must explicitly reject or justify blind overwrite saves. It must also compare save result shapes including no return value, persisted-version return, typed save-result object, updated aggregate return, and repository-token return.
+
 ## 15. Reconstruction Integration
 
 The selected design must preserve this direction:
@@ -241,6 +273,8 @@ MILESTONE-020 must decide whether repository contracts know only aggregates and 
 - only authorized mapper/repository implementation code imports underscore reconstruction modules;
 - internal reconstruction factories remain absent from public exports.
 
+Reconstruction failures must be classified at the repository boundary. The design must decide whether malformed durable state becomes a contract-level invalid-persisted-state error, a wrapped reconstruction error, or another explicit result, without exposing `_reconstruction` modules through public repository contracts.
+
 ## 16. Error Taxonomy Boundary
 
 MILESTONE-020 must define contract-level errors or result states for:
@@ -253,6 +287,8 @@ MILESTONE-020 must define contract-level errors or result states for:
 - persistence unavailable or infrastructure failure.
 
 It must distinguish domain-facing contract errors from infrastructure-specific SQLAlchemy, psycopg, PostgreSQL, network, and health errors. Reconstruction errors may be wrapped or propagated only after the design selects a safe boundary.
+
+Save-result design must account for successful create, successful update, unchanged save, stale-write rejection, duplicate-create rejection, invalid-persisted-state rejection, and infrastructure failure without requiring schema or SQL design.
 
 ## 17. Architecture Boundary
 
@@ -268,6 +304,7 @@ MILESTONE-020 may propose future architecture-checker changes but must not apply
 MILESTONE-020 must define only contract-level atomicity expectations:
 
 - aggregate root state, owned collections, and transition history must be persisted atomically for one aggregate save;
+- repository contracts must decide whether they accept an explicit transaction context, hide transaction participation, or defer transaction context to later Unit-of-Work design;
 - cross-aggregate transactions remain deferred;
 - Unit of Work implementation remains deferred;
 - transaction retry policy remains deferred unless needed for conflict semantics.
@@ -389,6 +426,9 @@ Deferred after MILESTONE-020:
 | M020-SCOPE-ISSUE-0002 | MAJOR | 12, 14 | Save semantics could remain underdefined if concurrency were treated as separate. | Repository readiness gate requires expected-version and stale-write decisions. | Future implementations could diverge. | Made expected persisted version, stale-write, create conflict, unchanged save, and result shape required design questions. | Resolved |
 | M020-SCOPE-ISSUE-0003 | MINOR | 13 | Generic repository abstraction could be selected by familiarity. | Four aggregate operations appear superficially similar. | Type safety and domain vocabulary could be lost. | Required explicit generic versus aggregate-specific versus hybrid analysis. | Resolved |
 | M020-SCOPE-ISSUE-0004 | MINOR | 18 | Existing low-level Unit of Work could tempt transaction-scope expansion. | `PersistenceUnitOfWork` exists in shared interfaces. | Multi-aggregate transaction policy could be introduced prematurely. | Limited M020 to single-aggregate atomicity expectations and deferred Unit of Work implementation. | Resolved |
+| M020-SCOPE-ISSUE-0005 | MAJOR | 13, 17 | Contract placement was named but not independently compared. | Repository contracts could land in domain, application, persistence, or a new package. | Wrong placement could invert dependency direction or contaminate domain packages. | Added mandatory layer-location comparison and architecture-checker implication review. | Resolved |
+| M020-SCOPE-ISSUE-0006 | MAJOR | 12, 14, 18 | Operational contract shape was under-enumerated. | Async/sync, load identity shape, tracking, locking, caching, and transaction-context handling were only implicit. | Future design could skip core repository contract decisions. | Added explicit required decisions for contract shape, identity inputs, tracking, locking, caching, and transaction context. | Resolved |
+| M020-SCOPE-ISSUE-0007 | MAJOR | 14, 16 | Version vocabulary and save-result alternatives needed sharper separation. | Aggregate current version, observed persisted version, expected persisted version, and create precondition can be confused. | Concurrency contract could permit blind overwrites or ambiguous save outcomes. | Added four-part version vocabulary and mandatory save-result comparison. | Resolved |
 
 No unresolved scope-selection finding remains.
 
