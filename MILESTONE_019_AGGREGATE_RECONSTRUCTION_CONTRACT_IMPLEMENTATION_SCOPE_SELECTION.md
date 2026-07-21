@@ -130,16 +130,34 @@ Implementation conventions:
 
 State records are reconstruction inputs only. They are not persistence models, API DTOs, database rows, serialization contracts, or event payloads.
 
+Exact state-record fields:
+
+| State record | Required fields |
+| --- | --- |
+| `CampaignReconstructionState` | `identity: DomainIdentity[CampaignId]`; `scope_statement: CampaignScopeStatement`; `state: CampaignLifecycleState`; `version: AggregateVersion`; `next_transition_sequence: TransitionSequence`; `transition_history: tuple[StateTransitionRecord[DomainIdentity[CampaignId]], ...]` |
+| `RunReconstructionState` | `identity: DomainIdentity[RunId]`; `campaign_id: CampaignId`; `state: RunLifecycleState`; `manifests: tuple[DatasetManifest, ...]`; `version: AggregateVersion`; `next_transition_sequence: TransitionSequence`; `transition_history: tuple[StateTransitionRecord[DomainIdentity[RunId]], ...]` |
+| `EvidencePackageReconstructionState` | `identity: DomainIdentity[EvidencePackageId]`; `run_id: RunId`; `state: EvidencePackageLifecycleState`; `criterion_results: tuple[CriterionResult, ...]`; `artifact_references: tuple[ArtifactReference, ...]`; `version: AggregateVersion`; `next_transition_sequence: TransitionSequence`; `transition_history: tuple[StateTransitionRecord[DomainIdentity[EvidencePackageId]], ...]` |
+| `ReviewReconstructionState` | `identity: DomainIdentity[ReviewId]`; `target: ReviewTargetReference`; `reviewer: ReviewerReference`; `state: ReviewLifecycleState`; `findings: tuple[ReviewFinding, ...]`; `disposition: ReviewDisposition \| None`; `final_disposition_rationale: str \| None`; `cancellation_reason: str \| None`; `version: AggregateVersion`; `next_transition_sequence: TransitionSequence`; `transition_history: tuple[StateTransitionRecord[DomainIdentity[ReviewId]], ...]` |
+
+Derived fields that must not be supplied:
+
+| Aggregate | Derived field | Derivation |
+| --- | --- | --- |
+| Run | `current_manifest` | Last item in `manifests`, or `None` when empty |
+| Review | `next_finding_sequence` | Highest supplied finding sequence plus one, or `1` when no findings exist |
+
+State-record `__post_init__` responsibilities are limited to structural validation and defensive tuple materialization. Aggregate-specific consistency validation belongs in the factory, not in the state record.
+
 ## 9. Internal Factories
 
 Required internal factory functions:
 
 | Aggregate | Module path | Factory name | Input | Output |
 | --- | --- | --- | --- | --- |
-| Campaign | `empirical_platform.campaign._reconstruction` | `reconstruct_campaign` | `CampaignReconstructionState` | `Campaign` |
-| Run | `empirical_platform.run._reconstruction` | `reconstruct_run` | `RunReconstructionState` | `Run` |
-| EvidencePackage | `empirical_platform.evidence._reconstruction` | `reconstruct_evidence_package` | `EvidencePackageReconstructionState` | `EvidencePackage` |
-| Review | `empirical_platform.review._reconstruction` | `reconstruct_review` | `ReviewReconstructionState` | `Review` |
+| Campaign | `empirical_platform.campaign._reconstruction` | `_reconstruct_campaign` | `CampaignReconstructionState` | `Campaign` |
+| Run | `empirical_platform.run._reconstruction` | `_reconstruct_run` | `RunReconstructionState` | `Run` |
+| EvidencePackage | `empirical_platform.evidence._reconstruction` | `_reconstruct_evidence_package` | `EvidencePackageReconstructionState` | `EvidencePackage` |
+| Review | `empirical_platform.review._reconstruction` | `_reconstruct_review` | `ReviewReconstructionState` | `Review` |
 
 Factory responsibilities:
 
@@ -153,7 +171,17 @@ Factory responsibilities:
 - preserve supplied version, next transition sequence, transition history, collection order, and terminal metadata exactly;
 - perform no version increment, sequence advancement, transition append, clock access, lookup, repository access, logging side effect, audit emission, event emission, or outbox write.
 
-Factories may use a narrow package-internal aggregate reconstruction hook if direct allocation would otherwise require unsafe private mutation. They must not call public lifecycle or content mutation methods to replay state.
+Exact construction mechanism:
+
+```text
+domain-internal object allocation through object.__new__ inside the aggregate package's _reconstruction module
+```
+
+The factory validates the state first, allocates the aggregate with `object.__new__(AggregateClass)`, installs the frozen aggregate slots exactly once, and returns the aggregate only after all fields are installed. If any validation or installation step fails, no aggregate is returned.
+
+This mechanism is selected because it avoids changing public constructors, avoids adding public `from_state` or `reconstruct` methods, avoids persistence-adapter private-field mutation, and keeps reconstruction visibly confined to aggregate-owned domain packages.
+
+Factories must not call public lifecycle or content mutation methods to replay state.
 
 ## 10. Error Model
 
@@ -162,7 +190,15 @@ The implementation scope authorizes:
 - `ReconstructionError`;
 - `ReconstructionErrorCategory`.
 
-Placement should be shared and domain-neutral, preferably under `empirical_platform.shared.domain` or another existing shared domain boundary selected during implementation. The chosen placement must not import persistence, logging, configuration, health, runtime composition, SQL, ORM, object storage, repositories, APIs, or workers.
+Exact placement:
+
+```text
+empirical_platform.shared.domain.reconstruction
+```
+
+The module may be exported from `empirical_platform.shared.domain` because the error type and category are shared domain primitives. It must not be exported from aggregate package `__init__.py` files.
+
+The module must not import persistence, logging, configuration, health, runtime composition, SQL, ORM, object storage, repositories, APIs, workers, or aggregate packages.
 
 Required category values:
 
@@ -181,21 +217,26 @@ Required category values:
 Required error shape:
 
 - exception inheritance from `Exception`;
+- constructor signature `ReconstructionError(category: ReconstructionErrorCategory, message: str, *, field: str | None = None, context: str | None = None)`;
 - required `category` property;
-- human-readable message;
-- optional safe field or context identifier;
+- required human-readable message;
+- optional safe field name;
+- optional safe context identifier;
 - optional exception chaining is permitted for local validation causes only;
+- aggregate-specific subclasses are prohibited in this milestone;
 - no database, SQLAlchemy, psycopg, S3, MinIO, object-storage, runtime, or infrastructure category.
 
 ## 11. Allowed Aggregate Changes
 
-Aggregate source changes are allowed only when strictly necessary for atomic reconstruction.
+Aggregate source changes are not authorized by default.
 
-Allowed:
+Selected aggregate source-change option:
 
-- a package-internal reconstruction constructor, hook, token, or helper used only by the same package's `_reconstruction` module;
-- narrow internal assignment path that sets already-validated state exactly once;
-- comments only where needed to distinguish public creation from internal reconstruction.
+```text
+A. No aggregate source changes; internal factory uses controlled object allocation.
+```
+
+The implementation must begin with this option. Any need to change aggregate source is a stop condition for the implementation mission and requires a separate scope correction or review decision before proceeding.
 
 Required constraints:
 
@@ -203,7 +244,8 @@ Required constraints:
 - preserve all public mutation behavior;
 - do not add public `from_state`, `load`, `restore`, `reconstruct`, `save`, or repository-like APIs;
 - do not export reconstruction hooks;
-- do not import reconstruction modules from aggregate modules unless an internal token/hook pattern proves unavoidable and remains package-local;
+- do not add private aggregate hooks, private alternate constructors, token constructors, or source-level reconstruction helpers under this scope;
+- do not import reconstruction modules from aggregate modules;
 - do not import persistence, SQL, ORM, object storage, logging, health, runtime composition, repositories, mappers, APIs, workers, Audit, Decision Candidate, or Decision Freeze concepts;
 - do not broaden normal creation constructor signatures.
 
@@ -222,6 +264,28 @@ Required enforceable rules:
 - current negative fixtures should cover only currently enforceable forbidden directions.
 
 The current checker skips underscore-prefixed modules. The implementation may adjust that behavior only as needed to enforce the rules above. It must not invent broad permissions for future repository or mapper packages that do not yet exist.
+
+Exact helper placement:
+
+```text
+empirical_platform.shared.domain.reconstruction
+```
+
+Allowed shared helpers:
+
+- materialize an iterable exactly once into a tuple;
+- validate transition sequence continuity for an already-materialized history;
+- validate that the next transition sequence equals the final history sequence plus one, or `1` for empty history;
+- raise `ReconstructionError` with an approved category.
+
+The following must remain aggregate-specific inside each `_reconstruction` module:
+
+- lifecycle path validation;
+- terminal metadata validation;
+- collection duplicate rules;
+- collection identity rules;
+- aggregate-specific version floors;
+- lifecycle/content compatibility.
 
 ## 13. Unit-Test Requirements
 
@@ -257,6 +321,10 @@ Malformed state tests must cover:
 - duplicate owned values;
 - collection identity mismatch;
 - terminal metadata mismatch.
+- empty history with non-initial lifecycle state;
+- first history transition not from the canonical initial lifecycle state;
+- transition after terminal state;
+- mutable input defensive-copy behavior.
 
 Non-effect tests must cover:
 
@@ -366,6 +434,10 @@ Independent review must verify:
 | `verify.ps1` passes | PASS |
 | Ruff, mypy, architecture checker, and `git diff --check` pass | PASS |
 | `migrations/versions` remains empty | PASS |
+| Exact object-allocation construction mechanism selected | PASS |
+| Aggregate source changes prohibited by default | PASS |
+| Error/helper module placement exact | PASS |
+| State-record fields enumerated in scope | PASS |
 
 ## 19. Stop Conditions
 
@@ -399,7 +471,19 @@ Deferred beyond this implementation scope:
 - Decision Freeze;
 - campaign execution and empirical validation behavior.
 
-## 21. Final Decision
+## 21. Independent Review Findings
+
+| ID | Severity | Section | Finding | Impact | Correction | Disposition |
+| --- | --- | --- | --- | --- | --- | --- |
+| M019-IMPL-SCOPE-REVIEW-0001 | MAJOR | 8 | State records referenced frozen design sections but did not enumerate exact fields in the implementation scope. | Implementation could still require field-shape interpretation. | Added exact state-record field table and derived-field exclusions. | Resolved |
+| M019-IMPL-SCOPE-REVIEW-0002 | MAJOR | 9, 11 | Construction mechanism and aggregate source-change authorization were conditional. | Implementation could invent hooks or alternate constructors. | Selected `object.__new__` domain-internal allocation and prohibited aggregate source changes by default. | Resolved |
+| M019-IMPL-SCOPE-REVIEW-0003 | MAJOR | 10, 12 | Error and helper placement used preference language instead of an exact module. | Implementation could choose inconsistent shared locations. | Selected `empirical_platform.shared.domain.reconstruction` and bounded helper responsibilities. | Resolved |
+| M019-IMPL-SCOPE-REVIEW-0004 | MINOR | 9 | Factory names were internal by module but not underscore-prefixed. | Visibility could be less explicit than frozen design intended. | Changed exact factory names to `_reconstruct_*`. | Resolved |
+| M019-IMPL-SCOPE-REVIEW-0005 | MINOR | 13 | Malformed-state matrix omitted several explicit hostile-review cases. | Tests could miss non-initial empty history, first-transition origin, terminal-following-history, or defensive-copy defects. | Added explicit malformed-state test cases. | Resolved |
+
+No CRITICAL or MAJOR implementation-scope finding remains open.
+
+## 22. Final Decision
 
 The selected implementation scope is:
 
