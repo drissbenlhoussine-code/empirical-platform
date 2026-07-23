@@ -6,8 +6,8 @@
 | --- | --- |
 | Document ID | MILESTONE-020 |
 | Title | Domain Repository and Concurrency Contract Design |
-| Version | 1.0 |
-| Status | DESIGN READY FOR INDEPENDENT REVIEW |
+| Version | 1.2 |
+| Status | DESIGN CORRECTED - PENDING FINAL VALIDATION |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Design baseline | `7d802bc57f085564f682017051f419d69552fb62` |
 | Scope authority | `MILESTONE_020_DOMAIN_REPOSITORY_AND_CONCURRENCY_CONTRACT_SCOPE_SELECTION.md` |
@@ -66,11 +66,11 @@ Frozen constraints:
 ## 5. Design Principles
 
 1. Repository contracts are domain-facing, persistence-neutral, and explicit.
-2. Repositories return aggregate roots, not reconstruction records.
+2. Repository load operations return persistence-neutral loaded-aggregate envelopes, not reconstruction records.
 3. Repository contracts must not mutate aggregate state or increment aggregate versions.
 4. Expected persisted version is explicit caller-supplied concurrency data.
 5. New aggregate creation and existing aggregate save are separate operations.
-6. Load returns detached aggregate instances.
+6. Load returns detached aggregate state plus an immutable persisted-version token.
 7. No repository contract exposes SQL, ORM, PostgreSQL, mapper, schema, database session, transaction object, cache object, object storage, or health types.
 8. The contract is intentionally minimal: identity load, create, and save only.
 9. Cross-aggregate orchestration, Unit of Work implementation, queries, projections, and read models remain deferred.
@@ -140,7 +140,44 @@ Placement rules:
 - repository contracts must not import SQLAlchemy, psycopg, PostgreSQL adapters, object storage adapters, schemas, mappers, runtime composition, health, or infrastructure-specific errors;
 - repository contracts must not expose internal `_reconstruction` modules.
 
-Future architecture-checker changes are required before implementation to ensure aggregate modules do not import repository modules and repository modules do not import infrastructure packages.
+Future architecture-checker changes are required before implementation to ensure aggregate modules do not import repository modules and repository modules do not import infrastructure packages. Live evidence confirms the existing checker already blocks `campaign`, `run`, `evidence`, and `review` from importing `empirical_platform.shared.persistence`, `sqlalchemy`, `psycopg`, and `boto3` (`tools/check_architecture.py`, `FORBIDDEN_IMPORT_PREFIXES`). That evidence supports the selected placement candidate, but absence from `FORBIDDEN_IMPORT_PREFIXES` is not, by itself, full architectural proof. Implementation scope must still verify that `shared.contracts` remains cycle-safe, that it can reference `AggregateVersion` and `DomainIdentity` without reversing dependency direction, that aggregate repository modules may import it, and that it does not become a dumping ground for unrelated contracts.
+
+### 8.1 Shared Contract-Type Placement
+
+Independent review confirmed a gap: this design describes `SaveOperation`, `SaveResult`, and the `RepositoryContractError` hierarchy conceptually (Sections 22-23) and assumes in the placement rules above that repository modules may import "shared repository-contract value types," but no version of this document before Version 1.1 named an exact module for those shared types. Per Section 29, the same contract suite and the same result/error shapes must apply to all four aggregate repositories, so these types cannot be duplicated per aggregate package; they must live in exactly one shared, already-permitted location.
+
+Selected placement:
+
+```text
+empirical_platform.shared.contracts
+```
+
+Rationale, grounded in live repository evidence:
+
+- `src/empirical_platform/shared/contracts/__init__.py` already exists in the frozen repository tree as an empty, purpose-declared module ("Shared typed contract boundary"), so this placement adds no new top-level package and no package sprawl.
+- `tools/check_architecture.py` already permits `campaign`, `run`, `evidence`, and `review` to import anything under `empirical_platform.shared` except `empirical_platform.shared.persistence` (and `sqlalchemy`/`psycopg`/`boto3`); `empirical_platform.shared.contracts` is not on the forbidden list, so it is a supported placement candidate for all four aggregate repository modules.
+- Placing these types under `shared.persistence` was considered and rejected: it would violate the existing forbidden-import rule that keeps aggregate packages away from persistence-adapter code, contradicting Section 8's own placement rule that repository contracts must not import PostgreSQL/SQLAlchemy-adjacent modules.
+
+Implementation-scope verification remains mandatory before source code is created:
+
+- prove there is no import cycle involving `shared.contracts`, `shared.domain`, `identifiers`, and aggregate repository modules;
+- prove `shared.contracts` can use `AggregateVersion` and `DomainIdentity` without breaking current dependency direction;
+- prove aggregate repository modules may import `shared.contracts` while aggregate root modules do not import repositories;
+- keep `shared.contracts` limited to coherent repository-contract value types and errors.
+
+Selected future module paths for shared contract types:
+
+- `empirical_platform.shared.contracts.SaveOperation`
+- `empirical_platform.shared.contracts.SaveResult`
+- `empirical_platform.shared.contracts.LoadedAggregate`
+- `empirical_platform.shared.contracts.RepositoryContractError`
+- `empirical_platform.shared.contracts.AggregateNotFound`
+- `empirical_platform.shared.contracts.AggregateAlreadyExists`
+- `empirical_platform.shared.contracts.OptimisticConcurrencyConflict`
+- `empirical_platform.shared.contracts.InvalidAggregateForPersistence`
+- `empirical_platform.shared.contracts.InvalidPersistedAggregateState`
+
+No retryability enum type is introduced by this correction; Section 20's `RETRYABLE_AFTER_RELOAD` remains a described concept attached to `OptimisticConcurrencyConflict`, not a new frozen type, consistent with the implementation-scope deferral in Section 31.
 
 ## 9. Sync/Async Decision
 
@@ -171,12 +208,12 @@ The design covers exactly:
 
 Each aggregate receives an aggregate-specific repository contract with the same minimal operation categories. No aggregate-specific query method is approved. Differences are limited to identity and aggregate types:
 
-| Repository | Identity input | Aggregate output/input |
+| Repository | Identity input | Load output / save input |
 | --- | --- | --- |
-| CampaignRepository | `DomainIdentity[CampaignId]` | `Campaign` |
-| RunRepository | `DomainIdentity[RunId]` | `Run` |
-| EvidencePackageRepository | `DomainIdentity[EvidencePackageId]` | `EvidencePackage` |
-| ReviewRepository | `DomainIdentity[ReviewId]` | `Review` |
+| CampaignRepository | `DomainIdentity[CampaignId]` | `LoadedAggregate[Campaign]` / `Campaign` |
+| RunRepository | `DomainIdentity[RunId]` | `LoadedAggregate[Run]` / `Run` |
+| EvidencePackageRepository | `DomainIdentity[EvidencePackageId]` | `LoadedAggregate[EvidencePackage]` / `EvidencePackage` |
+| ReviewRepository | `DomainIdentity[ReviewId]` | `LoadedAggregate[Review]` / `Review` |
 
 Context identifiers such as `CampaignId` on Run or `RunId` on EvidencePackage remain aggregate state; they are not separate repository lookup keys in this contract.
 
@@ -198,13 +235,30 @@ Rationale:
 
 No aggregate-specific exception is selected.
 
+### 11.1 Identity-Based Loading Versus Identity Discovery
+
+Independent review checked whether callers can realistically possess a complete `DomainIdentity[AggregateId]` before calling `get`. Live evidence from `src/empirical_platform/identifiers/pairs.py` confirms `DomainIdentity` requires both `governance_id` (for example `CampaignId`, a human-facing value such as `CAMP-0001`) and `runtime_id` (an opaque `RuntimeIdentifier` UUID). `MILESTONE_012_CANONICAL_RUNTIME_DOMAIN_KERNEL_DESIGN.md` records the runtime UUID as the internal persistence identity paired with the governance ID, and separately defers "governance registry ingestion" as future work, not part of the initial kernel.
+
+This means no governance-ID-only resolution service exists yet anywhere in the frozen repository. This design's identity input is not circular: a caller that just executed `add` already holds the full `DomainIdentity` it supplied, and any caller performing a later `get` must already have propagated or persisted that same pair from creation time (for example through session state, a workflow context, or an application-level reference) rather than starting from a bare governance ID. This is an explicit, load-bearing constraint that Version 1.0 of this document left implicit.
+
+Selected clarification:
+
+```text
+Repository load/create/save operations support identity-based loading only.
+Resolving a bare governance identifier into a DomainIdentity (identity discovery)
+is out of scope for MILESTONE-020 and remains deferred until a future
+governance-registry or identity-resolution milestone is authorized.
+```
+
 ## 12. Load Semantics
 
 Selected load operation semantics:
 
 - method name: `get`;
 - input: `DomainIdentity[AggregateId]`;
-- successful result: detached aggregate root;
+- successful result: immutable `LoadedAggregate[AggregateT]`;
+- `LoadedAggregate.aggregate` contains detached aggregate state;
+- `LoadedAggregate.persisted_version` contains the immutable version observed from durable storage at load time;
 - missing identity: raises `AggregateNotFound`;
 - malformed persisted state or reconstruction failure: raises `InvalidPersistedAggregateState`;
 - repository interfaces do not expose reconstruction state records;
@@ -216,7 +270,50 @@ Selected load operation semantics:
 
 The name `get` is selected because the operation is direct identity retrieval, not a broad query or search. The absence of a matching aggregate is exceptional for this contract because callers must already hold a canonical identity.
 
-Load followed by save is not assumed to occur in one database transaction. The caller must supply the expected persisted version obtained from load or a prior successful save.
+Load followed by save is not assumed to occur in one database transaction. The caller must supply the expected persisted version obtained from `LoadedAggregate.persisted_version` or a prior successful `SaveResult.persisted_version`.
+
+### 12.1 Persisted-Version Token Acquisition
+
+Independent review reopened the token-acquisition issue as MAJOR. The plain-aggregate load model:
+
+```text
+get(identity) -> aggregate
+```
+
+requires callers to capture `aggregate.version` immediately after `get` and before any mutation. That is not strong enough because a caller can accidentally write:
+
+```text
+aggregate = repository.get(identity)
+aggregate.mutate()
+repository.save(aggregate, expected_persisted_version=aggregate.version)
+```
+
+In that mistake, the caller supplies the post-mutation aggregate current version instead of the persisted version observed at load time. Live reconstruction evidence proves the aggregate version is correct at the instant of load, but it does not enforce safe capture after the aggregate is returned.
+
+Options reassessed:
+
+| Option | Strength | Risk | Decision |
+| --- | --- | --- | --- |
+| A. `get(identity) -> aggregate`, caller-managed version capture | Smallest return surface | Persisted-version token can be accidentally captured after mutation | Rejected |
+| B. `get(identity) -> LoadedAggregate[AggregateT]` | Separates aggregate current version from loaded persisted version | Adds one small persistence-neutral wrapper | Selected |
+
+Selected load result:
+
+```text
+LoadedAggregate[AggregateT]
+- aggregate: AggregateT
+- persisted_version: AggregateVersion
+```
+
+`LoadedAggregate` is persistence-neutral. It contains no session, tracking object, mapper, transaction, database metadata, lock token, row metadata, health state, or storage reference. Its `persisted_version` is immutable and is not affected when the detached aggregate is mutated. The aggregate itself remains free of persistence metadata.
+
+Save still accepts:
+
+```text
+save(existing aggregate, expected_persisted_version: AggregateVersion)
+```
+
+The expected version is normally taken from `loaded.persisted_version` or the previous `SaveResult.persisted_version`, never from the aggregate after mutation.
 
 ## 13. Not-Found Semantics
 
@@ -260,7 +357,8 @@ Frozen vocabulary:
 | Term | Meaning |
 | --- | --- |
 | Aggregate current version | The `AggregateVersion` currently held by the in-memory aggregate after domain mutations. |
-| Expected persisted version | The `AggregateVersion` the caller believes is currently durable and against which `save` must compare atomically. |
+| Loaded persisted version | The immutable `AggregateVersion` carried by `LoadedAggregate.persisted_version` after `get`. |
+| Expected persisted version | The `AggregateVersion` supplied to `save`, normally copied from `LoadedAggregate.persisted_version` or the previous `SaveResult.persisted_version`, against which `save` must compare atomically. |
 | Persisted version after save | The aggregate current version successfully stored by the repository. |
 | New aggregate state | The condition where no persisted version exists yet for the aggregate identity. |
 
@@ -332,15 +430,15 @@ Implementations may avoid physical writes for unchanged saves, but they must sti
 
 Deterministic repeated-save rule:
 
-1. Aggregate loaded at persisted version 5.
-2. Aggregate mutates locally to current version 7.
-3. Caller saves with expected persisted version 5.
+1. Repository returns `LoadedAggregate(aggregate, persisted_version=5)`.
+2. Caller mutates `loaded.aggregate` locally to current version 7.
+3. Caller saves `loaded.aggregate` with expected persisted version `loaded.persisted_version` (5).
 4. Repository persists version 7 and returns persisted version 7.
 5. A second save without mutation must use expected persisted version 7.
 6. Reusing expected version 5 must raise `OptimisticConcurrencyConflict` if durable version is 7.
 7. Saving again with expected version 7 returns `UNCHANGED`.
 
-Repositories do not track state internally. The caller owns propagation of the latest persisted version.
+Repositories do not track state internally. The caller owns propagation of the latest persisted version through `LoadedAggregate.persisted_version` and `SaveResult.persisted_version`.
 
 ## 20. Stale-Write Semantics
 
@@ -424,6 +522,8 @@ Selected contract errors:
 
 Infrastructure availability failures remain outside the domain repository error taxonomy unless a later application-service boundary needs a separate infrastructure-facing classification.
 
+`LoadedAggregate` is a shared persistence-neutral contract value type, not an error. It lives with `SaveResult` and the repository error hierarchy in `empirical_platform.shared.contracts`.
+
 ## 24. Reconstruction Integration
 
 Frozen load flow:
@@ -447,7 +547,7 @@ aggregate root
 
 Contract rules:
 
-- repository interfaces expose aggregates only;
+- repository load interfaces expose `LoadedAggregate[AggregateT]`, whose only aggregate-bearing field is a detached aggregate root;
 - reconstruction state records remain internal to mapper/reconstruction integration;
 - `_reconstruct_*` factories remain internal;
 - mapper design is deferred;
@@ -502,7 +602,7 @@ Selected model:
 Detached
 ```
 
-Repositories do not track loaded aggregate instances. They do not remember expected persisted versions. They do not maintain identity maps. They do not mutate aggregate objects after save. Repeated-save correctness depends on caller-supplied expected persisted version.
+Repositories do not track loaded aggregate instances. They do not remember expected persisted versions. They do not maintain identity maps. They do not mutate aggregate objects after save. `LoadedAggregate.persisted_version` preserves the load-time token without repository-side tracking. Repeated-save correctness depends on caller-supplied expected persisted version from `LoadedAggregate` or `SaveResult`.
 
 ## 28. Query/Delete Exclusions
 
@@ -530,6 +630,9 @@ Future implementation must define contract tests independent of storage technolo
 Required load tests:
 
 - successful load for each aggregate;
+- returned value is `LoadedAggregate[AggregateT]`;
+- `LoadedAggregate.persisted_version` equals the durable version at load time;
+- mutating `LoadedAggregate.aggregate` does not change `LoadedAggregate.persisted_version`;
 - missing identity raises `AggregateNotFound`;
 - malformed persisted state raises `InvalidPersistedAggregateState`;
 - reconstruction failures are translated;
@@ -546,6 +649,7 @@ Required create tests:
 Required save tests:
 
 - successful mutated aggregate save;
+- save accepts aggregate plus explicit expected persisted version from `LoadedAggregate.persisted_version`;
 - stale expected persisted version;
 - unchanged save returns `UNCHANGED`;
 - repeated save requires updated expected persisted version;
@@ -608,7 +712,7 @@ Deferred after M020:
 | Risk | Severity | Mitigation |
 | --- | --- | --- |
 | Aggregate-specific contracts duplicate common shapes | MINOR | Permit shared test helpers later, but keep public contracts aggregate-specific. |
-| Detached model burdens callers with expected-version propagation | MAJOR | SaveResult always returns persisted version; future application services must carry it explicitly. |
+| Detached model burdens callers with expected-version propagation | MAJOR | `LoadedAggregate` preserves the load-time token and `SaveResult` propagates the post-save token; future application services must carry one of those explicit values. |
 | No raw `exists()` method complicates creation prechecks | MINOR | Correctness belongs to atomic `add`; optional user-facing prechecks can be read-model work later. |
 | Synchronous contracts may need async wrapping later | MINOR | Keep async conversion at application/runtime boundary if APIs or workers require it. |
 | Contract placement inside aggregate package could pollute domain modules | MAJOR | Add architecture-checker rule before implementation: aggregates cannot import repositories; repositories cannot import infrastructure. |
@@ -626,7 +730,17 @@ Deferred after M020:
 | M020-DESIGN-ISSUE-0006 | MINOR | 23 | Infrastructure availability errors were tempting to add to domain taxonomy. | Could leak foundation error concerns into domain contracts. | Kept domain repository errors focused and deferred infrastructure failure classification. | Resolved |
 | M020-DESIGN-ISSUE-0007 | MINOR | 28 | `exists()` could sneak in as creation convenience. | Could become false concurrency guarantee. | Excluded `exists()` from contract and made atomic `add` authoritative. | Resolved |
 
-No unresolved design issue remains.
+No unresolved design issue remains from the original self-review.
+
+### 33.1 Independent Hostile Review (Version 1.1 and 1.2 Correction Passes)
+
+| ID | Severity | Section | Design statement | Repository evidence | Finding | Impact | Correction | Disposition |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M020-INDEPENDENT-0001 | MAJOR | 8, 22, 23, 29 | Placement rules assumed repository modules "may import ... shared repository-contract value types" without naming that module. | `src/empirical_platform/shared/contracts/__init__.py` exists, empty, purpose-declared; `tools/check_architecture.py` `FORBIDDEN_IMPORT_PREFIXES` blocks only `shared.persistence`/`sqlalchemy`/`psycopg`/`boto3` for `campaign`/`run`/`evidence`/`review`, not `shared.contracts`. | `LoadedAggregate`, `SaveOperation`, `SaveResult`, and the `RepositoryContractError` hierarchy had no exact module location, which the acceptance criteria treat as blocking for implementation readiness. | An implementer would have to invent placement, risking inconsistent per-aggregate duplication of shared result/error shapes. | Added Section 8.1 naming `empirical_platform.shared.contracts` as the exact future location for all shared contract types, while narrowing the claim to selected placement subject to implementation-scope cycle and dependency verification. | Resolved |
+| M020-INDEPENDENT-0002 | MAJOR | 11 | "Repository load/create/save operations use canonical `DomainIdentity[AggregateId]`," justified only on type-safety/traceability grounds. | `identifiers/pairs.py` requires both `governance_id` and `runtime_id`; `MILESTONE_012_CANONICAL_RUNTIME_DOMAIN_KERNEL_DESIGN.md` defers "governance registry ingestion" and records the runtime UUID as internal persistence identity. | The design did not state whether a caller holding only a governance ID (for example `CAMP-0001`) can load through this contract, leaving an implicit, undocumented dependency on out-of-scope future capability. | A future implementer or application-layer author could assume `get` supports governance-ID-only lookup, which it does not, or could be blocked without realizing why. | Added Section 11.1 confirming the identity model is not circular (creators already hold the full pair) and explicitly deferring identity discovery/governance-ID resolution to a future governance-registry milestone. | Resolved |
+| M020-INDEPENDENT-0003 | MAJOR | 12, 19, 27 | Version 1.1 required callers to capture `aggregate.version` immediately after `get`. | Reconstruction restores aggregate version correctly at load time, but aggregate mutation can advance that same property before save. | Bare-aggregate loading left the persisted-version token vulnerable to accidental post-mutation capture. | A caller could pass the aggregate current version as `expected_persisted_version`, producing incorrect unchanged-save or conflict behavior. | Reassessed bare aggregate versus `LoadedAggregate`; selected `LoadedAggregate[AggregateT]` with immutable `persisted_version`, detached aggregate state, and no persistence metadata on the aggregate. | Resolved |
+
+No unresolved CRITICAL or MAJOR finding remains after this correction pass. All three independent-review findings above are documentation-only corrections to this file; no source, test, architecture-checker, or other milestone document was modified.
 
 ## 34. Acceptance Gate
 
@@ -652,15 +766,23 @@ No unresolved design issue remains.
 | Query/delete exclusions explicit | PASS |
 | Mapper/schema/migration/implementation deferred | PASS |
 | No source code introduced | PASS |
+| Shared contract-type module location selected | PASS (Version 1.1) |
+| Identity-based loading versus identity discovery distinguished | PASS (Version 1.1) |
+| Persisted-version token acquisition safely preserved by `LoadedAggregate` | PASS (Version 1.2) |
+| `shared.contracts` placement classified as selected design placement subject to implementation-scope architecture verification | PASS (Version 1.2) |
+| Independent hostile review performed against live repository evidence | PASS (Version 1.2) |
+| Canonical local validation (`scripts/security.ps1`, `scripts/verify.ps1`, ruff, mypy, `tools/check_architecture.py`) rerun after correction | PENDING |
 
 ## 35. Final Decision
 
 MILESTONE-020 selects aggregate-specific, synchronous, aggregate-local future repository contracts with explicit optimistic-concurrency semantics.
 
-Future contract implementation may proceed only after independent review of this design. This document does not mark MILESTONE-020 frozen.
+Version 1.2 applies documentation-only corrections identified by independent hostile review conducted directly against live repository evidence: shared contract-type placement is narrowed to selected design placement subject to implementation-scope architecture verification, identity-based loading is distinguished from identity discovery, and persisted-version token capture is moved from caller-managed bare aggregate capture to immutable `LoadedAggregate.persisted_version`. No architecture-checker change, no source implementation, and no other milestone document is changed by this correction pass.
+
+This document does not mark MILESTONE-020 frozen. Freezing requires the canonical local validation suite (`scripts/security.ps1`, `scripts/verify.ps1`, `python -m ruff format --check .`, `python -m ruff check .`, `python -m mypy`, `python tools/check_architecture.py .`) to be rerun and pass on the corrected repository state, plus a clean `git status` and a successful correction commit. That validation step requires a native Windows PowerShell environment and has not been executed as part of this correction pass.
 
 Final status:
 
 ```text
-DESIGN READY FOR INDEPENDENT REVIEW
+DESIGN CORRECTED - PENDING FINAL VALIDATION
 ```
