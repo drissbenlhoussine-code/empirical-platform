@@ -22,3 +22,5 @@ def test_negative_fixture_detects_illegal_import() -> None:
         for violation in violations
     )
     assert any("review may not import sqlalchemy" in violation for violation in violations)
+    assert any("campaign may not import boto3" in violation for violation in violations)
+    assert any("evidence may not import psycopg" in violation for violation in violations)

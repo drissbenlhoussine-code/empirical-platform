@@ -2,6 +2,7 @@
 
 from empirical_platform.evidence.lifecycle import EvidencePackageLifecycleState
 from empirical_platform.evidence.package import ArtifactReference, EvidencePackage
+from empirical_platform.evidence.repository import EvidencePackageRepository
 from empirical_platform.evidence.results import CriterionResult
 
 __all__ = [
@@ -9,4 +10,5 @@ __all__ = [
     "CriterionResult",
     "EvidencePackage",
     "EvidencePackageLifecycleState",
+    "EvidencePackageRepository",
 ]

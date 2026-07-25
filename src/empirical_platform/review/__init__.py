@@ -7,6 +7,7 @@ from empirical_platform.review.aggregate import (
     ReviewTargetReference,
 )
 from empirical_platform.review.lifecycle import ReviewDisposition, ReviewLifecycleState
+from empirical_platform.review.repository import ReviewRepository
 
 __all__ = [
     "Review",
@@ -14,5 +15,6 @@ __all__ = [
     "ReviewerReference",
     "ReviewFinding",
     "ReviewLifecycleState",
+    "ReviewRepository",
     "ReviewTargetReference",
 ]
