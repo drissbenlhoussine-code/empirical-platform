@@ -6,8 +6,8 @@
 | --- | --- |
 | Document ID | MILESTONE-020 |
 | Title | Domain Repository and Concurrency Contract Design |
-| Version | 1.2 |
-| Status | DESIGN CORRECTED - PENDING FINAL VALIDATION |
+| Version | 1.6 |
+| Status | DESIGN READY FOR COMMIT - TEST SUITE PASS VIA ISOLATED BASETEMP, LITERAL PYTEST INVOCATION ENVIRONMENT-BLOCKED (MACHINE-LOCAL) - FREEZE PENDING PROJECT OWNER DECISION |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Design baseline | `7d802bc57f085564f682017051f419d69552fb62` |
 | Scope authority | `MILESTONE_020_DOMAIN_REPOSITORY_AND_CONCURRENCY_CONTRACT_SCOPE_SELECTION.md` |
@@ -15,6 +15,18 @@
 | Repository interfaces implemented | No |
 | Repository implementations implemented | No |
 | Schemas, migrations, mappers, SQL, APIs, workers, Unit of Work, or runtime composition created | No |
+
+### 1.1 Revision History
+
+| Version | Status | Summary |
+| --- | --- | --- |
+| 1.0 | DESIGN READY FOR INDEPENDENT REVIEW | Initial M020 repository and concurrency contract design. |
+| 1.1 | DESIGN CORRECTED | Documentation corrections for shared contract-type placement and identity-based loading clarification. |
+| 1.2 | DESIGN CORRECTED - PENDING FINAL VALIDATION | Documentation correction selecting `LoadedAggregate` for persisted-version token safety. |
+| 1.3 | DESIGN CORRECTED - PENDING INDEPENDENT REVIEW | Correction pass v3 resolves remaining hostile-review findings without implementation, architecture-checker changes, package-layout changes, repository redesign, or freeze. |
+| 1.4 | DESIGN READY FOR COMMIT - FREEZE PENDING PROJECT OWNER DECISION | Independent hostile review of Version 1.3 performed against live repository evidence; no MAJOR or CRITICAL finding identified. Canonical local validation re-executed against the project virtual environment and recorded. Three cosmetic markdown spacing defects corrected. No semantic, architectural, or scope change. |
+| 1.5 | DESIGN READY FOR COMMIT - FREEZE PENDING PROJECT OWNER DECISION | Root-caused the `pytest` collection failure reported in Version 1.4: it was an invocation artifact, not a repository defect. Both `pytest` and `python -m pytest` were re-verified; the full canonical suite now passes with zero source, test, or configuration changes. See Section 33.3. No semantic, architectural, or scope change. |
+| 1.6 | DESIGN READY FOR COMMIT - TEST SUITE PASS VIA ISOLATED BASETEMP, LITERAL PYTEST INVOCATION ENVIRONMENT-BLOCKED (MACHINE-LOCAL) | Corrects an overclaim in Version 1.5: the literal default `pytest`/`python -m pytest` invocation does not reliably exit 0 on this machine. A dedicated evidence package (`validation-evidence/M020/`) reproduced the exact requested command and recorded exit code 1, caused by the same locked OS temp reparse point, not by a repository defect. The repository test suite itself is confirmed healthy (244 passed, 9 skipped, 91.93% coverage) only when isolated from that locked path via `--basetemp`. Wording throughout this document is corrected to distinguish repository-suite health from literal-invocation exit code; no PASS claim is made for the unmodified default invocation. No semantic, architectural, or scope change. |
 
 ## 2. Baseline
 
@@ -140,45 +152,54 @@ Placement rules:
 - repository contracts must not import SQLAlchemy, psycopg, PostgreSQL adapters, object storage adapters, schemas, mappers, runtime composition, health, or infrastructure-specific errors;
 - repository contracts must not expose internal `_reconstruction` modules.
 
-Future architecture-checker changes are required before implementation to ensure aggregate modules do not import repository modules and repository modules do not import infrastructure packages. Live evidence confirms the existing checker already blocks `campaign`, `run`, `evidence`, and `review` from importing `empirical_platform.shared.persistence`, `sqlalchemy`, `psycopg`, and `boto3` (`tools/check_architecture.py`, `FORBIDDEN_IMPORT_PREFIXES`). That evidence supports the selected placement candidate, but absence from `FORBIDDEN_IMPORT_PREFIXES` is not, by itself, full architectural proof. Implementation scope must still verify that `shared.contracts` remains cycle-safe, that it can reference `AggregateVersion` and `DomainIdentity` without reversing dependency direction, that aggregate repository modules may import it, and that it does not become a dumping ground for unrelated contracts.
+Future architecture-checker changes are not authorized by this design correction. Before implementation, repository contract placement must comply with the architecture rules that are authoritative at implementation time.
 
-### 8.1 Shared Contract-Type Placement
+The exact module placement of repository contract support types and repository contract errors is intentionally not frozen by this design. During repository contract installation, the selected placement must first satisfy:
 
-Independent review confirmed a gap: this design describes `SaveOperation`, `SaveResult`, and the `RepositoryContractError` hierarchy conceptually (Sections 22-23) and assumes in the placement rules above that repository modules may import "shared repository-contract value types," but no version of this document before Version 1.1 named an exact module for those shared types. Per Section 29, the same contract suite and the same result/error shapes must apply to all four aggregate repositories, so these types cannot be duplicated per aggregate package; they must live in exactly one shared, already-permitted location.
+- dependency direction;
+- architecture checker;
+- absence of import cycles;
+- bounded-context ownership;
+- shared package constraints.
 
-Selected placement:
+If a candidate placement violates repository architecture, the implementation must select the narrowest compliant location without changing repository semantics.
 
-```text
-empirical_platform.shared.contracts
-```
+This design therefore freezes repository semantics, not package-layout mechanics for contract-support types.
 
-Rationale, grounded in live repository evidence:
+### 8.1 Contract-Support Type Placement
 
-- `src/empirical_platform/shared/contracts/__init__.py` already exists in the frozen repository tree as an empty, purpose-declared module ("Shared typed contract boundary"), so this placement adds no new top-level package and no package sprawl.
-- `tools/check_architecture.py` already permits `campaign`, `run`, `evidence`, and `review` to import anything under `empirical_platform.shared` except `empirical_platform.shared.persistence` (and `sqlalchemy`/`psycopg`/`boto3`); `empirical_platform.shared.contracts` is not on the forbidden list, so it is a supported placement candidate for all four aggregate repository modules.
-- Placing these types under `shared.persistence` was considered and rejected: it would violate the existing forbidden-import rule that keeps aggregate packages away from persistence-adapter code, contradicting Section 8's own placement rule that repository contracts must not import PostgreSQL/SQLAlchemy-adjacent modules.
+Version 1.2 named `empirical_platform.shared.contracts` as the selected future location for shared repository contract-support types. Independent hostile review identified that this froze placement too early because the existing architecture checker treats the `shared` package as having no allowed imports, while some contemplated contract-support types may need identity or version typing.
 
-Implementation-scope verification remains mandatory before source code is created:
+Version 1.3 corrects that over-freeze.
 
-- prove there is no import cycle involving `shared.contracts`, `shared.domain`, `identifiers`, and aggregate repository modules;
-- prove `shared.contracts` can use `AggregateVersion` and `DomainIdentity` without breaking current dependency direction;
-- prove aggregate repository modules may import `shared.contracts` while aggregate root modules do not import repositories;
-- keep `shared.contracts` limited to coherent repository-contract value types and errors.
+The following contract-support concepts remain selected as part of the repository contract model:
 
-Selected future module paths for shared contract types:
+- `SaveOperation`
+- `SaveResult`
+- `LoadedAggregate`
+- `RepositoryContractError`
+- `AggregateNotFound`
+- `AggregateAlreadyExists`
+- `OptimisticConcurrencyConflict`
+- `InvalidAggregateForPersistence`
+- `InvalidPersistedAggregateState`
 
-- `empirical_platform.shared.contracts.SaveOperation`
-- `empirical_platform.shared.contracts.SaveResult`
-- `empirical_platform.shared.contracts.LoadedAggregate`
-- `empirical_platform.shared.contracts.RepositoryContractError`
-- `empirical_platform.shared.contracts.AggregateNotFound`
-- `empirical_platform.shared.contracts.AggregateAlreadyExists`
-- `empirical_platform.shared.contracts.OptimisticConcurrencyConflict`
-- `empirical_platform.shared.contracts.InvalidAggregateForPersistence`
-- `empirical_platform.shared.contracts.InvalidPersistedAggregateState`
+However, their exact implementation module is not frozen by MILESTONE-020.
 
-No retryability enum type is introduced by this correction; Section 20's `RETRYABLE_AFTER_RELOAD` remains a described concept attached to `OptimisticConcurrencyConflict`, not a new frozen type, consistent with the implementation-scope deferral in Section 31.
+Implementation must place these concepts in the narrowest compliant location that preserves all of the following:
 
+- aggregate-specific public repository contracts remain the domain-facing ports;
+- repository semantics do not change;
+- dependency direction remains valid;
+- architecture-checker rules are not bypassed;
+- no import cycle is introduced;
+- aggregate root modules do not import repository modules;
+- repository contracts do not import infrastructure packages;
+- shared packages do not become dumping grounds for unrelated contracts.
+
+This correction does not authorize modifying architecture rules. If the current architecture rules make a candidate placement non-compliant, implementation must choose a compliant placement rather than weakening architecture boundaries.
+
+This correction does not introduce any retry enum, retry field, retry policy type, or aggregate-kind enum. Callers may retry after reloading current state when an optimistic-concurrency conflict is reported, but retry policy remains application-owned.
 ## 9. Sync/Async Decision
 
 Options evaluated:
@@ -387,6 +408,22 @@ Selected creation semantics:
 - version zero is not required for first persistence;
 - `add` returns a `SaveResult` with operation `CREATED` and persisted version equal to the aggregate current version.
 
+Canonical identity uniqueness is frozen as repository-domain semantics.
+
+Within one aggregate type:
+
+- `governance_id` is unique;
+- `runtime_id` is unique;
+- both form one canonical `DomainIdentity` pairing.
+
+`add()` must reject:
+
+- duplicate `DomainIdentity`;
+- duplicate `governance_id`;
+- duplicate `runtime_id`.
+
+This rule defines repository contract behavior only. It does not prescribe database schema, indexes, constraints, locking, storage layout, or mapper implementation.
+
 This respects frozen aggregate behavior where local domain mutations can occur before first persistence.
 
 ## 17. Existing Aggregate Save
@@ -404,6 +441,18 @@ Selected existing-save semantics:
 - persisted aggregate state must preserve reconstruction fidelity.
 
 The current aggregate version must be greater than or equal to the expected persisted version. Greater-than covers accepted local mutations. Equal-to covers unchanged saves.
+
+Calling `save()` for an aggregate identity that has no persisted aggregate state shall raise `AggregateNotFound`.
+
+`save()` must never:
+
+- create;
+- upsert;
+- silently insert;
+- reinterpret the operation as `add()`;
+- report an optimistic-concurrency conflict for absence of persisted aggregate state.
+
+Absence of persisted aggregate state is therefore distinguished from stale-write conflict. A stale-write conflict requires an existing persisted aggregate whose durable version does not match the caller-supplied expected persisted version.
 
 ## 18. Unchanged Save
 
@@ -450,13 +499,16 @@ Selected stale-write behavior:
 - includes aggregate current version;
 - includes actual persisted version when safely available;
 - actual persisted version is optional because not all storage backends may return it without a second read;
-- retryability is `RETRYABLE_AFTER_RELOAD`;
+- callers may retry after reloading current state;
+- retry policy remains application-owned;
 - no automatic retry;
 - no blind overwrite;
 - no aggregate mutation;
 - no database exception leakage.
 
 The conflict is optimistic-concurrency failure, not aggregate validation failure.
+
+A missing persisted aggregate state is not an optimistic-concurrency conflict. `save()` on a non-persisted aggregate identity raises `AggregateNotFound` as defined in Section 17.
 
 ## 21. Concurrent Creation
 
@@ -494,6 +546,14 @@ Conceptual fields:
 | `operation` | One of `CREATED`, `UPDATED`, `UNCHANGED` |
 | `persisted_version` | Aggregate current version successfully made durable |
 
+`SaveOperation` is a closed immutable enumeration containing exactly:
+
+- `CREATED`
+- `UPDATED`
+- `UNCHANGED`
+
+The exact implementation representation of `SaveOperation` remains implementation-defined, but no additional operation value is permitted by this contract.
+
 No database metadata, row count, transaction ID, ETag, timestamp, session object, lock token, mapper record, or schema information is returned.
 
 ## 23. Error Taxonomy
@@ -506,13 +566,13 @@ RepositoryContractError
 
 Selected contract errors:
 
-| Error | Base | Required context | Retryability | Message rule |
-| --- | --- | --- | --- | --- |
-| `AggregateNotFound` | `RepositoryContractError` | aggregate kind, identity | Not retryable without new identity | Safe message, no storage details |
-| `AggregateAlreadyExists` | `RepositoryContractError` | aggregate kind, identity | Not retryable without new identity or caller policy | Safe message, no uniqueness/index details |
-| `OptimisticConcurrencyConflict` | `RepositoryContractError` | aggregate kind, identity, expected persisted version, aggregate current version, optional actual persisted version | Retryable after reload | Safe message, no SQL/driver details |
-| `InvalidAggregateForPersistence` | `RepositoryContractError` | aggregate kind, identity if available, reason | Not retryable without code/data correction | Safe message |
-| `InvalidPersistedAggregateState` | `RepositoryContractError` | aggregate kind, identity if available, reconstruction category/field when safe | Not retryable without data correction | Safe message |
+| Error | Base | Required context | Message rule |
+| --- | --- | --- | --- |
+| `AggregateNotFound` | `RepositoryContractError` | aggregate kind as descriptive text, identity | Safe message, no storage details |
+| `AggregateAlreadyExists` | `RepositoryContractError` | aggregate kind as descriptive text, identity | Safe message, no uniqueness/index details |
+| `OptimisticConcurrencyConflict` | `RepositoryContractError` | aggregate kind as descriptive text, identity, expected persisted version, aggregate current version, optional actual persisted version | Safe message, no SQL/driver details |
+| `InvalidAggregateForPersistence` | `RepositoryContractError` | aggregate kind as descriptive text, identity if available, reason | Safe message |
+| `InvalidPersistedAggregateState` | `RepositoryContractError` | aggregate kind as descriptive text, identity if available, reconstruction category/field when safe | Safe message |
 
 `ReconstructionError` handling:
 
@@ -520,9 +580,24 @@ Selected contract errors:
 - future repository implementations translate `ReconstructionError` to `InvalidPersistedAggregateState`;
 - exception chaining may preserve original exception for logs/debugging, but the public contract error remains persistence-neutral.
 
-Infrastructure availability failures remain outside the domain repository error taxonomy unless a later application-service boundary needs a separate infrastructure-facing classification.
+Repository contract errors describe repository-domain semantics only.
 
-`LoadedAggregate` is a shared persistence-neutral contract value type, not an error. It lives with `SaveResult` and the repository error hierarchy in `empirical_platform.shared.contracts`.
+Infrastructure failures are not repository-domain semantics. Failures such as:
+
+- database unavailable;
+- transaction failure;
+- timeout;
+- storage backend failure;
+- ORM failure;
+- driver failure;
+
+must be translated into the existing persistence-neutral foundation/infrastructure exception hierarchy.
+
+SQLAlchemy exceptions, psycopg exceptions, database-specific exceptions, SQLSTATE values, backend-specific details, storage-driver details, driver-specific details, and ORM-specific details must never cross the repository boundary.
+
+This design does not introduce a new retry policy.
+
+`LoadedAggregate` is a repository contract-support value type, not an error. Its exact implementation module is not frozen by this design and must follow Section 8.1 placement constraints.
 
 ## 24. Reconstruction Integration
 
@@ -642,6 +717,10 @@ Required create tests:
 
 - successful create;
 - create with positive aggregate current version;
+
+- duplicate `DomainIdentity`;
+- duplicate `governance_id`;
+- duplicate `runtime_id`;
 - duplicate identity;
 - simulated concurrent create;
 - no aggregate mutation by repository.
@@ -650,6 +729,9 @@ Required save tests:
 
 - successful mutated aggregate save;
 - save accepts aggregate plus explicit expected persisted version from `LoadedAggregate.persisted_version`;
+
+- save on an aggregate identity with no persisted aggregate state raises `AggregateNotFound`;
+- save on an aggregate identity with no persisted aggregate state does not create, upsert, silently insert, reinterpret as `add`, or raise `OptimisticConcurrencyConflict`;
 - stale expected persisted version;
 - unchanged save returns `UNCHANGED`;
 - repeated save requires updated expected persisted version;
@@ -660,6 +742,8 @@ Required error tests:
 
 - exact contract error types;
 - identity/version context;
+
+- infrastructure failures do not leak SQLAlchemy, psycopg, SQLSTATE, database-specific, ORM-specific, driver-specific, or backend-specific details;
 - no database exception leakage;
 - no SQL/ORM type exposure.
 
@@ -682,6 +766,9 @@ Future repository contracts must not:
 - require Unit of Work;
 - define multi-aggregate transactions;
 - add APIs or workers;
+- require architecture-checker changes as a precondition of this design;
+- freeze contract-support package placement before implementation-time architecture validation;
+
 - introduce Audit, Decision Candidate, Decision Freeze, trading, vendor, or empirical execution behavior.
 
 ## 31. Deferred Work
@@ -720,7 +807,7 @@ Deferred after M020:
 
 ## 33. Hostile Self-Review
 
-| ID | Severity | Section | Finding | Impact | Correction | Disposition |
+| ID | Severity | Section | Issue considered | Impact | Decision | Disposition |
 | --- | --- | --- | --- | --- | --- | --- |
 | M020-DESIGN-ISSUE-0001 | MAJOR | 15 | Initial draft risked conflating expected persisted version with aggregate current version. | Could allow blind overwrite or ambiguous repeated saves. | Added four-term version vocabulary and explicit expected-version save rule. | Resolved |
 | M020-DESIGN-ISSUE-0002 | MAJOR | 14, 16 | Creation semantics initially risked requiring version zero for first persistence. | Would contradict process-local mutation before persistence. | Selected `add` and allowed any valid current aggregate version. | Resolved |
@@ -728,19 +815,121 @@ Deferred after M020:
 | M020-DESIGN-ISSUE-0004 | MAJOR | 26, 27 | Tracked repositories could smuggle Unit of Work behavior into contracts. | Hidden state and transaction coupling. | Selected detached aggregates and explicit expected-version passing. | Resolved |
 | M020-DESIGN-ISSUE-0005 | MAJOR | 8, 24 | Repository placement near aggregate packages could expose reconstruction internals. | Public callers might import `_reconstruction`. | Selected aggregate-local repository modules but kept reconstruction internal and required future architecture checks. | Resolved |
 | M020-DESIGN-ISSUE-0006 | MINOR | 23 | Infrastructure availability errors were tempting to add to domain taxonomy. | Could leak foundation error concerns into domain contracts. | Kept domain repository errors focused and deferred infrastructure failure classification. | Resolved |
-| M020-DESIGN-ISSUE-0007 | MINOR | 28 | `exists()` could sneak in as creation convenience. | Could become false concurrency guarantee. | Excluded `exists()` from contract and made atomic `add` authoritative. | Resolved |
+| M020-DESIGN-ISSUE-0007 | MAJOR | 23 | Infrastructure failures could leak database/ORM/driver details. | Callers could become coupled to backend-specific exception behavior. | Require translation into the existing persistence-neutral foundation/infrastructure exception hierarchy. | Resolved |
+| M020-DESIGN-ISSUE-0008 | MINOR | 22 | `SaveOperation` conceptual shape could vary. | Repository implementations could expose incompatible public result shapes. | Select a closed immutable enumeration containing exactly `CREATED`, `UPDATED`, and `UNCHANGED`. | Resolved |
+| M020-DESIGN-ISSUE-0009 | MINOR | 28 | `exists()` could sneak in as creation convenience. | A preflight check could be mistaken for an atomic concurrency guarantee. | Exclude `exists()` and make atomic `add` authoritative. | Resolved |
+| M020-DESIGN-ISSUE-0010 | MINOR | 20, 23 | Retry behavior could become a repository-owned policy or public enum. | Repository contracts could improperly prescribe application orchestration. | Define no retry enum or field; callers may retry only after reload, while policy remains application-owned. | Resolved |
 
-No unresolved design issue remains from the original self-review.
+All CRITICAL and MAJOR issues recorded in this self-review have proposed resolutions. Independent verification remains pending.
 
-### 33.1 Independent Hostile Review (Version 1.1 and 1.2 Correction Passes)
+### 33.1 Independent Hostile Review Correction Log
 
-| ID | Severity | Section | Design statement | Repository evidence | Finding | Impact | Correction | Disposition |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| M020-INDEPENDENT-0001 | MAJOR | 8, 22, 23, 29 | Placement rules assumed repository modules "may import ... shared repository-contract value types" without naming that module. | `src/empirical_platform/shared/contracts/__init__.py` exists, empty, purpose-declared; `tools/check_architecture.py` `FORBIDDEN_IMPORT_PREFIXES` blocks only `shared.persistence`/`sqlalchemy`/`psycopg`/`boto3` for `campaign`/`run`/`evidence`/`review`, not `shared.contracts`. | `LoadedAggregate`, `SaveOperation`, `SaveResult`, and the `RepositoryContractError` hierarchy had no exact module location, which the acceptance criteria treat as blocking for implementation readiness. | An implementer would have to invent placement, risking inconsistent per-aggregate duplication of shared result/error shapes. | Added Section 8.1 naming `empirical_platform.shared.contracts` as the exact future location for all shared contract types, while narrowing the claim to selected placement subject to implementation-scope cycle and dependency verification. | Resolved |
-| M020-INDEPENDENT-0002 | MAJOR | 11 | "Repository load/create/save operations use canonical `DomainIdentity[AggregateId]`," justified only on type-safety/traceability grounds. | `identifiers/pairs.py` requires both `governance_id` and `runtime_id`; `MILESTONE_012_CANONICAL_RUNTIME_DOMAIN_KERNEL_DESIGN.md` defers "governance registry ingestion" and records the runtime UUID as internal persistence identity. | The design did not state whether a caller holding only a governance ID (for example `CAMP-0001`) can load through this contract, leaving an implicit, undocumented dependency on out-of-scope future capability. | A future implementer or application-layer author could assume `get` supports governance-ID-only lookup, which it does not, or could be blocked without realizing why. | Added Section 11.1 confirming the identity model is not circular (creators already hold the full pair) and explicitly deferring identity discovery/governance-ID resolution to a future governance-registry milestone. | Resolved |
-| M020-INDEPENDENT-0003 | MAJOR | 12, 19, 27 | Version 1.1 required callers to capture `aggregate.version` immediately after `get`. | Reconstruction restores aggregate version correctly at load time, but aggregate mutation can advance that same property before save. | Bare-aggregate loading left the persisted-version token vulnerable to accidental post-mutation capture. | A caller could pass the aggregate current version as `expected_persisted_version`, producing incorrect unchanged-save or conflict behavior. | Reassessed bare aggregate versus `LoadedAggregate`; selected `LoadedAggregate[AggregateT]` with immutable `persisted_version`, detached aggregate state, and no persistence metadata on the aggregate. | Resolved |
+| ID | Severity | Section | Finding | Correction | Disposition |
+| --- | --- | --- | --- | --- | --- |
+| M020-INDEPENDENT-0001 | MAJOR | 8, 22, 23, 29 | Shared contract value/error types had no exact placement. | Version 1.1 named `shared.contracts`; Version 1.3 supersedes that over-freeze and leaves exact implementation module placement subject to dependency direction, architecture checker, import-cycle, bounded-context, and shared-package constraints. | Resolved |
+| M020-INDEPENDENT-0002 | MAJOR | 11 | Identity-based loading versus governance-ID-only discovery was implicit. | Section 11.1 explicitly states repositories support identity-based loading only and defer identity discovery. | Resolved |
+| M020-INDEPENDENT-0003 | MAJOR | 12, 19, 27 | Bare aggregate loading made persisted-version token capture unsafe after mutation. | `LoadedAggregate[AggregateT]` with immutable `persisted_version` selected. | Resolved |
+| M020-HOSTILE-0001 | MAJOR | 8, 8.1 | `shared.contracts` was frozen too early and may conflict with current architecture rules. | Exact module placement is no longer frozen. Implementation must choose the narrowest compliant placement without changing repository semantics and without requiring architecture-checker changes. | Resolved |
+| M020-HOSTILE-0002 | MAJOR | 17, 20, 29 | `save()` on a missing persisted aggregate was not explicitly frozen. | `save()` on absent persisted aggregate state raises `AggregateNotFound`; it never creates, upserts, silently inserts, reinterprets as `add`, or reports optimistic-concurrency conflict. | Resolved |
+| M020-HOSTILE-0003 | MAJOR | 16, 29 | DomainIdentity uniqueness was ambiguous between full pair, governance ID, and runtime ID. | Per aggregate type, `governance_id` is unique, `runtime_id` is unique, and both form one canonical `DomainIdentity`; `add()` rejects duplicate pair, duplicate governance ID, and duplicate runtime ID. | Resolved |
+| M020-HOSTILE-0004 | MAJOR | 23, 29 | Infrastructure failure surface was undefined. | Repository contract errors are limited to repository-domain semantics; infrastructure failures must be translated into the existing persistence-neutral foundation/infrastructure exception hierarchy without leaking backend details. | Resolved |
+| M020-HOSTILE-0005 | MINOR | 22 | `SaveOperation` exact conceptual API was under-frozen. | `SaveOperation` is a closed immutable enumeration containing exactly `CREATED`, `UPDATED`, and `UNCHANGED`; exact implementation representation remains implementation-defined. | Resolved |
+| M020-HOSTILE-0006 | MINOR | 8, 20, 23 | A retry marker could be mistaken for a public contract field or enum. | The marker is removed. The design states only that callers may retry after reloading current state, while retry policy remains application-owned. | Resolved |
 
-No unresolved CRITICAL or MAJOR finding remains after this correction pass. All three independent-review findings above are documentation-only corrections to this file; no source, test, architecture-checker, or other milestone document was modified.
+All CRITICAL and MAJOR findings recorded for Correction Pass v3 have proposed resolutions. Independent verification remains pending.
+
+### 33.2 Correction Pass v3 Hostile Self-Review
+
+1. Did any correction widen scope?
+
+No. The corrections only clarify repository contract design semantics already within M020: placement constraints, save absence behavior, identity uniqueness, infrastructure failure boundary, save result operation vocabulary, and application ownership of retry policy. No implementation, schema, mapper, query, API, worker, Unit of Work, retry-policy implementation, or storage design is introduced.
+
+2. Did any correction redesign M020?
+
+No. M020 remains an aggregate-specific, synchronous, domain-facing repository contract design with explicit optimistic concurrency. The corrections remove ambiguity without changing the selected architecture, operation model, tracking model, or deferred implementation scope.
+
+3. Did any correction modify frozen M019 behavior?
+
+No. Reconstruction remains internal to mapper/repository implementation flow. No reconstruction state record, `_reconstruct_*` factory, aggregate behavior, or M019 contract is changed.
+
+4. Did any correction require changing architecture rules?
+
+No. Version 1.3 explicitly avoids authorizing architecture-checker changes. If a candidate module placement violates architecture rules, implementation must choose a compliant placement rather than weakening the checker.
+
+5. Are any unresolved architectural ambiguities still present?
+
+No unresolved architecture ambiguity remains that blocks design approval. Exact code module placement for contract-support types remains intentionally implementation-defined, but the selection criteria are now constrained: dependency direction, architecture checker, import-cycle absence, bounded-context ownership, and shared package constraints. That is an implementation placement decision, not an unresolved repository semantics decision.
+
+6. Is implementation now sufficiently constrained?
+
+Yes. Implementation is constrained on repository operations, identity inputs, creation uniqueness, save-on-missing behavior, optimistic concurrency, unchanged save, repeated save, loaded-version token preservation, error taxonomy, infrastructure failure translation, `SaveOperation` vocabulary, contract-test obligations, application-owned retry policy, and forbidden leakage of storage details.
+
+### 33.3 Independent Hostile Review (Version 1.3, Session Pass)
+
+An independent review was performed against Version 1.3 with live repository evidence, cross-checking every claim in this document against current source:
+
+- `AggregateVersion` (`src/empirical_platform/shared/domain/versioning.py`) is a frozen, `order=True` dataclass with a non-negative `int` value and `initial()`/`next()` helpers. This supports the equality and ordering comparisons Section 17 relies on (`current >= expected`), confirming the concurrency comparison is technically realizable as described.
+- `DomainIdentity[GovernanceIdentifierT]` (`src/empirical_platform/identifiers/pairs.py`) confirms the frozen `governance_id`/`runtime_id` pairing exactly as described in Sections 11 and 11.1.
+- `PersistenceService`/`PersistenceUnitOfWork` (`src/empirical_platform/shared/interfaces/persistence.py`) confirm the infrastructure-only, domain-repository-free state described in Section 4 and the Scope Selection document's persistence inventory.
+- `src/empirical_platform/shared/contracts/__init__.py` is confirmed empty (docstring only), consistent with Section 8.1's statement that no contract-support type placement is yet frozen or occupied.
+
+No MAJOR or CRITICAL finding was identified. Three MINOR markdown spacing defects were found and corrected (duplicated blank lines before Section 16's closing sentence and before Section 22's closing sentence; a missing blank line before the `ReconstructionError` handling paragraph in Section 23, which ran directly against the preceding table row). These are formatting-only corrections with no semantic, architectural, or scope effect.
+
+Canonical local validation was re-executed directly (not assumed from a prior report) against the project's pinned virtual environment (`.venv`, Python 3.13.14, matching `requires-python = ">=3.13,<3.14"`):
+
+| Check | Result |
+| --- | --- |
+| `ruff format --check .` | PASS (110 files already formatted) |
+| `ruff check .` | PASS (all checks passed) |
+| `mypy` | PASS (0 issues, 63 source files) |
+| `tools/check_architecture.py .` | PASS (0 violations) |
+| `tools/check_architecture.py tests/fixtures/illegal_imports` (negative fixture) | PASS (9 violations correctly detected) |
+| `python -m compileall -q src tests tools migrations` | PASS |
+| `python -m pip_audit` | PASS (no known vulnerabilities; own unpublished package correctly skipped) |
+| `python -m detect_secrets scan <discovered targets>` | PASS (0 findings across 200 discovered targets) |
+| `git diff --check` | PASS (CRLF-conversion notices only, no whitespace errors) |
+| `python -m build` | PASS |
+| `python -c "import empirical_platform; print(...__version__)"` | PASS (`0.0.0`) |
+| `pytest` (repository test suite, isolated from the machine-local locked temp path via `--basetemp`) | PASS (244 passed, 9 skipped, 91.93% coverage) |
+| `pytest` (literal default invocation, no `--basetemp`, on this machine) | ENVIRONMENT-BLOCKED — exits 1 during teardown; not PASS; see Section 33.4 and Section 33.5 |
+
+This independent review's raw command evidence was captured locally under `.validation-proof-m020/` (session-local, not part of this commit).
+
+### 33.4 Root Cause of the Initially Reported `pytest` Failure
+
+Version 1.4 reported a `pytest` collection failure (`ModuleNotFoundError: No module named 'tools'`) as a pre-existing, unrelated repository risk. Explicit instruction was given not to assume `tools/__init__.py` is the correct fix and to determine the true root cause before touching anything. Investigation, in order:
+
+1. **pytest configuration** (`[tool.pytest.ini_options]` in `pyproject.toml`): no `pythonpath` setting, no `rootdir` override.
+2. **Repository layout**: no `conftest.py` anywhere in the repository; no `__init__.py` under `tests/` at any level; `tools/` has no `__init__.py` either.
+3. **Import path mechanics**: pytest's default `prepend` import mode inserts, for each test module, the nearest ancestor directory that does *not* contain `__init__.py`. For `tests/architecture/test_module_boundaries.py`, since `tests/architecture/` itself has no `__init__.py`, pytest inserts only `tests/architecture` onto `sys.path`, never the repository root, so a bare-package import like `from tools.check_architecture import ...` cannot resolve.
+4. **`pyproject.toml` packaging**: `[tool.setuptools.packages.find] where = ["src"]` confirms `empirical_platform` is installed editable (hence importable from anywhere), while `tools/` is intentionally never packaged or installed — it is a repository-root developer/CI tool, not a distributed package.
+5. **Historical commits**: `git log` confirms `tests/architecture/test_module_boundaries.py` and `tests/unit/test_secret_scan_targets.py` were added by the MILESTONE-017 and MILESTONE-019 commits respectively, unchanged since.
+6. **Canonical invocation, per `scripts/verify.ps1` (line 24)**: the repository's own authoritative validation script invokes `python @("-m", "pytest")`, never the bare `pytest` console-script entry point.
+
+Reproducing both invocations confirmed the first part of the root cause: **the `ModuleNotFoundError: No module named 'tools'` collection failure reported in Version 1.4 is fixed by invocation alone, with zero repository changes.** Python's `-m` flag inserts the current working directory onto `sys.path[0]` before the module runs, which is sufficient by itself to make the repository-root `tools` namespace package importable — no `__init__.py`, no `pythonpath` setting, and no other configuration change is needed or correct. That specific failure was produced by invoking the bare `pytest` console-script (which does not add the working directory to `sys.path`), not by any defect in the repository. Adding `tools/__init__.py` would not have been the true fix and was correctly not applied.
+
+A second, unrelated issue surfaced once collection succeeded: `python -m pytest` completed all 244 tests (9 skipped) and then crashed during its own teardown (`_pytest/pathlib.py: cleanup_dead_symlinks`) with `PermissionError: WinError 5` while purging a stale, OS-level, locked reparse point (`%LOCALAPPDATA%\Temp\pytest-of-LuxSy\pytest-current`) left over from prior validation runs on this machine. This directory is pytest's own disposable scratch space, entirely outside the git repository, and the lock could not be released by this session (verified undeletable via `rm`, PowerShell `Remove-Item`, .NET `Directory.Delete`, and `cmd /c rmdir`, all denied — consistent with an external process, such as antivirus real-time scanning, holding the handle). This is a local-machine condition, not a repository defect, not business logic, and not something a source or configuration change should work around. Passing `--basetemp` to point pytest at a clean scratch directory for the invocation avoided the locked location without changing any tracked file. All 244 tests pass, 9 skipped (tests marked `integration`, requiring local external dependencies not running in this session), coverage 91.93% against an 80% gate.
+
+No repository file was created, deleted, or modified to reach this result. The repository was never broken; the collection-time invocation artifact was corrected by understanding, not by code change. The teardown lock, addressed in Section 33.5, remains a live, reproducible, machine-local limitation rather than a one-time fluke.
+
+### 33.5 Correction: the Literal Default Invocation Remains Environment-Blocked
+
+A dedicated validation evidence package was subsequently generated at `validation-evidence/M020/`, capturing the complete, unedited output of the exact literal command:
+
+```text
+python -m pytest tests -ra --cov=empirical_platform --cov-report=term-missing
+```
+
+This literal invocation, with no `--basetemp` override, was run again on this machine and **exited 1**, reproducing the identical `cleanup_dead_symlinks` / `PermissionError: WinError 5` teardown crash against the same locked `%LOCALAPPDATA%\Temp\pytest-of-LuxSy\pytest-current` path described above. Confirmed via direct inspection of the raw output (`validation-evidence/M020/02_pytest.txt`): all 244 tests completed, `[100%]` progress reached, zero `F`/`FAILED` markers, and the failure occurs strictly after test execution, in pytest's own teardown hook.
+
+This corrects an overclaim made earlier in this section and in Version 1.5: it is not accurate to say the literal default invocation "already succeeds" on this machine. The lock is persistent across sessions, not transient, and the literal invocation will keep exiting 1 on this machine until whatever external process holds that handle releases it, or the stale temp directory is cleared outside this session. A supplementary capture using `--basetemp` (`validation-evidence/M020/02b_pytest_supplementary_clean_basetemp.txt`) confirms the repository test suite itself remains healthy (244 passed, 9 skipped, 91.93% coverage) once isolated from the locked path.
+
+The distinction this document now holds precisely:
+
+- repository test suite: **PASS** — 244 passed, 9 skipped, 91.93% coverage, verified using an isolated `--basetemp`;
+- literal default `pytest` invocation on this machine: **ENVIRONMENT-BLOCKED** during teardown by a locked OS temp path — not PASS, exit code 1, honestly recorded and not relabeled;
+- repository defect: none identified;
+- machine-local limitation: remains open and documented; it is outside the repository and outside this document's scope to fix.
 
 ## 34. Acceptance Gate
 
@@ -766,23 +955,51 @@ No unresolved CRITICAL or MAJOR finding remains after this correction pass. All 
 | Query/delete exclusions explicit | PASS |
 | Mapper/schema/migration/implementation deferred | PASS |
 | No source code introduced | PASS |
-| Shared contract-type module location selected | PASS (Version 1.1) |
+| Exact contract-support module placement intentionally deferred to implementation-time architecture validation | PASS (Version 1.3) |
 | Identity-based loading versus identity discovery distinguished | PASS (Version 1.1) |
 | Persisted-version token acquisition safely preserved by `LoadedAggregate` | PASS (Version 1.2) |
-| `shared.contracts` placement classified as selected design placement subject to implementation-scope architecture verification | PASS (Version 1.2) |
 | Independent hostile review performed against live repository evidence | PASS (Version 1.2) |
-| Canonical local validation (`scripts/security.ps1`, `scripts/verify.ps1`, ruff, mypy, `tools/check_architecture.py`) rerun after correction | PENDING |
+| Canonical DomainIdentity uniqueness semantics frozen | PASS (Version 1.3) |
+| Save on missing persisted aggregate state explicitly raises `AggregateNotFound` | PASS (Version 1.3) |
+| Retry policy remains application-owned without public retry enum or field | PASS (Version 1.3) |
+| `SaveOperation` closed conceptual enumeration frozen | PASS (Version 1.3) |
+| Infrastructure failure boundary clarified without new retry policy | PASS (Version 1.3) |
+| M019 frozen behavior preserved | PASS |
+| No architecture-checker change authorized | PASS |
+| Independent hostile review findings addressed in documentation | PASS (Version 1.3) |
+| Independent review of Version 1.3 completed | PASS (Version 1.4, Section 33.3) |
+| M020 frozen | NO |
+| Canonical local validation (ruff, mypy, `tools/check_architecture.py`, `compileall`, `pip_audit`, `detect_secrets`, `git diff --check`, `build`) rerun after correction against project virtual environment | PASS (Version 1.5, Sections 33.3-33.4) |
+| `pytest` repository test suite (244 passed, 9 skipped, 91.93% coverage), isolated from the machine-local locked temp path via `--basetemp` | PASS (Version 1.6, Section 33.5) |
+| `pytest` literal default invocation (`python -m pytest tests -ra --cov=empirical_platform --cov-report=term-missing`, no `--basetemp`) on this machine | ENVIRONMENT-BLOCKED — exits 1 during teardown; not PASS (Version 1.6, Section 33.5; raw evidence `validation-evidence/M020/02_pytest.txt`) |
 
 ## 35. Final Decision
 
 MILESTONE-020 selects aggregate-specific, synchronous, aggregate-local future repository contracts with explicit optimistic-concurrency semantics.
 
-Version 1.2 applies documentation-only corrections identified by independent hostile review conducted directly against live repository evidence: shared contract-type placement is narrowed to selected design placement subject to implementation-scope architecture verification, identity-based loading is distinguished from identity discovery, and persisted-version token capture is moved from caller-managed bare aggregate capture to immutable `LoadedAggregate.persisted_version`. No architecture-checker change, no source implementation, and no other milestone document is changed by this correction pass.
+Version 1.3 applies documentation-only corrections identified by independent hostile review:
 
-This document does not mark MILESTONE-020 frozen. Freezing requires the canonical local validation suite (`scripts/security.ps1`, `scripts/verify.ps1`, `python -m ruff format --check .`, `python -m ruff check .`, `python -m mypy`, `python tools/check_architecture.py .`) to be rerun and pass on the corrected repository state, plus a clean `git status` and a successful correction commit. That validation step requires a native Windows PowerShell environment and has not been executed as part of this correction pass.
+- exact contract-support module placement is no longer frozen prematurely;
+- `save()` on a missing persisted aggregate state explicitly raises `AggregateNotFound`;
+- per-aggregate canonical `DomainIdentity` uniqueness is frozen across `governance_id`, `runtime_id`, and their pairing;
+- infrastructure failures are excluded from repository-domain contract errors and must be translated into the existing persistence-neutral foundation/infrastructure exception hierarchy;
+- `SaveOperation` is frozen as a closed immutable conceptual enumeration containing exactly `CREATED`, `UPDATED`, and `UNCHANGED`;
+- no retry enum or retry field is introduced; callers may retry after reloading current state, while retry policy remains application-owned.
+
+No architecture-checker change, no source implementation, no tests, no package-layout change, no schema, no mapper, no migration, no repository implementation, no previous frozen milestone document, and no M019 behavior is changed by this correction pass.
+
+Version 1.4 performs the independent hostile review of Version 1.3 and the canonical local validation rerun that Version 1.3 left pending, both against live repository evidence and the project's pinned virtual environment. No MAJOR or CRITICAL finding was raised; three cosmetic markdown spacing defects were corrected. Version 1.4 reported a `pytest` collection failure as an open repository risk.
+
+Version 1.5 root-causes that reported failure per Section 33.4: it was not a repository defect. The collection-time `ModuleNotFoundError` was produced by invoking the bare `pytest` console-script instead of `python -m pytest` (the invocation the repository's own `scripts/verify.ps1` already uses); a second, separate issue is a stale, locked, OS-level pytest temp directory on this machine that is outside the repository entirely. No `__init__.py`, `pythonpath` setting, or any other repository change was made or was needed for either finding.
+
+Version 1.6 corrects an overclaim in Version 1.5. A dedicated evidence package (`validation-evidence/M020/`) reproduced the exact literal default `pytest` invocation and recorded that it still exits 1 on this machine, honestly and without relabeling: all 244 tests complete with zero `FAILED` markers, and the failure occurs strictly in pytest's own teardown against the locked temp path, reproducibly, not as a one-time fluke. The repository test suite itself is confirmed healthy — 244 passed, 9 skipped, 91.93% coverage — only when verified with an isolated `--basetemp`. This document therefore holds two distinct, non-conflated facts: the repository test suite passes, and the literal default invocation on this machine is environment-blocked. Canonical local validation covering ruff, mypy, the architecture checker, `compileall`, `pip_audit`, `detect_secrets`, `git diff --check`, and `build` passes without qualification.
+
+This document does not mark MILESTONE-020 frozen. Freezing requires a clean repository status and an authorized freeze decision by the Project Owner. Independent review and canonical local validation are complete; the repository test suite passes; the literal default `pytest` invocation remains environment-blocked on this machine by a condition outside the repository, and this document does not claim otherwise.
 
 Final status:
 
 ```text
-DESIGN CORRECTED - PENDING FINAL VALIDATION
+DESIGN READY FOR COMMIT - TEST SUITE PASS VIA ISOLATED BASETEMP,
+LITERAL PYTEST INVOCATION ENVIRONMENT-BLOCKED (MACHINE-LOCAL) -
+FREEZE PENDING PROJECT OWNER DECISION
 ```
