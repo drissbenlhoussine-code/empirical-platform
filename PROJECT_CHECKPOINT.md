@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative record of the current frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| HEAD at this checkpoint | `40dd6b6a0c02e710e3f7efe84e8959af51f839f9` |
-| origin/master at this checkpoint | `40dd6b6a0c02e710e3f7efe84e8959af51f839f9` (identical — pushed) |
+| HEAD at this checkpoint | (local, uncommitted at documentation time — see M021 implementation commit hash once created) |
+| origin/master at this checkpoint | `abeba5a1407a8d31ce6d07fe3e071804d2385457` (M021 design freeze, pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -22,7 +22,12 @@ M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
 M020_IMPLEMENTATION_COMMIT=e20bc76d2dc0be359cea2c385c210e081fb48a35
 M020_CORRECTION_COMMIT=efed86be608471fdaa2956f7827fc9236209763a
 M020_FREEZE_COMMIT=40dd6b6a0c02e710e3f7efe84e8959af51f839f9
-M021_STATUS=NOT_IMPLEMENTED
+M021_DESIGN_COMMIT=06d22defd6f06b96d0a46c5e91bc169e55e674e5
+M021_DESIGN_FREEZE_COMMIT=abeba5a1407a8d31ce6d07fe3e071804d2385457
+M021_STATUS=IMPLEMENTATION_COMPLETE_PENDING_INDEPENDENT_REVIEW
+M021_APPROVED=NO
+M021_FROZEN=NO
+M022_STATUS=NOT_STARTED
 ```
 
 ## 3. MILESTONE-020 Summary
@@ -67,13 +72,15 @@ Full detail: `MILESTONE_020_DOMAIN_REPOSITORY_AND_CONCURRENCY_CONTRACT_{SCOPE_SE
 
 ## 7. MILESTONE-021 Status
 
-Scope selected and design drafted this checkpoint cycle:
+Design approved and frozen (`abeba5a1`); implementation now complete this checkpoint cycle:
 
-- `MILESTONE_021_AGGREGATE_PERSISTENCE_MAPPER_CONTRACT_SCOPE_SELECTION.md` — `SCOPE SELECTED - PENDING INDEPENDENT REVIEW`;
-- `MILESTONE_021_AGGREGATE_PERSISTENCE_MAPPER_CONTRACT_DESIGN.md` — `DESIGN READY FOR INDEPENDENT REVIEW`.
+- `MILESTONE_021_AGGREGATE_PERSISTENCE_MAPPER_CONTRACT_SCOPE_SELECTION.md` — scope selected;
+- `MILESTONE_021_AGGREGATE_PERSISTENCE_MAPPER_CONTRACT_DESIGN.md` — `DESIGN APPROVED AND FROZEN`;
+- `MILESTONE_021_AGGREGATE_PERSISTENCE_MAPPER_CONTRACT_FREEZE.md` — design freeze record;
+- `MILESTONE_021_AGGREGATE_PERSISTENCE_MAPPER_CONTRACT_IMPLEMENTATION_SCOPE_SELECTION.md` and `MILESTONE_021_AGGREGATE_PERSISTENCE_MAPPER_CONTRACT_IMPLEMENTATION.md` — `IMPLEMENTATION COMPLETE - PENDING INDEPENDENT REVIEW`.
 
-Selected scope: an aggregate-specific, persistence-neutral **mapper contract** (`CampaignMapper`, `RunMapper`, `EvidencePackageMapper`, `ReviewMapper`) translating between frozen aggregates/reconstruction states and a field-level "durable record" concept — no schema, no SQL, no concrete repository implementation, no Unit of Work.
+Built: `CampaignMapper`, `RunMapper`, `EvidencePackageMapper`, `ReviewMapper` Protocols (`to_durable_record`/`from_durable_record`), four aggregate-specific durable-record types, a mapper-local `MapperError`/`MapperErrorCategory`, and 25 new contract tests using in-memory fakes. **No concrete mapper implementation against any storage technology exists.** No schema, SQL, repository implementation, or Unit of Work was added.
 
 ## 8. Next Authorized Work
 
-Independent review of the MILESTONE-021 scope and design documents above. Implementation is **not** authorized until that review is complete and the Project Owner separately approves and (later) freezes the design, following the same design → implementation → freeze discipline used for MILESTONE-019 and MILESTONE-020. No MILESTONE-021 source code, mapper, schema, or migration exists as of this checkpoint.
+Independent review of the MILESTONE-021 implementation. Approval and freeze of the implementation are **not** granted by this checkpoint — those remain separate Project Owner decisions, following the same discipline used for MILESTONE-019 and MILESTONE-020. MILESTONE-022 has **not** started.

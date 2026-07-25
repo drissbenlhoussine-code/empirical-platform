@@ -1,5 +1,11 @@
 """Shared typed contract boundary."""
 
+from empirical_platform.shared.contracts.mapping import (
+    IdentityDurableRecord,
+    MapperError,
+    MapperErrorCategory,
+    TransitionDurableRecord,
+)
 from empirical_platform.shared.contracts.repository import (
     AggregateAlreadyExists,
     AggregateNotFound,
@@ -15,11 +21,15 @@ from empirical_platform.shared.contracts.repository import (
 __all__ = [
     "AggregateAlreadyExists",
     "AggregateNotFound",
+    "IdentityDurableRecord",
     "InvalidAggregateForPersistence",
     "InvalidPersistedAggregateState",
     "LoadedAggregate",
+    "MapperError",
+    "MapperErrorCategory",
     "OptimisticConcurrencyConflict",
     "RepositoryContractError",
     "SaveOperation",
     "SaveResult",
+    "TransitionDurableRecord",
 ]

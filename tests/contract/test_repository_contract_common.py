@@ -31,6 +31,11 @@ def test_save_operation_is_exactly_three_closed_values() -> None:
 
 
 def test_shared_contracts_public_exports() -> None:
+    # Subset, not exact-equality: MILESTONE-021 added its own mapping-support
+    # exports (MapperError, MapperErrorCategory, IdentityDurableRecord,
+    # TransitionDurableRecord) to this same shared.contracts module, covered
+    # separately by test_mapper_contract_common.py. This test only asserts the
+    # MILESTONE-020 repository-support names remain present and unchanged.
     expected = {
         "AggregateAlreadyExists",
         "AggregateNotFound",
@@ -42,7 +47,7 @@ def test_shared_contracts_public_exports() -> None:
         "SaveOperation",
         "SaveResult",
     }
-    assert set(contracts_exports.__all__) == expected
+    assert expected <= set(contracts_exports.__all__)
     for name in expected:
         assert hasattr(contracts_exports, name)
 
