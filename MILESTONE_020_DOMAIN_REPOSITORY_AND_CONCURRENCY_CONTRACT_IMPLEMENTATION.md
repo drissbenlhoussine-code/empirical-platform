@@ -6,8 +6,8 @@
 | --- | --- |
 | Document ID | MILESTONE-020 |
 | Title | Domain Repository and Concurrency Contract Implementation |
-| Version | 1.0 |
-| Status | IMPLEMENTATION COMPLETE - PENDING INDEPENDENT REVIEW |
+| Version | 1.1 |
+| Status | IMPLEMENTATION CORRECTED - PENDING INDEPENDENT RE-REVIEW |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Baseline | `fd96b70366a7bbed2172a8f51d7d7cc52b60bc41` |
 | Frozen design authority | `MILESTONE_020_DOMAIN_REPOSITORY_AND_CONCURRENCY_CONTRACT_DESIGN.md` (Version 1.6, OWNER APPROVED, DESIGN FROZEN) |
@@ -53,7 +53,8 @@ Modified:
 - `src/empirical_platform/run/__init__.py` (export `RunRepository`);
 - `src/empirical_platform/evidence/__init__.py` (export `EvidencePackageRepository`);
 - `src/empirical_platform/review/__init__.py` (export `ReviewRepository`);
-- `tests/architecture/test_module_boundaries.py` (assert the three new negative fixtures).
+- `tests/architecture/test_module_boundaries.py` (assert the three new negative fixtures);
+- `scripts/verify.ps1` (correction pass — see Section 14).
 
 `tools/check_architecture.py` was not modified. No architecture-checker rule change was required or made.
 
@@ -177,7 +178,7 @@ The project's `[tool.mypy]` configuration (`packages = ["empirical_platform"]`) 
 
 ## 12. Validation Evidence
 
-Full commands, raw output, and exit codes are in `external-review/M020_REPOSITORY_CONTRACT_IMPLEMENTATION/evidence/`. Summary:
+Full commands, raw output, and exit codes are in `external-review/M020_REPOSITORY_CONTRACT_IMPLEMENTATION/evidence/`. Summary (post-correction, Section 14):
 
 - Python: `3.13.14` (`.venv`, matching `requires-python = ">=3.13,<3.14"`);
 - `ruff format --check .`: PASS;
@@ -185,13 +186,15 @@ Full commands, raw output, and exit codes are in `external-review/M020_REPOSITOR
 - `mypy`: PASS, 0 issues, 68 source files;
 - `tools/check_architecture.py .`: PASS, 0 violations;
 - `tools/check_architecture.py tests/fixtures/illegal_imports`: PASS, violations correctly detected including the 3 new fixtures;
-- `pytest` (full suite, isolated `--basetemp` per the known machine-local locked temp path documented in the frozen design Section 33.5): PASS;
+- `pytest` (full suite, `--basetemp` under `%TEMP%`): **303 passed, 9 skipped**, coverage **91.82%** (gate 80%);
+- `powershell -File .\scripts\security.ps1`: PASS;
+- `powershell -File .\scripts\verify.ps1`: **PASS, exit 0, end-to-end, with no manual external workaround** (corrected — see Section 14);
 - `pip_audit`: PASS;
 - `detect-secrets`: PASS, 0 findings;
 - `python -m build`: PASS;
 - `git diff --check`: PASS.
 
-The machine-local locked `%LOCALAPPDATA%\Temp\pytest-of-LuxSy\pytest-current` condition documented in the frozen design remains unresolved on this machine; it is unrelated to this implementation and is worked around identically (isolated `--basetemp`), not fixed, per that design's own scope boundary.
+Section 14 records why this table changed from the original Version 1.0 evidence (which reported `verify.ps1` as environment-blocked and worked around, not fixed).
 
 ## 13. Hostile Self-Review
 
@@ -204,7 +207,65 @@ The machine-local locked `%LOCALAPPDATA%\Temp\pytest-of-LuxSy\pytest-current` co
 
 No MAJOR or CRITICAL finding was identified. Full validation (Section 12) was re-run after the two corrective changes (Issues 0001 and 0002) and remained green.
 
-## 14. Explicit Non-Goals Confirmed
+## 14. Independent Codex Review — Correction Pass
+
+An independent hostile review (Codex) of implementation commit `e20bc76d2dc0be359cea2c385c210e081fb48a35` returned "M020 IMPLEMENTATION REQUIRES NARROW CORRECTION" with two MAJOR findings and one MINOR finding. Each was independently reproduced before correcting, per standing instruction not to rely only on the external report.
+
+### 14.1 MAJOR 1 — External review package contamination (reproduced, corrected)
+
+Reproduced exactly: `git diff fd96b70366a7bbed2172a8f51d7d7cc52b60bc41..e20bc76d2dc0be359cea2c385c210e081fb48a35` (1848 lines) did not byte-match the packaged `complete.diff` (1918 lines). Root cause confirmed: the original `complete.diff` was assembled from a working-tree walk (`find` over changed paths plus `git diff --no-index /dev/null <file>` per new file), generated *before* the implementation commit existed. That walk is not git-aware and picked up `tests/contract/__pycache__/*.pyc` bytecode cache files present on disk at packaging time — 9 binary diff entries that were never part of any commit (confirmed: `grep -c pycache` against the authoritative `git diff` returns zero). Source, test, fixture, export, and document file *contents* inside the package were independently verified to already match `git show HEAD:<path>` exactly (no staleness beyond the diff-generation file itself).
+
+Correction: `complete.diff` is now regenerated with a single command, `git diff fd96b70366a7bbed2172a8f51d7d7cc52b60bc41..HEAD`, run directly against the git object database. This is inherently immune to filesystem litter (`__pycache__`, stray build artifacts) because git diff only ever reflects tracked, committed content. Verified byte-equivalent against the authoritative diff after the correction commit; see `external-review/M020_REPOSITORY_CONTRACT_IMPLEMENTATION/complete.diff`.
+
+### 14.2 MAJOR 2 — `verify.ps1` not green (reproduced, corrected)
+
+Reproduced exactly: `python -m pytest` (verify.ps1's literal invocation, no arguments) exits 1 on this machine with `PermissionError: [WinError 5] Access is denied: 'C:\Users\LuxSy\AppData\Local\Temp\pytest-of-LuxSy\pytest-current'`, thrown from pytest's own `cleanup_dead_symlinks` teardown hook, after all tests already completed successfully. This is the same locked, machine-local, OS-level temp path documented in the frozen design's Section 33.5 and the Version 1.0 implementation's Section 12 as a workaround-only condition.
+
+Correction, in `scripts/verify.ps1`: the bare `Invoke-Checked python @("-m", "pytest")` line is replaced with a `--basetemp` pointed at a freshly generated, GUID-named directory under `$env:TEMP`, wrapped in `try/finally` so best-effort cleanup can never mask a genuine pytest failure:
+
+```powershell
+$PytestBaseTemp = Join-Path $env:TEMP ("empirical-platform-pytest-" + [System.Guid]::NewGuid().ToString("N"))
+try {
+    Invoke-Checked python @("-m", "pytest", "--basetemp=$PytestBaseTemp")
+}
+finally {
+    if (Test-Path $PytestBaseTemp) {
+        Remove-Item -Path $PytestBaseTemp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+```
+
+This works because passing `--basetemp` explicitly makes pytest use that directory directly as its temp root; it bypasses pytest's own numbered-directory-plus-`pytest-current`-symlink rotation scheme entirely (the code path that was crashing), rather than merely relocating where that scheme runs. The path is derived from `$env:TEMP` and a fresh GUID every run — no user-specific literal path, no fixed path that can go stale, no collision with any other process's `pytest-of-<user>` state. `Invoke-Checked`'s `throw` on nonzero exit is preserved unchanged, so a genuine test failure still stops the script exactly as before; `finally`-block cleanup uses `-ErrorAction SilentlyContinue` so a cleanup failure (e.g., the temp directory itself becoming locked) can never convert a real result into a false one. No test selection, execution, or coverage behavior changed. Independently re-verified: `powershell -File .\scripts\verify.ps1` now exits 0 end-to-end (pip install, compileall, ruff format/check, mypy, pytest, architecture checker + negative fixtures, `security.ps1`, build, import-version check), with no manual external workaround.
+
+No established PowerShell-script test mechanism (e.g., Pester) exists in this repository; per Phase 2's own instruction, the corrected behavior is validated directly (this section, plus raw transcripts in the evidence bundle) rather than inventing a new test framework for one script.
+
+**Observation surfaced during independent re-verification, not a regression:** using an overly deep temp path (this session's own nested scratch directory, 230+ characters) as `--basetemp` for a manual diagnostic run caused two *pre-existing, untouched* tests (`tests/unit/test_secret_scan_targets.py`, which run their own `git init`/`git add` inside `tmp_path`) to fail with `CalledProcessError`, consistent with Windows' 260-character `MAX_PATH` limit being exceeded by that test's own nested subdirectories. This is unrelated to M020, unrelated to the `verify.ps1` correction (which correctly uses the short, non-nested `$env:TEMP` root and was never affected), and disappeared entirely once a short path directly under `%TEMP%` was used instead. Recorded here for transparency since it was encountered during this session's own verification work.
+
+### 14.3 MINOR — mypy does not check `tests/` (investigated, not corrected, documented per Phase 3's own allowance)
+
+Investigated concretely rather than accepted by default. Attempting the narrowest imaginable fix — passing `mypy --strict tests/contract/test_repository_contract_common.py tests/contract/_fakes.py` as two explicit files — fails immediately with mypy's own error: `Source file found twice under different module names: "_fakes" and "tests.contract._fakes"`, because no directory under `tests/` has an `__init__.py` (confirmed repository-wide). Retrying with only the entry file plus `--explicit-package-bases` succeeds, but that flag changes how mypy resolves *all* first-party imports project-wide, not just this one file — it is a change to the canonical mypy invocation's resolution mode, not a one-file addition. Per this mission's own instruction ("do not enable mypy over the entire test tree without assessing consequences... do not expand into a broad tooling redesign"), this was judged to be exactly that kind of broader change, not a narrow one, and was not made.
+
+Disposition:
+
+```text
+MINOR — ACCEPTED FOR FUTURE TOOLING MILESTONE
+```
+
+Section 11 of this document already discloses this scope boundary; it is unchanged by this correction pass.
+
+### 14.4 Corrected Validation Summary
+
+| Check | Version 1.0 result | Version 1.1 result |
+| --- | --- | --- |
+| `complete.diff` vs. authoritative `git diff` | Not byte-equivalent (pycache contamination, non-git-native assembly) | Byte-equivalent by construction (generated directly via `git diff`) |
+| `scripts/verify.ps1` | Environment-blocked, worked around only | PASS, exit 0, end-to-end, no workaround |
+| `scripts/security.ps1` | PASS | PASS (unchanged) |
+| `pytest` (full suite) | 303 passed, 9 skipped, 91.82% coverage | 303 passed, 9 skipped, 91.82% coverage (unchanged — no test added, removed, or skipped by this correction) |
+| mypy `tests/` scope | Not checked (documented) | Not checked (documented; investigated further, see 14.3) |
+
+No business or domain behavior changed anywhere in this correction pass. `src/empirical_platform/campaign|run|evidence|review/*.py` and `src/empirical_platform/shared/contracts/repository.py` are byte-identical to Version 1.0. Only `scripts/verify.ps1` (source) and the external review package (evidence artifact) changed.
+
+## 15. Explicit Non-Goals Confirmed
 
 Not implemented:
 
@@ -221,10 +282,10 @@ Not implemented:
 
 `migrations/versions` remains empty. No frozen aggregate, lifecycle, or reconstruction source file was modified.
 
-## 15. Final Status
+## 16. Final Status
 
 ```text
-IMPLEMENTATION COMPLETE - PENDING INDEPENDENT REVIEW
+M020 NARROW CORRECTION COMPLETE - READY FOR INDEPENDENT RE-REVIEW
 ```
 
 MILESTONE-020 is NOT marked APPROVED beyond the frozen design, and this implementation is NOT FROZEN. MILESTONE-021 has NOT started.
