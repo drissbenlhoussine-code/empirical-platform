@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative record of the current frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `4ce800d3609ba7c621eadffc338bc5bc2503228d` (`chore: freeze MILESTONE-023 PostgreSQL repository adapters`, pushed) |
-| Checkpoint content baseline origin/master | `4ce800d3609ba7c621eadffc338bc5bc2503228d` (identical — the M023 freeze lineage has been pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `ed0a4198dab515c4d204f3046ea2cfc114390bef` (`chore: freeze MILESTONE-024 multi-aggregate unit of work design`, pushed) |
+| Checkpoint content baseline origin/master | `ed0a4198dab515c4d204f3046ea2cfc114390bef` (identical — the M024 design freeze lineage has been pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -44,13 +44,16 @@ M023_EVIDENCE_CORRECTION_COMMITS=f3f7fc097db37470dc731009176e065df1d5a70b,c6fb2c
 M023_IMPLEMENTATION_FREEZE_COMMIT=4ce800d3609ba7c621eadffc338bc5bc2503228d
 M023_STATUS=APPROVED_AND_FROZEN
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=4ce800d3609ba7c621eadffc338bc5bc2503228d
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=4ce800d3609ba7c621eadffc338bc5bc2503228d
+CHECKPOINT_CONTENT_BASELINE_HEAD=ed0a4198dab515c4d204f3046ea2cfc114390bef
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=ed0a4198dab515c4d204f3046ea2cfc114390bef
 CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE
 M023_IMPLEMENTATION_APPROVAL=APPROVED
 M023_IMPLEMENTATION_FREEZE=FROZEN
 M024_SCOPE=Multi-Aggregate Persistence Unit of Work
-M024_STATUS=SCOPE_SELECTED;DESIGN_READY_FOR_INDEPENDENT_REVIEW_NOT_APPROVED_NOT_FROZEN_NOT_IMPLEMENTED
+M024_DESIGN_COMMIT=f2a22817cb433142960dba6509c50b4b39066ebe
+M024_DESIGN_CORRECTION_COMMIT=03d640fa8e0f34fb3348226c4bc0eeaa386832b4
+M024_DESIGN_FREEZE_COMMIT=ed0a4198dab515c4d204f3046ea2cfc114390bef
+M024_STATUS=DESIGN_APPROVED_AND_FROZEN;IMPLEMENTATION_COMPLETE_NOT_YET_COMMITTED;NOT_APPROVED;NOT_FROZEN
 ```
 
 ## 3. MILESTONE-020 Summary (frozen)
@@ -103,7 +106,7 @@ Full detail: `MILESTONE_023_POSTGRESQL_REPOSITORY_ADAPTER_IMPLEMENTATION_FREEZE.
 
 **MILESTONE-023 is APPROVED AND FROZEN.**
 
-## 5.3 MILESTONE-024 Scope and Design Summary (DESIGN READY FOR INDEPENDENT REVIEW — NOT approved, NOT frozen)
+## 5.3 MILESTONE-024 Scope and Design Summary (DESIGN APPROVED AND FROZEN)
 
 Following M023's freeze, MILESTONE-024 selected the **Multi-Aggregate Persistence Unit of Work**: a composition primitive letting a caller group two or more repository operations (potentially across different aggregate repositories) into one atomic transaction. This candidate had been evaluated and correctly deferred three times before — M020 Design Sections 18/26, M021 Design Section 15, and M023's own Scope Selection (Candidate D) and Design Section 11 — every time for the same reason: no concrete repository existed yet to design the composition against. M023's freeze resolved that blocker.
 
@@ -111,25 +114,39 @@ The design's public surface is exactly one new method, `PostgresPersistenceServi
 
 An independent hostile review of the design's first version (v1.0) returned "M024 DESIGN REQUIRES NARROW CORRECTION" with two CRITICAL findings — (1) its original public `with service.composed_unit_of_work(): repo.save(...)` shape handed the caller a real, frozen-success-typed `SaveResult` inline, mid-transaction, before the outer commit, which could be mistaken for durable success; (2) its ambient `ContextVar` stored no owning-service reference, so a second, unrelated `PostgresPersistenceService` instance could silently join and operate against the wrong connection — plus four MAJOR findings (failure-unsafe `ContextVar` cleanup; a dishonest `PostgresUnitOfWork`-typed return annotation where a `_JoinedUnitOfWork` could also be returned; no defined behavior for repeated operations on the same aggregate identity within one composed scope; no defined mechanism for detecting and poisoning the scope when a joined operation's failure is caught and swallowed by the caller) and one MINOR finding (an unenforceable "handful of calls" phrasing). Version 1.1 replaced the public API with the callback/batch shape above, added an owner-checked `_ActiveComposedScope` record, froze token-based `try`/`finally` cleanup, corrected the return annotation to the existing `PersistenceUnitOfWork` Protocol, added full same-identity and nesting/service-identity behavior matrices, and froze exact poisoned-scope semantics — all without changing any M020 Protocol signature or any M023 adapter source file. Full account: Design document Section 23 (`M024-DESIGN-ISSUE-0006` through `0012`).
 
-Full detail: `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_SCOPE_SELECTION.md`, `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_DESIGN.md` (Version 1.1).
+Full detail: `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_SCOPE_SELECTION.md`, `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_DESIGN.md` (Version 1.1), `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_DESIGN_FREEZE.md`.
 
-**This design is NOT approved, NOT frozen, and no repository/mapper/schema/application code has been created or modified by it.** It is ready for independent re-review, not yet approved. Repository runtime composition (Candidate E), application services (Candidate F), and retry policy (Candidate J) all remain independently deferred, not designed by this milestone.
+A second, final independent review of the corrected (v1.1) design returned "M024 DESIGN APPROVED FOR OWNER FREEZE"; the Project Owner accepted that recommendation and froze the design at commit `ed0a4198dab515c4d204f3046ea2cfc114390bef`. Repository runtime composition (Candidate E), application services (Candidate F), and retry policy (Candidate J) all remain independently deferred, not designed by this milestone.
+
+## 5.4 MILESTONE-024 Implementation Summary (IMPLEMENTATION COMPLETE — NOT approved, NOT frozen, NOT committed)
+
+Following the design freeze, the frozen design was implemented exactly as specified, entirely within the one existing file `src/empirical_platform/shared/persistence/postgres.py` (+138/-3 lines): `_ComposedScopeState`, `_ActiveComposedScope`, the `_active_composed_scope` ContextVar, `_JoinedUnitOfWork`, `_ComposedTransaction`, a corrected `unit_of_work() -> PersistenceUnitOfWork` return type with a same-service join branch, and the new public `run_composed(operations) -> tuple[object, ...]` method. Zero M020 Protocol changes, zero M023 adapter source changes (confirmed by `git diff` against the frozen baseline touching exactly one source file).
+
+Two new test files were added: `tests/unit/test_m024_composed_unit_of_work.py` (17 SQLite-backed mechanism-level tests) and `tests/integration/test_m024_postgres_composed_unit_of_work.py` (12 real-PostgreSQL tests using the actual frozen M023 `PostgresCampaignRepository`/`PostgresRunRepository` adapters), proving cross-aggregate atomic commit/rollback, both poisoning paths (silent swallow, and swallow-followed-by-further-SQL per Design Section 10 row 3), cross-service rejection before SQL, same-identity sequencing, and ContextVar cleanup on every exit path. The full M022/M023 regression suite (75 integration tests) passed unmodified against the same disposable PostgreSQL instance. A hostile self-review against all 14 named failure modes (Phase 14) found no implementation defect; one test-expectation error (not an implementation defect) was found and corrected during that review.
+
+Full detail: `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION_SCOPE.md`, `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION.md`.
+
+**This implementation is NOT approved, NOT frozen, and NOT yet committed to Git** — it exists only as an uncommitted working-tree change at the time this checkpoint content was authored (baseline HEAD `ed0a4198dab515c4d204f3046ea2cfc114390bef`, unchanged from the design freeze). It is ready for independent review, pending a separate future commit and a separate future Project Owner approval/freeze decision.
 
 ## 6. Validation at This Checkpoint
 
-Fresh re-run as part of M023's freeze closure:
+Fresh re-run as part of M024 implementation completion (uncommitted working-tree state at baseline HEAD `ed0a4198dab515c4d204f3046ea2cfc114390bef`):
 
 | Gate | Result |
 | --- | --- |
-| `pytest` (full suite, `scripts/verify.ps1`) | 344 passed, 84 skipped |
-| `scripts/security.ps1` | PASS (secret scan: 246 targets, 0 findings; `pip-audit`: no known vulnerabilities) |
+| `python -m compileall -q src tests tools migrations` | PASS |
+| `pytest` (full suite, `scripts/verify.ps1`) | 361 passed, 96 skipped, coverage 82.13% |
+| `scripts/security.ps1` | PASS (secret scan: 252 targets, 0 findings; `pip-audit`: no known vulnerabilities) |
 | `scripts/verify.ps1` | PASS (exit 0, end-to-end) |
-| `ruff format --check .` / `ruff check .` | PASS (150 files formatted) |
+| `ruff format --check .` / `ruff check .` | PASS (152 files formatted) |
 | `mypy` | PASS, 0 issues, 79 source files |
 | `tools/check_architecture.py .` | PASS, 0 violations |
 | `python -m build` | PASS |
 | `git diff --check` | PASS |
-| Real PostgreSQL integration tests (`EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1`, fresh disposable PostgreSQL 18.4 instance, torn down after) | 26 passed (M023 repository adapters: get/add/save across all four aggregates, concurrency, commit-before-return, rollback) |
+| M024 real PostgreSQL integration tests (`EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1`, fresh disposable PostgreSQL 16.13 instance, torn down after) | 12 passed (`run_composed` cross-aggregate atomic commit/rollback, both poisoning paths, cross-service rejection, same-identity sequencing, cleanup, using the real M023 Campaign/Run adapters) |
+| M023 real PostgreSQL integration tests (regression, same instance) | 26 passed, unmodified |
+| M022 real PostgreSQL integration tests (regression, same instance) | 49 passed, unmodified |
+| M024 unit tests (SQLite, no database, `tests/unit/test_m024_composed_unit_of_work.py`) | 17 passed |
 | M023 concrete mapper unit tests (no database) | 16 passed |
 | Pre-existing M020/M021 contract tests | 100 passed, no regression |
 
@@ -145,7 +162,7 @@ Fresh re-run as part of M023's freeze closure:
 
 ## 8. Deferred Capabilities (explicitly not built, not authorized by any freeze to date)
 
-- MILESTONE-024 implementation (design exists, pending independent review; not implemented);
+- MILESTONE-024 implementation approval and freeze (implementation complete and tested, not yet committed, not yet independently reviewed for approval);
 - repository runtime composition, application services, APIs, workers;
 - retry-on-`OptimisticConcurrencyConflict` policy;
 - Audit runtime, Decision Candidate, Decision Freeze;
@@ -154,4 +171,4 @@ Fresh re-run as part of M023's freeze closure:
 
 ## 9. Next Authorized Work
 
-Independent review of the MILESTONE-024 design described in Section 5.3 (`MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_DESIGN.md`), followed by Project Owner approval and a separate design-freeze mission, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-023. MILESTONE-024 implementation may not begin until its own design is independently reviewed and separately approved and frozen by the Project Owner.
+Independent review of the MILESTONE-024 implementation described in Section 5.4 (`MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION.md`), followed by Project Owner approval and a separate implementation-freeze mission, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-023. The implementation commit itself has not yet been created (authorized as a separate, single, narrowly-scoped local commit) and has not been pushed; MILESTONE-025 may not begin until MILESTONE-024 implementation is independently reviewed and separately approved and frozen by the Project Owner.

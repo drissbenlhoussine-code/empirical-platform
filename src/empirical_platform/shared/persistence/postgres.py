@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Literal, cast
 
 from sqlalchemy import create_engine, text
@@ -14,6 +15,7 @@ from sqlalchemy.exc import DBAPIError, OperationalError, SQLAlchemyError, Timeou
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.errors import FoundationError, FoundationErrorCategory
 from empirical_platform.shared.health import HealthState, LayerHealth
+from empirical_platform.shared.interfaces.persistence import PersistenceUnitOfWork
 
 _active_unit_of_work: ContextVar[bool] = ContextVar(
     "active_persistence_unit_of_work", default=False
@@ -153,6 +155,119 @@ class PostgresUnitOfWork:
             self._context_token = None
 
 
+class _ComposedScopeState(Enum):
+    """Lifecycle state of an ambient composed transaction (MILESTONE-024)."""
+
+    ACTIVE = "active"
+    POISONED = "poisoned"
+
+
+@dataclass(slots=True)
+class _ActiveComposedScope:
+    """Owned record published while a composed transaction is open.
+
+    ``owner_service`` is compared by Python object identity, never equality,
+    so a different ``PostgresPersistenceService`` instance can never join.
+    """
+
+    owner_service: PostgresPersistenceService
+    unit_of_work: PostgresUnitOfWork
+    state: _ComposedScopeState
+
+
+_active_composed_scope: ContextVar[_ActiveComposedScope | None] = ContextVar(
+    "active_persistence_composed_scope", default=None
+)
+
+
+class _JoinedUnitOfWork:
+    """Delegates to an ambient composed transaction's real unit of work.
+
+    Never opens or closes a connection, never commits or rolls back -- the
+    owning ``_ComposedTransaction`` holds exclusive ownership of the real
+    transaction. Poisons the ambient scope if the operation using it raises.
+    """
+
+    __slots__ = ("_scope",)
+
+    def __init__(self, scope: _ActiveComposedScope) -> None:
+        self._scope = scope
+
+    def __enter__(self) -> _JoinedUnitOfWork:
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> Literal[False]:
+        if exc_type is not None:
+            self._scope.state = _ComposedScopeState.POISONED
+        return False
+
+    def execute(
+        self, statement: str, parameters: Mapping[str, object] | None = None
+    ) -> Sequence[Mapping[str, object]]:
+        return self._scope.unit_of_work.execute(statement, parameters)
+
+    def commit(self) -> None:
+        """No-op: the real transaction is owned exclusively by the composed scope."""
+
+    def rollback(self) -> None:
+        """No-op: the real transaction is owned exclusively by the composed scope."""
+
+
+class _ComposedTransaction:
+    """Owns exactly one real transaction that multiple repository operations can join.
+
+    Private: not exported, never returned to a caller. The only sanctioned
+    entry point is ``PostgresPersistenceService.run_composed``.
+    """
+
+    __slots__ = ("_service", "_unit_of_work", "_scope", "_token")
+
+    def __init__(self, service: PostgresPersistenceService) -> None:
+        self._service = service
+        self._unit_of_work: PostgresUnitOfWork | None = None
+        self._scope: _ActiveComposedScope | None = None
+        self._token: Token[_ActiveComposedScope | None] | None = None
+
+    def __enter__(self) -> _ComposedTransaction:
+        # Constructed directly, never via the public `unit_of_work()` factory:
+        # that factory is the one gaining the join branch below, and calling
+        # it here would let a second composed scope on the same service find
+        # `_active_composed_scope` already populated and silently join rather
+        # than raise. Constructing PostgresUnitOfWork directly forces every
+        # composed-scope entry through the one, unmodified reentrancy guard.
+        unit_of_work = PostgresUnitOfWork(self._service)
+        unit_of_work.__enter__()
+        self._unit_of_work = unit_of_work
+        self._scope = _ActiveComposedScope(
+            owner_service=self._service,
+            unit_of_work=unit_of_work,
+            state=_ComposedScopeState.ACTIVE,
+        )
+        self._token = _active_composed_scope.set(self._scope)
+        return self
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> Literal[False]:
+        scope = cast(_ActiveComposedScope, self._scope)
+        unit_of_work = cast(PostgresUnitOfWork, self._unit_of_work)
+        try:
+            if exc_type is None and scope.state is _ComposedScopeState.ACTIVE:
+                unit_of_work.commit()
+            else:
+                unit_of_work.rollback()
+                if exc_type is None:
+                    raise FoundationError(
+                        category=FoundationErrorCategory.PERSISTENCE,
+                        message="Composed transaction poisoned by a failed operation",
+                        layer="persistence",
+                        operation="run_composed",
+                    )
+        finally:
+            if self._token is not None:
+                _active_composed_scope.reset(self._token)
+                self._token = None
+        return False
+
+
 class PostgresPersistenceService:
     """Narrow PostgreSQL connection, health, and unit-of-work adapter."""
 
@@ -237,10 +352,30 @@ class PostgresPersistenceService:
                 context=self.safe_context(),
             ) from exc
 
-    def unit_of_work(self) -> PostgresUnitOfWork:
-        """Create a bounded unit of work. Nested units are rejected."""
+    def unit_of_work(self) -> PersistenceUnitOfWork:
+        """Create a bounded unit of work, or join this service's own active
+        composed scope (MILESTONE-024) if one is currently open. A different
+        service instance's active composed scope is never joined; nested
+        units of work outside an active composed scope are still rejected."""
         self._ensure_can_work("unit_of_work")
+        scope = _active_composed_scope.get()
+        if scope is not None and scope.owner_service is self:
+            return _JoinedUnitOfWork(scope)
         return PostgresUnitOfWork(self)
+
+    def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
+        """Execute repository operations atomically; return results only after commit.
+
+        Every operation runs against one shared transaction. The returned
+        tuple -- in the exact order ``operations`` was supplied -- is only
+        ever constructed after that transaction has actually committed; on
+        any failure (including one caught and swallowed by an operation,
+        which still poisons the scope) this raises instead of returning.
+        """
+        self._ensure_can_work("run_composed")
+        with _ComposedTransaction(self):
+            results = tuple(operation() for operation in operations)
+        return results
 
     def check(self) -> bool:
         """Return whether PostgreSQL is reachable."""
