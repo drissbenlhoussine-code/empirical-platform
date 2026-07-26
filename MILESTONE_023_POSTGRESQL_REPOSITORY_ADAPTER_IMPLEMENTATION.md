@@ -41,6 +41,7 @@ Modified:
 - `src/empirical_platform/review/mapper.py` (added `ConcreteReviewMapper` and its finding durable-record helpers)
 - `tools/check_architecture.py` (`ALLOWED["shared"]` widened; see Section 10)
 - `tests/architecture/test_module_boundaries.py` (negative-fixture assertion for the widened rule)
+- `PROJECT_CHECKPOINT.md` (updated to record the M023 design freeze and this implementation)
 
 No M019, M020, M021, or M022 frozen source file's existing public shape was altered; every mapper addition is a new class appended to the existing per-aggregate `mapper.py` module already housing that aggregate's frozen Protocol and `DurableRecord` type.
 

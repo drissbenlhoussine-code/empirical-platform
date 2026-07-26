@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative record of the current frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| HEAD at this checkpoint | `cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4` (M023 design freeze, pushed); MILESTONE-023 implementation work is uncommitted in the working tree, pending its own implementation commit |
-| origin/master at this checkpoint | `cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4` (identical to pushed HEAD) |
+| HEAD at this checkpoint | `4a93e44ea937885d45f5ce6587c2b963452ac8ff` (`feat: implement M023 PostgreSQL repository adapters`, local-only, ahead of origin/master by exactly 1 commit, not pushed) |
+| origin/master at this checkpoint | `cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4` (M023 design freeze, pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -37,7 +37,16 @@ M022_IMPLEMENTATION_FREEZE_COMMIT=10425e85b63a0b6f18b73b962355f22176cb279c
 M023_DESIGN_COMMIT=a6e1350b8c37467d3a33b73c6e254c34ce4aab1b
 M023_DESIGN_CORRECTION_COMMITS=7dcc7c10e247163d6e029fb6520fd76846e328d6,0f5c982a23f1b8c51ed5d56ff0a0cdab0c03c4bb,7933b567129e525ec4cf6235de3f22e3d737860f
 M023_DESIGN_FREEZE_COMMIT=cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4
-M023_STATUS=DESIGN_APPROVED_AND_FROZEN;IMPLEMENTATION_COMPLETE_PENDING_INDEPENDENT_REVIEW_NOT_APPROVED_NOT_FROZEN
+M023_IMPLEMENTATION_COMMIT=4a93e44ea937885d45f5ce6587c2b963452ac8ff
+M023_STATUS=DESIGN_APPROVED_AND_FROZEN;IMPLEMENTATION_COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW_NOT_APPROVED_NOT_FROZEN
+CURRENT_BRANCH=master
+CURRENT_HEAD=4a93e44ea937885d45f5ce6587c2b963452ac8ff
+ORIGIN_MASTER=cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4
+LOCAL_STATUS=AHEAD_1
+M023_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
+M023_IMPLEMENTATION_APPROVAL=NOT_APPROVED
+M023_IMPLEMENTATION_FREEZE=NOT_FROZEN
+M024_STATUS=NOT_STARTED
 ```
 
 ## 3. MILESTONE-020 Summary (frozen)
@@ -70,7 +79,7 @@ The design went through three correction rounds (commit-before-return semantics,
 
 Full detail: `MILESTONE_023_POSTGRESQL_REPOSITORY_ADAPTER_DESIGN_SCOPE_SELECTION.md`, `MILESTONE_023_POSTGRESQL_REPOSITORY_ADAPTER_DESIGN.md`, `MILESTONE_023_POSTGRESQL_REPOSITORY_ADAPTER_DESIGN_FREEZE.md`.
 
-## 5.2 MILESTONE-023 Implementation Summary (COMPLETE — pending independent review, NOT approved, NOT frozen)
+## 5.2 MILESTONE-023 Implementation Summary (COMMITTED LOCALLY — pending independent review, NOT approved, NOT frozen)
 
 The frozen M023 design has been implemented: four concrete mappers (`ConcreteCampaignMapper`, `ConcreteRunMapper`, `ConcreteEvidencePackageMapper`, `ConcreteReviewMapper`, added to each aggregate's existing `mapper.py`) satisfying the frozen M021 Protocols, and four concrete repository adapters (`PostgresCampaignRepository`, `PostgresRunRepository`, `PostgresEvidencePackageRepository`, `PostgresReviewRepository`, new `shared.persistence.postgres_repositories.*` modules) satisfying the frozen M020 Protocols against the frozen M022 schema — get/add/save exactly per the frozen 11-step save sequence, full-identity predicates, deterministic child ordering, atomic child-collection replacement, commit-before-return, and structured-fact-only error translation.
 
@@ -80,7 +89,9 @@ Both new test suites pass: 16 unit tests for the concrete mappers (no database),
 
 Full detail: `MILESTONE_023_POSTGRESQL_REPOSITORY_ADAPTER_IMPLEMENTATION.md`.
 
-**This implementation is NOT approved, NOT frozen.** It exists only in the working tree as of this checkpoint, pending its own implementation commit, hostile self-review, and external review package.
+The implementation was hostile-self-reviewed (no defects found beyond the two already fixed above), packaged into `external-review/M023_POSTGRESQL_REPOSITORY_ADAPTER_IMPLEMENTATION/`, and committed locally as `4a93e44ea937885d45f5ce6587c2b963452ac8ff` (`feat: implement M023 PostgreSQL repository adapters`).
+
+**This implementation is NOT approved, NOT frozen.** It is committed locally, one commit ahead of `origin/master`, and has **not been pushed**. It is ready for independent review, not yet reviewed.
 
 ## 6. Validation at This Checkpoint
 
