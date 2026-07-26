@@ -8,10 +8,12 @@
 | Purpose | Repository-authoritative record of the current frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| HEAD at this checkpoint | `f3f7fc097db37470dc731009176e065df1d5a70b` (`fix: correct M023 implementation review truth`, local-only, ahead of origin/master by exactly 2 commits, not pushed) |
-| origin/master at this checkpoint | `cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4` (M023 design freeze, pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `f3f7fc097db37470dc731009176e065df1d5a70b` (`fix: correct M023 implementation review truth`, local-only, not pushed) |
+| Checkpoint content baseline origin/master | `cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4` (M023 design freeze, pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
+
+**On self-reference:** the values in this table and in the `CHECKPOINT_CONTENT_BASELINE_*` fields below describe the repository state this checkpoint's content was *authored against* — they are not a live, self-updating record of Git HEAD. A document cannot cite the hash of the commit that first contains it without creating a recursive follow-up-commit cycle, so every edit to this file necessarily describes a baseline one commit behind the commit that carries the edit. **To find the live, current repository HEAD, run `git rev-parse HEAD` directly** — never infer it from this document. Within an external review package, `repository-truth.txt` (captured via live `git` commands at packaging time) is the authoritative source for live repository truth, not this file.
 
 ## 2. Current State
 
@@ -40,10 +42,10 @@ M023_DESIGN_FREEZE_COMMIT=cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4
 M023_IMPLEMENTATION_COMMIT=4a93e44ea937885d45f5ce6587c2b963452ac8ff
 M023_REVIEW_TRUTH_CORRECTION_COMMIT=f3f7fc097db37470dc731009176e065df1d5a70b
 M023_STATUS=DESIGN_APPROVED_AND_FROZEN;IMPLEMENTATION_COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW_NOT_APPROVED_NOT_FROZEN
-CURRENT_BRANCH=master
-CURRENT_HEAD=f3f7fc097db37470dc731009176e065df1d5a70b
-ORIGIN_MASTER=cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4
-LOCAL_STATUS=AHEAD_2
+CHECKPOINT_CONTENT_BASELINE_BRANCH=master
+CHECKPOINT_CONTENT_BASELINE_HEAD=f3f7fc097db37470dc731009176e065df1d5a70b
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4
+CHECKPOINT_CONTENT_BASELINE_STATUS=AHEAD_2
 M023_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
 M023_IMPLEMENTATION_APPROVAL=NOT_APPROVED
 M023_IMPLEMENTATION_FREEZE=NOT_FROZEN
@@ -92,9 +94,9 @@ Full detail: `MILESTONE_023_POSTGRESQL_REPOSITORY_ADAPTER_IMPLEMENTATION.md`.
 
 The implementation was hostile-self-reviewed (no defects found beyond the two already fixed above), packaged into `external-review/M023_POSTGRESQL_REPOSITORY_ADAPTER_IMPLEMENTATION/`, and committed locally as `4a93e44ea937885d45f5ce6587c2b963452ac8ff` (`feat: implement M023 PostgreSQL repository adapters`).
 
-An independent review of that commit and its review package returned one MAJOR evidence-consistency finding (stale post-commit truth left over from when the implementation was still staged), corrected in a separate follow-up commit `f3f7fc097db37470dc731009176e065df1d5a70b` (`fix: correct M023 implementation review truth`), which also fixed a file-count omission the correction's own hostile consistency pass found in the implementation report itself. Neither commit touched repository adapter source, concrete mapper source, or test content.
+An independent review of that commit and its review package returned one MAJOR evidence-consistency finding (stale post-commit truth left over from when the implementation was still staged), corrected in a separate follow-up commit `f3f7fc097db37470dc731009176e065df1d5a70b` (`fix: correct M023 implementation review truth`), which also fixed a file-count omission the correction's own hostile consistency pass found in the implementation report itself. A further independent review found this checkpoint's own current-state fields had gone stale the moment that commit landed on top of them, and (in a separate governance-only follow-up not itself referenced by hash in this prose, per the self-reference note in Section 1) corrected them again and clarified this document's field semantics. None of these governance commits touched repository adapter source, concrete mapper source, or test content.
 
-**This implementation is NOT approved, NOT frozen.** It is committed locally, two commits ahead of `origin/master` (the implementation commit and the truth-correction commit), and has **not been pushed**. It is ready for independent review, not yet reviewed.
+**This implementation is NOT approved, NOT frozen.** It is committed locally on top of `origin/master` and has **not been pushed**. It is ready for independent review, not yet reviewed. For the exact live commit count and HEAD, run `git rev-parse HEAD` and `git status --short --branch` directly, or see an external review package's `repository-truth.txt`.
 
 ## 6. Validation at This Checkpoint
 
