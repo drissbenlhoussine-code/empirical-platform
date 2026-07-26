@@ -8,7 +8,7 @@
 | Purpose | Repository-authoritative record of the current frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| HEAD at this checkpoint | `4a93e44ea937885d45f5ce6587c2b963452ac8ff` (`feat: implement M023 PostgreSQL repository adapters`, local-only, ahead of origin/master by exactly 1 commit, not pushed) |
+| HEAD at this checkpoint | `f3f7fc097db37470dc731009176e065df1d5a70b` (`fix: correct M023 implementation review truth`, local-only, ahead of origin/master by exactly 2 commits, not pushed) |
 | origin/master at this checkpoint | `cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4` (M023 design freeze, pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
@@ -38,11 +38,12 @@ M023_DESIGN_COMMIT=a6e1350b8c37467d3a33b73c6e254c34ce4aab1b
 M023_DESIGN_CORRECTION_COMMITS=7dcc7c10e247163d6e029fb6520fd76846e328d6,0f5c982a23f1b8c51ed5d56ff0a0cdab0c03c4bb,7933b567129e525ec4cf6235de3f22e3d737860f
 M023_DESIGN_FREEZE_COMMIT=cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4
 M023_IMPLEMENTATION_COMMIT=4a93e44ea937885d45f5ce6587c2b963452ac8ff
+M023_REVIEW_TRUTH_CORRECTION_COMMIT=f3f7fc097db37470dc731009176e065df1d5a70b
 M023_STATUS=DESIGN_APPROVED_AND_FROZEN;IMPLEMENTATION_COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW_NOT_APPROVED_NOT_FROZEN
 CURRENT_BRANCH=master
-CURRENT_HEAD=4a93e44ea937885d45f5ce6587c2b963452ac8ff
+CURRENT_HEAD=f3f7fc097db37470dc731009176e065df1d5a70b
 ORIGIN_MASTER=cb6ff16788b2ad8a26ed9f82a903d276daa6d3c4
-LOCAL_STATUS=AHEAD_1
+LOCAL_STATUS=AHEAD_2
 M023_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
 M023_IMPLEMENTATION_APPROVAL=NOT_APPROVED
 M023_IMPLEMENTATION_FREEZE=NOT_FROZEN
@@ -91,7 +92,9 @@ Full detail: `MILESTONE_023_POSTGRESQL_REPOSITORY_ADAPTER_IMPLEMENTATION.md`.
 
 The implementation was hostile-self-reviewed (no defects found beyond the two already fixed above), packaged into `external-review/M023_POSTGRESQL_REPOSITORY_ADAPTER_IMPLEMENTATION/`, and committed locally as `4a93e44ea937885d45f5ce6587c2b963452ac8ff` (`feat: implement M023 PostgreSQL repository adapters`).
 
-**This implementation is NOT approved, NOT frozen.** It is committed locally, one commit ahead of `origin/master`, and has **not been pushed**. It is ready for independent review, not yet reviewed.
+An independent review of that commit and its review package returned one MAJOR evidence-consistency finding (stale post-commit truth left over from when the implementation was still staged), corrected in a separate follow-up commit `f3f7fc097db37470dc731009176e065df1d5a70b` (`fix: correct M023 implementation review truth`), which also fixed a file-count omission the correction's own hostile consistency pass found in the implementation report itself. Neither commit touched repository adapter source, concrete mapper source, or test content.
+
+**This implementation is NOT approved, NOT frozen.** It is committed locally, two commits ahead of `origin/master` (the implementation commit and the truth-correction commit), and has **not been pushed**. It is ready for independent review, not yet reviewed.
 
 ## 6. Validation at This Checkpoint
 
