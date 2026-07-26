@@ -6,15 +6,17 @@
 | --- | --- |
 | Document ID | MILESTONE-023 |
 | Title | PostgreSQL Repository Adapter Design |
-| Version | 1.1 (narrow correction) |
-| Status | DESIGN READY FOR INDEPENDENT RE-REVIEW |
+| Version | 1.2 (final narrow correction) |
+| Status | DESIGN READY FOR INDEPENDENT FINAL RE-REVIEW |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Frozen baseline | `10425e85b63a0b6f18b73b962355f22176cb279c` |
 | Baseline status | MILESTONE-022 APPROVED AND FROZEN |
 | Mission type | Design correction only |
 | Repository code, mapper code, migrations, Unit of Work created | No |
 
-**Version 1.1 note:** an independent hostile review of Version 1.0 (design commit `a6e1350b8c37467d3a33b73c6e254c34ce4aab1b`) returned "M023 DESIGN REQUIRES NARROW CORRECTION" with defects in save version semantics, unchanged-save detection, identity predicates, add-duplicate translation, a self-contradictory module-placement statement, an under-specified field mapping, ambiguous transaction ownership, a potential zero-row race, and possible error-detail leakage. This version corrects all of them in place; Section 21 records each finding and its resolution. The selected scope (Section 8 of the Scope Selection) is unchanged and was not reopened.
+**Version 1.1 note:** an independent hostile review of Version 1.0 (design commit `a6e1350b8c37467d3a33b73c6e254c34ce4aab1b`) returned "M023 DESIGN REQUIRES NARROW CORRECTION" with defects in save version semantics, unchanged-save detection, identity predicates, add-duplicate translation, a self-contradictory module-placement statement, an under-specified field mapping, ambiguous transaction ownership, a potential zero-row race, and possible error-detail leakage. Version 1.1 corrected all of them in place.
+
+**Version 1.2 note:** an independent final re-review of Version 1.1 (correction commit `7dcc7c10e247163d6e029fb6520fd76846e328d6`) returned "M023 DESIGN REQUIRES ANOTHER NARROW CORRECTION" with exactly one remaining blocking defect: Version 1.1's `save()` design relied on a false claim that the guarded `UPDATE`'s `WHERE` clause would reject a `record.version` lower than `expected_persisted_version` — it does not, because that clause never references `record.version` at all, and the ordinary (non-stale) case would let such a write through, silently moving the persisted version backward. This version adds an explicit, unconditional precondition (Section 8 step 3) rejecting that case in Python before any SQL executes. Section 21 records this and every prior finding; the selected scope (Section 8 of the Scope Selection) remains unchanged and was not reopened.
 
 ## 2. Baseline
 
@@ -43,6 +45,7 @@ Unchanged from Version 1.0: nothing yet specifies how a concrete repository impl
 5. **The repository never increments a version.** It writes exactly the version value the durable record already carries (already advanced, if at all, by the aggregate's own business methods before `to_durable_record()` was called) and uses `expected_persisted_version` only as the atomic-comparison guard, never as an input to arithmetic.
 6. **Every predicate that identifies a specific persisted aggregate uses the full `DomainIdentity` (both `governance_id` and `runtime_id`), never one component alone** — see Section 6/8/12 for why a `runtime_id`-only predicate would silently hide a genuine identity mismatch.
 7. **`SaveOperation` classification is an integer comparison, never a content diff.** Whether a `save()` is `UNCHANGED` or `UPDATED` is decided by comparing `durable_record.version` to `expected_persisted_version` as integers (Section 8); no owned-collection content is ever compared element-by-element to decide this, which also means collection ordering can never produce a false classification either way.
+8. **A durable record whose version is lower than the caller's `expected_persisted_version` is invalid aggregate state for persistence, rejected before any SQL is executed** (Section 8 step 3) — it is not, and must never be classified as, a stale-write conflict (`OptimisticConcurrencyConflict`), because no SQL predicate can express a check against `record.version` (the value being written) the way the guarded `UPDATE`'s `WHERE` clause expresses a check against the durable, already-stored version.
 
 ## 5. Repository Placement and Architecture Boundary
 
@@ -122,11 +125,25 @@ For aggregate `X` with root table `x`, owned child tables `x_c1, x_c2, ...` (eac
 
 ## 8. Operation Design: `save`
 
-Given `aggregate` and `expected_persisted_version: AggregateVersion`:
+Given `aggregate` and `expected_persisted_version: AggregateVersion`, in exactly this order:
 
-1. Call `mapper.to_durable_record(aggregate)` to obtain `record`. If it raises `MapperError`: raise `InvalidAggregateForPersistence(aggregate_kind=..., reason=mapper_error.safe_message)`, no transaction opened yet.
-2. Open one `PostgresUnitOfWork`.
-3. Execute the single guarded write-or-fail statement, unconditionally (Section 9's race-safety reasoning explains why this always executes, even when the save will classify as `UNCHANGED`):
+1. Determine `aggregate_kind` and `identity` from the aggregate (both already carried by the frozen aggregate/identity types; no lookup required).
+2. Call `mapper.to_durable_record(aggregate)` to obtain `record`. If it raises `MapperError`: raise `InvalidAggregateForPersistence(aggregate_kind=..., reason=mapper_error.safe_message)`. No transaction opened yet.
+3. **Reject `record.version < expected_persisted_version` before any SQL is executed** (this precondition check, and every step above it, happens entirely in Python, with no transaction open and no statement sent to PostgreSQL yet):
+   ```text
+   if record.version < expected_persisted_version:
+       raise InvalidAggregateForPersistence(
+           aggregate_kind=aggregate_kind,
+           reason="aggregate current version is lower than expected persisted version",
+           identity=identity,
+       )
+   ```
+   **This check is not redundant with the guarded `UPDATE`'s `WHERE version = :expected_persisted_version` clause (step 5).** That clause compares the *durable, database-resident* version to `expected_persisted_version` — it says nothing at all about `record.version`, the value the SQL's `SET` clause is about to *write*. Version 1.1 of this design incorrectly asserted that a lower `record.version` "would simply fail to match" the guarded `UPDATE`'s `WHERE` clause (Design Issue 0013, Section 21) — false: if the durable version genuinely equals `expected_persisted_version` (the ordinary, non-stale case), the `WHERE` clause matches regardless of what `record.version` is, and the `SET version = :record_version` clause would then silently persist a version *lower* than what is already durably stored, corrupting the optimistic-concurrency invariant that `AggregateVersion` values only ever advance. This precondition — checked in application code, before opening a transaction — is the only place this corruption can be prevented, because no SQL predicate can express "reject based on a value (`record.version`) that does not participate in the `WHERE` clause at all."
+4. Classify the *intended* outcome, assuming the guarded `UPDATE` below succeeds (Design Principle 7 — an integer comparison, never a content diff):
+   - `record.version == expected_persisted_version` -> intended outcome is `SaveOperation.UNCHANGED`.
+   - `record.version > expected_persisted_version` -> intended outcome is `SaveOperation.UPDATED`.
+   (Step 3 has already excluded the third possibility, `record.version < expected_persisted_version`, so exactly one of these two branches is reachable here.)
+5. Open one `PostgresUnitOfWork`. Execute the single guarded write-or-fail statement, unconditionally, for both branches of step 4 alike (Section 9.1's race-safety reasoning explains why this always executes, even for the intended-`UNCHANGED` branch):
    ```sql
    UPDATE x
    SET <every non-key root column> = <value from record>,
@@ -136,31 +153,36 @@ Given `aggregate` and `expected_persisted_version: AggregateVersion`:
      AND version = :expected_persisted_version
    RETURNING version
    ```
-   `:record_version` is `record.version` exactly — never `version + 1`, never any repository-computed increment (Design Principle 5).
-4. **If the `UPDATE` returned zero rows**, classify the failure with one diagnostic follow-up in the same transaction:
+   `:record_version` is `record.version` exactly — never `version + 1`, never any repository-computed increment (Design Principle 5). Because step 3 already guaranteed `record.version >= expected_persisted_version`, this statement can only ever hold the durable version steady (intended-`UNCHANGED` branch) or advance it (intended-`UPDATED` branch); it can never move it backward.
+6. **If the `UPDATE` returned zero rows**, classify the failure with one diagnostic follow-up in the same transaction — this is the genuine, distinct "stale expected version" case, never to be confused with step 3's "invalid aggregate state" rejection (which never reaches SQL at all):
    ```sql
    SELECT governance_id, version
    FROM x
    WHERE runtime_id = :runtime_id
    ```
    - Zero rows: raise `AggregateNotFound(aggregate_kind=..., identity=identity)`.
-   - One row, whose `governance_id` differs from the aggregate's own `identity.governance_id`: raise `InvalidPersistedAggregateState(aggregate_kind=..., reason="persisted governance_id does not match the aggregate's identity for this runtime_id", identity=identity)`.
+   - One row, whose `governance_id` differs from `identity.governance_id`: raise `InvalidPersistedAggregateState(aggregate_kind=..., reason="persisted governance_id does not match the aggregate's identity for this runtime_id", identity=identity)`.
    - One row, whose `governance_id` matches but whose `version` differs from `expected_persisted_version`: raise `OptimisticConcurrencyConflict(aggregate_kind=..., identity=identity, expected_persisted_version=expected_persisted_version, aggregate_current_version=AggregateVersion(record.version), actual_persisted_version=AggregateVersion(that row's version))`.
-   All three paths roll back before raising. See Section 9 for why this two-statement (guarded-`UPDATE`-then-diagnostic-`SELECT`) ordering, rather than a `SELECT`-then-`UPDATE` ordering, is the race-safe choice.
-5. **If the `UPDATE` returned exactly one row**, classify the operation by comparing integers, never content (Design Principle 7):
-   - `record.version == expected_persisted_version`: this is a valid **unchanged save** (M020 Design Section 18, verbatim: "equal-to covers unchanged saves"). The guarded `UPDATE` already ran and already re-wrote the same version value — this design accepts that harmless, idempotent single-row rewrite as the cost of race-safety (Section 9) rather than attempting to skip it; M020 Design Section 18 permits but does not require avoiding physical writes for unchanged saves ("implementations may avoid physical writes... but must still validate"). **Owned-collection tables are not touched**: skip step 6 entirely and proceed to step 7. Return `SaveResult(operation=SaveOperation.UNCHANGED, persisted_version=AggregateVersion(record.version))`.
-   - `record.version > expected_persisted_version`: this is a real update (one or more accepted local mutations occurred since load). Proceed to step 6.
-6. Delete every owned-collection row for this parent (`DELETE FROM x_c WHERE <parent_fk_column> = :runtime_id`, one statement per child table, in reverse creation order) and re-insert the durable record's current collection state (identical rule to `add()` step 4).
-7. Commit.
-8. Return `SaveResult(operation=SaveOperation.UPDATED, persisted_version=AggregateVersion(record.version))` (only reached from step 5's second branch, after step 6 completes).
+   All three paths roll back before raising. See Section 9.1 for why this two-statement (guarded-`UPDATE`-then-diagnostic-`SELECT`) ordering is race-safe.
+7. **If the `UPDATE` returned exactly one row**, act on step 4's already-determined intended outcome — no further classification logic runs here, only the action each branch requires:
+   - Intended outcome was `UNCHANGED` (`record.version == expected_persisted_version`): **owned-collection tables are not touched.** Skip to step 9. Return `SaveResult(operation=SaveOperation.UNCHANGED, persisted_version=AggregateVersion(record.version))`.
+   - Intended outcome was `UPDATED` (`record.version > expected_persisted_version`): proceed to step 8.
+8. Delete every owned-collection row for this parent (`DELETE FROM x_c WHERE <parent_fk_column> = :runtime_id`, one statement per child table, in reverse creation order) and re-insert the durable record's current collection state (identical rule to `add()` step 4). Return `SaveResult(operation=SaveOperation.UPDATED, persisted_version=AggregateVersion(record.version))`.
+9. Commit.
 
-`record.version < expected_persisted_version` is not a case this algorithm needs to distinguish specially: `AggregateVersion` only ever advances (`.next()` has no inverse, verified live, Section 2), so a correctly-behaving caller can never observe this; the guarded `UPDATE`'s `WHERE version = :expected_persisted_version` clause would simply fail to match (falling into step 4) exactly as it would for a genuinely stale version, which is the correct outcome regardless of how the caller arrived at an inconsistent `expected_persisted_version`.
+Explicitly, restated for clarity (each already established by a specific step above, gathered here as the acceptance criteria for a future implementation, Section 22):
+
+- the repository never increments `AggregateVersion` — the value written is always `record.version` as-is (step 5);
+- `record.version < expected_persisted_version` is invalid aggregate state for persistence, not a stale-write conflict — it is rejected in step 3, before any SQL, and raises `InvalidAggregateForPersistence`, never `OptimisticConcurrencyConflict`;
+- a stale `expected_persisted_version` (durable version differs from what the caller believes, with `record.version >= expected_persisted_version`) is still detected, atomically, by the guarded `UPDATE` in step 5/6 — step 3's precondition does not weaken or bypass this;
+- lower-version rejection (step 3, `InvalidAggregateForPersistence`, no transaction opened) and optimistic-concurrency conflict (step 6, `OptimisticConcurrencyConflict`, inside an opened-and-rolled-back transaction) are distinct errors raised by distinct, non-overlapping conditions and can never be confused with each other;
+- the caller's aggregate object is never mutated by any branch of `save()`, including the step 3 rejection — `mapper.to_durable_record()` (step 2) is a pure read of the aggregate's current state (M021, frozen), and nothing in this design writes back to the aggregate afterward.
 
 ## 9. Error Translation
 
 ### 9.1 Race-Safety Rationale for `save()`'s Statement Ordering
 
-A **`SELECT`-then-`UPDATE`** ordering (read the current version, decide in application code whether to write, then write) is not race-safe: another transaction could commit between the `SELECT` and the `UPDATE`, making the decision stale by the time the `UPDATE` executes. This design therefore always executes the guarded `UPDATE ... WHERE version = :expected_persisted_version RETURNING version` **first** (Section 8 step 3) — this statement is itself PostgreSQL's atomic compare-and-set primitive: whether it matches a row is decided and acted upon in one indivisible operation, with no window in which another writer could invalidate the decision after it was made. The **only** thing decided *after* the write attempt is which error to report when it affected zero rows (Section 8 step 4) — a diagnostic classification, not a decision about whether to write. Even if a concurrent transaction commits between the failed `UPDATE` and the diagnostic `SELECT`, every possible outcome of that `SELECT` still describes a real, valid state of the row at-or-after the `UPDATE`'s own evaluation instant, so the caller always receives a truthful rejection (`AggregateNotFound`, `OptimisticConcurrencyConflict`, or `InvalidPersistedAggregateState`) — never an incorrect success and never a silently-wrong `SaveResult`. This is the same pattern used by conditional-update-based optimistic concurrency generally; it is chosen over a single CTE-based statement combining the write and the diagnostic read because PostgreSQL does not guarantee a same-statement `SELECT` in a `WITH` clause observes a data-modifying CTE's own effects (the write and read sub-statements of one `WITH` execute against a shared snapshot, not a read-after-write view of each other), which would make a CTE-based version *harder* to reason about correctly, not easier, for a purely diagnostic follow-up.
+A **`SELECT`-then-`UPDATE`** ordering (read the current version, decide in application code whether to write, then write) is not race-safe: another transaction could commit between the `SELECT` and the `UPDATE`, making the decision stale by the time the `UPDATE` executes. This design therefore always executes the guarded `UPDATE ... WHERE version = :expected_persisted_version RETURNING version` (Section 8 step 5) — this statement is itself PostgreSQL's atomic compare-and-set primitive: whether it matches a row is decided and acted upon in one indivisible operation, with no window in which another writer could invalidate the decision after it was made. (Section 8 step 3's `record.version < expected_persisted_version` precondition runs strictly *before* this, in Python, with no SQL involved at all — a separate, non-racing, purely in-memory check, not part of this race-safety analysis.) The **only** thing decided *after* the write attempt is which error to report when it affected zero rows (Section 8 step 6) — a diagnostic classification, not a decision about whether to write. Even if a concurrent transaction commits between the failed `UPDATE` and the diagnostic `SELECT`, every possible outcome of that `SELECT` still describes a real, valid state of the row at-or-after the `UPDATE`'s own evaluation instant, so the caller always receives a truthful rejection (`AggregateNotFound`, `OptimisticConcurrencyConflict`, or `InvalidPersistedAggregateState`) — never an incorrect success and never a silently-wrong `SaveResult`. This is the same pattern used by conditional-update-based optimistic concurrency generally; it is chosen over a single CTE-based statement combining the write and the diagnostic read because PostgreSQL does not guarantee a same-statement `SELECT` in a `WITH` clause observes a data-modifying CTE's own effects (the write and read sub-statements of one `WITH` execute against a shared snapshot, not a read-after-write view of each other), which would make a CTE-based version *harder* to reason about correctly, not easier, for a purely diagnostic follow-up.
 
 ### 9.2 Duplicate-Identity Detection on `add()` (SQLSTATE and constraint name only)
 
@@ -188,9 +210,10 @@ PostgreSQL reports the first constraint violation it detects for a given stateme
 | `_reconstruct_x()` raises `ReconstructionError` | Direct catch, inside the `get()` transaction | `InvalidPersistedAggregateState(aggregate_kind, reason=str(reconstruction_error), identity)` |
 | Root row absent on `get()` (Section 6 step 3) | Zero rows from the runtime_id-only diagnostic `SELECT` | `AggregateNotFound(aggregate_kind, identity)` |
 | Persisted identity mismatch on `get()` (Section 6 step 3) | Diagnostic `SELECT` finds a row with a different `governance_id` | `InvalidPersistedAggregateState(aggregate_kind, reason, identity)` |
-| Root row absent on `save()` (Section 8 step 4) | Zero rows from the runtime_id-only diagnostic `SELECT` | `AggregateNotFound(aggregate_kind, identity)` |
-| Persisted identity mismatch on `save()` (Section 8 step 4) | Diagnostic `SELECT` finds a row with a different `governance_id` | `InvalidPersistedAggregateState(aggregate_kind, reason, identity)` |
-| Stale expected version on `save()` (Section 8 step 4) | Diagnostic `SELECT` finds the identity matches but `version` differs | `OptimisticConcurrencyConflict(..., actual_persisted_version=<that row's version>)` |
+| `record.version < expected_persisted_version` on `save()` (Section 8 step 3) | Direct comparison in Python, before any transaction is opened or SQL executed | `InvalidAggregateForPersistence(aggregate_kind, reason="aggregate current version is lower than expected persisted version", identity)` |
+| Root row absent on `save()` (Section 8 step 6) | Zero rows from the runtime_id-only diagnostic `SELECT` | `AggregateNotFound(aggregate_kind, identity)` |
+| Persisted identity mismatch on `save()` (Section 8 step 6) | Diagnostic `SELECT` finds a row with a different `governance_id` | `InvalidPersistedAggregateState(aggregate_kind, reason, identity)` |
+| Stale expected version on `save()` (Section 8 step 6) | Diagnostic `SELECT` finds the identity matches but `version` differs (only reachable when `record.version >= expected_persisted_version`, per step 3) | `OptimisticConcurrencyConflict(..., actual_persisted_version=<that row's version>)` |
 | Duplicate identity on `add()` (Section 9.2) | `sqlstate == "23505"` and `constraint_name` matches a known root-table constraint | `AggregateAlreadyExists(aggregate_kind, identity)` |
 | Any other persistence failure | `FoundationError` not matching a case above | Not translated; propagates unchanged |
 
@@ -260,15 +283,22 @@ Unchanged from Version 1.0: this design is precisely the "future repository impl
 ## 15. Test Strategy (for a future Implementation milestone)
 
 - real-PostgreSQL round-trip fidelity per aggregate (`add`, `get`, `save`, re-`get`);
-- **unchanged save**: `add()`, `get()`, `save()` immediately with the just-loaded `expected_persisted_version` and no aggregate mutation — assert `SaveResult(operation=UNCHANGED, persisted_version=<unchanged version>)` and that no owned-collection row was rewritten (e.g. by asserting each child row's own database-internal transaction/creation marker, if available, is untouched, or simply that row contents are byte-identical);
-- **unchanged save with a concurrent conflict**: two independent `LoadedAggregate`s at the same version; the first `save()`s a real mutation; the second then attempts an "unchanged" `save()` (no local mutation, but a now-stale `expected_persisted_version`) and must receive `OptimisticConcurrencyConflict`, not `UNCHANGED` — proving Section 8 step 4/5's ordering never lets a stale caller slip through as unchanged;
-- optimistic-concurrency conflict on a real mutation (Version 1.0's existing case, retained);
+- **lower durable version is rejected before any SQL**: construct (via direct test-only means, since the frozen aggregate/mapper contracts cannot produce this on their own) a `record.version < expected_persisted_version` scenario and assert `InvalidAggregateForPersistence` is raised (Section 8 step 3), with a message equivalent to "aggregate current version is lower than expected persisted version" and no SQL/driver/backend detail in it (Section 9.4);
+- **no SQL statement executes in the lower-version branch**: assert (e.g. via a query-count/spy on the connection, or by asserting no `PostgresUnitOfWork` was ever opened for that call) that step 3's rejection produces zero database round trips;
+- **unchanged save still performs optimistic-concurrency validation**: `add()`, `get()`, `save()` immediately with the just-loaded `expected_persisted_version` and no aggregate mutation — assert `SaveResult(operation=UNCHANGED, persisted_version=<unchanged version>)`, that the guarded `UPDATE` of Section 8 step 5 still executed (proving validation is never skipped merely because the values are equal), and that no owned-collection row was rewritten;
+- **stale expected version cannot be reported as `UNCHANGED`**: two independent `LoadedAggregate`s at the same version; the first `save()`s a real mutation; the second then attempts an "unchanged" `save()` (no local mutation, but a now-stale `expected_persisted_version`, and still `record.version >= expected_persisted_version` so step 3 does not reject it) and must receive `OptimisticConcurrencyConflict`, not `UNCHANGED` — proving Section 8 step 6's classification never lets a stale caller slip through;
+- **greater version persists the exact aggregate current version**: after one or more real mutations, `save()` and assert the persisted `version` column equals `record.version` exactly (not `expected_persisted_version + 1` or any repository-computed value);
+- **repository never increments the version**: across every `save()` test above, assert the persisted version is always traceable to a value the aggregate itself produced via its own business methods, never a value invented by the repository;
+- **caller aggregate remains unchanged after rejection**: after a step-3 lower-version rejection, assert the in-memory `aggregate` object passed to `save()` is byte-for-byte identical (identity, version, lifecycle state, owned collections) to its state immediately before the call;
+- optimistic-concurrency conflict on a real mutation (existing case, retained);
 - `add()` duplicate rejection, both by duplicate `governance_id` and by duplicate `runtime_id` independently, each asserting the specific constraint-name branch in Section 9.2 fired;
 - `get()`/`save()` not-found (identity never added);
 - **identity mismatch**: a `get()`/`save()` against a `runtime_id` that exists but paired with a different `governance_id` than requested (constructed by direct SQL setup, since this cannot arise through the frozen mapper/aggregate contracts alone) must raise `InvalidPersistedAggregateState`, not `AggregateNotFound`;
 - owned-collection ordering preserved end-to-end through the full mapper-and-schema round trip;
 - atomicity of a simulated mid-write failure during `add()`/`save()`;
 - every row of Section 9.3's error-translation table, proven against real PostgreSQL.
+
+These are design-level implementation *obligations* for a future implementation milestone; this design does not write or execute any test.
 
 All tests must run against real PostgreSQL, not a mock, consistent with M022's established discipline.
 
@@ -318,6 +348,7 @@ Cumulative record across both versions; Version 1.0's four findings remain resol
 | M023-DESIGN-ISSUE-0010 | MINOR | 9 | Version 1.0 did not explicitly analyze whether its zero-row handling was race-safe, despite already using an `UPDATE`-first ordering. | Independent review asked for an explicit race analysis; the ordering was already correct but undefended in the text. | A reader could not distinguish "correct by design" from "correct by accident" without the reasoning being stated. | Added Section 9.1, explicitly contrasting the chosen `UPDATE`-then-diagnostic-`SELECT` ordering against both a `SELECT`-then-`UPDATE` race and a same-statement CTE alternative, with the reasoning for rejecting the latter (cross-CTE snapshot visibility is not guaranteed to reflect the write). | Resolved |
 | M023-DESIGN-ISSUE-0011 | MINOR | 10 | Version 1.0 deferred the field-by-field mapping entirely to M021/M022's own documents rather than restating it, and its prose example had `ORDER BY` before `WHERE` (invalid SQL clause order). | Independent review required a complete, self-contained mapping table and correct clause order. | An implementer would need to reconstruct the mapping by cross-referencing two other documents, and a naive prose reading could produce invalid SQL. | Added the complete per-table field mapping (Section 10) and corrected every query's clause order to `SELECT ... FROM ... WHERE ... ORDER BY`. | Resolved |
 | M023-DESIGN-ISSUE-0012 | MINOR | 9 | Version 1.0 did not explicitly state that repository-domain error messages never leak SQL/driver/diagnostic detail, even though its own design did not actually leak any. | Independent review required this to be frozen explicitly, not left implicit. | An implementer without this stated explicitly might reasonably embed `sqlstate`/`constraint_name`/raw driver text into a `reason=` string for debugging convenience, leaking infrastructure detail through a domain-facing error. | Added Section 9.4, freezing that `reason=` values are always `mapper_error.safe_message`, `str(reconstruction_error)`, or a repository-authored literal — never SQL/driver text. | Resolved |
+| M023-DESIGN-ISSUE-0013 | MAJOR | 8 | Version 1.1's closing paragraph for `save()` incorrectly asserted that `record.version < expected_persisted_version` "would simply fail to match" the guarded `UPDATE`'s `WHERE` clause and therefore needed no special handling. | False upon inspection: the `WHERE` clause compares the *durable* version to `expected_persisted_version` only; it never references `record.version` at all. When the durable version genuinely equals `expected_persisted_version` (the ordinary case), the guarded `UPDATE` matches regardless of `record.version`, and `SET version = :record_version` would then silently persist a version *lower* than what is already stored — moving a supposedly monotonic `AggregateVersion` backward. | An implementation following Version 1.1's reasoning verbatim would contain a real, silent version-corruption defect: no SQL predicate this design used could have caught it. | Added Section 8 step 3: an explicit, unconditional Python-level precondition (`record.version < expected_persisted_version` -> `InvalidAggregateForPersistence`, no transaction opened, no SQL executed) that runs before the guarded `UPDATE`; added Design Principle 8; removed the false closing paragraph; added the corresponding row to Section 9.3 and the corresponding tests to Section 15. | Resolved |
 
 No unresolved design finding remains.
 
@@ -325,16 +356,17 @@ No unresolved design finding remains.
 
 A future implementation milestone must demonstrate, before it may be considered for freeze:
 
-- every operation in Sections 6-8 implemented exactly as specified, for all four aggregates, including the corrected version semantics (never incrementing), the `UNCHANGED` algorithm, and the full-identity predicates;
-- every row of Section 9.3's error-translation table proven against real PostgreSQL, including both duplicate-identity sub-cases (Section 9.2) and both identity-mismatch sub-cases (Sections 6/8);
+- every operation in Sections 6-8 implemented exactly as specified, for all four aggregates, including the corrected version semantics (never incrementing), the lower-version precondition (Section 8 step 3), the `UNCHANGED` algorithm, and the full-identity predicates;
+- every row of Section 9.3's error-translation table proven against real PostgreSQL, including the lower-version rejection, both duplicate-identity sub-cases (Section 9.2), and both identity-mismatch sub-cases (Sections 6/8);
 - the concurrent-conflict-during-unchanged-save test (Section 15) passing, proving no stale caller can be misclassified as `UNCHANGED`;
+- the lower-durable-version test (Section 15) passing, proving the rejection happens before any SQL and never corrupts the persisted version;
 - the one narrow `ALLOWED["shared"]` architecture-checker change made, together with the one new negative fixture (Section 5.3), verified not to weaken any `FORBIDDEN_IMPORT_PREFIXES` rule;
 - no frozen M019, M020, M021, or M022 file modified.
 
 ## 23. Final Decision
 
 ```text
-DESIGN READY FOR INDEPENDENT RE-REVIEW
+DESIGN READY FOR INDEPENDENT FINAL RE-REVIEW
 ```
 
 NOT APPROVED. NOT FROZEN. No repository, mapper, migration, or Unit of Work code was created by this design.
