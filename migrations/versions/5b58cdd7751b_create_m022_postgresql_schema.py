@@ -230,7 +230,7 @@ evidence_package_criterion_result = sa.Table(
     ),
     sa.PrimaryKeyConstraint("evidence_package_runtime_id", "position"),
     sa.ForeignKeyConstraint(["evidence_package_runtime_id"], ["evidence_package.runtime_id"]),
-    sa.UniqueConstraint("criterion_id", "evidence_package_runtime_id"),
+    sa.UniqueConstraint("evidence_package_runtime_id", "criterion_id"),
     sa.CheckConstraint("position >= 0", name="position_non_negative"),
 )
 
@@ -243,7 +243,7 @@ evidence_package_artifact_reference = sa.Table(
     sa.Column("value", sa.Text(), nullable=False),
     sa.PrimaryKeyConstraint("evidence_package_runtime_id", "position"),
     sa.ForeignKeyConstraint(["evidence_package_runtime_id"], ["evidence_package.runtime_id"]),
-    sa.UniqueConstraint("value", "evidence_package_runtime_id"),
+    sa.UniqueConstraint("evidence_package_runtime_id", "value"),
     sa.CheckConstraint("position >= 0", name="position_non_negative"),
 )
 

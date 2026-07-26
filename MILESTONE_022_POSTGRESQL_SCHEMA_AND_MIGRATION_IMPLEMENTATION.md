@@ -6,8 +6,8 @@
 | --- | --- |
 | Document ID | MILESTONE-022-IMPLEMENTATION |
 | Title | PostgreSQL Schema and Migration Implementation |
-| Version | 1.0 |
-| Status | IMPLEMENTATION COMPLETE - PENDING INDEPENDENT REVIEW |
+| Version | 1.1 (narrow correction) |
+| Status | IMPLEMENTATION COMPLETE - PENDING INDEPENDENT RE-REVIEW |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Frozen design authority | `MILESTONE_022_POSTGRESQL_SCHEMA_AND_MIGRATION_DESIGN.md` (Version 1.1) and `MILESTONE_022_POSTGRESQL_SCHEMA_AND_MIGRATION_DESIGN_FREEZE.md` (M022 DESIGN APPROVED AND FROZEN) |
 | Mission type | Implementation only |
@@ -17,6 +17,8 @@
 ## 2. Scope
 
 This implementation creates the twelve-table PostgreSQL schema frozen by the MILESTONE-022 design as a single Alembic revision, and proves it against a real, disposable PostgreSQL 18.4 instance. It does not implement a concrete mapper, a repository, a Unit of Work, or any application-layer code.
+
+**Version 1.1 note:** an independent hostile review of implementation commit `69920125214b577485096406b9a2b2b573bead81` returned "M022 IMPLEMENTATION REQUIRES NARROW CORRECTION" (two MAJOR findings against this implementation, one MAJOR finding about missing independent PostgreSQL evidence due to a Docker-unavailable review environment). See Section 16 for the full correction record. This document's body has been updated in place to describe the corrected state; Section 16 preserves the independent findings and how each was resolved.
 
 ## 3. Files Changed
 
@@ -33,6 +35,8 @@ Modified:
 - `alembic.ini` (added `path_separator = os` to silence a benign Alembic deprecation warning about `prepend_sys_path` splitting; no behavioral change).
 
 `tools/check_architecture.py` was not modified, matching the design's Section 16 expectation ("This design touches no `src/empirical_platform` package"). No `src/empirical_platform` file was created or modified.
+
+**Version 1.1 correction round** modified exactly two files beyond the above (no new files): `migrations/versions/5b58cdd7751b_create_m022_postgresql_schema.py` (UNIQUE column order fix) and `tests/integration/test_m022_schema_migration.py` (expanded from 20 to 49 tests). See Section 14.
 
 ## 4. Revision Identity
 
@@ -89,7 +93,7 @@ No ORM models were declared; every table is `sa.Table` Core metadata. No `op.cre
 
 - Every table's primary key, matching its frozen identity/composite-key shape;
 - Every frozen foreign key, with no `ondelete` specified (PostgreSQL default `NO ACTION`, as the design requires — no unauthorized `CASCADE` anywhere in the revision);
-- Every frozen `UNIQUE` constraint, including the two-column uniqueness constraints on `evidence_package_criterion_result` (`criterion_id`, `evidence_package_runtime_id`) and `evidence_package_artifact_reference` (`value`, `evidence_package_runtime_id`);
+- Every frozen `UNIQUE` constraint, including the two-column uniqueness constraints on `evidence_package_criterion_result` (`evidence_package_runtime_id`, `criterion_id`) and `evidence_package_artifact_reference` (`evidence_package_runtime_id`, `value`) — this exact column order (owning parent's FK column first) was corrected in Version 1.1; see Section 16.1;
 - Every frozen numeric `CHECK` floor (`version >= 0`, `next_transition_sequence >= 1`, `sequence >= 1`, `position >= 0`) — twenty constraints across the twelve tables;
 - Every frozen enum-membership `CHECK` (`lifecycle_state`, `from_state`, `to_state`, `disposition`) — thirteen constraints, each listing exactly the live enum's members read from `campaign/lifecycle.py`, `evidence/lifecycle.py`, `review/lifecycle.py` at design time;
 - The partial unique index `ix_run_manifest_manifest_id_partial_unique` on `run_manifest(run_runtime_id, manifest_id) WHERE manifest_id IS NOT NULL`, matching the design's explicit-name requirement for this one index (the naming convention's `ix` key alone would not distinguish it).
@@ -117,43 +121,36 @@ Per the mission's explicit instruction not to mock PostgreSQL, all tests in Sect
 
 ## 10. Integration Test Evidence
 
-`tests/integration/test_m022_schema_migration.py`, run with `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1` against the instance above (database URL and password redacted; full raw output captured in `external-review/M022_POSTGRESQL_SCHEMA_AND_MIGRATION_IMPLEMENTATION/evidence/`):
+`tests/integration/test_m022_schema_migration.py` (49 tests, expanded from 20 in the narrow correction — see Section 16.2), run with `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1` against a fresh, independently re-provisioned disposable PostgreSQL 18.4 instance (database URL and password redacted; full raw output captured in `external-review/M022_POSTGRESQL_SCHEMA_AND_MIGRATION_IMPLEMENTATION/evidence/`):
 
 ```text
 PostgreSQL 18.4 on x86_64-windows, compiled by msvc-19.44.35227, 64-bit
 EMPIRICAL_PLATFORM_POSTGRES_HOST=localhost
-EMPIRICAL_PLATFORM_POSTGRES_PORT=55432
+EMPIRICAL_PLATFORM_POSTGRES_PORT=55433
 EMPIRICAL_PLATFORM_POSTGRES_DATABASE=empirical_platform
 EMPIRICAL_PLATFORM_POSTGRES_USER=empirical
 EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=[REDACTED]
 
-20 passed in 4.66s
+49 passed in 6.03s
 ```
 
-Coverage by requirement (Phase 5 of the governing mission):
+Coverage by requirement (Phase 5 of the original mission, plus the independent review's Phase 3 additions):
 
-- **UPGRADE** — `test_upgrade_creates_all_twelve_tables`, `test_upgrade_campaign_table_structure`, `test_upgrade_foreign_key_names_including_truncated_ones`, `test_upgrade_run_manifest_partial_unique_index`: migration applied from an empty database; all twelve tables, columns, types, PK/FK/UNIQUE/CHECK names, and the partial index verified via live `sqlalchemy.inspect()` introspection against the real server (not stubbed metadata).
+- **UPGRADE / EXACT STRUCTURE** — `test_upgrade_creates_all_twelve_tables` plus `test_table_matches_frozen_structure` (parametrized over all twelve tables): for every table, exact column set, exact PostgreSQL reflected type per column, exact nullability, exact PK name and columns, exact FK name/columns/target/referenced-columns and confirmed-implicit `ON DELETE` (no explicit action — PostgreSQL default `NO ACTION`), exact UNIQUE name and column order, exact CHECK name set, exact index name/columns/uniqueness/predicate — all read back via live `sqlalchemy.inspect()` against the real server, independent of the migration file's own construction-time type objects. `test_upgrade_evidence_package_unique_constraints_preserve_frozen_column_order` is a narrow, explicit regression test for the Section 16.1 correction specifically.
 - **CONSTRAINT BEHAVIOR — rejections**, each proven by a real `INSERT`/`UPDATE` raising `sqlalchemy.exc.IntegrityError` against real PostgreSQL, then rolled back:
-  - `test_campaign_version_below_zero_is_rejected` (`version < 0`);
-  - `test_campaign_next_transition_sequence_below_one_is_rejected` (`next_transition_sequence < 1`);
-  - `test_transition_sequence_below_one_is_rejected` (`campaign_transition.sequence < 1`);
-  - `test_review_finding_sequence_below_one_is_rejected` (`review_finding.sequence < 1`);
-  - `test_position_below_zero_is_rejected` (`run_manifest.position < 0`);
-  - `test_invalid_lifecycle_state_is_rejected` (`campaign.lifecycle_state` not a member);
-  - `test_invalid_review_disposition_is_rejected` (`review.disposition` not a member);
-  - `test_duplicate_artifact_reference_position_is_rejected` (PK collision on `evidence_package_artifact_reference`);
-  - `test_duplicate_artifact_reference_value_is_rejected` (UNIQUE collision on `(value, evidence_package_runtime_id)`);
-  - `test_invalid_parent_reference_is_rejected` (FK violation: `campaign_transition` referencing a non-existent `campaign`);
-  - `test_orphan_child_row_is_rejected` (FK violation: `review_finding` referencing a non-existent `review`);
-  - `test_duplicate_owned_row_key_is_rejected` (PK collision on `run_manifest`).
-- **CONSTRAINT BEHAVIOR — acceptance**: `test_full_valid_aggregate_chain_is_accepted` inserts one valid row into all twelve tables (a complete Campaign -> Run -> EvidencePackage -> Review chain) and confirms every insert succeeds.
+  - numeric floors: `test_campaign_version_below_zero_is_rejected`, `test_campaign_next_transition_sequence_below_one_is_rejected`, `test_transition_sequence_below_one_is_rejected`, `test_review_finding_sequence_below_one_is_rejected`, `test_position_below_zero_is_rejected`;
+  - enum membership: `test_invalid_campaign_lifecycle_state_is_rejected`, `test_invalid_run_lifecycle_state_is_rejected`, `test_invalid_evidence_package_lifecycle_state_is_rejected`, `test_invalid_review_lifecycle_state_is_rejected`, `test_invalid_review_disposition_is_rejected`, `test_invalid_transition_from_state_is_rejected` and `test_invalid_transition_to_state_is_rejected` (each parametrized over all four transition tables — 8 tests total);
+  - root identity uniqueness: `test_duplicate_campaign_governance_id_is_rejected`, `test_duplicate_run_governance_id_is_rejected`, `test_duplicate_evidence_package_governance_id_is_rejected`, `test_duplicate_review_governance_id_is_rejected`;
+  - owned-collection uniqueness: `test_duplicate_criterion_id_within_same_package_is_rejected`, `test_duplicate_artifact_reference_position_is_rejected`, `test_duplicate_artifact_reference_value_is_rejected`, `test_duplicate_manifest_id_within_same_run_is_rejected`, `test_duplicate_owned_row_key_is_rejected`;
+  - referential integrity: `test_invalid_parent_reference_is_rejected` (FK violation: `campaign_transition` referencing a non-existent `campaign`), `test_orphan_child_row_is_rejected` (FK violation: `review_finding` referencing a non-existent `review`).
+- **CONSTRAINT BEHAVIOR — acceptance**: `test_full_valid_aggregate_chain_is_accepted` inserts one valid row into all twelve tables; `test_same_criterion_id_across_different_packages_is_accepted` proves the same `criterion_id` is accepted in two different `EvidencePackage`s (the UNIQUE constraint is scoped per package, matching Design Section 9); `test_multiple_null_manifest_id_within_same_run_is_accepted` proves the partial unique index correctly allows repeated `NULL` `manifest_id` values within the same run.
 - **ORDERING**: `test_artifact_reference_rows_reconstruct_deterministically_by_position` inserts `evidence_package_artifact_reference` rows out of position order and confirms `ORDER BY position` yields the position-encoded order, not insertion order.
 - **DOWNGRADE**: `test_downgrade_removes_all_tables_and_reupgrade_succeeds` downgrades a fully upgraded database to `base`, confirms zero of the twelve tables and an empty `alembic_version` remain, then re-upgrades to `head` and confirms all twelve tables exist again.
-- **ATOMICITY**: `test_migration_failure_leaves_no_partial_schema` pre-creates a conflicting `review` table so the revision fails at creation step 10, then confirms none of tables 1-9 survive (PostgreSQL DDL is transactional and Alembic wraps the revision in a transaction) and that `alembic_version` was never stamped.
+- **ATOMICITY**: `test_migration_failure_leaves_no_partial_schema` pre-creates a conflicting `review` table so the revision fails at creation step 10, then confirms none of tables 1-9 survive (PostgreSQL DDL is transactional and Alembic wraps the revision in a transaction) and that `alembic_version` was never stamped; narrowed to assert the specific `sqlalchemy.exc.ProgrammingError` this failure mode produces, not a broad `Exception`.
 
 ## 11. CLI-Level Real Upgrade/Downgrade/Re-upgrade Evidence
 
-In addition to the pytest-driven evidence above, the revision was also exercised directly via the `alembic` CLI against the same real instance, from an empty baseline:
+In addition to the pytest-driven evidence above, the corrected revision was also exercised directly via the `alembic` CLI against the same fresh real instance, from an empty baseline:
 
 ```text
 $ alembic upgrade head
@@ -166,28 +163,78 @@ $ alembic upgrade head
 INFO  [alembic.runtime.migration] Running upgrade  -> 5b58cdd7751b, create m022 postgresql schema
 ```
 
-Full constraint-name inventory (131 constraint rows across the twelve tables) was captured via `pg_constraint` and cross-checked against Design Sections 7-10 and 12.3-12.4 name-by-name; no missing, invented, or misnamed constraint was found.
+Full constraint-name inventory (131 constraint rows across the twelve tables, including the two corrected UNIQUE constraints' new truncated names — see Section 16.1) was captured fresh via `pg_constraint` and cross-checked against Design Sections 7-10 and 12.3-12.4 name-by-name; no missing, invented, or misnamed constraint was found.
 
 ## 12. Full Validation Loop
 
 All commands run from `.venv`, never system Python. Raw output captured in `external-review/M022_POSTGRESQL_SCHEMA_AND_MIGRATION_IMPLEMENTATION/evidence/`.
 
 - `python -m compileall -q src migrations tests tools`: PASS;
-- `ruff format --check .`: PASS (141 files formatted; the two new files were reformatted once during development, then reverified clean);
-- `ruff check .`: PASS, 0 issues (one `UP035`/`UP007` finding in the generated revision's boilerplate header was auto-fixed to match repository style: `Union[str, None]` -> `str | None`);
+- `ruff format --check .`: PASS (141 files formatted);
+- `ruff check .`: PASS, 0 issues;
 - `mypy`: PASS, 0 issues, 73 source files (unchanged — this milestone touches no `src/empirical_platform` file, consistent with the M020/M021 mypy-scope note);
 - `tools/check_architecture.py .`: PASS, 0 violations;
 - `tools/check_architecture.py tests/fixtures/illegal_imports`: PASS, negative fixtures still correctly detected;
-- `scripts/security.ps1`: PASS (`pip-audit`: no known vulnerabilities; secret scan: 231 targets, no findings);
-- `scripts/verify.ps1` (fresh GUID `--basetemp`, end-to-end): PASS — full suite `328 passed, 29 skipped in 13.26s`, coverage `92.31%` (>= 80% required); the 29 skips are the pre-existing MinIO/PostgreSQL/infrastructure integration tests that require explicit opt-in env vars `verify.ps1` does not set, including this milestone's own 20 new tests (correctly skipped in that unauthenticated context, separately run and proven in Section 10 above);
-- `python -m build`: PASS (sdist + wheel built, including the two new `migrations/` files);
-- `git diff --check`: PASS, exit 0 (two informational CRLF/LF line-ending notices from Git, no actual whitespace errors).
+- `scripts/security.ps1`: PASS (`pip-audit`: no known vulnerabilities; secret scan: **232 targets**, no findings — the exact current count, re-verified fresh for this correction, one higher than the original implementation's 231 because this document itself is a scan target);
+- `scripts/verify.ps1` (fresh GUID `--basetemp`, end-to-end): PASS — full suite `328 passed, 58 skipped in 12.46s`, coverage `92.31%` (>= 80% required); the 58 skips are the pre-existing MinIO/PostgreSQL/infrastructure integration tests that require explicit opt-in env vars `verify.ps1` does not set, including this milestone's own 49 tests (correctly skipped in that unauthenticated context, separately run and proven in Section 10 above);
+- `python -m build`: PASS (sdist + wheel built);
+- `git diff --check`: PASS, exit 0 (informational CRLF/LF line-ending notices from Git only, no actual whitespace errors).
 
 ## 13. Hostile Self-Review
 
-See the implementation's hostile-review pass, recorded in full in this session's final report rather than duplicated here. The one real defect found during implementation — three hand-written FK constraint names exceeding PostgreSQL's 63-byte limit — was found by actually applying the migration to real PostgreSQL (not by static review) and corrected by switching to the `MetaData`-driven naming mechanism Section 5 describes, which is a more faithful implementation of the frozen convention, not a deviation from it.
+Recorded in full in the correction mission's final report rather than duplicated here. See Section 16 for the independent-review findings this correction responds to, and Section 16.4 for this correction's own hostile self-review pass.
 
-## 14. Explicit Non-Goals Confirmed
+## 14. MILESTONE-022 Implementation Narrow Correction (Independent Review Response)
+
+An independent hostile review of implementation commit `69920125214b577485096406b9a2b2b573bead81` returned "M022 IMPLEMENTATION REQUIRES NARROW CORRECTION" with three authoritative findings. This section is the permanent record of those findings and how each was resolved; Sections 1-13 above were updated in place to describe the corrected state.
+
+### 14.1 MAJOR 1 — Frozen UNIQUE Column Order Mismatch
+
+The migration defined `UniqueConstraint("criterion_id", "evidence_package_runtime_id")` and `UniqueConstraint("value", "evidence_package_runtime_id")`, reversed from the frozen design's `UNIQUE (evidence_package_runtime_id, criterion_id)` and `UNIQUE (evidence_package_runtime_id, value)` (Design Section 9: "the owning parent's foreign-key column first"). The constraints were semantically equivalent (a UNIQUE constraint enforces the same rule regardless of column order) but did not match the frozen column order the design specifies, and — because the naming convention's `uq` key derives its name from `column_0_name` — produced different (though still deterministic and collision-free) constraint names than the frozen order would.
+
+**Resolution:** both `UniqueConstraint` calls in `migrations/versions/5b58cdd7751b_create_m022_postgresql_schema.py` were corrected to list `evidence_package_runtime_id` first. Because both tables' fully-qualified names already exceed 63 bytes when combined with either column order, both corrected constraint names are truncated deterministically by SQLAlchemy's naming convention (the same mechanism documented in Section 5.1), empirically re-captured from a real applied migration:
+
+| Table | Corrected UNIQUE constraint name | Columns (frozen order) |
+| --- | --- | --- |
+| `evidence_package_criterion_result` | `uq_evidence_package_criterion_result_evidence_package_r_3ff8` | `(evidence_package_runtime_id, criterion_id)` |
+| `evidence_package_artifact_reference` | `uq_evidence_package_artifact_reference_evidence_package_35f6` | `(evidence_package_runtime_id, value)` |
+
+No other constraint, column, table, or index changed as a result of this correction; the full 131-row constraint inventory was re-verified against Design Sections 7-10 and 12.3-12.4 name-by-name after the fix (Section 11).
+
+### 14.2 MAJOR 2 — Integration-Test Coverage Was Incomplete
+
+`tests/integration/test_m022_schema_migration.py` grew from 20 to 49 tests. Added, all against real PostgreSQL, none replacing behavioral assertions with source-string checks:
+
+- root `governance_id` uniqueness for all four aggregate roots (4 tests);
+- duplicate `CriterionResult.criterion_id` within one `EvidencePackage` rejected, and the same `criterion_id` across two different `EvidencePackage`s accepted (2 tests);
+- duplicate non-null `run_manifest.manifest_id` within the same run rejected, and multiple null `manifest_id` values within the same run accepted (2 tests);
+- invalid lifecycle rejected for `Run`, `EvidencePackage`, `Review` (`Campaign`'s was already covered) (3 tests);
+- invalid `from_state` and invalid `to_state` rejected for all four transition tables, parametrized (8 tests);
+- one comprehensive, data-driven structural test (`test_table_matches_frozen_structure`, parametrized over all twelve tables) asserting exact columns, PostgreSQL-reflected types, nullability, PK name/columns, FK name/columns/target/`ON DELETE` action, UNIQUE name/column order, CHECK name set, and index name/columns/uniqueness/predicate for every table — replacing the three narrower ad hoc structural tests the original implementation had;
+- one narrow regression test pinning the corrected UNIQUE column order specifically (Section 14.1).
+
+The pre-existing atomicity test's `pytest.raises(Exception)` (a broad catch flagged during this correction's own hostile self-review, Section 14.4) was narrowed to `pytest.raises(sa.exc.ProgrammingError, match="already exists")`, the exact error a pre-created conflicting table produces.
+
+### 14.3 MAJOR 3 — Fresh Independent PostgreSQL Evidence
+
+The independent reviewer could not run PostgreSQL (Docker Engine unavailable in that review environment) and could not itself produce real-database evidence. A new, independently reproducible evidence package was generated using a freshly provisioned, fully isolated PostgreSQL instance — distinct from the one used during the original implementation, and from the two unrelated, credential-unknown system PostgreSQL services on this machine, neither of which was touched:
+
+- PostgreSQL 18.4 on x86_64-windows, self-managed `initdb`/`pg_ctl`, new data directory, new self-generated `empirical` role with a freshly randomly generated password (SCRAM-SHA-256), bound to `localhost` only on port `55433` (distinct from the original implementation's `55432`, itself distinct from the two system services' default `5432`/`5433`);
+- password stored only in a local, git-ignored temp file, never logged, never committed, confirmed absent from every evidence file via a direct grep before packaging;
+- torn down after evidence capture (see Section 16.3 of the correction mission's final report for the exact teardown confirmation).
+
+All Section 10 and Section 11 evidence in this document was produced against this fresh instance.
+
+### 14.4 Hostile Self-Review of This Correction
+
+- Re-verified all 12 tables' full field/constraint inventory against Design Sections 7-10 a second time (unchanged from the original implementation except the two corrected UNIQUE column orders).
+- Confirmed the corrected UNIQUE constraint names are stable, deterministic, and collision-free (distinct 4-hex-digit truncation suffixes, verified via two independent applications of the migration to two different fresh databases producing identical names both times).
+- Confirmed no CASCADE, no unauthorized schema object, and no credential handling was introduced by the correction.
+- Confirmed the broad `except Exception`/`pytest.raises(Exception)` pattern flagged in the independent review does not appear anywhere else in the test file (grepped for `raises(Exception)` and bare `except Exception` — none found outside the one instance already narrowed).
+- Confirmed every new test either exercises real PostgreSQL behavior (an actual `INSERT`/`UPDATE`/`SELECT`) or real schema introspection (`sqlalchemy.inspect()` against the live server) — none rely on the migration file's own source text or construction-time type objects.
+- Confirmed every test that seeds data explicitly rolls back its own transaction (or operates within a fixture that resets the schema), so no test leaks state to another.
+
+## 15. Explicit Non-Goals Confirmed
 
 Not implemented:
 
@@ -198,12 +245,12 @@ Not implemented:
 - Audit runtime, Decision Candidate, Decision Freeze;
 - any MILESTONE-023 work.
 
-No frozen M019, M020, or M021 source file was modified. No `src/empirical_platform` file was created or modified.
+No frozen M019, M020, or M021 source file was modified. No `src/empirical_platform` file was created or modified. This correction did not redesign M022, reopen the approved scope, or add repositories, concrete mappers, Unit of Work, application services, APIs, workers, or runtime composition.
 
-## 15. Final Status
+## 16. Final Status
 
 ```text
-IMPLEMENTATION COMPLETE - PENDING INDEPENDENT REVIEW
+IMPLEMENTATION COMPLETE - PENDING INDEPENDENT RE-REVIEW
 ```
 
 MILESTONE-022 implementation is NOT marked APPROVED, and is NOT FROZEN. MILESTONE-023 has NOT started.
