@@ -11,14 +11,20 @@ against the frozen M023 adapters) lives in
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 
+import empirical_platform.shared.persistence.postgres as postgres_module
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.errors import FoundationError
-from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres import (
+    PostgresPersistenceService,
+    PostgresUnitOfWork,
+)
 
 
 def _sqlite_engine() -> object:
@@ -34,12 +40,19 @@ def _config() -> PostgreSQLConfigSnapshot:
 
 
 @pytest.fixture
-def service() -> PostgresPersistenceService:
+def service() -> Iterator[PostgresPersistenceService]:
     svc = PostgresPersistenceService(_config(), engine=_sqlite_engine())
     svc.initialize()
     with svc.unit_of_work() as work:
         work.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
-    return svc
+    try:
+        yield svc
+    finally:
+        # Disposes the StaticPool's single underlying sqlite3 connection,
+        # matching the existing tests/unit/test_postgres_persistence.py
+        # convention -- otherwise it is only closed on GC finalization,
+        # which surfaces as a ResourceWarning.
+        svc.close()
 
 
 # --- Public API: zero/one/multiple operations, ordering ----------------------
@@ -185,22 +198,25 @@ def test_different_service_rejected_while_composed_scope_active(
 ) -> None:
     other_service = PostgresPersistenceService(_config(), engine=_sqlite_engine())
     other_service.initialize()
+    try:
 
-    def op_first() -> str:
+        def op_first() -> str:
+            with service.unit_of_work() as work:
+                work.execute("INSERT INTO t (id, v) VALUES (7, 'g')")
+            return "g-result"
+
+        def op_cross_service() -> None:
+            with other_service.unit_of_work():
+                pass
+
+        with pytest.raises(FoundationError, match="Nested persistence units of work"):
+            service.run_composed([op_first, op_cross_service])
+
         with service.unit_of_work() as work:
-            work.execute("INSERT INTO t (id, v) VALUES (7, 'g')")
-        return "g-result"
-
-    def op_cross_service() -> None:
-        with other_service.unit_of_work():
-            pass
-
-    with pytest.raises(FoundationError, match="Nested persistence units of work"):
-        service.run_composed([op_first, op_cross_service])
-
-    with service.unit_of_work() as work:
-        rows = work.execute("SELECT * FROM t WHERE id = 7")
-    assert rows == [], "op_first must roll back when a later operation is rejected"
+            rows = work.execute("SELECT * FROM t WHERE id = 7")
+        assert rows == [], "op_first must roll back when a later operation is rejected"
+    finally:
+        other_service.close()
 
 
 def test_nested_run_composed_same_service_raises(
@@ -218,12 +234,15 @@ def test_nested_run_composed_different_service_raises(
 ) -> None:
     other_service = PostgresPersistenceService(_config(), engine=_sqlite_engine())
     other_service.initialize()
+    try:
 
-    def inner() -> None:
-        other_service.run_composed([lambda: None])
+        def inner() -> None:
+            other_service.run_composed([lambda: None])
 
-    with pytest.raises(FoundationError, match="Nested persistence units of work"):
-        service.run_composed([inner])
+        with pytest.raises(FoundationError, match="Nested persistence units of work"):
+            service.run_composed([inner])
+    finally:
+        other_service.close()
 
 
 # --- Poisoned-scope semantics -------------------------------------------------
@@ -328,4 +347,131 @@ def test_context_reset_after_poisoned_scope(service: PostgresPersistenceService)
         work.execute("INSERT INTO t (id, v) VALUES (14, 'k')")
     with service.unit_of_work() as work:
         rows = work.execute("SELECT * FROM t WHERE id = 14")
+    assert len(rows) == 1
+
+
+# --- Entry publication cleanup (M024-IMPL-REVIEW-0001 correction) ------------
+
+
+class _RaisingComposedScopeVar:
+    """Stand-in for the module's `_active_composed_scope` ContextVar whose
+    `set()` simulates a failure between real-UoW entry and ambient-scope
+    publication. `contextvars.ContextVar.set` cannot be monkeypatched
+    directly (it is a read-only C-level attribute), so the whole module
+    global is swapped instead."""
+
+    def get(self) -> None:
+        return None
+
+    def set(self, value: object) -> None:
+        raise RuntimeError("simulated ContextVar publication failure")
+
+
+def test_publication_failure_rolls_back_and_resets_reentrancy_guard(
+    service: PostgresPersistenceService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(postgres_module, "_active_composed_scope", _RaisingComposedScopeVar())
+
+    with pytest.raises(RuntimeError, match="simulated ContextVar publication failure"):
+        service.run_composed([lambda: None])
+
+    # The real unit of work must have been rolled back and closed, and the
+    # global `_active_unit_of_work` reentrancy guard reset -- proven by a
+    # fresh standalone unit_of_work() succeeding immediately afterward.
+    with service.unit_of_work() as work:
+        work.execute("INSERT INTO t (id, v) VALUES (20, 'after-publication-failure')")
+    with service.unit_of_work() as work:
+        rows = work.execute("SELECT * FROM t WHERE id = 20")
+    assert len(rows) == 1
+
+
+def test_publication_failure_never_invokes_any_operation(
+    service: PostgresPersistenceService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(postgres_module, "_active_composed_scope", _RaisingComposedScopeVar())
+    invoked = []
+
+    def op() -> None:
+        invoked.append(True)
+
+    with pytest.raises(RuntimeError, match="simulated ContextVar publication failure"):
+        service.run_composed([op])
+
+    assert invoked == []
+
+
+def test_publication_failure_returns_no_result_tuple(
+    service: PostgresPersistenceService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(postgres_module, "_active_composed_scope", _RaisingComposedScopeVar())
+    observed_results = []
+
+    try:
+        result = service.run_composed([lambda: "should-never-be-returned"])
+        observed_results.append(result)
+    except RuntimeError:
+        pass
+
+    assert observed_results == []
+
+
+def test_publication_failure_leaves_no_stale_composed_scope_for_next_call(
+    service: PostgresPersistenceService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(postgres_module, "_active_composed_scope", _RaisingComposedScopeVar())
+
+    with pytest.raises(RuntimeError):
+        service.run_composed([lambda: None])
+
+    # Undo the monkeypatch and prove a subsequent, real composed scope opens
+    # and commits normally -- no leftover scope or leaked connection blocks it.
+    monkeypatch.undo()
+
+    def op() -> str:
+        with service.unit_of_work() as work:
+            work.execute("INSERT INTO t (id, v) VALUES (21, 'recovered')")
+        return "ok"
+
+    result = service.run_composed([op])
+    assert result == ("ok",)
+    with service.unit_of_work() as work:
+        rows = work.execute("SELECT * FROM t WHERE id = 21")
+    assert len(rows) == 1
+
+
+def test_cleanup_rollback_failure_surfaces_with_original_publication_failure_chained(
+    service: PostgresPersistenceService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When cleanup's own rollback also fails, the cleanup failure surfaces
+    (matching the existing PostgresUnitOfWork.rollback()/FoundationError
+    convention of always completing -- closing the connection and resetting
+    the reentrancy guard -- even when the underlying rollback itself raises),
+    with the original publication failure preserved via exception chaining.
+    """
+    monkeypatch.setattr(postgres_module, "_active_composed_scope", _RaisingComposedScopeVar())
+
+    real_complete = PostgresUnitOfWork._complete
+
+    def _raising_rollback(self: PostgresUnitOfWork) -> None:
+        # Mirrors the real rollback()'s own contract: _complete() always
+        # runs (closing the connection, resetting the reentrancy guard)
+        # even when the rollback itself fails.
+        real_complete(self)
+        raise RuntimeError("simulated rollback failure during cleanup")
+
+    monkeypatch.setattr(PostgresUnitOfWork, "rollback", _raising_rollback)
+
+    with pytest.raises(RuntimeError, match="simulated rollback failure during cleanup") as excinfo:
+        service.run_composed([lambda: None])
+
+    assert isinstance(excinfo.value.__context__, RuntimeError)
+    assert "simulated ContextVar publication failure" in str(excinfo.value.__context__)
+
+    # _complete() still ran under the raising stub, so the reentrancy guard
+    # was still reset -- prove a fresh standalone call succeeds afterward.
+    monkeypatch.undo()
+    with service.unit_of_work() as work:
+        work.execute("INSERT INTO t (id, v) VALUES (22, 'after-cleanup-failure')")
+    with service.unit_of_work() as work:
+        rows = work.execute("SELECT * FROM t WHERE id = 22")
     assert len(rows) == 1

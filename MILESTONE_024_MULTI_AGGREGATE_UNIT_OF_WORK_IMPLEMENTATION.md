@@ -6,17 +6,22 @@
 | --- | --- |
 | Document ID | MILESTONE-024-IMPL |
 | Title | Multi-Aggregate Persistence Unit of Work Implementation |
-| Version | 1.0 |
+| Version | 1.1 (narrow correction) |
 | Status | IMPLEMENTATION COMPLETE — NOT APPROVED — NOT FROZEN |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Frozen design baseline | `ed0a4198dab515c4d204f3046ea2cfc114390bef` (M024 DESIGN APPROVED AND FROZEN) |
+| Original implementation commit | `5fd00247bdb25b01a4f5de831b5b9baa483af6a5` (`feat: implement M024 multi-aggregate unit of work`) |
 | Implementation scope record | `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION_SCOPE.md` |
+
+Version 1.1 records a narrow correction responding to an independent implementation review's finding `M024-IMPL-REVIEW-0001` (Section 19) and a governance-truth correction (Section 20). No design, public API, M020 Protocol, M023 adapter, or schema change was made. The correction is committed separately from `5fd0024...`; see this repository's own `git log` for the exact correction commit hash rather than a value embedded here, since a document cannot cite the hash of the commit that first carries it without an unbounded self-reference cycle.
 
 ## 2. Scope
 
 Exactly the frozen Design's Sections 5-14 (see Implementation Scope record Section 4). No M020 Protocol change, no M023 adapter change, no schema change, no application service, no MILESTONE-025 work.
 
 ## 3. Files Changed
+
+### 3.1 Original Implementation (commit `5fd0024`)
 
 | File | Change |
 | --- | --- |
@@ -26,7 +31,16 @@ Exactly the frozen Design's Sections 5-14 (see Implementation Scope record Secti
 | `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION_SCOPE.md` | New. |
 | `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION.md` | New (this document). |
 
-No file under `src/empirical_platform/{campaign,run,evidence,review}/` or `src/empirical_platform/shared/persistence/postgres_repositories/` was touched. No migration, no application-service, no API file was added.
+### 3.2 Narrow Correction (this correction, separate commit)
+
+| File | Change |
+| --- | --- |
+| `src/empirical_platform/shared/persistence/postgres.py` | `_ComposedTransaction.__enter__` now wraps ambient-scope construction and `ContextVar` publication in a `try`/`except`; on failure, rolls back and closes the already-entered real `PostgresUnitOfWork` before re-raising (Section 19). |
+| `tests/unit/test_m024_composed_unit_of_work.py` | 5 new targeted tests proving the cleanup fix (Section 19); fixture teardown now calls `service.close()`/`other_service.close()` to dispose each test's SQLite `StaticPool` connection, eliminating 19 `ResourceWarning`s (Section 21). |
+| `MILESTONE_024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION.md` | This document, bumped to Version 1.1. |
+| `PROJECT_CHECKPOINT.md` | Corrected post-commit governance truth (Section 20). |
+
+No file under `src/empirical_platform/{campaign,run,evidence,review}/` or `src/empirical_platform/shared/persistence/postgres_repositories/` was touched, in either the original implementation or this correction. No migration, no application-service, no API file was added or changed. The public `run_composed` signature and every frozen design decision are unchanged.
 
 ## 4. Public API
 
@@ -82,7 +96,9 @@ A different service instance's `unit_of_work()` call falls through to constructi
 
 ## 9. Cleanup
 
-`_ComposedTransaction.__enter__` captures the `Token` returned by `_active_composed_scope.set(...)`; `__exit__`'s `finally` block unconditionally calls `_active_composed_scope.reset(token)`. This covers every exit path: successful commit, poisoned-scope rollback (with or without a live exception), and an exception raised by `commit()`/`rollback()` themselves (the `finally` still runs). If `PostgresUnitOfWork.__enter__` itself fails during composed-scope entry, `_active_composed_scope.set(...)` is never reached, so there is nothing to reset — no leak. Confirmed by unit tests `test_context_reset_after_successful_commit`, `test_context_reset_after_operation_failure`, and `test_context_reset_after_poisoned_scope`, each of which performs a fresh, independent standalone `unit_of_work()` call immediately afterward to prove no stale scope survives.
+`_ComposedTransaction.__enter__` captures the `Token` returned by `_active_composed_scope.set(...)`; `__exit__`'s `finally` block unconditionally calls `_active_composed_scope.reset(token)`. This covers every exit path once `__enter__` has returned successfully: successful commit, poisoned-scope rollback (with or without a live exception), and an exception raised by `commit()`/`rollback()` themselves (the `finally` still runs). If `PostgresUnitOfWork.__enter__` itself fails during composed-scope entry, `_active_composed_scope.set(...)` is never reached, so there is nothing to reset — no leak.
+
+**Correction (Version 1.1, Section 19):** the gap was in the window *between* `PostgresUnitOfWork.__enter__` succeeding and `_active_composed_scope.set(...)` completing — a failure there is not covered by `__exit__`'s `finally` at all, since Python's `with` statement never calls `__exit__` unless `__enter__` itself returns successfully. `_ComposedTransaction.__enter__` now wraps ambient-scope construction and publication in its own `try`/`except`, rolling back and closing the already-entered real unit of work before re-raising. Confirmed by unit tests `test_context_reset_after_successful_commit`, `test_context_reset_after_operation_failure`, `test_context_reset_after_poisoned_scope`, and (Version 1.1) `test_publication_failure_rolls_back_and_resets_reentrancy_guard`, `test_publication_failure_leaves_no_stale_composed_scope_for_next_call`, and `test_cleanup_rollback_failure_surfaces_with_original_publication_failure_chained`, each of which performs a fresh, independent standalone `unit_of_work()` call immediately afterward to prove no stale scope or leaked reentrancy-guard state survives.
 
 ## 10. Callback Side-Channel Limitation (Disclosed, Not Enforced)
 
@@ -107,13 +123,13 @@ All rows of the frozen Design Section 11 matrix relevant to mechanism-level (not
 
 ## 13. Test Evidence
 
-### 13.1 Unit Tests (`tests/unit/test_m024_composed_unit_of_work.py`, 17 tests, SQLite, no real database)
+### 13.1 Unit Tests (`tests/unit/test_m024_composed_unit_of_work.py`, 22 tests, SQLite, no real database)
 
-Public API (zero/one/multiple operations, ordering, exception propagation), result semantics (no result before/without commit), standalone-unaffected, plain-nesting regression, same-service join, cross-service rejection, nested `run_composed` (same and different service), poisoned-scope (swallowed failure, no further SQL), and ContextVar cleanup on every exit path (success, operation failure, poisoned scope). **17/17 passed.**
+Public API (zero/one/multiple operations, ordering, exception propagation), result semantics (no result before/without commit), standalone-unaffected, plain-nesting regression, same-service join, cross-service rejection, nested `run_composed` (same and different service), poisoned-scope (swallowed failure, no further SQL), ContextVar cleanup on every exit path (success, operation failure, poisoned scope), and (Version 1.1, Section 19) ambient-scope publication-failure cleanup: rollback and reentrancy-guard reset, no operation invoked, no result tuple, no stale scope for the next call, and cleanup-failure precedence when rollback itself also fails. **22/22 passed**, zero `ResourceWarning`s (Section 21).
 
 ### 13.2 Real PostgreSQL Integration Tests (`tests/integration/test_m024_postgres_composed_unit_of_work.py`, 12 tests)
 
-Using the actual, frozen M023 `PostgresCampaignRepository` and `PostgresRunRepository` adapters against a real, migrated, disposable PostgreSQL 16.13 instance:
+Using the actual, frozen M023 `PostgresCampaignRepository` and `PostgresRunRepository` adapters against a real, migrated, disposable PostgreSQL 17.10 Docker Compose instance:
 
 - cross-aggregate atomic commit (Campaign + Run in one composed scope, both durable, visible from a fresh independent connection);
 - cross-aggregate atomic rollback (an operation raising after an earlier operation's insert leaves **no** partial state for either aggregate);
@@ -128,18 +144,19 @@ Using the actual, frozen M023 `PostgresCampaignRepository` and `PostgresRunRepos
 
 ### 13.3 Full Regression
 
-- `tests/unit`, `tests/contract`, `tests/architecture`: **361 passed**, coverage 92.89% (subset run) / 82.13% (full `verify.ps1` run including skipped opt-in suites);
-- `tests/integration/test_m023_postgres_repositories.py` (26 tests) and `tests/integration/test_m022_schema_migration.py` (49 tests), run against the same fresh disposable PostgreSQL instance used for the M024 evidence above, **unmodified**: **75/75 passed**, proving zero regression in any M022/M023 behavior.
+- `tests/unit`, `tests/contract`, `tests/architecture`: **366 passed** (361 + 5 new correction tests), coverage 92.90% (subset run) / see Section 15 for the full `verify.ps1` run including skipped opt-in suites;
+- `tests/integration/test_m023_postgres_repositories.py` (26 tests) and `tests/integration/test_m022_schema_migration.py` (49 tests), run against a fresh disposable PostgreSQL instance, **unmodified**: **75/75 passed**, proving zero regression in any M022/M023 behavior.
 
 ## 14. PostgreSQL Evidence Detail
 
 | Item | Value |
 | --- | --- |
-| PostgreSQL version | 16.13 (Windows build) |
-| Instance | Fresh, disposable, self-generated md5 credentials, port 55521, data directory under the user profile, initialized via `initdb`, started via `pg_ctl`, migrated via `alembic upgrade head`, torn down via `pg_ctl stop -m fast` and directory removal after the run |
+| PostgreSQL version | 17.10 (`postgres:17` Docker image, Debian build) |
+| Instance | Fresh, disposable Docker Compose project `m024corr`, port `55433`, repository `infra/local/compose.yaml` PostgreSQL service only, migrated via `alembic upgrade head`, torn down via `docker compose down -v --remove-orphans` after the run (re-provisioned fresh for this correction) |
 | M024 integration tests | 12/12 passed |
 | M023 integration tests (regression) | 26/26 passed |
 | M022 integration tests (regression) | 49/49 passed |
+| Combined single run (this correction) | 87/87 passed (12 + 26 + 49) |
 | Atomic commit (cross-aggregate) | Proven |
 | Atomic rollback (cross-aggregate) | Proven |
 | Poisoned scope (silent swallow, no further SQL) | Proven — synthetic FoundationError |
@@ -147,6 +164,7 @@ Using the actual, frozen M023 `PostgresCampaignRepository` and `PostgresRunRepos
 | Cross-service rejection before SQL | Proven |
 | Same-identity sequencing / read-your-own-writes | Proven |
 | Cleanup / standalone compatibility | Proven |
+| Ambient-scope publication-failure cleanup (Section 19) | Proven — unit-level, real transaction rollback + connection close + reentrancy-guard reset |
 | Teardown | Clean (`pg_ctl stop -m fast`, data directory removed) |
 
 ## 15. Full Validation Loop
@@ -157,8 +175,8 @@ Using the actual, frozen M023 `PostgresCampaignRepository` and `PostgresRunRepos
 | `python -m compileall -q src tests tools migrations` | PASS |
 | `ruff format --check .` / `ruff check .` | PASS |
 | `mypy` (default config, 79 source files) | PASS, 0 issues |
-| `scripts/security.ps1` | PASS — 0 known vulnerabilities, secret scan target count 252, 0 findings |
-| `scripts/verify.ps1` (fresh, end-to-end) | PASS — `361 passed, 96 skipped`, coverage `82.13%` |
+| `scripts/security.ps1` | PASS — 0 known vulnerabilities, secret scan target count 254, 0 findings |
+| `scripts/verify.ps1` (fresh, end-to-end) | PASS — `366 passed, 96 skipped`, coverage `82.15%` |
 | `tools/check_architecture.py .` | PASS, 0 violations |
 | `python -m build` | PASS |
 | `git diff --check` | PASS |
@@ -172,8 +190,8 @@ Attacked for all 14 failure modes named in the mission's Phase 14, against the a
 3. **Swallowed error still committing** — checked: `_ComposedTransaction.__exit__`'s commit branch requires **both** `exc_type is None` **and** `state is ACTIVE`; a poisoned scope can never reach commit even with no exception in flight. Proven by both SQLite and real-PostgreSQL tests. No defect.
 4. **Poison not propagated** — checked: poisoning fires on any propagating exception out of the operation's own `with` block, regardless of source (translated adapter error or bare `FoundationError`). No defect.
 5. **Cross-service join** — checked: ownership compared by Python identity only; a different service instance is rejected before SQL, proven against real PostgreSQL. No defect.
-6. **Stale ContextVar** — checked: token-based `try/finally` reset covers every exit path, including commit/rollback failure; proven by three dedicated cleanup tests. No defect.
-7. **Cleanup failure** — checked: `_active_composed_scope.reset` is only ever called once per successfully-set token, inside an unconditional `finally`. No realistic failure path found.
+6. **Stale ContextVar** — **originally checked and cleared incorrectly.** The Version 1.0 self-review claimed the `try/finally` reset covered every exit path, but it only covered paths reachable once `_ComposedTransaction.__enter__` had already returned successfully — it did not check whether `__enter__` itself could leave the real unit of work entered (connection open, transaction started, global reentrancy guard set) without ever reaching that `finally` block. It can: a failure between `PostgresUnitOfWork.__enter__()` succeeding and `_active_composed_scope.set(...)` completing is exactly this gap, found by the independent implementation review (`M024-IMPL-REVIEW-0001`, Section 19) and missed by this document's own original hostile self-review. **Corrected** in Version 1.1: `__enter__` now wraps ambient-scope construction and publication in its own `try`/`except`, rolling back and closing the already-entered real unit of work before re-raising. Proven by five new unit tests (Section 13.1).
+7. **Cleanup failure** — checked: when the Section 19 correction's own rollback-on-publication-failure itself fails, that failure surfaces (matching `PostgresUnitOfWork.rollback()`'s existing contract of always completing — closing the connection and resetting the reentrancy guard — even when the underlying rollback raises), with the original publication failure preserved via Python's automatic exception chaining (`__context__`). Proven by `test_cleanup_rollback_failure_surfaces_with_original_publication_failure_chained`. No further defect found.
 8. **Inaccurate typing** — checked: `unit_of_work() -> PersistenceUnitOfWork`; `mypy` confirms both concrete implementations structurally satisfy the Protocol; no consumer depends on a concrete-only attribute. No defect.
 9. **Nested-scope regression** — checked: plain nested `unit_of_work()` outside a composed scope still raises exactly as M023 froze it; the full M022/M023 regression suite passes unmodified. No defect.
 10. **Same-identity conflict error** — checked: sequential add/get/save against the same shared transaction behaves per ordinary transaction-visibility semantics, proven against real PostgreSQL. No defect.
@@ -186,12 +204,64 @@ One issue was found and corrected during this phase, but in the **test suite**, 
 
 No implementation defect was found. Full validation was already fresh (Section 15) at the time this review concluded; no re-run was required.
 
+**This conclusion was itself incomplete** — see Section 19.
+
 ## 17. Deferred Work
 
 Unchanged from the frozen Design's Section 22 and the Design Freeze's Section 6 accepted observations: repository runtime composition (Candidate E), application services (Candidate F), retry-on-conflict policy (Candidate J), an enforced operation-count/timeout cap, and any MILESTONE-025 work all remain out of scope and undone.
 
-## 18. Final Status
+## 19. Correction: Ambient-Scope Publication-Failure Cleanup (`M024-IMPL-REVIEW-0001`)
+
+**Finding.** An independent implementation review of commit `5fd0024` found that `_ComposedTransaction.__enter__` entered the real `PostgresUnitOfWork` (opening a connection, starting a transaction, and setting the module-level `_active_unit_of_work` reentrancy guard) *before* constructing the `_ActiveComposedScope` record and publishing it via `_active_composed_scope.set(...)`. If either of those two steps had raised, `__enter__` itself would raise — and because Python's `with` statement only calls `__exit__` when `__enter__` returns successfully, nothing would ever roll back the already-open transaction, close the connection, or reset `_active_unit_of_work`. Since that guard is a single module-level `ContextVar` shared by every `PostgresPersistenceService` instance in the same thread/task context, this was not a per-call leak: it would permanently lock out *all* persistence work in that context until the process or context ended, since every subsequent `unit_of_work()` call anywhere would hit the stuck guard and raise "Nested persistence units of work are not supported".
+
+**Reproduction.** Confirmed by reading `_ComposedTransaction.__enter__` directly (no try/except existed around scope construction or `_active_composed_scope.set(...)`) and by writing a unit test that monkeypatches the module-level `_active_composed_scope` global to raise on `.set(...)`; against the pre-correction code, this test failed exactly as predicted, and every subsequent test in the same file then failed too, for exactly the reason above (proven by reverting the fix, rerunning, and observing the cascade, then restoring the fix).
+
+**Correction.** `_ComposedTransaction.__enter__` now wraps ambient-scope construction and `ContextVar` publication in a `try`/`except`:
+
+```python
+unit_of_work = PostgresUnitOfWork(self._service)
+unit_of_work.__enter__()
+self._unit_of_work = unit_of_work
+try:
+    scope = _ActiveComposedScope(
+        owner_service=self._service,
+        unit_of_work=unit_of_work,
+        state=_ComposedScopeState.ACTIVE,
+    )
+    self._token = _active_composed_scope.set(scope)
+    self._scope = scope
+except Exception:
+    unit_of_work.rollback()
+    raise
+return self
+```
+
+`unit_of_work.rollback()` reuses the existing, unmodified `PostgresUnitOfWork.rollback()`/`_complete()` contract: it always closes the connection and resets `_active_unit_of_work` via the token-based `_reset_context()`, even if the real database-level rollback itself fails (in which case `rollback()` raises its own translated `FoundationError`, which surfaces in place of the original publication failure with that original preserved via Python's automatic `__context__` chaining — the same precedence this file's `PostgresUnitOfWork.__exit__` already uses elsewhere, so no new precedence rule was invented). If `PostgresUnitOfWork.__enter__` itself fails (the pre-existing case, unaffected by this correction), it is already handled entirely within that method's own try/except, so no `_ComposedTransaction` state exists yet and no cleanup is needed there.
+
+**No public API, design decision, M020 Protocol, or M023 adapter changed.** The fix is confined to a five-line control-flow change inside one private method.
+
+**Tests added** (`tests/unit/test_m024_composed_unit_of_work.py`): `test_publication_failure_rolls_back_and_resets_reentrancy_guard`, `test_publication_failure_never_invokes_any_operation`, `test_publication_failure_returns_no_result_tuple`, `test_publication_failure_leaves_no_stale_composed_scope_for_next_call`, `test_cleanup_rollback_failure_surfaces_with_original_publication_failure_chained`. Each uses a `_RaisingComposedScopeVar` stand-in swapped in for the module-level `_active_composed_scope` global via `monkeypatch.setattr` (a real `contextvars.ContextVar.set` cannot be monkeypatched directly — it is a read-only C-level attribute — so the whole module global is swapped instead), proving: the real transaction rolls back and never commits; the connection closes; `_active_unit_of_work` resets; a subsequent standalone `service.unit_of_work()` succeeds; no operation callback ever executes; no result tuple is ever returned; the original publication failure propagates when cleanup itself succeeds; and the cleanup failure (with the original chained via `__context__`) propagates when cleanup itself also fails.
+
+A real-PostgreSQL regression for this exact failure mode was considered and rejected: forcing a `ContextVar.set` or dataclass-construction failure against a real instance would require the same global-monkeypatching technique used at the unit level, with no additional real-database behavior to observe (the fix never touches SQL) — so unit-level proof plus the unchanged, still-passing 12-test real-PostgreSQL suite (Section 14) is the evidence basis for this correction, per this mission's own Phase 4 allowance.
+
+## 20. Correction: Post-Commit Governance Truth
+
+`PROJECT_CHECKPOINT.md` and the `external-review/M024_MULTI_AGGREGATE_UNIT_OF_WORK_IMPLEMENTATION/` package's `repository-truth.txt` and `review-instructions.md` were all authored and packaged *before* implementation commit `5fd0024` existed, and described the implementation as uncommitted working-tree state with an expected HEAD of `ed0a4198...` (the design-freeze commit). They were never updated after the commit landed, so both became factually stale the moment `5fd0024` was created — mirroring, and repeating, the exact self-reference staleness pattern already found and root-caused during the M023 lifecycle. `PROJECT_CHECKPOINT.md` is corrected in this same correction (Section 2's `CHECKPOINT_CONTENT_BASELINE_*` fields and Section 5.4 updated to cite `5fd0024` as the current implementation commit with status `COMMITTED_LOCALLY_REQUIRES_NARROW_CORRECTION`); the external review package is fully regenerated against the two-commit lineage (`ed0a4198...`..`HEAD`) as part of this correction's own packaging step, not left describing the prior, now-inaccurate state.
+
+## 21. ResourceWarning Disposition (Non-Blocking Observation)
+
+19 `ResourceWarning: unclosed database in <sqlite3.Connection...>` warnings were traced to the `service` fixture (and two inline `other_service` instances) in `tests/unit/test_m024_composed_unit_of_work.py` never calling `.close()`. Each test's SQLite engine uses `StaticPool` (a single shared underlying `sqlite3.Connection` for the whole engine); without an explicit `service.close()` (which disposes the pool), that connection is only closed on eventual garbage collection, which Python's `sqlite3` module reports as a `ResourceWarning`. `tests/unit/test_postgres_persistence.py` already established the correct convention of calling `.close()` explicitly. **Corrected narrowly**, entirely inside the test file: the `service` fixture is now a generator fixture with a `finally: svc.close()` teardown, and the two inline `other_service` instances are now wrapped in `try/finally: other_service.close()`. Confirmed eliminated by running the full file with `-W error::ResourceWarning`: 22/22 tests pass with zero warnings (previously 17/17 passed with 19 warnings). No production code was touched.
+
+## 22. Implementation Review Issue Register
+
+| Issue ID | Severity | Source | Status | Resolution |
+| --- | --- | --- | --- | --- |
+| M024-IMPL-REVIEW-0001 | MAJOR | Independent hostile implementation review of commit `5fd00247bdb25b01a4f5de831b5b9baa483af6a5` | RESOLVED IN NARROW CORRECTION | `_ComposedTransaction.__enter__` now rolls back and closes the already-entered real `PostgresUnitOfWork` if ambient composed-scope construction or `ContextVar` publication fails; five targeted unit tests prove cleanup, no operation execution, no result tuple, no stale scope, and cleanup-failure precedence. |
+| M024-IMPL-REVIEW-0002 | MAJOR | Independent hostile implementation review of commit `5fd00247bdb25b01a4f5de831b5b9baa483af6a5` | RESOLVED IN NARROW CORRECTION / PACKAGE REGENERATION | `PROJECT_CHECKPOINT.md` now uses checkpoint-content-baseline semantics for implementation commit `5fd00247bdb25b01a4f5de831b5b9baa483af6a5` and correctly states the active correction is uncommitted until the correction commit exists; the external-review package is regenerated after this correction commit from the committed two-commit lineage, with live Git truth captured in `repository-truth.txt`. |
+| M024-IMPL-REVIEW-0003 | OBSERVATION | Independent hostile implementation review of commit `5fd00247bdb25b01a4f5de831b5b9baa483af6a5` | RESOLVED IN NARROW CORRECTION | SQLite `StaticPool` test services are now explicitly closed in fixture teardown and inline `other_service` cleanup; `tests/unit/test_m024_composed_unit_of_work.py` passes with `-W error::ResourceWarning`. |
+
+## 23. Final Status
 
 ```text
-M024 MULTI-AGGREGATE UNIT OF WORK IMPLEMENTATION COMPLETE — READY FOR INDEPENDENT REVIEW / NOT APPROVED / NOT FROZEN / M025 NOT STARTED
+M024 MULTI-AGGREGATE UNIT OF WORK IMPLEMENTATION COMPLETE — READY FOR INDEPENDENT RE-REVIEW / NOT APPROVED / NOT FROZEN / M025 NOT STARTED
 ```

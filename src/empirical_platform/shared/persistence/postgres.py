@@ -238,12 +238,24 @@ class _ComposedTransaction:
         unit_of_work = PostgresUnitOfWork(self._service)
         unit_of_work.__enter__()
         self._unit_of_work = unit_of_work
-        self._scope = _ActiveComposedScope(
-            owner_service=self._service,
-            unit_of_work=unit_of_work,
-            state=_ComposedScopeState.ACTIVE,
-        )
-        self._token = _active_composed_scope.set(self._scope)
+        try:
+            scope = _ActiveComposedScope(
+                owner_service=self._service,
+                unit_of_work=unit_of_work,
+                state=_ComposedScopeState.ACTIVE,
+            )
+            self._token = _active_composed_scope.set(scope)
+            self._scope = scope
+        except Exception:
+            # The real unit of work already entered (connection open,
+            # transaction started, `_active_unit_of_work` set) before this
+            # point, but the ambient scope was never published -- nothing
+            # will ever call `__exit__` to clean it up, since `with` only
+            # invokes `__exit__` when `__enter__` returns successfully.
+            # Roll back and close here so no connection/transaction leaks
+            # and the global reentrancy guard is reset for the next caller.
+            unit_of_work.rollback()
+            raise
         return self
 
     def __exit__(self, exc_type: object, exc: object, traceback: object) -> Literal[False]:
