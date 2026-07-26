@@ -9,7 +9,7 @@ from pathlib import Path
 PACKAGE = "empirical_platform"
 
 ALLOWED: dict[str, set[str]] = {
-    "shared": set(),
+    "shared": {"campaign", "run", "evidence", "review", "identifiers"},
     "identifiers": {"shared"},
     "registry": {"shared", "identifiers"},
     "governance": {"shared", "identifiers", "registry"},

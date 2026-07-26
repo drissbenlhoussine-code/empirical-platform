@@ -31,3 +31,4 @@ def test_negative_fixture_detects_illegal_import() -> None:
         "run may not import empirical_platform.shared.persistence" in violation
         for violation in violations
     )
+    assert any("shared may not import audit" in violation for violation in violations)
