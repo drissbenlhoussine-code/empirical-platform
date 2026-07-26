@@ -6,8 +6,8 @@
 | --- | --- |
 | Document ID | MILESTONE-022 |
 | Title | PostgreSQL Schema and Migration Design |
-| Version | 1.0 |
-| Status | DESIGN READY FOR INDEPENDENT REVIEW |
+| Version | 1.1 |
+| Status | DESIGN CORRECTED - PENDING INDEPENDENT RE-REVIEW |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Design baseline | `fdb180a2b21776cf37fe36826741a54ef7b43ad4` |
 | Scope authority | `MILESTONE_022_POSTGRESQL_SCHEMA_AND_MIGRATION_DESIGN_SCOPE_SELECTION.md` |
@@ -15,6 +15,13 @@
 | Migration files created | No |
 | SQL/DDL written or executed | No |
 | Repositories, mappers, Unit of Work implemented | No |
+
+### 1.1 Revision History
+
+| Version | Status | Summary |
+| --- | --- | --- |
+| 1.0 | DESIGN READY FOR INDEPENDENT REVIEW | Initial M022 schema and migration design. |
+| 1.1 | DESIGN CORRECTED - PENDING INDEPENDENT RE-REVIEW | Narrow correction pass: deterministic artifact-reference ordering (Section 12.2), frozen numeric CHECK constraints (Section 12.3), frozen lifecycle/disposition CHECK constraints (Section 12.4), deterministic naming/creation/downgrade order (Section 12.5), and a table-count documentation fix (Section 13). No architecture, ordering, or scope change; no new table introduced. |
 
 ## 2. Baseline
 
@@ -122,11 +129,11 @@ Option A is selected because it keeps every frozen durable-record field individu
 | `evidence_package_criterion_result` | `summary` | TEXT | NULL | `criterion_results[].summary` |
 | `evidence_package_criterion_result` | `evidence_references` | TEXT[] | NOT NULL, default `{}` | `criterion_results[].evidence_references` |
 | `evidence_package_artifact_reference` | `evidence_package_runtime_id` | UUID | PK part, FK -> `evidence_package.runtime_id` | (parent) |
-| `evidence_package_artifact_reference` | `value` | TEXT | PK part | `artifact_references[]` |
-| `evidence_package_artifact_reference` | `position` | INTEGER | NOT NULL | (ordinal index, not part of the key — see Section 12) |
+| `evidence_package_artifact_reference` | `position` | INTEGER | PK part | (ordinal index; `artifact_references` has no frozen sequence field) |
+| `evidence_package_artifact_reference` | `value` | TEXT | NOT NULL, UNIQUE per parent | `artifact_references[]` |
 | `evidence_package_transition` | (same shape as `campaign_transition`, keyed by `evidence_package_runtime_id`) | | | `transition_history[]` |
 
-`evidence_package_criterion_result` primary key: `(evidence_package_runtime_id, position)`, plus `UNIQUE (evidence_package_runtime_id, criterion_id)`, mirroring the frozen M019 rule that `criterion_id` is always present (unlike `manifest_id`) and always unique per package — no partial index needed. `evidence_package_artifact_reference` primary key: `(evidence_package_runtime_id, value)`, directly mirroring the frozen M019 "duplicate exact artifact value rejected" rule as a structural key rather than a separate constraint.
+`evidence_package_criterion_result` primary key: `(evidence_package_runtime_id, position)`, plus `UNIQUE (evidence_package_runtime_id, criterion_id)`, mirroring the frozen M019 rule that `criterion_id` is always present (unlike `manifest_id`) and always unique per package — no partial index needed. `evidence_package_artifact_reference` primary key: `(evidence_package_runtime_id, position)` (Version 1.1 correction — see Section 12.2), plus `UNIQUE (evidence_package_runtime_id, value)`, directly mirroring the frozen M019 "duplicate exact artifact value rejected" rule as a structural constraint.
 
 ## 10. Review Schema
 
@@ -160,7 +167,6 @@ This design does not eliminate the redundant columns (Design Principle 6): "alwa
 ## 12. Deliberate Simplifications (Disclosed)
 
 - `TEXT[]` array columns for `notes`, `evidence_references` (both occurrences): a full normalization into per-element child tables was considered (Option C, Section 5) and rejected as disproportionate for flat, orderless-enough, no-further-structure string lists. This is a narrower, explicitly bounded simplification, not a general license to collapse structured data into arrays elsewhere in this design.
-- `evidence_package_artifact_reference.position`: kept as a plain column, not part of the primary key, because the primary key is already the natural, domain-meaningful `(evidence_package_runtime_id, value)` pair (mirroring the uniqueness rule directly); `position` exists solely to let a future query `ORDER BY position` recover original insertion order without relying on physical storage order, which PostgreSQL does not guarantee.
 
 ## 12.1 SQLAlchemy Core Versus Raw DDL (Deferred, Bounded)
 
@@ -173,6 +179,115 @@ The scope selection named this a required comparison. Evaluated:
 
 This design prefers SQLAlchemy Core `Table`/`MetaData` for the eventual migration, consistent with Design Principle 1's "no ORM" boundary (Core is not the ORM layer) and the existing adapter's established style. The exact Python code is not written by this design (Section 20); a future implementation milestone must use Core, not raw DDL strings, unless it discovers a concrete blocker this design did not anticipate, in which case that becomes a documented deviation, not a silent one.
 
+## 12.2 Correction: Deterministic Artifact-Reference Ordering
+
+Version 1.0 keyed `evidence_package_artifact_reference` by `(evidence_package_runtime_id, value)` and left `position` as a plain, unconstrained column "to let a future query `ORDER BY position` recover original insertion order." That left `position` with no uniqueness guarantee at all: nothing in the Version 1.0 schema prevented two rows for the same parent from sharing the same `position`, which makes `ORDER BY position` non-deterministic whenever that happens (row order among duplicates is otherwise unspecified by PostgreSQL).
+
+**Canonical correction, one solution, no alternative retained:** `evidence_package_artifact_reference`'s primary key is now `(evidence_package_runtime_id, position)`, exactly matching the composite-key pattern already used by every other position-ordered child table in this design (`run_manifest`, `evidence_package_criterion_result`). This makes `position` uniqueness — and therefore deterministic ordering — a database-enforced guarantee, not a convention. Value-uniqueness (the frozen M019 "duplicate exact artifact value rejected" rule) is now expressed as a separate `UNIQUE (evidence_package_runtime_id, value)` constraint rather than as the primary key. Both guarantees hold simultaneously; neither depends on the other. Section 9 and Section 22 (hostile self-review) are updated to reflect this as the single, canonical shape — no alternative construction is offered anywhere in this document.
+
+## 12.3 Correction: Frozen Numeric Primitive CHECK Constraints
+
+Every numeric primitive this schema stores is frozen by M019-M021 with an explicit lower bound (verified directly against `AggregateVersion`, `TransitionSequence`, and `ReviewFinding` in live source, Section 2), except the schema-introduced ordinal `position` columns, which are this design's own construct and receive an explicit, chosen floor here rather than being left open. Every CHECK constraint below is mandatory on every table/column listed; no table in Sections 7-10 is exempt.
+
+| Column(s) | Applies to | Frozen source | Constraint |
+| --- | --- | --- | --- |
+| `version` | `campaign`, `run`, `evidence_package`, `review` | `AggregateVersion.value` (`__post_init__`: `if self.value < 0: raise ValueError`) | `CHECK (version >= 0)` |
+| `next_transition_sequence` | `campaign`, `run`, `evidence_package`, `review` | `TransitionSequence.value` (`__post_init__`: `if self.value < 1: raise ValueError`) | `CHECK (next_transition_sequence >= 1)` |
+| `sequence` | `campaign_transition`, `run_transition`, `evidence_package_transition`, `review_transition` | `StateTransitionRecord.sequence: TransitionSequence`, same frozen floor | `CHECK (sequence >= 1)` |
+| `version` | `campaign_transition`, `run_transition`, `evidence_package_transition`, `review_transition` | `StateTransitionRecord.version: AggregateVersion`, same frozen floor | `CHECK (version >= 0)` |
+| `sequence` | `review_finding` | `ReviewFinding.sequence` (`__post_init__`: `if self.sequence < 1: raise ValueError("finding sequence must be positive")`) | `CHECK (sequence >= 1)` |
+| `position` | `run_manifest`, `evidence_package_criterion_result`, `evidence_package_artifact_reference` | Not a frozen domain primitive — a schema-only ordinal introduced by this design (Design Principle 3). Chosen floor: 0-indexed, matching the natural Python `enumerate()`-style indexing already used when mapper code iterates a frozen tuple. | `CHECK (position >= 0)` |
+
+No other numeric primitive is frozen by M019, M020, or M021 as of this design's baseline (verified against every `*ReconstructionState`, durable-record, and nested value-object field enumerated in Sections 7-10; none introduces a numeric field beyond those listed above).
+
+## 12.4 Correction: Frozen Lifecycle and Disposition CHECK Constraints
+
+Every enum-backed column is constrained to exactly the frozen member set of its source `StrEnum`, verified directly against live source (Section 2) immediately before this correction — no value is invented, none is omitted.
+
+| Enum | Frozen members (exact, verified live) | Source |
+| --- | --- | --- |
+| `CampaignLifecycleState` | `DRAFT`, `READY_FOR_AUTHORIZATION`, `AUTHORIZED`, `ACTIVE`, `SUSPENDED`, `COMPLETED`, `CANCELLED` | `empirical_platform.campaign.lifecycle` |
+| `RunLifecycleState` | `CREATED`, `AUTHORIZED`, `ACQUIRING`, `NORMALIZING`, `VALIDATING`, `EXECUTION_COMPLETED`, `FAILED`, `CANCELLED` | `empirical_platform.campaign.lifecycle` |
+| `EvidencePackageLifecycleState` | `INITIALIZED`, `COLLECTING`, `SEALED`, `INVALIDATED` | `empirical_platform.evidence.lifecycle` |
+| `ReviewLifecycleState` | `ASSIGNED`, `IN_PROGRESS`, `COMPLETED`, `CANCELLED` | `empirical_platform.review.lifecycle` |
+| `ReviewDisposition` | `ACCEPTED`, `REJECTED`, `CHANGES_REQUESTED`, `INCONCLUSIVE` | `empirical_platform.review.lifecycle` |
+
+Applied constraints, one per column, `from_state` additionally permitting `NULL` (the first transition in any history always has `from_state IS NULL`, per M019's frozen reconstruction rule):
+
+| Table | Column | Constraint |
+| --- | --- | --- |
+| `campaign` | `lifecycle_state` | `CHECK (lifecycle_state IN ('DRAFT','READY_FOR_AUTHORIZATION','AUTHORIZED','ACTIVE','SUSPENDED','COMPLETED','CANCELLED'))` |
+| `campaign_transition` | `from_state` | `CHECK (from_state IS NULL OR from_state IN ('DRAFT','READY_FOR_AUTHORIZATION','AUTHORIZED','ACTIVE','SUSPENDED','COMPLETED','CANCELLED'))` |
+| `campaign_transition` | `to_state` | `CHECK (to_state IN ('DRAFT','READY_FOR_AUTHORIZATION','AUTHORIZED','ACTIVE','SUSPENDED','COMPLETED','CANCELLED'))` |
+| `run` | `lifecycle_state` | `CHECK (lifecycle_state IN ('CREATED','AUTHORIZED','ACQUIRING','NORMALIZING','VALIDATING','EXECUTION_COMPLETED','FAILED','CANCELLED'))` |
+| `run_transition` | `from_state` | `CHECK (from_state IS NULL OR from_state IN ('CREATED','AUTHORIZED','ACQUIRING','NORMALIZING','VALIDATING','EXECUTION_COMPLETED','FAILED','CANCELLED'))` |
+| `run_transition` | `to_state` | `CHECK (to_state IN ('CREATED','AUTHORIZED','ACQUIRING','NORMALIZING','VALIDATING','EXECUTION_COMPLETED','FAILED','CANCELLED'))` |
+| `evidence_package` | `lifecycle_state` | `CHECK (lifecycle_state IN ('INITIALIZED','COLLECTING','SEALED','INVALIDATED'))` |
+| `evidence_package_transition` | `from_state` | `CHECK (from_state IS NULL OR from_state IN ('INITIALIZED','COLLECTING','SEALED','INVALIDATED'))` |
+| `evidence_package_transition` | `to_state` | `CHECK (to_state IN ('INITIALIZED','COLLECTING','SEALED','INVALIDATED'))` |
+| `review` | `lifecycle_state` | `CHECK (lifecycle_state IN ('ASSIGNED','IN_PROGRESS','COMPLETED','CANCELLED'))` |
+| `review` | `disposition` | `CHECK (disposition IS NULL OR disposition IN ('ACCEPTED','REJECTED','CHANGES_REQUESTED','INCONCLUSIVE'))` |
+| `review_transition` | `from_state` | `CHECK (from_state IS NULL OR from_state IN ('ASSIGNED','IN_PROGRESS','COMPLETED','CANCELLED'))` |
+| `review_transition` | `to_state` | `CHECK (to_state IN ('ASSIGNED','IN_PROGRESS','COMPLETED','CANCELLED'))` |
+
+This remains structural, not business-rule, enforcement (Design Principle 2 is not weakened by this correction): each constraint only rejects a string that matches *no* frozen enum member. It does not encode which *transitions between* states are legal (that remains `_validate_transition_history`'s sole authority, per M019), and it does not encode cross-field rules like "`disposition` requires `lifecycle_state = 'COMPLETED'`" (also left to reconstruction). Note `RunLifecycleState` is defined inside `empirical_platform.campaign.lifecycle`, not a separate `run.lifecycle` module — verified directly, not assumed, by reading that module's live source; `empirical_platform.run.aggregate` itself imports `RunLifecycleState` from `campaign.lifecycle`.
+
+## 12.5 Correction: Deterministic Naming, Object Creation Order, and Downgrade Order
+
+**Naming convention.** This design freezes the standard SQLAlchemy-recommended `naming_convention` (directly compatible with Alembic's autogenerate and downgrade tooling, and enforceable by attaching it to the `MetaData` object a future implementation constructs):
+
+```text
+pk: "pk_%(table_name)s"
+fk: "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s"
+uq: "uq_%(table_name)s_%(column_0_name)s"
+ck: "ck_%(table_name)s_%(constraint_name)s"
+ix: "ix_%(column_0_label)s"
+```
+
+Every `CHECK` constraint in Sections 12.3-12.4 must be given an explicit short `constraint_name` by the future implementation (SQLAlchemy cannot derive one automatically, unlike PK/FK/UNIQUE/INDEX, whose names are fully determined by table and column names alone under this convention). The short name is `<column_name>_<qualifier>`, where `<qualifier>` is chosen by this exhaustive, non-discretionary rule — no other qualifier is permitted:
+
+- a numeric column whose CHECK floor (Section 12.3) is `>= 0` takes the qualifier `non_negative` (`version`, `position`);
+- a numeric column whose CHECK floor (Section 12.3) is `>= 1` takes the qualifier `positive` (`next_transition_sequence`, `sequence`);
+- an enum-membership column (Section 12.4) takes the qualifier `valid` (`lifecycle_state`, `from_state`, `to_state`, `disposition`).
+
+Combined with the `ck_%(table_name)s_%(constraint_name)s` pattern above, this deterministically names every one of the twenty numeric and thirteen enum-membership `CHECK` constraints frozen by Sections 12.3-12.4 (for example: `ck_campaign_version_non_negative`, `ck_run_manifest_position_non_negative`, `ck_review_finding_sequence_positive`, `ck_review_disposition_valid`); no two constraints across all twelve tables collide, because `(table_name, column_name)` is already unique per constraint.
+
+**Object creation order** (upgrade), strictly parents before children, matching Section 6's frozen FK direction (`campaign` -> `run` -> `evidence_package` -> `review`) and each parent before its own child tables:
+
+```text
+1. campaign
+2. campaign_transition
+3. run
+4. run_manifest
+5. run_transition
+6. evidence_package
+7. evidence_package_criterion_result
+8. evidence_package_artifact_reference
+9. evidence_package_transition
+10. review
+11. review_finding
+12. review_transition
+```
+
+**Downgrade order** is the exact reverse of creation order (children before parents, so every `DROP TABLE` executes before any table it references by foreign key is dropped, with no reliance on `CASCADE`):
+
+```text
+12. review_transition
+11. review_finding
+10. review
+9. evidence_package_transition
+8. evidence_package_artifact_reference
+7. evidence_package_criterion_result
+6. evidence_package
+5. run_transition
+4. run_manifest
+3. run
+2. campaign_transition
+1. campaign
+```
+
+This resolves what would otherwise be ambiguous: without a frozen order, two independently written implementations of the single revision (Section 13) could create or drop tables in different, individually-valid-looking sequences, one of which might work today by accident of FK direction and one of which might not once any table gains an additional cross-reference. Freezing the order removes that ambiguity entirely.
+
 ## 13. Migration Revision Strategy
 
 Options evaluated:
@@ -183,7 +298,7 @@ Options evaluated:
 | One revision per aggregate (four revisions) | Smaller individual diffs | Introduces an artificial partial-schema state between revisions (e.g. `run` referencing `campaign` before `campaign` exists in a piecemeal apply) that never corresponds to any real, reviewed milestone state | Rejected |
 | One revision per table (many revisions) | Maximally granular | Excessive churn for a bootstrap; no evidence any table needs independent rollback from its siblings | Rejected |
 
-Selected: a single Alembic revision creating all eleven tables (`campaign`, `campaign_transition`, `run`, `run_manifest`, `run_transition`, `evidence_package`, `evidence_package_criterion_result`, `evidence_package_artifact_reference`, `evidence_package_transition`, `review`, `review_finding`, `review_transition`) together, in dependency order (parents before children, `campaign` before `run` before `evidence_package` before `review`, matching the frozen context-reference direction). This design does not write that revision; a future implementation milestone does.
+Selected: a single Alembic revision creating all twelve tables (`campaign`, `campaign_transition`, `run`, `run_manifest`, `run_transition`, `evidence_package`, `evidence_package_criterion_result`, `evidence_package_artifact_reference`, `evidence_package_transition`, `review`, `review_finding`, `review_transition`) together, in the exact object creation order frozen by Section 12.5. This design does not write that revision; a future implementation milestone does.
 
 ## 14. Reconstruction and Mapper Integration
 
@@ -191,7 +306,7 @@ This design does not alter the frozen M021 mapper contract or M019 reconstructio
 
 ## 15. Test Strategy (for a future Implementation milestone)
 
-Defined here, not implemented: migration apply/rollback correctness (`alembic upgrade head` / `alembic downgrade base` both succeed against a disposable database); every structural constraint in Sections 7-10 is exercised (primary key violations, foreign key violations, the partial-unique `manifest_id` rule, the `criterion_id`/`artifact_reference` uniqueness rules); column-type round-trip fidelity against real M021 durable-record values, including `TEXT[]` arrays and `TIMESTAMPTZ` timezone handling.
+Defined here, not implemented: migration apply/rollback correctness (`alembic upgrade head` / `alembic downgrade base` both succeed, in the exact object order frozen by Section 12.5, against a disposable database); every structural constraint in Sections 7-10 and 12.3-12.4 is exercised (primary key violations, foreign key violations, the partial-unique `manifest_id` rule, the `criterion_id`/`artifact_reference` uniqueness rules, every numeric CHECK constraint's boundary value, every lifecycle/disposition CHECK constraint's full valid-member set plus at least one rejected invalid string per column); column-type round-trip fidelity against real M021 durable-record values, including `TEXT[]` arrays and `TIMESTAMPTZ` timezone handling.
 
 ## 16. Architecture Enforcement
 
@@ -245,28 +360,39 @@ Deferred after MILESTONE-022:
 | M022-DESIGN-ISSUE-0005 | MINOR | 5, 12 | Considered fully normalizing `notes`/`evidence_references` into child tables for consistency with every other collection. | Would add three more child tables for data with no further structure than a flat string list, disproportionate to the benefit. | Selected `TEXT[]` for these specific fields only, explicitly bounded and disclosed rather than applied as a general pattern. | Resolved |
 | M022-DESIGN-ISSUE-0006 | MINOR | 13 | Considered one migration revision per aggregate for smaller review diffs. | Would create real intermediate database states (e.g. `run` FK-referencing a not-yet-existing `campaign`) that never correspond to a reviewed milestone state. | Selected one revision for all four aggregates together, matching the "all four aggregates together" discipline already used for every prior contract milestone. | Resolved |
 
-All CRITICAL and MAJOR issues recorded in this self-review have proposed resolutions. Independent verification remains pending.
+Independent (Codex) review of Version 1.0 found the following, corrected in Version 1.1:
+
+| M022-DESIGN-ISSUE-0007 | MAJOR | 9, 12 (now 12.2) | `evidence_package_artifact_reference.position` had no uniqueness constraint; two rows for the same parent could share a `position`, making `ORDER BY position` non-deterministic. | Would make retrieval order of artifact references unreliable, contradicting the tuple-ordered nature of `EvidencePackageDurableRecord.artifact_references`. | Made `(evidence_package_runtime_id, position)` the primary key; moved value-uniqueness to a separate `UNIQUE (evidence_package_runtime_id, value)` constraint. One canonical shape, no alternative offered. | Resolved |
+| M022-DESIGN-ISSUE-0008 | MAJOR | 7-10 | No numeric CHECK constraints were frozen for `version`, `next_transition_sequence`, `sequence` (transitions and findings), despite each having a frozen non-negative or positive floor in live source. | A future implementation could persist a negative version or zero/negative sequence, silently contradicting M019-M021's own frozen invariants at the one layer (the database) actually capable of rejecting it structurally. | Added Section 12.3, freezing one `CHECK` constraint per numeric column, verified directly against `AggregateVersion.__post_init__`, `TransitionSequence.__post_init__`, and `ReviewFinding.__post_init__`. | Resolved |
+| M022-DESIGN-ISSUE-0009 | MAJOR | 7-10 | No CHECK constraints were frozen for `lifecycle_state`, `from_state`, `to_state`, or `disposition`, despite each being backed by a frozen, closed `StrEnum`. | A future implementation could persist an arbitrary string into a state column, silently escaping the frozen enum's closed membership. | Added Section 12.4, freezing one `CHECK ... IN (...)` constraint per column, using the exact member lists read directly from each frozen `StrEnum` at correction time — no member invented, none omitted. | Resolved |
+| M022-DESIGN-ISSUE-0010 | MINOR | 6, 13 | No naming convention, object creation order, or downgrade order was frozen, leaving two independently written implementations of the single revision (Section 13) free to diverge. | Ambiguity in creation/downgrade order risks an implementation that works by FK-direction accident today but breaks once any table gains an additional cross-reference; ambiguous constraint naming risks unreviewable Alembic autogenerate diffs. | Added Section 12.5: the standard SQLAlchemy `naming_convention`, an explicit `CHECK`-constraint short-name pattern, and a fully enumerated, twelve-table creation order plus its exact reverse as downgrade order. | Resolved |
+| M022-DESIGN-ISSUE-0011 | MINOR | 13 | Section 13 stated "all eleven tables" while enumerating twelve. | Miscounted table inventory in the document a reader would use to verify completeness. | Corrected to "twelve tables"; re-counted directly against Sections 7-10's table listings rather than re-typing the number by hand. | Resolved |
+
+All CRITICAL and MAJOR issues recorded in this self-review, including the independent-review-sourced findings above, have proposed resolutions. Independent re-verification of Version 1.1 remains pending.
 
 ## 23. Implementation Acceptance Gate (for a future Implementation milestone, not satisfied by this design)
 
 A future MILESTONE-022 implementation must demonstrate, before it may be considered for freeze:
 
-- the single Alembic revision (Section 13) applies and rolls back cleanly against a disposable PostgreSQL database;
-- every table/column/constraint in Sections 7-10 exists exactly as specified, with no invented column;
-- the partial-unique `manifest_id` index and the `criterion_id`/`artifact_reference` uniqueness constraints are exercised by tests and behave as specified;
+- the single Alembic revision (Section 13) applies and rolls back cleanly, in the exact object order frozen by Section 12.5, against a disposable PostgreSQL database;
+- every table/column/constraint in Sections 7-10 and 12.3-12.4 exists exactly as specified, with no invented column and no invented enum member;
+- the partial-unique `manifest_id` index and the `criterion_id`/`artifact_reference`/`position` uniqueness constraints are exercised by tests and behave as specified;
+- every CHECK constraint carries the exact name the Section 12.5 naming convention produces;
 - no business-rule (non-structural) constraint was added beyond what this design specifies;
 - no frozen M019, M020, or M021 file is modified.
 
 ## 24. Final Decision
 
-MILESTONE-022 selects a one-table-per-aggregate-root-plus-child-tables-per-owned-collection relational design for Campaign, Run, EvidencePackage, and Review, keyed by `runtime_id` with a separately unique `governance_id`, with structural-only constraints and a single, all-four-aggregates-together migration revision strategy.
+MILESTONE-022 selects a one-table-per-aggregate-root-plus-child-tables-per-owned-collection relational design for Campaign, Run, EvidencePackage, and Review, keyed by `runtime_id` with a separately unique `governance_id`, with structural-only constraints (now including frozen numeric and enum-membership CHECK constraints, Sections 12.3-12.4), deterministic ordering and naming (Sections 12.2, 12.5), and a single, all-four-aggregates-together migration revision strategy in a fully specified creation/downgrade order.
 
-This document does not mark MILESTONE-022 approved, frozen, or implemented. It requires independent review, then (if approved) a separate implementation milestone following the same design-then-implementation-then-freeze discipline used for MILESTONE-019, MILESTONE-020, and MILESTONE-021.
+Version 1.1 corrects five findings from independent review: non-deterministic artifact-reference ordering, missing numeric CHECK constraints, missing lifecycle/disposition CHECK constraints, unspecified naming/creation/downgrade order, and an incorrect table count. No architecture, milestone ordering, or scope change was made; no table was added or removed; no implementation was performed.
+
+This document does not mark MILESTONE-022 approved, frozen, or implemented. It requires independent re-review, then (if approved) a separate implementation milestone following the same design-then-implementation-then-freeze discipline used for MILESTONE-019, MILESTONE-020, and MILESTONE-021.
 
 Final status:
 
 ```text
-DESIGN READY FOR INDEPENDENT REVIEW
+DESIGN CORRECTED - PENDING INDEPENDENT RE-REVIEW
 
 NOT APPROVED
 NOT FROZEN
