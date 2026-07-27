@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad` (`chore: freeze MILESTONE-025 repository runtime composition design`, pushed) |
-| Checkpoint content baseline origin/master | `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad` (identical — the M025 design freeze lineage has been pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `907eb9c0f6ca04f0b5c660c8bcf1da09e3deeb9b` (`feat: implement M025 repository runtime composition`, not pushed) |
+| Checkpoint content baseline origin/master | `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad` (one commit behind local — the M025 implementation commit has not been pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -20,9 +20,9 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ```text
 LATEST_FROZEN_MILESTONE=MILESTONE-024
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad
+CHECKPOINT_CONTENT_BASELINE_HEAD=907eb9c0f6ca04f0b5c660c8bcf1da09e3deeb9b
 CHECKPOINT_CONTENT_BASELINE_ORIGIN=fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M025_DESIGN_FREEZE
+CHECKPOINT_CONTENT_BASELINE_STATUS=AHEAD_OF_ORIGIN_BY_ONE_IMPLEMENTATION_COMMIT_NOT_PUSHED
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -65,7 +65,12 @@ M025_SCOPE=Repository Runtime Composition
 M025_DESIGN_COMMIT=e9db9292982f3795cc51c29de290af2e34e1b33b
 M025_DESIGN_CORRECTION_COMMIT=ec6e8db23dddf20ae8ab2efec17908dc61a69be4
 M025_DESIGN_FREEZE_COMMIT=fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad
-M025_STATUS=DESIGN_APPROVED_AND_FROZEN;IMPLEMENTATION_COMPLETE_NOT_YET_COMMITTED;NOT_APPROVED;NOT_FROZEN
+M025_DESIGN_STATUS=APPROVED_AND_FROZEN
+M025_IMPLEMENTATION_COMMIT=907eb9c0f6ca04f0b5c660c8bcf1da09e3deeb9b
+M025_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
+M025_IMPLEMENTATION_APPROVAL=NOT_APPROVED
+M025_IMPLEMENTATION_FREEZE=NOT_FROZEN
+M026_STATUS=NOT_STARTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -80,7 +85,7 @@ M023 froze concrete PostgreSQL mappers and repository adapters implementing M020
 
 M024 froze the low-level multi-aggregate persistence Unit of Work primitive, exposed only as `PostgresPersistenceService.run_composed(operations)`, allowing multiple repository operations that share one `PostgresPersistenceService` to commit or roll back atomically without changing repository Protocols or concrete repository adapter source files.
 
-M025's design (`PostgresRepositoryRuntime`, composing the four M023 repository adapters over one shared `PostgresPersistenceService` and delegating to the frozen M024 primitive) is APPROVED AND FROZEN. Its implementation is complete but not yet committed to Git at the time this checkpoint content was authored.
+M025's design (`PostgresRepositoryRuntime`, composing the four M023 repository adapters over one shared `PostgresPersistenceService` and delegating to the frozen M024 primitive) is APPROVED AND FROZEN. Its implementation is complete and committed locally at commit `907eb9c0f6ca04f0b5c660c8bcf1da09e3deeb9b`, not pushed, pending independent review and a separate approval/freeze decision.
 
 ## 4. MILESTONE-024 Closure Evidence
 
@@ -115,13 +120,13 @@ An independent hostile review of the Version 1.0 design returned "M025 DESIGN RE
 
 M025 does not implement source code, change schemas, modify migrations, add APIs, add workers, create application services, create retry policy, execute campaigns, or freeze itself — by the design freeze alone. Implementation was separately authorized by the same Owner decision and is complete (Section 6).
 
-## 6. MILESTONE-025 Implementation Checkpoint (uncommitted at authoring time)
+## 6. MILESTONE-025 Implementation Checkpoint (committed locally, not pushed)
 
 Implemented exactly as frozen: `PostgresRepositoryRuntime` at `src/empirical_platform/shared/persistence/postgres_repositories/runtime.py`, composing the four M023 repository adapters over one caller-supplied `PostgresPersistenceService`, with eager one-time construction, `is`-stable property identity, mandatory `TypeError` service validation, no readiness probe, no context-manager protocol, and `run_composed`/`close` delegating exactly once to the frozen M024/M023 service methods.
 
 32 new tests (23 SQLite unit + 9 real-PostgreSQL integration) all pass, alongside unmodified M022 (49), M023 (26), and M024 (12) integration suites and the full unit/contract/architecture suite (389 passed standalone / 488 passed across the whole `tests/` tree including all integration suites, 6 skipped unrelated to M020-M025). `tools/check_architecture.py` requires and received zero changes. Full detail: `MILESTONE_025_REPOSITORY_RUNTIME_COMPOSITION_IMPLEMENTATION_SCOPE.md`, `MILESTONE_025_REPOSITORY_RUNTIME_COMPOSITION_IMPLEMENTATION.md`.
 
-**This implementation is NOT approved, NOT frozen, and NOT yet committed to Git** — it exists only as an uncommitted working-tree change at the time this checkpoint content was authored (baseline HEAD `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad`, unchanged from the design freeze). It is ready for independent review, pending a separate future commit and a separate future Project Owner approval/freeze decision.
+**This implementation is committed locally at commit `907eb9c0f6ca04f0b5c660c8bcf1da09e3deeb9b`, not pushed. It is NOT approved and NOT frozen.** It is ready for independent review, pending a separate future Project Owner approval/freeze decision.
 
 ## 7. Deferred Capabilities
 
@@ -134,4 +139,4 @@ Implemented exactly as frozen: `PostgresRepositoryRuntime` at `src/empirical_pla
 
 ## 8. Next Authorized Work
 
-Independent review of the MILESTONE-025 implementation described in Section 6 (`MILESTONE_025_REPOSITORY_RUNTIME_COMPOSITION_IMPLEMENTATION.md`), followed by Project Owner approval and a separate implementation-freeze mission, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-024. The implementation commit itself has not yet been created (authorized as a separate, single, narrowly-scoped local commit) and has not been pushed; MILESTONE-026 may not begin until MILESTONE-025 implementation is independently reviewed and separately approved and frozen by the Project Owner.
+Independent review of the MILESTONE-025 implementation described in Section 6 (`MILESTONE_025_REPOSITORY_RUNTIME_COMPOSITION_IMPLEMENTATION.md`), followed by Project Owner approval and a separate implementation-freeze mission, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-024. The implementation commit (`907eb9c0f6ca04f0b5c660c8bcf1da09e3deeb9b`) has been created locally and has not been pushed; MILESTONE-026 may not begin until MILESTONE-025 implementation is independently reviewed and separately approved and frozen by the Project Owner.
