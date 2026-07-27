@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `b2283281f670703c95de0b6fe8ee83d58c5e3ac1` (`chore: freeze MILESTONE-024 multi-aggregate unit of work`) |
-| Checkpoint content baseline origin/master | `b2283281f670703c95de0b6fe8ee83d58c5e3ac1` |
+| Checkpoint content baseline (HEAD this content was authored against) | `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad` (`chore: freeze MILESTONE-025 repository runtime composition design`, pushed) |
+| Checkpoint content baseline origin/master | `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad` (identical — the M025 design freeze lineage has been pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -20,9 +20,9 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ```text
 LATEST_FROZEN_MILESTONE=MILESTONE-024
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=b2283281f670703c95de0b6fe8ee83d58c5e3ac1
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=b2283281f670703c95de0b6fe8ee83d58c5e3ac1
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M024_FREEZE
+CHECKPOINT_CONTENT_BASELINE_HEAD=fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad
+CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M025_DESIGN_FREEZE
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -62,7 +62,10 @@ M024_IMPLEMENTATION_CORRECTION_COMMIT=9f8bb60507f52ee410f1fd3010ad11641884f329
 M024_IMPLEMENTATION_FREEZE_COMMIT=b2283281f670703c95de0b6fe8ee83d58c5e3ac1
 
 M025_SCOPE=Repository Runtime Composition
-M025_DESIGN_STATUS=READY_FOR_INDEPENDENT_RE-REVIEW;NOT_APPROVED;NOT_FROZEN;IMPLEMENTATION_NOT_STARTED
+M025_DESIGN_COMMIT=e9db9292982f3795cc51c29de290af2e34e1b33b
+M025_DESIGN_CORRECTION_COMMIT=ec6e8db23dddf20ae8ab2efec17908dc61a69be4
+M025_DESIGN_FREEZE_COMMIT=fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad
+M025_STATUS=DESIGN_APPROVED_AND_FROZEN;IMPLEMENTATION_COMPLETE_NOT_YET_COMMITTED;NOT_APPROVED;NOT_FROZEN
 ```
 
 ## 3. Frozen Milestone Summary
@@ -76,6 +79,8 @@ M022 froze the PostgreSQL schema and Alembic migration that persist those durabl
 M023 froze concrete PostgreSQL mappers and repository adapters implementing M020/M021 over M022.
 
 M024 froze the low-level multi-aggregate persistence Unit of Work primitive, exposed only as `PostgresPersistenceService.run_composed(operations)`, allowing multiple repository operations that share one `PostgresPersistenceService` to commit or roll back atomically without changing repository Protocols or concrete repository adapter source files.
+
+M025's design (`PostgresRepositoryRuntime`, composing the four M023 repository adapters over one shared `PostgresPersistenceService` and delegating to the frozen M024 primitive) is APPROVED AND FROZEN. Its implementation is complete but not yet committed to Git at the time this checkpoint content was authored.
 
 ## 4. MILESTONE-024 Closure Evidence
 
@@ -96,9 +101,9 @@ Fresh freeze validation:
 
 M024 does not authorize repository runtime composition, application services, retry policy, APIs, workers, Audit runtime, Decision Candidate, Decision Freeze, market-data behavior, vendor behavior, trading behavior, or any empirical campaign execution.
 
-## 5. MILESTONE-025 Design Checkpoint
+## 5. MILESTONE-025 Design Freeze Evidence
 
-Repository evidence after M024 identifies the next bounded design candidate as **Repository Runtime Composition**:
+Repository evidence after M024 identified the next bounded design candidate as **Repository Runtime Composition**:
 
 - M024 Design Section 21 explicitly deferred "Candidate E, repository runtime composition";
 - M024 Design Section 21 states application services depend on M024 and Candidate E;
@@ -106,21 +111,27 @@ Repository evidence after M024 identifies the next bounded design candidate as *
 - M024 Implementation Freeze Section 6 carries repository runtime composition forward as an accepted non-blocking observation;
 - M024 Implementation Freeze Section 7 explicitly does not authorize repository runtime composition.
 
-M025 is design-only at this checkpoint. It selects and designs how future code will obtain the four concrete PostgreSQL repositories as one shared runtime composition boundary backed by the same `PostgresPersistenceService`, and how that composition will delegate multi-repository atomic execution to the frozen M024 primitive.
+An independent hostile review of the Version 1.0 design returned "M025 DESIGN REQUIRES NARROW CORRECTION" (1 MAJOR + 4 MINOR findings): repeated-access repository identity and eager-vs-lazy construction were undefined; context-manager behavior, independent-composition-root testing, service-argument validation, and the service-initialization precondition were each left ambiguous or permissive. Version 1.1 of the design document froze the exact construction graph, exact constructor validation (`TypeError`), the exact readiness policy (no new API — relies on the existing, unmodified `PostgresPersistenceService._ensure_can_work` guard), and exact lifecycle/close semantics, with matching validation obligations added. A second, final independent review returned "M025 DESIGN APPROVED FOR OWNER FREEZE"; the Project Owner accepted that recommendation and froze the design at commit `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad` (pushed).
 
-M025 does not implement source code, change schemas, modify migrations, add APIs, add workers, create application services, create retry policy, execute campaigns, or freeze itself.
+M025 does not implement source code, change schemas, modify migrations, add APIs, add workers, create application services, create retry policy, execute campaigns, or freeze itself — by the design freeze alone. Implementation was separately authorized by the same Owner decision and is complete (Section 6).
 
-An independent hostile review of the Version 1.0 design returned "M025 DESIGN REQUIRES NARROW CORRECTION" (1 MAJOR + 4 MINOR findings): repeated-access repository identity and eager-vs-lazy construction were undefined; context-manager behavior, independent-composition-root testing, service-argument validation, and the service-initialization precondition were each left ambiguous or permissive. Version 1.1 of the design document froze the exact construction graph, exact constructor validation (`TypeError`), the exact readiness policy (no new API — relies on the existing, unmodified `PostgresPersistenceService._ensure_can_work` guard), and exact lifecycle/close semantics, with matching validation obligations added. No scope change, no implementation, and no source-code modification was made in this correction. M025 remains not approved, not frozen, and not implemented, and is now ready for independent re-review.
+## 6. MILESTONE-025 Implementation Checkpoint (uncommitted at authoring time)
 
-## 6. Deferred Capabilities
+Implemented exactly as frozen: `PostgresRepositoryRuntime` at `src/empirical_platform/shared/persistence/postgres_repositories/runtime.py`, composing the four M023 repository adapters over one caller-supplied `PostgresPersistenceService`, with eager one-time construction, `is`-stable property identity, mandatory `TypeError` service validation, no readiness probe, no context-manager protocol, and `run_composed`/`close` delegating exactly once to the frozen M024/M023 service methods.
 
-- M025 independent re-review and possible design freeze;
-- M025 implementation scope selection and implementation, if design is approved;
+32 new tests (23 SQLite unit + 9 real-PostgreSQL integration) all pass, alongside unmodified M022 (49), M023 (26), and M024 (12) integration suites and the full unit/contract/architecture suite (389 passed standalone / 488 passed across the whole `tests/` tree including all integration suites, 6 skipped unrelated to M020-M025). `tools/check_architecture.py` requires and received zero changes. Full detail: `MILESTONE_025_REPOSITORY_RUNTIME_COMPOSITION_IMPLEMENTATION_SCOPE.md`, `MILESTONE_025_REPOSITORY_RUNTIME_COMPOSITION_IMPLEMENTATION.md`.
+
+**This implementation is NOT approved, NOT frozen, and NOT yet committed to Git** — it exists only as an uncommitted working-tree change at the time this checkpoint content was authored (baseline HEAD `fe4f04483cb5fdc6b5cf08e0fe0eeebbe4e827ad`, unchanged from the design freeze). It is ready for independent review, pending a separate future commit and a separate future Project Owner approval/freeze decision.
+
+## 7. Deferred Capabilities
+
+- M025 implementation independent review and possible implementation freeze;
 - application service orchestration after repository runtime composition exists;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
-- market-data, vendor, trading, or empirical campaign execution behavior.
+- market-data, vendor, trading, or empirical campaign execution behavior;
+- any MILESTONE-026 work.
 
-## 7. Next Authorized Work
+## 8. Next Authorized Work
 
-Perform an independent hostile re-review of the corrected (Version 1.1) MILESTONE-025 Repository Runtime Composition design. M025 implementation may not begin until the design is independently reviewed, approved, and frozen.
+Independent review of the MILESTONE-025 implementation described in Section 6 (`MILESTONE_025_REPOSITORY_RUNTIME_COMPOSITION_IMPLEMENTATION.md`), followed by Project Owner approval and a separate implementation-freeze mission, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-024. The implementation commit itself has not yet been created (authorized as a separate, single, narrowly-scoped local commit) and has not been pushed; MILESTONE-026 may not begin until MILESTONE-025 implementation is independently reviewed and separately approved and frozen by the Project Owner.
