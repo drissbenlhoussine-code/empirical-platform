@@ -62,7 +62,7 @@ M024_IMPLEMENTATION_CORRECTION_COMMIT=9f8bb60507f52ee410f1fd3010ad11641884f329
 M024_IMPLEMENTATION_FREEZE_COMMIT=b2283281f670703c95de0b6fe8ee83d58c5e3ac1
 
 M025_SCOPE=Repository Runtime Composition
-M025_DESIGN_STATUS=READY_FOR_INDEPENDENT_REVIEW;NOT_APPROVED;NOT_FROZEN;IMPLEMENTATION_NOT_STARTED
+M025_DESIGN_STATUS=READY_FOR_INDEPENDENT_RE-REVIEW;NOT_APPROVED;NOT_FROZEN;IMPLEMENTATION_NOT_STARTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -110,9 +110,11 @@ M025 is design-only at this checkpoint. It selects and designs how future code w
 
 M025 does not implement source code, change schemas, modify migrations, add APIs, add workers, create application services, create retry policy, execute campaigns, or freeze itself.
 
+An independent hostile review of the Version 1.0 design returned "M025 DESIGN REQUIRES NARROW CORRECTION" (1 MAJOR + 4 MINOR findings): repeated-access repository identity and eager-vs-lazy construction were undefined; context-manager behavior, independent-composition-root testing, service-argument validation, and the service-initialization precondition were each left ambiguous or permissive. Version 1.1 of the design document froze the exact construction graph, exact constructor validation (`TypeError`), the exact readiness policy (no new API — relies on the existing, unmodified `PostgresPersistenceService._ensure_can_work` guard), and exact lifecycle/close semantics, with matching validation obligations added. No scope change, no implementation, and no source-code modification was made in this correction. M025 remains not approved, not frozen, and not implemented, and is now ready for independent re-review.
+
 ## 6. Deferred Capabilities
 
-- M025 independent design review and possible design freeze;
+- M025 independent re-review and possible design freeze;
 - M025 implementation scope selection and implementation, if design is approved;
 - application service orchestration after repository runtime composition exists;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
@@ -121,4 +123,4 @@ M025 does not implement source code, change schemas, modify migrations, add APIs
 
 ## 7. Next Authorized Work
 
-Perform an independent hostile review of the MILESTONE-025 Repository Runtime Composition design. M025 implementation may not begin until the design is independently reviewed, corrected if necessary, approved, and frozen.
+Perform an independent hostile re-review of the corrected (Version 1.1) MILESTONE-025 Repository Runtime Composition design. M025 implementation may not begin until the design is independently reviewed, approved, and frozen.
