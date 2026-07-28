@@ -6,7 +6,7 @@
 | --- | --- |
 | Document ID | MILESTONE-027-SCOPE-SELECTION |
 | Title | Application Command/Handler Contracts Scope Selection |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | SCOPE SELECTED - PENDING INDEPENDENT REVIEW |
 | Repository baseline | `45f4916d1fcdd76b28fffa81c23704f6b0355c3d` |
 | Mission type | Scope selection and design authorization only |
@@ -69,7 +69,30 @@ M025 Design Section 15 and M026 Design Section 4/21 both explicitly rejected "ap
 
 MILESTONE-027 selects **Application Command/Handler Contracts**.
 
-Purpose: freeze the persistence-neutral, domain-agnostic vocabulary for an application-layer command and its handler — a `Command` marker Protocol, a `CommandHandler[CommandT, ResultT]` Protocol, and a minimal, narrow error/result contract for handler-level failures distinct from the existing M020 repository-contract errors — with **zero implementation of any concrete command, handler, or orchestration logic**, exactly mirroring how M020 froze repository Protocols before M023 implemented any concrete adapter.
+Purpose: freeze the persistence-neutral, domain-agnostic vocabulary for an application-layer command handler, with **zero implementation of any concrete command, handler, or orchestration logic**, exactly mirroring how M020 froze repository Protocols before M023 implemented any concrete adapter.
+
+**Correction record (Version 1.1):** Version 1.0's purpose statement listed a `Command` marker Protocol and a handler-level error/result contract as though both were part of the selected scope. The corrected Design
+(`MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN.md`, Version 1.1, Sections 4 and 12) explicitly evaluated and rejected both, for reasons specific to each — this document is corrected to match, distinguishing what was evaluated from what was actually selected:
+
+**Components evaluated:**
+
+1. a `Command` marker Protocol;
+2. a `CommandHandler[CommandT, ResultT]` Protocol;
+3. a handler-level error/result contract distinct from M020's `RepositoryContractError` hierarchy.
+
+**Components selected:**
+
+- exactly one generic, variance-correct, synchronous `CommandHandler` Protocol (component 2 above), with contravariant command input and covariant result output;
+- its canonical export from `shared/contracts/`;
+- a positive static (`mypy`) conformance proof, checked automatically on every `mypy` run;
+- an isolated negative type-check verification mechanism, mechanically proving malformed handler shapes are rejected, kept entirely outside the canonical `mypy` gate.
+
+**Components evaluated and explicitly rejected:**
+
+- a `Command` marker type (component 1 above) — rejected because an empty `Protocol` is structurally satisfied by every object in Python, providing no compile-time or runtime guarantee;
+- a handler-level error/result contract (component 3 above) — rejected because no concrete handler yet exists to reveal what failure modes it would actually need to express; inventing one now risks freezing the wrong shape, exactly the class of mistake this milestone's own design-correction round caught in its generic-variance choice;
+- a dispatcher or runtime registry — never seriously considered as in-scope; explicitly out of scope from the original candidate framing (see Section 6's "Application Service Orchestration" row);
+- any concrete command or handler implementation for any aggregate.
 
 ## 9. Non-Goals
 
@@ -113,8 +136,10 @@ No credential, connection, or persistence-adjacent concern is introduced; these 
 
 A future implementation must prove:
 
-- the `Command` and `CommandHandler[CommandT, ResultT]` Protocols are structurally satisfiable by a minimal in-memory example handler with no persistence dependency;
-- the new handler-level error contract is distinct from, and does not duplicate or shadow, the existing M020 `RepositoryContractError` hierarchy;
+- the `CommandHandler[_CommandT_contra, _ResultT_co]` Protocol is structurally satisfiable by a minimal in-memory example handler with no persistence dependency, via a static (`mypy`) conformance proof checked on every run;
+- the contravariant command / covariant result variance is real: a handler accepting a wider command type, and a handler returning a narrower result type, both type-check cleanly;
+- malformed handler shapes (wrong method name, wrong command type, wrong result type, missing `handle` entirely) are mechanically proven rejected by an isolated negative type-check mechanism that never pollutes the canonical `mypy` gate;
+- only `CommandHandler` is exported from `shared/contracts/`; the underlying `TypeVar`s are not;
 - no existing M020-M026 test is affected;
 - `tools/check_architecture.py` reports zero violations with the new file present.
 
@@ -123,11 +148,11 @@ A future implementation must prove:
 STOP design work and return to scope selection if:
 
 - freezing a useful command/handler contract turns out to require deciding transaction ownership or repository access patterns (that would mean this milestone has silently become "Application Service Orchestration" and must be re-scoped);
-- the frozen M020 error taxonomy already fully covers what a handler-level error needs to express (in which case this milestone's error-contract component should be dropped rather than duplicated).
+- live `mypy` behavior makes the mechanical negative-type-check strategy impractical, in which case the Design must explicitly state that negative fixtures are deliberately excluded and remove any acceptance claim that malformed handlers are mechanically proven rejected, rather than freezing an unverified mechanism.
 
 ## 17. Acceptance Gate
 
-The design is acceptance-ready only if it freezes, with no remaining ambiguity: the exact `Command` and `CommandHandler` shapes; the exact package/file placement; the exact handler-error contract (or an explicit, justified decision that none is needed beyond M020's existing taxonomy); and exact test obligations.
+The design is acceptance-ready only if it freezes, with no remaining ambiguity: the exact, variance-correct `CommandHandler` shape; the exact package/file placement; the exact export surface (public vs. private names); the exact, justified decisions not to freeze a `Command` marker or a handler-level error type; the exact, `mypy`-verified negative type-check mechanism; and exact test obligations.
 
 ## 18. Hostile Self-Review
 
@@ -137,6 +162,7 @@ The design is acceptance-ready only if it freezes, with no remaining ambiguity: 
 4. **Does this leak into retry policy?** No — retry-on-`OptimisticConcurrencyConflict` remains explicitly deferred behind "application services exist," and this milestone does not constitute application services, only their vocabulary.
 5. **Is this milestone narrow enough to actually finish in one pass, unlike a full "application services" milestone would be?** Yes — it is contracts-only, matching M020's proven, narrow precedent exactly.
 6. **Does this leak into M028?** No — nothing here presumes or requires any named future milestone; it only unblocks "Application Service Orchestration" as a future candidate, exactly as M020 unblocked M023.
+7. **Did this document itself accurately distinguish evaluated components from selected components?** Not initially: Version 1.0's Section 8 wording implied a `Command` marker and a handler-level error contract were part of the selected scope, when the corrected Design actually rejected both. Corrected in Version 1.1's Section 8, which now explicitly separates components evaluated, components selected, and components evaluated-and-rejected, with a reason for each rejection.
 
 ## 19. Final Decision
 

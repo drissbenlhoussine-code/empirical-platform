@@ -77,7 +77,14 @@ M026_DESIGN_FREEZE_COMMIT=bb434cd19a21cf25571ab14326cfdbd536de441c
 M026_IMPLEMENTATION_COMMIT=c6802c5d3f3b295368fa36d8d50cd26ecca8f460
 M026_IMPLEMENTATION_FREEZE_COMMIT=45f4916d1fcdd76b28fffa81c23704f6b0355c3d
 M026_STATUS=APPROVED_AND_FROZEN
+
+M027_SCOPE=Application Command/Handler Contracts
+M027_DESIGN_COMMIT=2b914ffdf4425d7d6904caaa681d39142d73ba7e
+M027_DESIGN_REVIEW_STATUS=NARROW_CORRECTION_APPLIED_READY_FOR_FINAL_INDEPENDENT_REVIEW
+M027_DESIGN_APPROVAL=NOT_APPROVED
+M027_DESIGN_FREEZE=NOT_FROZEN
 M027_STATUS=NOT_IMPLEMENTED
+M028_STATUS=NOT_STARTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -174,3 +181,5 @@ M026 does not authorize application services, retry policy, APIs, workers, Audit
 ## 8. Next Authorized Work
 
 Select the MILESTONE-027 scope from live repository evidence and produce its Scope Selection and Design documents, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-026. MILESTONE-027 implementation may not begin until its own design is independently reviewed, separately approved, and frozen by the Project Owner.
+
+MILESTONE-027's Scope Selection and Design documents (`MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_SCOPE_SELECTION.md`, `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN.md`) have been produced. An independent hostile review of the Design returned `M027 DESIGN REQUIRES NARROW CORRECTION` — two MAJOR findings (generic variance on the frozen `CommandHandler` Protocol was invariant rather than contravariant/covariant, an actual `mypy`-rejected defect verified by direct experimentation; the negative type-check strategy for proving malformed handlers are rejected was undefined) and one MINOR finding (the Scope Selection still described a `Command` marker and a handler-level error contract as selected, when the Design had already rejected both). All three findings have been corrected in the Design document (Version 1.1) and the Scope Selection document (Version 1.1). MILESTONE-027 remains NOT APPROVED and NOT FROZEN pending final independent re-review and Project Owner freeze; MILESTONE-027 implementation has NOT STARTED; MILESTONE-028 has NOT STARTED.
