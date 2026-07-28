@@ -83,8 +83,10 @@ M027_DESIGN_COMMIT=2b914ffdf4425d7d6904caaa681d39142d73ba7e
 M027_DESIGN_CORRECTION_COMMIT=7753b135bb324a7c1337c542d87660a855c3ee0f
 M027_DESIGN_FREEZE_COMMIT=64abc16156b949491ded4ff239d2c249aac569a8
 M027_DESIGN_STATUS=APPROVED_AND_FROZEN
-M027_IMPLEMENTATION_STATUS=NOT_STARTED
-M027_STATUS=DESIGN_APPROVED_AND_FROZEN_IMPLEMENTATION_NOT_STARTED
+M027_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
+M027_IMPLEMENTATION_APPROVAL=NOT_APPROVED
+M027_IMPLEMENTATION_FREEZE=NOT_FROZEN
+M027_STATUS=IMPLEMENTATION_COMMITTED_LOCALLY_NOT_YET_APPROVED
 
 M028_SCOPE=Application Query/QueryHandler Contracts
 M028_DESIGN_COMMIT=db99194277aecef7b5a5c74f576a940d6e24e399
@@ -191,6 +193,8 @@ M026 does not authorize application services, retry policy, APIs, workers, Audit
 
 MILESTONE-027's Scope Selection and Design documents were produced, independently reviewed (one narrow correction round — two MAJOR findings on generic variance and the negative type-check strategy, one MINOR finding on stale Scope Selection wording, all corrected in Version 1.1 of both documents), and the corrected design was accepted by the Project Owner and frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md` (freeze commit `64abc16156b949491ded4ff239d2c249aac569a8`, pushed).
 
-MILESTONE-027 implementation is authorized but has not started. In parallel, the Project Owner authorized selecting and designing MILESTONE-028 from live repository evidence — MILESTONE-028 implementation may not begin until its own design is independently reviewed, separately approved, and frozen, and MILESTONE-028 implementation additionally requires MILESTONE-027 to be implemented first, since MILESTONE-028 designs against the `CommandHandler` Protocol shape M027 froze.
+MILESTONE-027 has since been implemented exactly as frozen: `CommandHandler[_CommandT_contra, _ResultT_co]` in `src/empirical_platform/shared/contracts/command.py`, exported from `shared/contracts/__init__.py`, with the frozen `TYPE_CHECKING` conformance and variance proofs, the frozen negative-typing-fixture mechanism under `tests/typing_fixtures/command_handler/`, and 10 new unit tests, documented in `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_IMPLEMENTATION.md`, and committed locally. MILESTONE-027 implementation is committed locally and ready for independent review; it is NOT APPROVED and NOT FROZEN pending that review and a subsequent Project Owner freeze decision.
+
+In parallel, the Project Owner authorized selecting and designing MILESTONE-028 from live repository evidence — MILESTONE-028 implementation may not begin until its own design is independently reviewed, separately approved, and frozen, and MILESTONE-028 implementation additionally requires MILESTONE-027 to be implemented (now true) and separately approved/frozen first, since MILESTONE-028 designs against the `CommandHandler` Protocol shape M027 froze.
 
 MILESTONE-028's Scope Selection and Design documents were produced and independently reviewed. The review returned one MAJOR finding (the documents overstated that `QueryHandler` and `CommandHandler` are "fully independent at the type level," when Python's structural typing can accept one concrete class as satisfying both Protocols simultaneously when types align — verified directly against the project's `mypy --strict` configuration) and one MINOR finding (the documents did not state clearly enough that `QueryHandler`'s read-only naming is semantic only, not mechanically enforced). Both findings have been corrected in Version 1.1 of both documents. MILESTONE-028 remains NOT APPROVED and NOT FROZEN pending final independent re-review and Project Owner freeze; MILESTONE-028 implementation has NOT STARTED; MILESTONE-029 has NOT STARTED.

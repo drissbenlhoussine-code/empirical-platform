@@ -1,5 +1,6 @@
 """Shared typed contract boundary."""
 
+from empirical_platform.shared.contracts.command import CommandHandler
 from empirical_platform.shared.contracts.mapping import (
     IdentityDurableRecord,
     MapperError,
@@ -21,6 +22,7 @@ from empirical_platform.shared.contracts.repository import (
 __all__ = [
     "AggregateAlreadyExists",
     "AggregateNotFound",
+    "CommandHandler",
     "IdentityDurableRecord",
     "InvalidAggregateForPersistence",
     "InvalidPersistedAggregateState",
