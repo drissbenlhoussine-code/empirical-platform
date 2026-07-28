@@ -6,8 +6,8 @@
 | --- | --- |
 | Document ID | MILESTONE-026-DESIGN |
 | Title | Foundation Runtime Repository Composition Design |
-| Version | 1.0 |
-| Status | DESIGN READY FOR INDEPENDENT REVIEW / NOT APPROVED / NOT FROZEN |
+| Version | 1.1 |
+| Status | DESIGN NARROW CORRECTION COMPLETE - READY FOR FINAL INDEPENDENT RE-REVIEW / NOT APPROVED / NOT FROZEN |
 | Repository baseline | `0d57c36adf8b60ea3be9e86fa3814d1e2b459253` |
 | Authoritative scope input | `MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_SCOPE_SELECTION.md` |
 | Mission type | Design only |
@@ -154,7 +154,7 @@ unmodified by this milestone; its four adapter properties
 
 `FoundationRuntime` owns `repository_runtime` in the same sense it owns
 `persistence`: it holds the reference for the runtime's lifetime and is
-responsible for disposal (Section 11), but it does not create new lifecycle
+responsible for disposal (Section 15), but it does not create new lifecycle
 semantics for it — `PostgresRepositoryRuntime` has no independent lifecycle
 beyond the `PostgresPersistenceService` it wraps (frozen M025 fact, verified
 again here).
@@ -254,6 +254,33 @@ construction; none is needed.
   and the function's existing cleanup/exception behavior is completely
   unmodified by this milestone — `repository_runtime` was never assigned, so
   there is nothing new to clean up.
+- **If `repository_runtime` has already been constructed and a *later* step
+  in the same function subsequently fails** (in
+  `initialize_infrastructure_runtime`: `object_storage_service` construction,
+  its `.initialize()` call, `_require_dependency_ready` for object storage, or
+  the final health-aggregation check; `initialize_foundation_runtime_with_postgresql`
+  has no such later step, since `repository_runtime` construction is placed
+  immediately before the terminal `FoundationRuntime(...)` call, which cannot
+  itself fail once every argument is already in hand): no `FoundationRuntime`
+  is ever returned or cached. The local `repository_runtime` reference is
+  discarded along with the failing stack, exactly like every other
+  already-constructed local (for example `persistence_service` or
+  `object_storage_service`) that never makes it into a successfully-returned
+  `FoundationRuntime`. `repository_runtime` owns no resource independent of
+  the `PostgresPersistenceService` already tracked in
+  `initialize_infrastructure_runtime`'s `initialized` list (Section 15); the
+  existing `_cleanup_initialized(reversed(initialized))` call in that
+  function's `except` block still closes `persistence` (and `object_storage`,
+  if it was constructed) exactly as it does today. **No separate
+  `repository_runtime` cleanup entry is added, and `repository_runtime.close()`
+  is never called on this path at all** — only the pre-existing `persistence`
+  cleanup entry runs, so no double-close path is introduced. Cleanup-failure
+  reporting (a `FoundationError` carrying a `cleanup_failures` context) follows
+  the existing, unmodified bootstrap error semantics. No partially
+  initialized `FoundationRuntime` — with or without a `repository_runtime` —
+  is ever cached, published to any global or module-level state, or returned
+  to a caller on any failure path. See Section 18, Item 10 for the
+  corresponding future implementation test obligation.
 
 ## 15. Close and Cleanup Semantics
 
@@ -277,7 +304,48 @@ already-closed references after `close()` today; no field is set to `None` on
 shutdown by the existing code, and this design does not change that pattern
 for the new field either.
 
-## 16. Architecture Rules
+## 16. Repr and Credential Safety
+
+Verified by direct inspection of the frozen source: `PostgresPersistenceService`
+(`persistence/postgres.py`) and `PostgresRepositoryRuntime`
+(`persistence/postgres_repositories/runtime.py`) define no custom `__repr__`
+or `__str__`; both fall through to plain `object.__repr__`
+(`<module.ClassName object at 0x...>`), which never renders instance
+attributes, config values, engine details, or credentials. `FoundationRuntime`
+is `@dataclass(slots=True)` without `repr=False`, so `repr(FoundationRuntime(...))`
+is dataclass-generated and calls `repr()` on every field, including the new
+`repository_runtime` field — but because that field's value (and,
+transitively, the objects it holds) all resolve to the same credential-safe
+default object repr, no database URL, credential, connection string, or
+`Engine` configuration is reachable through `repr(runtime)`,
+`repr(runtime.repository_runtime)`, or `repr()` of any of the four repository
+adapter properties.
+
+This milestone freezes the following rule, rather than merely observing
+today's behavior:
+
+1. `FoundationRuntime`'s repr must never expose database URLs, credentials,
+   `Engine` configuration, or connection details through `repository_runtime`,
+   for the lifetime of this design.
+2. No future custom `__repr__`/`__str__` may be added to
+   `PostgresPersistenceService`, `PostgresRepositoryRuntime`, or any of the
+   four concrete repository adapter classes if it would render a credential,
+   connection string, or `Engine` configuration value. Any future custom repr
+   proposed for these classes must be reviewed against this rule before being
+   introduced.
+3. `repository_runtime` may remain a plain, repr-visible dataclass field only
+   for as long as its entire object graph continues to rely on
+   credential-safe default object repr behavior (Rule 2). This design does
+   not require `repr=False` on `FoundationRuntime`, nor a custom, redacting
+   `__repr__` anywhere in this object graph, because the currently frozen
+   classes already satisfy Rule 1 without one; introducing either would only
+   become necessary if Rule 2 is ever violated, which this design forbids
+   rather than merely discourages.
+
+See Section 18, Item 9 for the corresponding future implementation test
+obligation.
+
+## 17. Architecture Rules
 
 - `repository_runtime`'s type and construction logic live entirely inside
   `src/empirical_platform/shared/bootstrap.py`; no new module.
@@ -290,7 +358,7 @@ for the new field either.
 - `tools/check_architecture.py` requires no update (same exemption class as
   the existing `PostgresPersistenceService` import already in `bootstrap.py`).
 
-## 17. Test Strategy for Future Implementation
+## 18. Test Strategy for Future Implementation
 
 A future implementation must add tests proving:
 
@@ -327,8 +395,29 @@ A future implementation must add tests proving:
    `test_infrastructure_runtime.py`, `test_object_storage_bootstrap.py`, and
    `test_unified_infrastructure_runtime.py` tests pass unmodified.
 8. No M020-M025 regression (existing PostgreSQL regression suites unchanged).
+9. **Repr/credential-safety regression test:** construct a `FoundationRuntime`
+   (via `initialize_infrastructure_runtime` or
+   `initialize_foundation_runtime_with_postgresql`) whose
+   `PostgreSQLConfigSnapshot` embeds a unique, single-use secret marker (for
+   example a randomly generated password value used nowhere else in the
+   test), then assert that marker does not appear in `repr(runtime)`,
+   `repr(runtime.repository_runtime)`, or `repr()` of any of
+   `runtime.repository_runtime.campaigns` / `.runs` / `.evidence_packages` /
+   `.reviews`.
+10. **Failure-after-construction test:** force a failure *after*
+    `repository_runtime` has already been constructed inside
+    `initialize_infrastructure_runtime` (for example, by injecting an
+    object-storage double whose `.initialize()` or readiness probe fails, or
+    a `health_report_factory` that raises, mirroring the existing
+    object-storage-failure fixtures already in
+    `tests/unit/test_infrastructure_runtime.py`), and assert: no
+    `FoundationRuntime` is returned (the call raises); the underlying
+    `persistence_service` receives exactly one `close()` call via the
+    existing cleanup path; the discarded `repository_runtime` local receives
+    no separate `close()` call of its own; and no global or module-level
+    state retains a reference to the discarded, partially constructed value.
 
-## 18. Compatibility With M020 Through M025
+## 19. Compatibility With M020 Through M025
 
 No source file governed by M020 (Repository Protocols), M021 (mapper
 contracts), M022 (schema/migration), M023 (concrete adapters), M024
@@ -338,7 +427,7 @@ construction to `bootstrap.py`, consuming M025's frozen public constructor and
 public surface exactly as documented, with no new subclass, no monkey-patch,
 and no reinterpretation of any prior milestone's frozen behavior.
 
-## 19. Deferred Items
+## 20. Deferred Items
 
 Explicitly out of scope for M026, carried forward unchanged from the Scope
 Selection document:
@@ -352,7 +441,7 @@ Selection document:
   by Section 15's analysis that `repository_runtime` requires no independent
   lifecycle tracking).
 
-## 20. Acceptance Criteria
+## 21. Acceptance Criteria
 
 The design is acceptance-ready only if it freezes, with no remaining
 ambiguity:
@@ -364,9 +453,16 @@ ambiguity:
 4. the exact close-cleanup decision (no new entry; relies solely on the
    existing `persistence` entry) — frozen, Section 15;
 5. the exact behavior of all four `initialize_*` functions — frozen, Section 8;
-6. exact test obligations for the future implementation — frozen, Section 17.
+6. exact test obligations for the future implementation — frozen, Section 18;
+7. the exact repr/credential-safety rule and its corresponding regression
+   test obligation — frozen, Section 16 / Section 18 Item 9;
+8. the exact post-construction failure and cleanup semantics — frozen,
+   Section 14 / Section 18 Item 10.
 
-## 21. Rejected Alternatives
+Both narrow-correction findings (Section 24) are resolved by items 7 and 8
+above; no acceptance-gate item remains open.
+
+## 22. Rejected Alternatives
 
 1. **Always construct `PostgresRepositoryRuntime`, letting `TypeError`
    propagate for fake-persistence callers.** Rejected: this would break every
@@ -399,30 +495,122 @@ ambiguity:
    unconditionally-required `repository_runtime` would contradict that
    existing, frozen pattern and reintroduce the exact `TypeError`-breaks-fakes
    problem this design exists to avoid.
+6. **Add `repr=False` to `FoundationRuntime` or a custom, redacting
+   `__repr__`.** Rejected in Section 16: the currently frozen object graph
+   (`PostgresPersistenceService`, `PostgresRepositoryRuntime`, and the four
+   repository adapters) already exposes no credential through default object
+   repr; adding either mechanism now would be unneeded defensive code for a
+   risk this design instead forbids at the rule level (Section 16 Rule 2) and
+   verifies with a named regression test (Section 18 Item 9).
 
-## 22. Risk Register
+## 23. Risk Register
 
 | Risk | Mitigation |
 | --- | --- |
 | A future caller assumes `repository_runtime` is always non-`None` after `initialize_infrastructure_runtime` | Documented explicitly in Section 8's table and Section 14; type remains `Optional` so `mypy` forces callers to narrow it |
 | Double-close confusion | Addressed explicitly in Section 15 with the underlying idempotence argument, not left as an implicit assumption |
-| Scope creep into application services | Rejected explicitly in Section 21, Item 2, and bounded by Section 19 |
-| A future implementation forgets the `isinstance` guard and reintroduces the `TypeError`-breaks-fakes defect | Section 17, Item 2 makes this an explicit, named test obligation, not an incidental side effect of other tests |
+| Scope creep into application services | Rejected explicitly in Section 22, Item 2, and bounded by Section 20 |
+| A future implementation forgets the `isinstance` guard and reintroduces the `TypeError`-breaks-fakes defect | Section 18, Item 2 makes this an explicit, named test obligation, not an incidental side effect of other tests |
+| A future custom repr is added to `PostgresPersistenceService`/`PostgresRepositoryRuntime`/a repository adapter that renders a credential or connection string | Forbidden explicitly by Section 16 Rule 2; Section 18 Item 9 gives a future implementation a concrete regression test to catch a violation before merge |
+| A future implementer omits cleanup verification for the failure-after-`repository_runtime`-construction path, silently double-closing or leaking a reference | Section 14's fourth bullet and Section 18 Item 10 make this an explicit, named test obligation rather than an incidental side effect of other tests |
 
-## 23. Hostile Self-Review
+## 24. Version 1.1 Independent Review Correction Record
+
+An independent hostile review of Version 1.0 of this design returned:
+
+```text
+M026 DESIGN REQUIRES NARROW CORRECTION
+```
+
+Exactly two MINOR, documentation-completeness findings were returned — no
+MAJOR or CRITICAL finding, and no scope, ownership, construction-order, or
+close-semantics defect. The review's own findings characterized both as
+behavior "already correct and fully determined by the design's own existing
+reasoning," not open design questions.
+
+**Finding 1 (repr/credential safety):** Version 1.0 never stated, as an
+explicit rule, that `FoundationRuntime`'s repr must not expose credentials
+through `repository_runtime`, and never named a corresponding regression test
+as a future implementation obligation — even though the underlying behavior
+was already safe by inspection. Corrected by adding Section 16 (Repr and
+Credential Safety) and Section 18 Item 9.
+
+**Finding 2 (post-construction failure semantics):** Version 1.0's Failure
+Behavior section explained failures occurring *before* `repository_runtime`
+construction, but never explicitly narrated the case where
+`repository_runtime` has already been constructed and a *later* bootstrap
+step subsequently fails. Corrected by adding a fourth bullet to Section 14
+and Section 18 Item 10.
+
+No canonical decision from Version 1.0 was reopened, reversed, or
+reinterpreted: the field name/type/position (Section 7), the `isinstance`
+conditional-construction rule (Section 8), the construction ordering
+(Section 8), the close-cleanup decision (Section 15), and the
+Optional-typing rationale (Section 22 Item 5) are all unchanged. Both
+corrections document and test already-existing, already-safe behavior;
+neither required a new mechanism, a new field, a new parameter, or a change
+to any bootstrap function's control flow beyond what Version 1.0 already
+specified.
+
+### 24.1 Hostile Self-Review of the Correction
+
+1. **Does the corrected design still leak credentials through any repr
+   path?** No — Section 16 freezes the rule against it, and the underlying
+   finding rests on direct source inspection (not this design's assertion
+   alone) confirming neither `PostgresPersistenceService` nor
+   `PostgresRepositoryRuntime` defines a custom repr today.
+2. **Could a future custom repr silently reintroduce leakage?** No — Section
+   16 Rule 2 explicitly forbids adding one that would render a credential or
+   connection string, and Section 18 Item 9's regression test is the
+   enforcement mechanism, not merely a documentation statement.
+3. **Does `repository_runtime` gain an undisclosed resource through this
+   correction?** No — Section 16 and Section 14's new bullet both explicitly
+   reaffirm, rather than alter, Section 15's existing finding that
+   `repository_runtime` owns nothing independent of `persistence`.
+4. **Does the corrected failure-path narrative introduce a double-close
+   risk?** No — Section 14's new bullet explicitly states no separate
+   `repository_runtime` cleanup entry is added and `repository_runtime.close()`
+   is never called on that path at all; only the pre-existing `persistence`
+   cleanup entry runs, unchanged.
+5. **Could a partially constructed runtime now be returned or cached as a
+   side effect of this correction?** No — the correction adds narration and
+   tests, not new control flow; Section 14's new bullet is explicit that no
+   `FoundationRuntime` is ever returned or cached on this path, matching
+   Version 1.0's existing, unmodified function bodies.
+6. **Does this correction introduce any new global or module-level state?**
+   No — no new `ContextVar`, module global, or singleton is introduced by
+   either correction.
+7. **Does this correction invent any implementation detail beyond the two
+   findings?** No — both additions describe and test pre-existing,
+   already-frozen behavior (Section 15's ownership argument, the existing
+   `initialized`/`_cleanup_initialized` mechanism); neither introduces a new
+   field, function, parameter, or control-flow branch.
+8. **Does this correction leak into M027?** No — both findings are scoped
+   entirely to `FoundationRuntime`/`bootstrap.py` behavior already within
+   M026's frozen boundary; nothing here presumes or requires any named
+   future milestone.
+
+### 24.2 Both Findings Resolved
+
+- Finding 1 resolved: Section 16, Section 18 Item 9, Section 21 Item 7,
+  Section 23 (new row).
+- Finding 2 resolved: Section 14 (fourth bullet), Section 18 Item 10, Section
+  21 Item 8, Section 23 (new row).
+
+## 25. Hostile Self-Review
 
 1. **Does this quietly become "application services"?** No —
    `FoundationRuntime` never calls a repository method or `run_composed`
    itself; Section 5 and Section 11 both state it only holds and exposes the
    object.
-2. **Does this require a new lifecycle state?** No — Section 19 explicitly
+2. **Does this require a new lifecycle state?** No — Section 20 explicitly
    confirms no new `RuntimeLifecycleState` value is introduced;
    `PostgresRepositoryRuntime` has no independent lifecycle to track.
 3. **Does this silently authorize bootstrap for workers/APIs?** No — no
    worker, API, or CLI entrypoint file is touched; only
    `bootstrap.py` itself changes.
 4. **Is the fake-persistence compatibility rule actually testable, or just
-   asserted?** Testable and required: Section 17, Item 2 names the exact
+   asserted?** Testable and required: Section 18, Item 2 names the exact
    existing test files whose current passing behavior (with
    `repository_runtime` simply absent from their assertions today) must
    remain unbroken, and requires a new, explicit assertion that
@@ -431,16 +619,17 @@ ambiguity:
    reader?** No — Section 15 freezes exactly one behavior (no new
    cleanup-list entry) with an explicit reason, rather than presenting both
    options as equally valid.
-6. **Does this leak into M027?** No — Section 19's deferred list is identical
+6. **Does this leak into M027?** No — Section 20's deferred list is identical
    in kind to M025's own deferred list; nothing here presumes or requires any
    named future milestone.
 
-## 24. Final Status
+## 26. Final Status
 
 ```text
-M026 DESIGN READY FOR INDEPENDENT REVIEW
-M026 NOT APPROVED
-M026 NOT FROZEN
+M026 DESIGN NARROW CORRECTION COMPLETE
+READY FOR FINAL INDEPENDENT RE-REVIEW
+NOT APPROVED
+NOT FROZEN
 M026 IMPLEMENTATION NOT STARTED
 ```
 

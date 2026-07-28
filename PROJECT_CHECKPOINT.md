@@ -69,7 +69,15 @@ M025_IMPLEMENTATION_COMMIT=907eb9c0f6ca04f0b5c660c8bcf1da09e3deeb9b
 M025_TRUTH_CORRECTION_COMMIT=956f4f85c5e08d76c7f1a54aa1a6ff8b40645fc8
 M025_IMPLEMENTATION_FREEZE_COMMIT=0d57c36adf8b60ea3be9e86fa3814d1e2b459253
 M025_STATUS=APPROVED_AND_FROZEN
+
+M026_SCOPE=Foundation Runtime Repository Composition
+M026_DESIGN_COMMIT=110bdab25a7867798ec1d14faba816f22738a7d2
+M026_DESIGN_REVIEW_STATUS=NARROW_CORRECTION_APPLIED_READY_FOR_FINAL_INDEPENDENT_REVIEW
+M026_DESIGN_APPROVAL=NOT_APPROVED
+M026_DESIGN_FREEZE=NOT_FROZEN
+M026_IMPLEMENTATION_STATUS=NOT_STARTED
 M026_STATUS=NOT_IMPLEMENTED
+M027_STATUS=NOT_STARTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -140,3 +148,5 @@ M025 does not authorize application services, retry policy, APIs, workers, Audit
 ## 7. Next Authorized Work
 
 Select the MILESTONE-026 scope from live repository evidence and produce its Scope Selection and Design documents, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-025. MILESTONE-026 implementation may not begin until its own design is independently reviewed, separately approved, and frozen by the Project Owner.
+
+MILESTONE-026's Scope Selection and Design documents (`MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_SCOPE_SELECTION.md`, `MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_DESIGN.md`) have been produced. An independent hostile review of the Design returned `M026 DESIGN REQUIRES NARROW CORRECTION` — exactly two MINOR documentation-completeness findings (repr/credential-safety rule and test obligation; post-construction failure and cleanup semantics), no scope, ownership, construction-order, or close-semantics defect. Both findings have been corrected in the Design document (Version 1.1). MILESTONE-026 remains NOT APPROVED and NOT FROZEN pending final independent re-review and Project Owner freeze; MILESTONE-026 implementation has NOT STARTED; MILESTONE-027 has NOT STARTED.
