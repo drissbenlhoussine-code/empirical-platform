@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `0d57c36adf8b60ea3be9e86fa3814d1e2b459253` (`chore: freeze MILESTONE-025 repository runtime composition`, pushed) |
-| Checkpoint content baseline origin/master | `0d57c36adf8b60ea3be9e86fa3814d1e2b459253` (identical — the M025 implementation freeze lineage has been pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `bb434cd19a21cf25571ab14326cfdbd536de441c` (`chore: freeze MILESTONE-026 Foundation Runtime Repository Composition design`, pushed) |
+| Checkpoint content baseline origin/master | `bb434cd19a21cf25571ab14326cfdbd536de441c` (identical — the M026 design freeze lineage has been pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -20,9 +20,9 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ```text
 LATEST_FROZEN_MILESTONE=MILESTONE-025
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=0d57c36adf8b60ea3be9e86fa3814d1e2b459253
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=0d57c36adf8b60ea3be9e86fa3814d1e2b459253
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M025_FREEZE
+CHECKPOINT_CONTENT_BASELINE_HEAD=bb434cd19a21cf25571ab14326cfdbd536de441c
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=bb434cd19a21cf25571ab14326cfdbd536de441c
+CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M026_DESIGN_FREEZE
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -72,11 +72,13 @@ M025_STATUS=APPROVED_AND_FROZEN
 
 M026_SCOPE=Foundation Runtime Repository Composition
 M026_DESIGN_COMMIT=110bdab25a7867798ec1d14faba816f22738a7d2
-M026_DESIGN_REVIEW_STATUS=NARROW_CORRECTION_APPLIED_READY_FOR_FINAL_INDEPENDENT_REVIEW
-M026_DESIGN_APPROVAL=NOT_APPROVED
-M026_DESIGN_FREEZE=NOT_FROZEN
-M026_IMPLEMENTATION_STATUS=NOT_STARTED
-M026_STATUS=NOT_IMPLEMENTED
+M026_DESIGN_CORRECTION_COMMIT=1664c8e17cedac80715b9eb82ffff14620423191
+M026_DESIGN_FREEZE_COMMIT=bb434cd19a21cf25571ab14326cfdbd536de441c
+M026_DESIGN_STATUS=APPROVED_AND_FROZEN
+M026_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
+M026_IMPLEMENTATION_APPROVAL=NOT_APPROVED
+M026_IMPLEMENTATION_FREEZE=NOT_FROZEN
+M026_STATUS=IMPLEMENTATION_COMMITTED_LOCALLY_NOT_YET_APPROVED
 M027_STATUS=NOT_STARTED
 ```
 
@@ -139,7 +141,7 @@ M025 does not authorize application services, retry policy, APIs, workers, Audit
 
 ## 6. Deferred Capabilities
 
-- M026 scope selection and design, then implementation if approved;
+- M026 implementation independent review, approval, and freeze;
 - application service orchestration after repository runtime composition exists;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
@@ -149,4 +151,6 @@ M025 does not authorize application services, retry policy, APIs, workers, Audit
 
 Select the MILESTONE-026 scope from live repository evidence and produce its Scope Selection and Design documents, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-025. MILESTONE-026 implementation may not begin until its own design is independently reviewed, separately approved, and frozen by the Project Owner.
 
-MILESTONE-026's Scope Selection and Design documents (`MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_SCOPE_SELECTION.md`, `MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_DESIGN.md`) have been produced. An independent hostile review of the Design returned `M026 DESIGN REQUIRES NARROW CORRECTION` — exactly two MINOR documentation-completeness findings (repr/credential-safety rule and test obligation; post-construction failure and cleanup semantics), no scope, ownership, construction-order, or close-semantics defect. Both findings have been corrected in the Design document (Version 1.1). MILESTONE-026 remains NOT APPROVED and NOT FROZEN pending final independent re-review and Project Owner freeze; MILESTONE-026 implementation has NOT STARTED; MILESTONE-027 has NOT STARTED.
+MILESTONE-026's Scope Selection and Design documents were produced, independently reviewed (one narrow correction round — two MINOR documentation-completeness findings, no scope/ownership/construction-order/close-semantics defect), and the corrected design (Version 1.1) was accepted by the Project Owner and frozen via `MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_DESIGN_FREEZE.md` (freeze commit `bb434cd19a21cf25571ab14326cfdbd536de441c`, pushed).
+
+The frozen design has since been implemented exactly as specified in `src/empirical_platform/shared/bootstrap.py` (one new `repository_runtime` field, isinstance-gated conditional construction in `initialize_infrastructure_runtime` and `initialize_foundation_runtime_with_postgresql`), with 17 unit tests and 5 real-PostgreSQL integration tests, documented in `MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_IMPLEMENTATION.md`, and committed locally. MILESTONE-026 implementation is committed locally and ready for independent review; it is NOT APPROVED and NOT FROZEN pending that review and a subsequent Project Owner freeze decision. MILESTONE-027 has NOT STARTED.

@@ -27,6 +27,9 @@ from empirical_platform.shared.interfaces.object_storage import ObjectStorageSer
 from empirical_platform.shared.interfaces.persistence import PersistenceService
 from empirical_platform.shared.logging.configure import FoundationLogger, configure_logging
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.runtime import (
+    PostgresRepositoryRuntime,
+)
 
 
 class RuntimeLifecycleState(StrEnum):
@@ -55,6 +58,7 @@ class FoundationRuntime:
     health: HealthReport
     persistence: PersistenceService | None = None
     object_storage: ObjectStorageService | None = None
+    repository_runtime: PostgresRepositoryRuntime | None = None
     _state: RuntimeLifecycleState = RuntimeLifecycleState.READY
     _lifecycle_events: list[RuntimeLifecycleState] = field(
         default_factory=lambda: [
@@ -236,6 +240,12 @@ def initialize_infrastructure_runtime(
         initialized.append(("persistence", persistence_service))
         _require_dependency_ready(persistence_service, layer="persistence")
 
+        repository_runtime = (
+            PostgresRepositoryRuntime(persistence_service)
+            if isinstance(persistence_service, PostgresPersistenceService)
+            else None
+        )
+
         object_storage_service = object_storage or S3ObjectStorageService(config.object_storage)
         object_storage_service.initialize()
         initialized.append(("object_storage", object_storage_service))
@@ -266,6 +276,7 @@ def initialize_infrastructure_runtime(
             health=health,
             persistence=persistence_service,
             object_storage=object_storage_service,
+            repository_runtime=repository_runtime,
             _state=RuntimeLifecycleState.READY,
             _lifecycle_events=[*lifecycle_events, RuntimeLifecycleState.READY],
         )
@@ -290,6 +301,11 @@ def initialize_foundation_runtime_with_postgresql(
     configure_logging(LoggingSettings(log_level=config.logging.log_level))
     persistence_service = persistence or PostgresPersistenceService(config.postgresql)
     persistence_service.initialize()
+    repository_runtime = (
+        PostgresRepositoryRuntime(persistence_service)
+        if isinstance(persistence_service, PostgresPersistenceService)
+        else None
+    )
     runtime = FoundationRuntime(
         config=config,
         wall_clock=wall_clock or SystemWallClock(),
@@ -327,6 +343,7 @@ def initialize_foundation_runtime_with_postgresql(
             ]
         ),
         persistence=persistence_service,
+        repository_runtime=repository_runtime,
     )
     runtime.logger.info("foundation_runtime_initialized_with_postgresql")
     return runtime
