@@ -6,7 +6,7 @@
 | --- | --- |
 | Document ID | MILESTONE-028-SCOPE-SELECTION |
 | Title | Application Query/QueryHandler Contracts Scope Selection |
-| Version | 1.0 |
+| Version | 1.1 |
 | Status | SCOPE SELECTED - PENDING INDEPENDENT REVIEW |
 | Repository baseline | `64abc16156b949491ded4ff239d2c249aac569a8` |
 | Mission type | Scope selection and design authorization only |
@@ -39,7 +39,9 @@ Live evidence gathered directly from the repository (not from memory of prior mi
 
 Classic command/query separation (CQRS) treats commands (state-changing) and queries (state-reading) as a paired, but semantically distinct, vocabulary — deliberately kept as two named concepts rather than one, because future milestones (e.g. retry policy) will need to treat them differently: queries are ordinarily safe to retry without an idempotency concern, while commands are not. Freezing only `CommandHandler` and leaving no read-side counterpart at all leaves that vocabulary half-finished, and is the single most direct, narrow, evidence-grounded gap this repository reveals today.
 
-**Explicit acknowledgment of M027's implementation status:** M027's `CommandHandler` Protocol is design-frozen but not yet implemented as source code. This milestone's own `QueryHandler` Protocol is fully independent of `CommandHandler` at the type level (no shared base, no import between them), so this Scope Selection and its Design can proceed without requiring M027 to be implemented first. However, MILESTONE-028 *implementation* additionally requires M027 to be implemented first, purely as a matter of project sequencing discipline (both contracts belong in the same `shared/contracts/` module-family and should land together or in a clearly ordered sequence, not interleaved) — this is recorded as an explicit Stop Condition (Section 14) and is not a technical dependency of the Protocol shape itself.
+**Explicit acknowledgment of M027's implementation status:** M027's `CommandHandler` Protocol is design-frozen but not yet implemented as source code. This milestone's own `QueryHandler` Protocol declares no inheritance, import, or shared base with `CommandHandler` (Design Section 9), so this Scope Selection and its Design can proceed without requiring M027 to be implemented first. However, MILESTONE-028 *implementation* additionally requires M027 to be implemented first, purely as a matter of project sequencing discipline (both contracts belong in the same `shared/contracts/` module-family and should land together or in a clearly ordered sequence, not interleaved) — this is recorded as an explicit Stop Condition (Section 16) and is not a technical dependency of the Protocol shape itself.
+
+**Correction record (Version 1.1):** an independent hostile review found that describing `QueryHandler` as "fully independent of `CommandHandler` at the type level" overstated the truth. Direct `mypy --strict` experimentation (recorded in `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN.md` Version 1.1, Section 9) proved that a single concrete class can structurally satisfy both `CommandHandler` and `QueryHandler` simultaneously when its parameter and return types align with both — Python's `Protocol` typing is structural, not nominal, and this milestone does not attempt to defeat that. This document is corrected throughout to state precisely: no *declared* relationship (no inheritance, import, alias, or shared base) exists between the two Protocols, and structural compatibility, where type arguments happen to align, is a normal, expected consequence of structural typing that this milestone neither claims to prevent nor needs to prevent (semantic separation is enforced by naming, value types, and review, not by the type system).
 
 ## 6. Candidate Inventory
 
@@ -70,6 +72,8 @@ MILESTONE-028 selects **Application Query/QueryHandler Contracts**.
 
 Purpose: freeze the read-side counterpart to M027's `CommandHandler` — a single generic, variance-correct `QueryHandler` Protocol — completing the command/query vocabulary, with **zero implementation of any concrete query, handler, or orchestration logic**, exactly mirroring M027's own (corrected) precedent.
 
+**"Read-side" is semantic, not mechanical (Version 1.1 correction):** naming this Protocol `QueryHandler` documents *intent* — that a conforming handler is meant to read rather than write. The Protocol itself cannot inspect a concrete handler's implementation body, so it cannot enforce that intent: nothing in this milestone prevents a badly-written concrete handler from calling a repository's `add`/`save` method. No read-only transaction mode, persistence abstraction, or runtime guard is introduced by this milestone (Design Section 10). Enforcing non-mutation, if ever wanted, is explicitly deferred to future, separate work.
+
 **Components evaluated:**
 
 1. a `QueryHandler[QueryT, QueryResultT]` Protocol;
@@ -87,12 +91,14 @@ Purpose: freeze the read-side counterpart to M027's `CommandHandler` — a singl
 
 - a `Query` marker type (component 2 above) — rejected for the identical reason M027 rejected a `Command` marker: an empty `Protocol` is structurally satisfied by every object;
 - a query-level error/result contract (component 3 above) — rejected because no concrete query handler yet exists to reveal what failure modes it would need to express;
-- any relationship, shared base type, or conversion between `CommandHandler` and `QueryHandler` — rejected as premature; the two remain fully independent Protocols until a concrete application-service milestone reveals whether unifying them has real value.
+- any *declared* relationship, shared base type, or conversion between `CommandHandler` and `QueryHandler` — rejected as premature; the two remain separate, unrelated-by-declaration Protocols until a concrete application-service milestone reveals whether unifying them has real value. This does not claim, and cannot claim, that the two are structurally incompatible: Python's structural typing may still accept one concrete class as satisfying both when its type arguments align (Design Section 9) — this milestone does not attempt to prevent that, and does not introduce a nominal marker class for the purpose of preventing it either.
 
 ## 9. Non-Goals
 
 - any concrete `Query` or `QueryHandler` implementation for any aggregate;
-- any relationship, shared base, or unification with `CommandHandler`;
+- any *declared* relationship, shared base, or unification with `CommandHandler` (not a claim that the two are structurally incompatible — see Section 5's correction record and Section 8);
+- a nominal marker class introduced merely to defeat structural compatibility with `CommandHandler`;
+- read-only transaction enforcement, caching, pagination wrappers, or result envelopes of any kind (Section 8);
 - application service orchestration, transaction ownership decisions, or any wiring to `PostgresRepositoryRuntime`/`run_composed`;
 - retry-on-`OptimisticConcurrencyConflict` policy, or any retry semantics specific to queries vs. commands;
 - APIs, workers, CLI entrypoints, or any change to `entrypoints/`;
@@ -106,7 +112,7 @@ Purpose: freeze the read-side counterpart to M027's `CommandHandler` — a singl
 | --- | --- | --- |
 | M020 | Repository Protocol contracts and `RepositoryContractError` taxonomy | APPROVED AND FROZEN |
 | M026 | Foundation Runtime Repository Composition | APPROVED AND FROZEN |
-| M027 | `CommandHandler` Protocol (design only; not a technical dependency of `QueryHandler`'s type shape, but a sequencing dependency for implementation — see Section 14) | DESIGN APPROVED AND FROZEN; IMPLEMENTATION NOT STARTED |
+| M027 | `CommandHandler` Protocol (design only; not a technical dependency of `QueryHandler`'s type shape, but a sequencing dependency for implementation — see Section 16) | DESIGN APPROVED AND FROZEN; IMPLEMENTATION NOT STARTED |
 
 ## 11. Architecture Constraints
 
@@ -114,7 +120,7 @@ Purpose: freeze the read-side counterpart to M027's `CommandHandler` — a singl
 - No new top-level package is introduced; `tools/check_architecture.py`'s `ALLOWED` table requires no change.
 - No domain package (`campaign`/`run`/`evidence`/`review`) is required to import the new contract as part of this milestone.
 - No import from `shared.persistence`, `sqlalchemy`, `psycopg`, or `boto3`.
-- No import from, or of, `shared.contracts.command` — `QueryHandler` and `CommandHandler` remain fully independent at the type level (Section 8).
+- No import from, or of, `shared.contracts.command` — `QueryHandler` and `CommandHandler` declare no relationship (no import, inheritance, alias, or shared base) in either direction. This is a declared-relationship constraint, not a claim that the two are structurally incompatible: Python's structural typing may still consider a sufficiently-shaped concrete class compatible with both, which this milestone does not attempt to prevent (Design Section 9).
 
 ## 12. Transaction Constraints
 
@@ -136,7 +142,9 @@ A future implementation must prove:
 - the contravariant query / covariant result variance is real, proven the same way M027's correction round verified `CommandHandler`'s variance;
 - malformed handler shapes are mechanically proven rejected by an isolated negative type-check mechanism, reusing M027's exact verified algorithm, that never pollutes the canonical `mypy` gate and is never collected by pytest as a test module;
 - only `QueryHandler` is exported from `shared/contracts/`; the underlying `TypeVar`s are not;
-- `QueryHandler` and `CommandHandler` share no base type, import relationship, or conversion function;
+- `QueryHandler` does not inherit from `CommandHandler`, `CommandHandler` does not inherit from `QueryHandler`, no shared `Handler`/`RequestHandler` base exists, `QueryHandler` does not import `CommandHandler`, and `CommandHandler` does not import `QueryHandler` (declared-relationship proof);
+- a deliberately type-compatible concrete class is accepted by `mypy` as satisfying *both* `CommandHandler[X, Y]` and `QueryHandler[X, Y]` for matching `X`/`Y`, documented as an expected Python structural-typing property rather than a defect, while a genuinely incompatible type-argument assignment is still correctly rejected (structural-compatibility proof, both directions);
+- the `QueryHandler` module exports no repository method, no transaction method, no decorator, and no runtime guard, and no documentation claim anywhere states that non-mutation is mechanically guaranteed (read-only-limitation proof);
 - no existing M020-M027 test is affected;
 - `tools/check_architecture.py` reports zero violations with the new file present.
 
@@ -151,7 +159,7 @@ STOP design work and return to scope selection if:
 
 ## 17. Acceptance Gate
 
-The design is acceptance-ready only if it freezes, with no remaining ambiguity: the exact, variance-correct `QueryHandler` shape; the exact package/file placement; the exact export surface; the exact, justified decisions not to freeze a `Query` marker, a query-level error type, or any relationship to `CommandHandler`; the exact, `mypy`-verified negative type-check mechanism; and exact test obligations.
+The design is acceptance-ready only if it freezes, with no remaining ambiguity: the exact, variance-correct `QueryHandler` shape; the exact package/file placement; the exact export surface; the exact, justified decisions not to freeze a `Query` marker or a query-level error type; the exact, honest declared-relationship-vs-structural-typing-reality distinction with respect to `CommandHandler` (no overclaim of nominal or type-level non-interchangeability); the exact, honest limits of what `QueryHandler` can and cannot enforce about read-only behavior; the exact, `mypy`-verified negative type-check mechanism; and exact test obligations.
 
 ## 18. Hostile Self-Review
 
@@ -162,6 +170,9 @@ The design is acceptance-ready only if it freezes, with no remaining ambiguity: 
 5. **Does this silently couple to, or depend on, `CommandHandler`'s implementation status?** No — Section 5 explicitly documents that `QueryHandler`'s type shape requires nothing from `CommandHandler`; only the *implementation sequencing* (Section 16) references M027, and that is recorded as a project-discipline decision, not a technical necessity.
 6. **Is this milestone narrow enough to actually finish in one pass?** Yes — it is contracts-only, structurally near-identical to M027's own now-corrected, proven pattern.
 7. **Does this leak into M029?** No — nothing here presumes or requires any named future milestone; it only completes the command/query vocabulary that a future "Application Service Orchestration" milestone would consume.
+8. **Does this document claim `QueryHandler` and `CommandHandler` are structurally incompatible, when Python's structural typing may accept one concrete class as satisfying both?** No (Version 1.1 correction) — Section 5's correction record, Section 8's selected/rejected breakdown, and Section 11's architecture constraint all now state the precise, verified truth: no declared relationship, but structural compatibility is possible and not prevented.
+9. **Does this document claim read-only behavior is mechanically enforced?** No (Version 1.1 correction) — Section 8 explicitly states the Protocol cannot inspect implementation bodies and introduces no enforcement mechanism.
+10. **Does this milestone introduce a nominal marker class to defeat structural compatibility?** No — Section 9 explicitly lists this as a non-goal, and Design Section 23 Item 7 records the reasoning for rejecting it.
 
 ## 19. Final Decision
 

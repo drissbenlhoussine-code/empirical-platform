@@ -85,7 +85,14 @@ M027_DESIGN_FREEZE_COMMIT=64abc16156b949491ded4ff239d2c249aac569a8
 M027_DESIGN_STATUS=APPROVED_AND_FROZEN
 M027_IMPLEMENTATION_STATUS=NOT_STARTED
 M027_STATUS=DESIGN_APPROVED_AND_FROZEN_IMPLEMENTATION_NOT_STARTED
+
+M028_SCOPE=Application Query/QueryHandler Contracts
+M028_DESIGN_COMMIT=db99194277aecef7b5a5c74f576a940d6e24e399
+M028_DESIGN_REVIEW_STATUS=NARROW_CORRECTION_APPLIED_READY_FOR_FINAL_INDEPENDENT_REVIEW
+M028_DESIGN_APPROVAL=NOT_APPROVED
+M028_DESIGN_FREEZE=NOT_FROZEN
 M028_STATUS=NOT_IMPLEMENTED
+M029_STATUS=NOT_STARTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -185,3 +192,5 @@ M026 does not authorize application services, retry policy, APIs, workers, Audit
 MILESTONE-027's Scope Selection and Design documents were produced, independently reviewed (one narrow correction round — two MAJOR findings on generic variance and the negative type-check strategy, one MINOR finding on stale Scope Selection wording, all corrected in Version 1.1 of both documents), and the corrected design was accepted by the Project Owner and frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md` (freeze commit `64abc16156b949491ded4ff239d2c249aac569a8`, pushed).
 
 MILESTONE-027 implementation is authorized but has not started. In parallel, the Project Owner authorized selecting and designing MILESTONE-028 from live repository evidence — MILESTONE-028 implementation may not begin until its own design is independently reviewed, separately approved, and frozen, and MILESTONE-028 implementation additionally requires MILESTONE-027 to be implemented first, since MILESTONE-028 designs against the `CommandHandler` Protocol shape M027 froze.
+
+MILESTONE-028's Scope Selection and Design documents were produced and independently reviewed. The review returned one MAJOR finding (the documents overstated that `QueryHandler` and `CommandHandler` are "fully independent at the type level," when Python's structural typing can accept one concrete class as satisfying both Protocols simultaneously when types align — verified directly against the project's `mypy --strict` configuration) and one MINOR finding (the documents did not state clearly enough that `QueryHandler`'s read-only naming is semantic only, not mechanically enforced). Both findings have been corrected in Version 1.1 of both documents. MILESTONE-028 remains NOT APPROVED and NOT FROZEN pending final independent re-review and Project Owner freeze; MILESTONE-028 implementation has NOT STARTED; MILESTONE-029 has NOT STARTED.
