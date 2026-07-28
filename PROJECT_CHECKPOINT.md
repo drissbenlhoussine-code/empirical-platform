@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `45f4916d1fcdd76b28fffa81c23704f6b0355c3d` (`chore: freeze MILESTONE-026 Foundation Runtime Repository Composition`, pushed) |
-| Checkpoint content baseline origin/master | `45f4916d1fcdd76b28fffa81c23704f6b0355c3d` (identical — the M026 implementation freeze lineage has been pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `64abc16156b949491ded4ff239d2c249aac569a8` (`chore: freeze MILESTONE-027 Application Command/Handler Contracts design`, pushed) |
+| Checkpoint content baseline origin/master | `64abc16156b949491ded4ff239d2c249aac569a8` (identical — the M027 design freeze lineage has been pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -20,9 +20,9 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ```text
 LATEST_FROZEN_MILESTONE=MILESTONE-026
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=45f4916d1fcdd76b28fffa81c23704f6b0355c3d
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=45f4916d1fcdd76b28fffa81c23704f6b0355c3d
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M026_FREEZE
+CHECKPOINT_CONTENT_BASELINE_HEAD=64abc16156b949491ded4ff239d2c249aac569a8
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=64abc16156b949491ded4ff239d2c249aac569a8
+CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M027_DESIGN_FREEZE
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -80,11 +80,12 @@ M026_STATUS=APPROVED_AND_FROZEN
 
 M027_SCOPE=Application Command/Handler Contracts
 M027_DESIGN_COMMIT=2b914ffdf4425d7d6904caaa681d39142d73ba7e
-M027_DESIGN_REVIEW_STATUS=NARROW_CORRECTION_APPLIED_READY_FOR_FINAL_INDEPENDENT_REVIEW
-M027_DESIGN_APPROVAL=NOT_APPROVED
-M027_DESIGN_FREEZE=NOT_FROZEN
-M027_STATUS=NOT_IMPLEMENTED
-M028_STATUS=NOT_STARTED
+M027_DESIGN_CORRECTION_COMMIT=7753b135bb324a7c1337c542d87660a855c3ee0f
+M027_DESIGN_FREEZE_COMMIT=64abc16156b949491ded4ff239d2c249aac569a8
+M027_DESIGN_STATUS=APPROVED_AND_FROZEN
+M027_IMPLEMENTATION_STATUS=NOT_STARTED
+M027_STATUS=DESIGN_APPROVED_AND_FROZEN_IMPLEMENTATION_NOT_STARTED
+M028_STATUS=NOT_IMPLEMENTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -172,14 +173,15 @@ M026 does not authorize application services, retry policy, APIs, workers, Audit
 
 ## 7. Deferred Capabilities
 
-- M027 scope selection and design, then implementation if approved;
-- application service orchestration after repository runtime composition exists;
+- MILESTONE-027 implementation (design approved and frozen; not yet built);
+- MILESTONE-028 scope selection and design (in progress alongside this checkpoint update; implementation not authorized);
+- application service orchestration after repository runtime composition and the command/query vocabulary exist;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
 - market-data, vendor, trading, or empirical campaign execution behavior.
 
 ## 8. Next Authorized Work
 
-Select the MILESTONE-027 scope from live repository evidence and produce its Scope Selection and Design documents, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-026. MILESTONE-027 implementation may not begin until its own design is independently reviewed, separately approved, and frozen by the Project Owner.
+MILESTONE-027's Scope Selection and Design documents were produced, independently reviewed (one narrow correction round — two MAJOR findings on generic variance and the negative type-check strategy, one MINOR finding on stale Scope Selection wording, all corrected in Version 1.1 of both documents), and the corrected design was accepted by the Project Owner and frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md` (freeze commit `64abc16156b949491ded4ff239d2c249aac569a8`, pushed).
 
-MILESTONE-027's Scope Selection and Design documents (`MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_SCOPE_SELECTION.md`, `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN.md`) have been produced. An independent hostile review of the Design returned `M027 DESIGN REQUIRES NARROW CORRECTION` — two MAJOR findings (generic variance on the frozen `CommandHandler` Protocol was invariant rather than contravariant/covariant, an actual `mypy`-rejected defect verified by direct experimentation; the negative type-check strategy for proving malformed handlers are rejected was undefined) and one MINOR finding (the Scope Selection still described a `Command` marker and a handler-level error contract as selected, when the Design had already rejected both). All three findings have been corrected in the Design document (Version 1.1) and the Scope Selection document (Version 1.1). MILESTONE-027 remains NOT APPROVED and NOT FROZEN pending final independent re-review and Project Owner freeze; MILESTONE-027 implementation has NOT STARTED; MILESTONE-028 has NOT STARTED.
+MILESTONE-027 implementation is authorized but has not started. In parallel, the Project Owner authorized selecting and designing MILESTONE-028 from live repository evidence — MILESTONE-028 implementation may not begin until its own design is independently reviewed, separately approved, and frozen, and MILESTONE-028 implementation additionally requires MILESTONE-027 to be implemented first, since MILESTONE-028 designs against the `CommandHandler` Protocol shape M027 froze.
