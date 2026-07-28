@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `bb434cd19a21cf25571ab14326cfdbd536de441c` (`chore: freeze MILESTONE-026 Foundation Runtime Repository Composition design`, pushed) |
-| Checkpoint content baseline origin/master | `bb434cd19a21cf25571ab14326cfdbd536de441c` (identical — the M026 design freeze lineage has been pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `45f4916d1fcdd76b28fffa81c23704f6b0355c3d` (`chore: freeze MILESTONE-026 Foundation Runtime Repository Composition`, pushed) |
+| Checkpoint content baseline origin/master | `45f4916d1fcdd76b28fffa81c23704f6b0355c3d` (identical — the M026 implementation freeze lineage has been pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -18,11 +18,11 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-025
+LATEST_FROZEN_MILESTONE=MILESTONE-026
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=bb434cd19a21cf25571ab14326cfdbd536de441c
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=bb434cd19a21cf25571ab14326cfdbd536de441c
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M026_DESIGN_FREEZE
+CHECKPOINT_CONTENT_BASELINE_HEAD=45f4916d1fcdd76b28fffa81c23704f6b0355c3d
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=45f4916d1fcdd76b28fffa81c23704f6b0355c3d
+CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M026_FREEZE
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -74,12 +74,10 @@ M026_SCOPE=Foundation Runtime Repository Composition
 M026_DESIGN_COMMIT=110bdab25a7867798ec1d14faba816f22738a7d2
 M026_DESIGN_CORRECTION_COMMIT=1664c8e17cedac80715b9eb82ffff14620423191
 M026_DESIGN_FREEZE_COMMIT=bb434cd19a21cf25571ab14326cfdbd536de441c
-M026_DESIGN_STATUS=APPROVED_AND_FROZEN
-M026_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
-M026_IMPLEMENTATION_APPROVAL=NOT_APPROVED
-M026_IMPLEMENTATION_FREEZE=NOT_FROZEN
-M026_STATUS=IMPLEMENTATION_COMMITTED_LOCALLY_NOT_YET_APPROVED
-M027_STATUS=NOT_STARTED
+M026_IMPLEMENTATION_COMMIT=c6802c5d3f3b295368fa36d8d50cd26ecca8f460
+M026_IMPLEMENTATION_FREEZE_COMMIT=45f4916d1fcdd76b28fffa81c23704f6b0355c3d
+M026_STATUS=APPROVED_AND_FROZEN
+M027_STATUS=NOT_IMPLEMENTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -95,6 +93,8 @@ M023 froze concrete PostgreSQL mappers and repository adapters implementing M020
 M024 froze the low-level multi-aggregate persistence Unit of Work primitive, exposed only as `PostgresPersistenceService.run_composed(operations)`, allowing multiple repository operations that share one `PostgresPersistenceService` to commit or roll back atomically without changing repository Protocols or concrete repository adapter source files.
 
 M025 froze the repository runtime composition boundary, `PostgresRepositoryRuntime`, composing the four M023 repository adapters over one shared, caller-owned `PostgresPersistenceService` and delegating cross-repository atomic execution to the frozen M024 `run_composed` primitive, with eager one-time construction, `is`-stable property identity, mandatory constructor validation, no readiness probe, and independent-root support governed by the existing M024 same-service-identity rule.
+
+M026 froze the extension of the existing `FoundationRuntime` process-startup composition root with a `repository_runtime: PostgresRepositoryRuntime | None` field, constructed inside `initialize_infrastructure_runtime` and `initialize_foundation_runtime_with_postgresql` only when the persistence service in use is a real `PostgresPersistenceService` (an `isinstance` guard that leaves the field `None` for every `FakePersistenceService`-based caller, preserving all pre-existing bootstrap test behavior unmodified), with the identical same-service-identity, no-second-cleanup-entry, and repr/credential-safety discipline M025 already established.
 
 ## 4. MILESTONE-024 Closure Evidence
 
@@ -139,18 +139,38 @@ Fresh freeze validation:
 
 M025 does not authorize application services, retry policy, APIs, workers, Audit runtime, Decision Candidate, Decision Freeze, market-data behavior, vendor behavior, trading behavior, or any empirical campaign execution, or any MILESTONE-026 implementation.
 
-## 6. Deferred Capabilities
+## 6. MILESTONE-026 Closure Evidence
 
-- M026 implementation independent review, approval, and freeze;
+M026 implementation freeze commit: `45f4916d1fcdd76b28fffa81c23704f6b0355c3d`.
+
+Authority chain: design `110bdab25a7867798ec1d14faba816f22738a7d2` → design correction `1664c8e17cedac80715b9eb82ffff14620423191` → design freeze `bb434cd19a21cf25571ab14326cfdbd536de441c` → implementation `c6802c5d3f3b295368fa36d8d50cd26ecca8f460` → implementation freeze `45f4916d1fcdd76b28fffa81c23704f6b0355c3d`. Repository evidence after M025 identified the scope as **Foundation Runtime Repository Composition** (the one process-startup composition root, `FoundationRuntime`, had no way to obtain a `PostgresRepositoryRuntime`, and the existing bootstrap test suite revealed the `FakePersistenceService`-compatibility constraint the design had to resolve).
+
+Independent review found exactly two MINOR documentation-completeness findings at the design stage (repr/credential-safety rule and test obligation; post-construction failure and cleanup semantics — both corrected in the design-correction commit) and no finding at all at the implementation stage. No functional, architectural, PostgreSQL, test, or security defect was found at any stage.
+
+Fresh freeze validation:
+
+| Gate | Result |
+| --- | --- |
+| Python | 3.13.14 |
+| Full `scripts/verify.ps1` | PASS - `406 passed, 110 skipped`, coverage `82.70%` |
+| `scripts/security.ps1` | PASS - pip-audit clean, secret scan 271-272 targets |
+| Ruff format/check | PASS |
+| mypy | PASS - 80 source files |
+| Architecture checker | PASS |
+| Build | PASS - sdist and wheel built |
+| Disposable PostgreSQL regression | PASS - `101 passed` across M022/M023/M024/M025/M026 integration suites |
+| External review package | PASS - `complete.diff` byte-identical to Git, 29/29 manifest hashes verified, ZIP SHA-256 `5be251764869a1a2069ee46148d0b0e650517b0f5c53b6fe29c2f769e169ee9a` |
+
+M026 does not authorize application services, retry policy, APIs, workers, Audit runtime, Decision Candidate, Decision Freeze, market-data behavior, vendor behavior, trading behavior, or any empirical campaign execution, or any MILESTONE-027 implementation.
+
+## 7. Deferred Capabilities
+
+- M027 scope selection and design, then implementation if approved;
 - application service orchestration after repository runtime composition exists;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
 - market-data, vendor, trading, or empirical campaign execution behavior.
 
-## 7. Next Authorized Work
+## 8. Next Authorized Work
 
-Select the MILESTONE-026 scope from live repository evidence and produce its Scope Selection and Design documents, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-025. MILESTONE-026 implementation may not begin until its own design is independently reviewed, separately approved, and frozen by the Project Owner.
-
-MILESTONE-026's Scope Selection and Design documents were produced, independently reviewed (one narrow correction round — two MINOR documentation-completeness findings, no scope/ownership/construction-order/close-semantics defect), and the corrected design (Version 1.1) was accepted by the Project Owner and frozen via `MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_DESIGN_FREEZE.md` (freeze commit `bb434cd19a21cf25571ab14326cfdbd536de441c`, pushed).
-
-The frozen design has since been implemented exactly as specified in `src/empirical_platform/shared/bootstrap.py` (one new `repository_runtime` field, isinstance-gated conditional construction in `initialize_infrastructure_runtime` and `initialize_foundation_runtime_with_postgresql`), with 17 unit tests and 5 real-PostgreSQL integration tests, documented in `MILESTONE_026_FOUNDATION_RUNTIME_REPOSITORY_COMPOSITION_IMPLEMENTATION.md`, and committed locally. MILESTONE-026 implementation is committed locally and ready for independent review; it is NOT APPROVED and NOT FROZEN pending that review and a subsequent Project Owner freeze decision. MILESTONE-027 has NOT STARTED.
+Select the MILESTONE-027 scope from live repository evidence and produce its Scope Selection and Design documents, following the same design → freeze → implementation → freeze discipline used for MILESTONE-019 through MILESTONE-026. MILESTONE-027 implementation may not begin until its own design is independently reviewed, separately approved, and frozen by the Project Owner.
