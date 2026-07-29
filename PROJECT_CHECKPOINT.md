@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `30fd36d182330131cd8f32c4a79386c11625f2d8` (`fix: update PROJECT_CHECKPOINT.md for M028 design freeze and M027 status`, pushed) |
-| Checkpoint content baseline origin/master | `30fd36d182330131cd8f32c4a79386c11625f2d8` (identical — pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `b37671a2a9316d94c222aba66ee94b80351c8716` (`chore: freeze MILESTONE-027 Application Command/Handler Contracts implementation`, pushed) |
+| Checkpoint content baseline origin/master | `b37671a2a9316d94c222aba66ee94b80351c8716` (identical — pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -20,9 +20,9 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ```text
 LATEST_FROZEN_MILESTONE=MILESTONE-026
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=30fd36d182330131cd8f32c4a79386c11625f2d8
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=30fd36d182330131cd8f32c4a79386c11625f2d8
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_BEFORE_M027_IMPLEMENTATION_FREEZE
+CHECKPOINT_CONTENT_BASELINE_HEAD=b37671a2a9316d94c222aba66ee94b80351c8716
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=b37671a2a9316d94c222aba66ee94b80351c8716
+CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M027_IMPLEMENTATION_FREEZE
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -94,8 +94,11 @@ M028_DESIGN_COMMIT=db99194277aecef7b5a5c74f576a940d6e24e399
 M028_DESIGN_CORRECTION_COMMIT=bff0865f7f2495b1854a86d04c0db66ecb0512b1
 M028_DESIGN_FREEZE_COMMIT=e062d14ef80feb3df4f4862c3e117fb930b41c01
 M028_DESIGN_STATUS=APPROVED_AND_FROZEN
-M028_IMPLEMENTATION_STATUS=NOT_STARTED
-M028_STATUS=DESIGN_APPROVED_AND_FROZEN_IMPLEMENTATION_NOT_STARTED
+M028_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
+M028_IMPLEMENTATION_APPROVAL=NOT_APPROVED
+M028_IMPLEMENTATION_FREEZE=NOT_FROZEN
+M028_STATUS=IMPLEMENTATION_COMMITTED_LOCALLY_NOT_YET_APPROVED
+M029_STATUS=NOT_STARTED
 M029_STATUS=NOT_STARTED
 ```
 
@@ -207,7 +210,7 @@ M027 does not authorize any concrete `Command`/`CommandHandler` implementation, 
 
 ## 8. Deferred Capabilities
 
-- MILESTONE-028 implementation;
+- MILESTONE-028 implementation independent review, approval, and freeze (implemented; not yet approved);
 - application service orchestration after repository runtime composition and the command/query vocabulary exist;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
@@ -215,8 +218,8 @@ M027 does not authorize any concrete `Command`/`CommandHandler` implementation, 
 
 ## 9. Next Authorized Work
 
-MILESTONE-027 is now `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7): the corrected design (Version 1.1) was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`.
+MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7): the corrected design (Version 1.1) was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`.
 
-MILESTONE-028 is `DESIGN_APPROVED_AND_FROZEN` (Section 2), with implementation not yet started. Both of its preconditions are now satisfied: its own design is independently reviewed, approved, and frozen, and MILESTONE-027 implementation is independently reviewed, approved, frozen, and pushed.
+MILESTONE-028 has since been implemented exactly as its frozen design specifies: `QueryHandler[_QueryT_contra, _QueryResultT_co]` in `src/empirical_platform/shared/contracts/query.py`, exported from `shared/contracts/__init__.py` alongside the unchanged `CommandHandler` export, with the frozen `TYPE_CHECKING` conformance and variance proofs, the frozen negative-typing-fixture mechanism under `tests/typing_fixtures/query_handler/`, the declared-relationship and structural-compatibility fixtures/tests under `tests/typing_fixtures/command_query_relationship/`, and 22 new unit tests, documented in `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION.md`. MILESTONE-028 implementation is committed locally and ready for independent review; it is NOT APPROVED and NOT FROZEN pending that review and a subsequent Project Owner freeze decision.
 
-**Next permitted action:** MILESTONE-028 Application Query/QueryHandler Contracts implementation, following the identical design → implement → review → freeze discipline used for MILESTONE-027, subject to its own separate implementation review, approval, and freeze before any MILESTONE-029 work.
+**Next permitted action:** independent review of the MILESTONE-028 implementation, following the identical review → approve → freeze discipline used for MILESTONE-027, before any MILESTONE-029 work.

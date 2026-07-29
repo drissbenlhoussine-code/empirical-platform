@@ -7,6 +7,7 @@ from empirical_platform.shared.contracts.mapping import (
     MapperErrorCategory,
     TransitionDurableRecord,
 )
+from empirical_platform.shared.contracts.query import QueryHandler
 from empirical_platform.shared.contracts.repository import (
     AggregateAlreadyExists,
     AggregateNotFound,
@@ -30,6 +31,7 @@ __all__ = [
     "MapperError",
     "MapperErrorCategory",
     "OptimisticConcurrencyConflict",
+    "QueryHandler",
     "RepositoryContractError",
     "SaveOperation",
     "SaveResult",
