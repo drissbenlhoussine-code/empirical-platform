@@ -18,11 +18,11 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-026
+LATEST_FROZEN_MILESTONE=MILESTONE-028
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=b37671a2a9316d94c222aba66ee94b80351c8716
+CHECKPOINT_CONTENT_BASELINE_HEAD=8d3069a464ba58d53b51e687d142a7e42474e7af
 CHECKPOINT_CONTENT_BASELINE_ORIGIN=b37671a2a9316d94c222aba66ee94b80351c8716
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M027_IMPLEMENTATION_FREEZE
+CHECKPOINT_CONTENT_BASELINE_STATUS=LOCAL_HEAD_AHEAD_OF_ORIGIN_BY_2_COMMITS_PENDING_M028_IMPLEMENTATION_FREEZE_PUSH
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -94,10 +94,12 @@ M028_DESIGN_COMMIT=db99194277aecef7b5a5c74f576a940d6e24e399
 M028_DESIGN_CORRECTION_COMMIT=bff0865f7f2495b1854a86d04c0db66ecb0512b1
 M028_DESIGN_FREEZE_COMMIT=e062d14ef80feb3df4f4862c3e117fb930b41c01
 M028_DESIGN_STATUS=APPROVED_AND_FROZEN
-M028_IMPLEMENTATION_STATUS=COMMITTED_LOCALLY_READY_FOR_INDEPENDENT_REVIEW
-M028_IMPLEMENTATION_APPROVAL=NOT_APPROVED
-M028_IMPLEMENTATION_FREEZE=NOT_FROZEN
-M028_STATUS=IMPLEMENTATION_COMMITTED_LOCALLY_NOT_YET_APPROVED
+M028_IMPLEMENTATION_COMMIT=a71de466c707f5665f6826f0fcb35f1aee90181c
+M028_IMPLEMENTATION_CORRECTION_COMMIT=8d3069a464ba58d53b51e687d142a7e42474e7af
+M028_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M028_IMPLEMENTATION_APPROVAL=APPROVED
+M028_IMPLEMENTATION_FREEZE=FROZEN
+M028_STATUS=APPROVED_AND_FROZEN
 M029_STATUS=NOT_STARTED
 ```
 
@@ -118,6 +120,8 @@ M025 froze the repository runtime composition boundary, `PostgresRepositoryRunti
 M026 froze the extension of the existing `FoundationRuntime` process-startup composition root with a `repository_runtime: PostgresRepositoryRuntime | None` field, constructed inside `initialize_infrastructure_runtime` and `initialize_foundation_runtime_with_postgresql` only when the persistence service in use is a real `PostgresPersistenceService` (an `isinstance` guard that leaves the field `None` for every `FakePersistenceService`-based caller, preserving all pre-existing bootstrap test behavior unmodified), with the identical same-service-identity, no-second-cleanup-entry, and repr/credential-safety discipline M025 already established.
 
 M027 froze the persistence-neutral, domain-agnostic `CommandHandler[_CommandT_contra, _ResultT_co]` Protocol in `shared/contracts/command.py` — the application-layer command/write-side vocabulary — with verified contravariant/covariant generics, a mypy-checked positive conformance proof, and an isolated, empirically verified negative type-check fixture mechanism kept outside the canonical `mypy` gate. No concrete command, handler, orchestration, dispatcher, registry, or error hierarchy was introduced.
+
+M028 froze the persistence-neutral, domain-agnostic `QueryHandler[_QueryT_contra, _QueryResultT_co]` Protocol in `shared/contracts/query.py` — the application-layer query/read-side counterpart to M027's `CommandHandler` — with the identical verified contravariant/covariant generics pattern, a mypy-checked positive conformance proof, the identical negative type-check fixture mechanism, and an explicit frozen distinction between the two contracts' declared relationship (no inheritance, shared base, alias, or cross-import) and Python's structural-typing reality (a single concrete class may satisfy both Protocols simultaneously when types align, which this design does not attempt to prevent). Read-side intent is semantic only; no mechanical read-only enforcement exists. No concrete query, handler, orchestration, dispatcher, registry, cache, pagination wrapper, or error hierarchy was introduced.
 
 ## 4. MILESTONE-024 Closure Evidence
 
@@ -207,18 +211,37 @@ Fresh freeze validation:
 
 M027 does not authorize any concrete `Command`/`CommandHandler` implementation, a handler-level error hierarchy, a `Command` marker, a dispatcher/registry, application service orchestration, retry policy, APIs, workers, Audit runtime, Decision Candidate, Decision Freeze, market-data/vendor/trading/campaign execution behavior, or any MILESTONE-028 implementation start on its own authority.
 
-## 8. Deferred Capabilities
+## 8. MILESTONE-028 Closure Evidence
 
-- MILESTONE-028 implementation independent review, approval, and freeze (implemented; not yet approved);
-- application service orchestration after repository runtime composition and the command/query vocabulary exist;
+Authority chain: design `db99194277aecef7b5a5c74f576a940d6e24e399` → design correction `bff0865f7f2495b1854a86d04c0db66ecb0512b1` → design freeze `e062d14ef80feb3df4f4862c3e117fb930b41c01` → implementation `a71de466c707f5665f6826f0fcb35f1aee90181c` → narrow checkpoint correction `8d3069a464ba58d53b51e687d142a7e42474e7af` (removed one duplicated `M029_STATUS=NOT_STARTED` line from this document's own prior Section 2, discovered during repository-truth verification; no source, test, or fixture file touched) → implementation freeze recorded via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md` (this checkpoint update is bundled into that same freeze commit; see that document for the exact freeze commit's own hash, which this content cannot self-cite without a recursive cycle — see Section 1's self-reference note). Repository evidence after M027 identified the scope as **Application Query/QueryHandler Contracts** — the CQRS read-side counterpart to M027's `CommandHandler`.
+
+Independent review found one MAJOR finding at the design stage (structural interchangeability with `CommandHandler` was overstated as "no type relationship" when Python's structural typing allows one concrete class to satisfy both Protocols simultaneously when types align) and one MINOR finding (read-only semantics described without stating clearly that it is not mechanically enforced) — both corrected in the design-correction commit. Independent review of the implementation found zero CRITICAL, zero MAJOR, and zero blocking MINOR findings; no implementation correction commit was required. The narrow checkpoint correction (`8d3069a`) is a documentation-only truth fix discovered during freeze-mission repository-truth verification, not an implementation defect.
+
+Fresh freeze validation:
+
+| Gate | Result |
+| --- | --- |
+| Python | 3.13.14 |
+| Full `scripts/verify.ps1` | PASS - `438 passed, 110 skipped`, coverage `82.77%` |
+| `scripts/security.ps1` | PASS - pip-audit clean, secret scan 302 targets |
+| Ruff format/check | PASS - 176 files formatted |
+| mypy | PASS - 82 source files |
+| Architecture checker | PASS |
+| Build | PASS - sdist and wheel built |
+| External review package | PASS - `complete.diff` byte-identical to Git, 40/40 manifest hashes verified, ZIP SHA-256 `7a619efc5b447051012587a2683be5bae620b714ce9632e43f6870480e487f73` |
+
+M028 does not authorize any concrete `Query`/`QueryHandler` implementation, a declared relationship/shared base/unification with `CommandHandler`, a query-level error hierarchy, a `Query` marker, a dispatcher/registry, caching, pagination, read-only transaction enforcement, application service orchestration, retry policy, APIs, workers, Audit runtime, Decision Candidate, Decision Freeze, market-data/vendor/trading/campaign execution behavior, or any MILESTONE-029 work.
+
+## 9. Deferred Capabilities
+
+- application service orchestration now that both the command and query vocabularies (M027 `CommandHandler`, M028 `QueryHandler`) exist;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
-- market-data, vendor, trading, or empirical campaign execution behavior.
+- market-data, vendor, trading, or empirical campaign execution behavior;
+- MILESTONE-029 scope selection.
 
-## 9. Next Authorized Work
+## 10. Next Authorized Work
 
-MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7): the corrected design (Version 1.1) was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`.
+MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`.
 
-MILESTONE-028 has since been implemented exactly as its frozen design specifies: `QueryHandler[_QueryT_contra, _QueryResultT_co]` in `src/empirical_platform/shared/contracts/query.py`, exported from `shared/contracts/__init__.py` alongside the unchanged `CommandHandler` export, with the frozen `TYPE_CHECKING` conformance and variance proofs, the frozen negative-typing-fixture mechanism under `tests/typing_fixtures/query_handler/`, the declared-relationship and structural-compatibility fixtures/tests under `tests/typing_fixtures/command_query_relationship/`, and 22 new unit tests, documented in `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION.md`. MILESTONE-028 implementation is committed locally and ready for independent review; it is NOT APPROVED and NOT FROZEN pending that review and a subsequent Project Owner freeze decision.
-
-**Next permitted action:** independent review of the MILESTONE-028 implementation, following the identical review → approve → freeze discipline used for MILESTONE-027, before any MILESTONE-029 work.
+**Next permitted action:** MILESTONE-029 scope selection.
