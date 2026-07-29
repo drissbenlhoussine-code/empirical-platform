@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `e062d14ef80feb3df4f4862c3e117fb930b41c01` (`chore: freeze MILESTONE-028 Application Query/QueryHandler Contracts design`, pushed) |
-| Checkpoint content baseline origin/master | `e062d14ef80feb3df4f4862c3e117fb930b41c01` (identical — this lineage, which incidentally also carries the earlier M027 implementation commit `c7bc632` as an ancestor, has been pushed; see Section 8) |
+| Checkpoint content baseline (HEAD this content was authored against) | `30fd36d182330131cd8f32c4a79386c11625f2d8` (`fix: update PROJECT_CHECKPOINT.md for M028 design freeze and M027 status`, pushed) |
+| Checkpoint content baseline origin/master | `30fd36d182330131cd8f32c4a79386c11625f2d8` (identical — pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -20,9 +20,9 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ```text
 LATEST_FROZEN_MILESTONE=MILESTONE-026
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=e062d14ef80feb3df4f4862c3e117fb930b41c01
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=e062d14ef80feb3df4f4862c3e117fb930b41c01
-CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M028_DESIGN_FREEZE
+CHECKPOINT_CONTENT_BASELINE_HEAD=30fd36d182330131cd8f32c4a79386c11625f2d8
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=30fd36d182330131cd8f32c4a79386c11625f2d8
+CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_BEFORE_M027_IMPLEMENTATION_FREEZE
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -84,10 +84,10 @@ M027_DESIGN_CORRECTION_COMMIT=7753b135bb324a7c1337c542d87660a855c3ee0f
 M027_DESIGN_FREEZE_COMMIT=64abc16156b949491ded4ff239d2c249aac569a8
 M027_DESIGN_STATUS=APPROVED_AND_FROZEN
 M027_IMPLEMENTATION_COMMIT=c7bc632a1568203f33635191ea70b4e5784e1d86
-M027_IMPLEMENTATION_STATUS=COMMITTED_AND_PUSHED_READY_FOR_INDEPENDENT_REVIEW
-M027_IMPLEMENTATION_APPROVAL=NOT_APPROVED
-M027_IMPLEMENTATION_FREEZE=NOT_FROZEN
-M027_STATUS=IMPLEMENTATION_PUSHED_NOT_YET_APPROVED
+M027_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M027_IMPLEMENTATION_APPROVAL=APPROVED
+M027_IMPLEMENTATION_FREEZE=FROZEN
+M027_STATUS=APPROVED_AND_FROZEN
 
 M028_SCOPE=Application Query/QueryHandler Contracts
 M028_DESIGN_COMMIT=db99194277aecef7b5a5c74f576a940d6e24e399
@@ -114,6 +114,8 @@ M024 froze the low-level multi-aggregate persistence Unit of Work primitive, exp
 M025 froze the repository runtime composition boundary, `PostgresRepositoryRuntime`, composing the four M023 repository adapters over one shared, caller-owned `PostgresPersistenceService` and delegating cross-repository atomic execution to the frozen M024 `run_composed` primitive, with eager one-time construction, `is`-stable property identity, mandatory constructor validation, no readiness probe, and independent-root support governed by the existing M024 same-service-identity rule.
 
 M026 froze the extension of the existing `FoundationRuntime` process-startup composition root with a `repository_runtime: PostgresRepositoryRuntime | None` field, constructed inside `initialize_infrastructure_runtime` and `initialize_foundation_runtime_with_postgresql` only when the persistence service in use is a real `PostgresPersistenceService` (an `isinstance` guard that leaves the field `None` for every `FakePersistenceService`-based caller, preserving all pre-existing bootstrap test behavior unmodified), with the identical same-service-identity, no-second-cleanup-entry, and repr/credential-safety discipline M025 already established.
+
+M027 froze the persistence-neutral, domain-agnostic `CommandHandler[_CommandT_contra, _ResultT_co]` Protocol in `shared/contracts/command.py` — the application-layer command/write-side vocabulary — with verified contravariant/covariant generics, a mypy-checked positive conformance proof, and an isolated, empirically verified negative type-check fixture mechanism kept outside the canonical `mypy` gate. No concrete command, handler, orchestration, dispatcher, registry, or error hierarchy was introduced.
 
 ## 4. MILESTONE-024 Closure Evidence
 
@@ -182,25 +184,39 @@ Fresh freeze validation:
 
 M026 does not authorize application services, retry policy, APIs, workers, Audit runtime, Decision Candidate, Decision Freeze, market-data behavior, vendor behavior, trading behavior, or any empirical campaign execution, or any MILESTONE-027 implementation.
 
-## 7. Deferred Capabilities
+## 7. MILESTONE-027 Closure Evidence
 
-- MILESTONE-027 implementation independent review, approval, and freeze (implemented and pushed; not yet approved);
-- MILESTONE-028 implementation (design approved and frozen; blocked until MILESTONE-027 implementation is independently reviewed, approved, frozen, and pushed — the push precondition is already satisfied, see Section 8);
+Authority chain: design `2b914ffdf4425d7d6904caaa681d39142d73ba7e` → design correction `7753b135bb324a7c1337c542d87660a855c3ee0f` → design freeze `64abc16156b949491ded4ff239d2c249aac569a8` → implementation `c7bc632a1568203f33635191ea70b4e5784e1d86` → implementation freeze recorded via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md` (this checkpoint update is bundled into that same freeze commit; see that document for the exact freeze commit's own hash, which this content cannot self-cite without a recursive cycle — see Section 1's self-reference note). Repository evidence after M026 identified the scope as **Application Command/Handler Contracts** (no `Command`/`Handler` type existed anywhere in the codebase; M020's repository-Protocol precedent was the direct model for freezing a contract before any concrete implementation).
+
+Independent review found two MAJOR findings at the design stage (generic variance was invariant rather than contravariant/covariant — an actual `mypy`-rejected Protocol definition, verified by direct experimentation; the negative type-check strategy for proving malformed handlers rejected was undefined) and one MINOR finding (stale Scope Selection wording describing rejected components as selected) — all corrected in the design-correction commit. Independent review of the implementation found zero CRITICAL, zero MAJOR, and zero blocking MINOR findings; no correction commit was required.
+
+Fresh freeze validation:
+
+| Gate | Result |
+| --- | --- |
+| Python | 3.13.14 |
+| Full `scripts/verify.ps1` | PASS - `416 passed, 110 skipped`, coverage `82.73%` |
+| `scripts/security.ps1` | PASS - pip-audit clean, secret scan 288 targets |
+| Ruff format/check | PASS |
+| mypy | PASS - 81 source files |
+| Architecture checker | PASS |
+| Build | PASS - sdist and wheel built |
+| External review package | PASS - `complete.diff` byte-identical to Git, 31/31 manifest hashes verified, ZIP SHA-256 `0b87d30525690ef22dba1d9eaef9d956ddeb8cf305c5dee27519a984c4bb64b0` |
+
+M027 does not authorize any concrete `Command`/`CommandHandler` implementation, a handler-level error hierarchy, a `Command` marker, a dispatcher/registry, application service orchestration, retry policy, APIs, workers, Audit runtime, Decision Candidate, Decision Freeze, market-data/vendor/trading/campaign execution behavior, or any MILESTONE-028 implementation start on its own authority.
+
+## 8. Deferred Capabilities
+
+- MILESTONE-028 implementation;
 - application service orchestration after repository runtime composition and the command/query vocabulary exist;
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
 - market-data, vendor, trading, or empirical campaign execution behavior.
 
-## 8. Next Authorized Work
+## 9. Next Authorized Work
 
-MILESTONE-027's Scope Selection and Design documents were produced, independently reviewed (one narrow correction round — two MAJOR findings on generic variance and the negative type-check strategy, one MINOR finding on stale Scope Selection wording, all corrected in Version 1.1 of both documents), and the corrected design was accepted by the Project Owner and frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md` (freeze commit `64abc16156b949491ded4ff239d2c249aac569a8`, pushed).
+MILESTONE-027 is now `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7): the corrected design (Version 1.1) was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`.
 
-MILESTONE-027 has since been implemented exactly as frozen: `CommandHandler[_CommandT_contra, _ResultT_co]` in `src/empirical_platform/shared/contracts/command.py`, exported from `shared/contracts/__init__.py`, with the frozen `TYPE_CHECKING` conformance and variance proofs, the frozen negative-typing-fixture mechanism under `tests/typing_fixtures/command_handler/`, and 10 new unit tests, documented in `MILESTONE_027_APPLICATION_COMMAND_HANDLER_CONTRACTS_IMPLEMENTATION.md`. MILESTONE-027 implementation is NOT APPROVED and NOT FROZEN pending independent review and a subsequent Project Owner freeze decision.
+MILESTONE-028 is `DESIGN_APPROVED_AND_FROZEN` (Section 2), with implementation not yet started. Both of its preconditions are now satisfied: its own design is independently reviewed, approved, and frozen, and MILESTONE-027 implementation is independently reviewed, approved, frozen, and pushed.
 
-MILESTONE-028's Scope Selection and Design documents were also produced, independently reviewed (one narrow correction round — one MAJOR finding on overstated structural non-interchangeability with `CommandHandler`, one MINOR finding on read-only semantics not being mechanically enforced, both corrected in Version 1.1 of the Design document), and the corrected design was accepted by the Project Owner and frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md` (freeze commit `e062d14ef80feb3df4f4862c3e117fb930b41c01`, pushed).
-
-**Disclosed commit-topology note:** because the MILESTONE-027 implementation commit (`c7bc632`) was created, in actual repository history, as an ancestor of the MILESTONE-028 design-freeze commit (`e062d14`) on this linear branch, pushing the approved MILESTONE-028 design freeze necessarily also pushed the MILESTONE-027 implementation commit as a side effect of Git's linear-history model — there was no way to push one without the other given that topology. MILESTONE-027 implementation being pushed does **not** mean it is approved or frozen: independent review and a separate Project Owner freeze decision are still required before it reaches that status, and MILESTONE-028 implementation remains blocked until that happens, exactly as originally intended.
-
-In parallel, the Project Owner authorized selecting and designing MILESTONE-028 from live repository evidence — MILESTONE-028 implementation may not begin until its own design is independently reviewed, separately approved, and frozen, and MILESTONE-028 implementation additionally requires MILESTONE-027 to be implemented (now true) and separately approved/frozen first, since MILESTONE-028 designs against the `CommandHandler` Protocol shape M027 froze.
-
-MILESTONE-028's Scope Selection and Design documents were produced and independently reviewed. The review returned one MAJOR finding (the documents overstated that `QueryHandler` and `CommandHandler` are "fully independent at the type level," when Python's structural typing can accept one concrete class as satisfying both Protocols simultaneously when types align — verified directly against the project's `mypy --strict` configuration) and one MINOR finding (the documents did not state clearly enough that `QueryHandler`'s read-only naming is semantic only, not mechanically enforced). Both findings have been corrected in Version 1.1 of both documents. MILESTONE-028 remains NOT APPROVED and NOT FROZEN pending final independent re-review and Project Owner freeze; MILESTONE-028 implementation has NOT STARTED; MILESTONE-029 has NOT STARTED.
+**Next permitted action:** MILESTONE-028 Application Query/QueryHandler Contracts implementation, following the identical design → implement → review → freeze discipline used for MILESTONE-027, subject to its own separate implementation review, approval, and freeze before any MILESTONE-029 work.
