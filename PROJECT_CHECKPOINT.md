@@ -20,9 +20,9 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ```text
 LATEST_FROZEN_MILESTONE=MILESTONE-028
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
-CHECKPOINT_CONTENT_BASELINE_HEAD=8d3069a464ba58d53b51e687d142a7e42474e7af
-CHECKPOINT_CONTENT_BASELINE_ORIGIN=b37671a2a9316d94c222aba66ee94b80351c8716
-CHECKPOINT_CONTENT_BASELINE_STATUS=LOCAL_HEAD_AHEAD_OF_ORIGIN_BY_2_COMMITS_PENDING_M028_IMPLEMENTATION_FREEZE_PUSH
+CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
+CHECKPOINT_CONTENT_BASELINE_ORIGIN=fc5e8659d5a35b609c96a689b8b250f7f869d73d
+CHECKPOINT_CONTENT_BASELINE_STATUS=PUSHED_UP_TO_DATE_AT_M028_IMPLEMENTATION_FREEZE_M029_SCOPE_SELECTED
 
 M020_STATUS=APPROVED_AND_FROZEN
 M020_DESIGN_COMMIT=fd96b70366a7bbed2172a8f51d7d7cc52b60bc41
@@ -100,7 +100,13 @@ M028_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M028_IMPLEMENTATION_APPROVAL=APPROVED
 M028_IMPLEMENTATION_FREEZE=FROZEN
 M028_STATUS=APPROVED_AND_FROZEN
-M029_STATUS=NOT_STARTED
+
+M029_SCOPE=Application Service Orchestration
+M029_SCOPE_SELECTION_COMMIT=PENDING
+M029_SCOPE_SELECTION_STATUS=SCOPE_SELECTED_READY_FOR_RE_REVIEW
+M029_DESIGN_STATUS=NOT_STARTED
+M029_IMPLEMENTATION_STATUS=NOT_STARTED
+M029_STATUS=SCOPE_SELECTED
 ```
 
 ## 3. Frozen Milestone Summary
@@ -244,4 +250,20 @@ M028 does not authorize any concrete `Query`/`QueryHandler` implementation, a de
 
 MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`.
 
-**Next permitted action:** MILESTONE-029 scope selection.
+## 11. MILESTONE-029 Scope Selection
+
+**Scope:** Application Service Orchestration — the thin, generic layer that routes commands to `CommandHandler` implementations and queries to `QueryHandler` implementations, establishing unified error handling, transaction lifecycle boundaries, and execution discipline.
+
+**Why now:** M027-M028 provide the CQRS vocabulary (`CommandHandler` and `QueryHandler` Protocols); M029 provides the orchestration that calls them. Without M029, those Protocols are unreachable abstractions. With M029, every business logic layer above it (APIs, workers, Audit, Decision, market-data execution) becomes possible.
+
+**Dependency chain:**
+- M020-M026 (persistence foundation) → provides infrastructure.
+- M027-M028 (CQRS contracts) → defines what orchestration calls.
+- M029 (orchestration) → routes commands and queries to handlers.
+- M030+ (concrete domain models) → define actual commands and handlers.
+
+**Scope selection document:** `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_SCOPE_SELECTION.md`
+
+**Status:** Scope selected, ready for independent review.
+
+**Next permitted action:** MILESTONE-029 independent scope review, then MILESTONE-029 design (if scope approved).
