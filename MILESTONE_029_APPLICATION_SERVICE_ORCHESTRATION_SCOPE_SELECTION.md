@@ -47,7 +47,7 @@ M029 fills this gap by defining **application service orchestration** — the sm
 
 - **Highest leverage**: Everything above this layer (APIs, workers, business execution, observability, retry logic) depends on a well-defined orchestration boundary. Without M029, no coherent application layer exists.
 - **Minimal coupling**: Orchestration coordinates frozen, domain-agnostic types; it does not duplicate or re-implement those contracts.
-- **Maximum reuse**: Once orchestration boundary is defined, every concrete business handler (M030+) reuses it without modification to the boundary.
+- **Maximum reuse**: Once orchestration boundary is defined, every concrete business handler (later concrete business-handler milestones) reuses it without modification to the boundary.
 - **Unblocks future work**: Future application and infrastructure layers can only be built on top of a stable orchestration interface.
 
 ## 5. Business Importance

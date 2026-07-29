@@ -8,8 +8,8 @@
 | Purpose | Repository-authoritative checkpoint for the latest frozen milestone and next authorized work |
 | Repository | `C:\Users\LuxSy\Documents\trading` |
 | Branch | `master` |
-| Checkpoint content baseline (HEAD this content was authored against) | `b37671a2a9316d94c222aba66ee94b80351c8716` (`chore: freeze MILESTONE-027 Application Command/Handler Contracts implementation`, pushed) |
-| Checkpoint content baseline origin/master | `b37671a2a9316d94c222aba66ee94b80351c8716` (identical — pushed) |
+| Checkpoint content baseline (HEAD this content was authored against) | `fc5e8659d5a35b609c96a689b8b250f7f869d73d` (`chore: freeze MILESTONE-028 Application Query/QueryHandler Contracts implementation`, pushed) |
+| Checkpoint content baseline origin/master | `fc5e8659d5a35b609c96a689b8b250f7f869d73d` (identical — pushed) |
 
 This document is updated at each milestone freeze or major checkpoint. It supersedes its own prior content; it does not rewrite any frozen milestone document.
 
@@ -104,9 +104,12 @@ M028_STATUS=APPROVED_AND_FROZEN
 M029_SCOPE=Application Service Orchestration
 M029_SCOPE_SELECTION_COMMIT=449d7ef3005402e4c92052fc8720dbd19b623102
 M029_SCOPE_SELECTION_STATUS=SCOPE_SELECTED_READY_FOR_RE_REVIEW
+M029_SCOPE_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M029_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
+M029_SCOPE_FREEZE_COMMIT=PENDING
 M029_DESIGN_STATUS=NOT_STARTED
 M029_IMPLEMENTATION_STATUS=NOT_STARTED
-M029_STATUS=SCOPE_SELECTED
+M029_STATUS=SCOPE_APPROVED_AND_FROZEN
 ```
 
 ## 3. Frozen Milestone Summary
