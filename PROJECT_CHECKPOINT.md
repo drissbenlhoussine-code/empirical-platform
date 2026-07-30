@@ -115,7 +115,7 @@ M029_IMPLEMENTATION_STATUS=READY_FOR_INDEPENDENT_REVIEW
 M029_IMPLEMENTATION_COMMIT=5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986
 M029_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M029_STATUS=IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW
-NEXT_PERMITTED_ACTION=MILESTONE-029 INDEPENDENT IMPLEMENTATION REVIEW
+NEXT_PERMITTED_ACTION=MILESTONE-029 FINAL INDEPENDENT IMPLEMENTATION RE-REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -249,14 +249,14 @@ M028 does not authorize any concrete `Query`/`QueryHandler` implementation, a de
 
 ## 9. Deferred Capabilities
 
-- MILESTONE-029 implementation (scope and design are APPROVED_AND_FROZEN; implementation NOT_STARTED);
+- MILESTONE-029 owner implementation freeze (scope and design are APPROVED_AND_FROZEN; implementation is READY_FOR_INDEPENDENT_REVIEW but not yet owner-frozen — see Section 12);
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
 - market-data, vendor, trading, or empirical campaign execution behavior.
 
 ## 10. Next Authorized Work
 
-MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`. MILESTONE-029 is `APPROVED_AND_FROZEN` at the scope stage (Section 11; scope-freeze commit `22cec98d4bd724e00754551034b896236989acec`) and at the design stage (design commit `f047d3a33fcd8ba4849a5be1f75abc74c64a362f`, frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`). MILESTONE-029 implementation is `NOT_STARTED` and is the next authorized action.
+MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`. MILESTONE-029 is `APPROVED_AND_FROZEN` at the scope stage (Section 11; scope-freeze commit `22cec98d4bd724e00754551034b896236989acec`) and at the design stage (design commit `f047d3a33fcd8ba4849a5be1f75abc74c64a362f`, frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`). MILESTONE-029 implementation is `READY_FOR_INDEPENDENT_REVIEW` (implementation commit `5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986`; see Section 12) but is NOT owner-frozen. The next authorized action is MILESTONE-029 FINAL INDEPENDENT IMPLEMENTATION RE-REVIEW.
 
 ## 11. MILESTONE-029 Scope and Design
 
@@ -306,4 +306,4 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Review status:** Implementation complete and gate-verified; awaiting independent implementation review. Not owner-frozen.
 
-**Next permitted action:** MILESTONE-029 implementation, following the frozen design exactly.
+**Next permitted action:** MILESTONE-029 FINAL INDEPENDENT IMPLEMENTATION RE-REVIEW.
