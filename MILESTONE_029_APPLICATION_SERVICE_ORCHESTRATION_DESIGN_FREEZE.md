@@ -113,7 +113,7 @@ This freeze does NOT authorize:
 
 **Baseline before design freeze sequence began:** `8fff723a26b1bf283e60f96bf03be39314be1118` (M029 scope-freeze hash-recording commit)
 
-This freeze record's own commit hash is recorded in `PROJECT_CHECKPOINT.md` as `M029_DESIGN_FREEZE_COMMIT` once that governance commit exists (see Section 1's self-reference constraint pattern established by prior milestone freezes — a document cannot cite the hash of the commit that first contains it without a recursive cycle).
+This freeze record's own governance commit is `81650aeb58e073134127062e8451de6d241f7c5e` (`docs: record M029 owner design freeze`). The exact hash was recorded in `PROJECT_CHECKPOINT.md` via a narrow follow-up commit (`docs: record M029 design freeze commit`), following the same self-reference-avoidance pattern established by prior milestone freezes (see Section 1 of `PROJECT_CHECKPOINT.md`).
 
 ---
 
