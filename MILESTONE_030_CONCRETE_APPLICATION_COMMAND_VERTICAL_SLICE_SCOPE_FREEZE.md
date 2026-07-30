@@ -151,7 +151,7 @@ M030 CONCRETE APPLICATION COMMAND VERTICAL SLICE (CAMPAIGN CREATION)
 Independent Review Decision:    M030 SCOPE APPROVED FOR OWNER FREEZE
 Owner Decision:                 APPROVED_AND_FROZEN
 Scope Candidate Commit:         2b4ac748304d3859b78b6a1900849fab7b6fec35
-Scope Freeze Commit:            (recorded in a following governance commit)
+Scope Freeze Commit:            52f07c03195926e4f3a67dc1524aba7c206a09cb
 
 M020-M029:                      UNCHANGED, ALL REMAIN APPROVED_AND_FROZEN
 M030 Design:                    NOT_STARTED (now authorized)
