@@ -132,7 +132,7 @@ M030_DESIGN_REVIEW_STATUS=APPROVED_FOR_OWNER_FREEZE
 M030_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
 M030_DESIGN_FREEZE_COMMIT=990ce7c82a531015b883f7a2d3f8889107e6eee9
 M030_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
-M030_IMPLEMENTATION_COMMIT=PENDING
+M030_IMPLEMENTATION_COMMIT=bb66826225f621368ea317b5757631bf94731a56
 M030_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
 NEXT_PERMITTED_ACTION=MILESTONE-030 INDEPENDENT IMPLEMENTATION REVIEW
 ```
@@ -370,7 +370,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 15. MILESTONE-030 Implementation (Candidate, Not Yet Approved)
 
-**Implementation document:** `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_IMPLEMENTATION.md`.
+**Implementation document:** `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_IMPLEMENTATION.md` (implementation commit `bb66826225f621368ea317b5757631bf94731a56`).
 
 **Implemented:** `CreateCampaignCommand` and `CreateCampaignHandler` in the new `empirical_platform.usecases.create_campaign` module — exactly the vertical slice the frozen design specifies, with no deviation. The handler depends only on the `CampaignRepository` and `RuntimeIdentifierGenerator` Protocols via constructor injection; performs the frozen sequential flow (translate command data into frozen value types, obtain `runtime_id` from the injected generator, construct the `Campaign` aggregate, call `CampaignRepository.add()` exactly once, return `DomainIdentity[CampaignId]`); propagates every collaborator failure transparently; and is invocable through the unmodified, frozen `CommandEntryPoint`.
 
