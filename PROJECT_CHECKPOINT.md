@@ -125,11 +125,12 @@ M030_SCOPE_COMMIT=2b4ac748304d3859b78b6a1900849fab7b6fec35
 M030_SCOPE_REVIEW_STATUS=APPROVED_FOR_OWNER_FREEZE
 M030_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
 M030_SCOPE_FREEZE_COMMIT=52f07c03195926e4f3a67dc1524aba7c206a09cb
-M030_DESIGN_STATUS=CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW
-M030_DESIGN_COMMIT=PENDING
+M030_DESIGN_STATUS=CANDIDATE_FOR_FINAL_INDEPENDENT_RE_REVIEW
+M030_DESIGN_COMMIT=6c12c77fdded4d42caaba1f37287dabf2c5c577a
+M030_DESIGN_CORRECTION_COMMIT=PENDING
 M030_IMPLEMENTATION_STATUS=NOT_STARTED
-M030_STATUS=DESIGN_CANDIDATE
-NEXT_PERMITTED_ACTION=MILESTONE-030 INDEPENDENT DESIGN REVIEW
+M030_STATUS=DESIGN_CORRECTED_PENDING_FINAL_RE_REVIEW
+NEXT_PERMITTED_ACTION=MILESTONE-030 FINAL INDEPENDENT DESIGN RE-REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -263,7 +264,7 @@ M028 does not authorize any concrete `Query`/`QueryHandler` implementation, a de
 
 ## 9. Deferred Capabilities
 
-- MILESTONE-030 independent design review and owner design freeze (a design candidate exists — see Section 13 — but is not yet approved or frozen);
+- MILESTONE-030 final independent design re-review and owner design freeze (a corrected design candidate exists — see Section 13/14 — but is not yet approved or frozen);
 - the symmetric query-side vertical slice (deferred by the frozen M030 scope itself, a separate future milestone);
 - retry-on-`OptimisticConcurrencyConflict` policy after a concrete handler exists that saves an existing aggregate;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
@@ -271,7 +272,7 @@ M028 does not authorize any concrete `Query`/`QueryHandler` implementation, a de
 
 ## 10. Next Authorized Work
 
-MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`. MILESTONE-029 is `APPROVED_AND_FROZEN` at the scope stage (Section 11; scope-freeze commit `22cec98d4bd724e00754551034b896236989acec`), at the design stage (design commit `f047d3a33fcd8ba4849a5be1f75abc74c64a362f`, frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`), and at the implementation stage (implementation commit `5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986`, owner-frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_IMPLEMENTATION_FREEZE.md` after a final independent implementation re-review found all previously blocking evidence/governance findings resolved). MILESTONE-029 is fully `APPROVED_AND_FROZEN` at every stage (Section 12). MILESTONE-030 scope — Concrete Application Command Vertical Slice (Campaign Creation) — is `APPROVED_AND_FROZEN` (Section 13; scope commit `2b4ac748304d3859b78b6a1900849fab7b6fec35`) after a hostile independent scope review found exactly one architectural capability with no hidden design, implementation, sequencing, or governance defect. MILESTONE-030 has a design candidate — answering all ten required architectural questions (command/handler package placement, dependency injection, entry-point binding, identity supply, validation ownership, repository interaction sequence, error propagation, and the one justified architecture-checker change) — recorded in `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_DESIGN.md` (Section 13), status `CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW`. This candidate is NOT approved and NOT frozen. MILESTONE-030 implementation remains `NOT_STARTED`. The next authorized action is MILESTONE-030 INDEPENDENT DESIGN REVIEW.
+MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`. MILESTONE-029 is `APPROVED_AND_FROZEN` at the scope stage (Section 11; scope-freeze commit `22cec98d4bd724e00754551034b896236989acec`), at the design stage (design commit `f047d3a33fcd8ba4849a5be1f75abc74c64a362f`, frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`), and at the implementation stage (implementation commit `5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986`, owner-frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_IMPLEMENTATION_FREEZE.md` after a final independent implementation re-review found all previously blocking evidence/governance findings resolved). MILESTONE-029 is fully `APPROVED_AND_FROZEN` at every stage (Section 12). MILESTONE-030 scope — Concrete Application Command Vertical Slice (Campaign Creation) — is `APPROVED_AND_FROZEN` (Section 13; scope commit `2b4ac748304d3859b78b6a1900849fab7b6fec35`) after a hostile independent scope review found exactly one architectural capability with no hidden design, implementation, sequencing, or governance defect. MILESTONE-030 has a design candidate — answering all ten required architectural questions (command/handler package placement, dependency injection, entry-point binding, identity supply, validation ownership, repository interaction sequence, error propagation, and the one justified architecture-checker change) — recorded in `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_DESIGN.md` (Section 14). A hostile independent design review found two MAJOR defects in the architecture-checker decision (a claim that `usecases` needed `shared.persistence` access, contradicting the handler's own Protocol-only dependency design, and a missing `FORBIDDEN_IMPORT_PREFIXES["usecases"]` entry required to actually enforce that Protocol-only boundary) and one MINOR governance defect in this document. All three are corrected: the design now states the precise dependency model (`CampaignRepository` + `RuntimeIdentifierGenerator` Protocols only, no persistence import anywhere in `usecases`), specifies the required paired `ALLOWED`/`FORBIDDEN_IMPORT_PREFIXES` checker change, and this document's narrative is realigned. Status `CANDIDATE_FOR_FINAL_INDEPENDENT_RE_REVIEW`. This candidate is NOT approved and NOT frozen. MILESTONE-030 implementation remains `NOT_STARTED`. The next authorized action is MILESTONE-030 FINAL INDEPENDENT DESIGN RE-REVIEW.
 
 ## 11. MILESTONE-029 Scope and Design
 
@@ -343,16 +344,18 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Status:** `APPROVED_AND_FROZEN`. MILESTONE-030 design is authorized and a candidate now exists (below). MILESTONE-030 implementation is NOT authorized until design is independently reviewed and owner-frozen.
 
-## 14. MILESTONE-030 Design Candidate (Not Yet Approved)
+## 14. MILESTONE-030 Design Candidate (Corrected, Not Yet Approved)
 
-**Design document:** `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_DESIGN.md`.
+**Design document:** `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_DESIGN.md` (design candidate commit `6c12c77fdded4d42caaba1f37287dabf2c5c577a`; correction commit recorded below).
 
-**Selected architecture:** a new top-level package `empirical_platform.usecases` (justified against the already-frozen `datasets: {shared, identifiers, campaign}` precedent in `tools/check_architecture.py`), containing one module `usecases/create_campaign.py` with `CreateCampaignCommand` and `CreateCampaignHandler`. The handler receives `CampaignRepository` and `RuntimeIdentifierGenerator` (both already-frozen Protocols) via constructor injection; `CampaignId` is caller-supplied on the command while `runtime_id` is handler-generated; `CommandEntryPoint` binding happens by direct construction in tests only (no new production composition code); all validation is delegated to the already-frozen `Campaign` aggregate and its value objects; all errors propagate transparently, matching M029's frozen invariant exactly. Exactly one architecture-checker addition is proposed: `ALLOWED["usecases"] = {"shared", "identifiers", "campaign"}`.
+**Selected architecture:** a new top-level package `empirical_platform.usecases` (justified against the already-frozen `datasets: {shared, identifiers, campaign}` precedent in `tools/check_architecture.py`), containing one module `usecases/create_campaign.py` with `CreateCampaignCommand` and `CreateCampaignHandler`. The handler receives `CampaignRepository` and `RuntimeIdentifierGenerator` (both already-frozen Protocols) via constructor injection — and imports nothing from `shared.persistence`, `sqlalchemy`, `psycopg`, or `boto3` anywhere in the package; `CampaignId` is caller-supplied on the command while `runtime_id` is handler-generated; `CommandEntryPoint` binding happens by direct construction in tests only (no new production composition code); all validation is delegated to the already-frozen `Campaign` aggregate and its value objects; all errors propagate transparently, matching M029's frozen invariant exactly. Exactly one *paired* architecture-checker addition is proposed: `ALLOWED["usecases"] = {"shared", "identifiers", "campaign"}` together with `FORBIDDEN_IMPORT_PREFIXES["usecases"] = ("empirical_platform.shared.persistence", "sqlalchemy", "psycopg", "boto3")` — both required together, matching the identical paired-rule shape already used by `campaign`, `run`, `evidence`, `review`, and `application`.
 
-**Design constraints preserved:** domain purity, all existing Protocols/Repository/EntryPoint/Runtime contracts, all existing PostgreSQL adapters, and existing dependency direction — verified against actual frozen source, not assumed.
+**Independent review and correction:** a hostile independent design review found two MAJOR findings (M030-DESIGN-REVIEW-0001, M030-DESIGN-REVIEW-0002) — the design's Design Question 10 originally and incorrectly claimed `usecases` needed direct `shared.persistence` access, contradicting its own Design Question 3 Protocol-only dependency decision, and consequently omitted the `FORBIDDEN_IMPORT_PREFIXES["usecases"]` entry needed to actually enforce that boundary — and one MINOR finding (M030-DESIGN-REVIEW-0003) in this document's stale narrative. All three are corrected in this revision; no other design decision was reopened.
+
+**Design constraints preserved:** domain purity, all existing Protocols/Repository/EntryPoint/Runtime contracts, all existing PostgreSQL adapters, and existing dependency direction — verified against actual frozen source, not assumed. Concrete persistence and runtime objects are supplied to the handler from outside the `usecases` package (by tests, or by a future, separately scoped composition boundary); `usecases` itself never imports or references `PostgresRepositoryRuntime`, `FoundationRuntime`, or `PostgresCampaignRepository`.
 
 **Prohibited items confirmed absent:** no DI framework, registry, service locator, mediator, transport, HTTP, API, queue, scheduler, market-data/trading logic, event bus, command bus, or generic framework.
 
-**Status:** `CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW`. Not approved. Not frozen. No MILESTONE-030 implementation is authorized.
+**Status:** `CANDIDATE_FOR_FINAL_INDEPENDENT_RE_REVIEW`. Not approved. Not frozen. No MILESTONE-030 implementation is authorized.
 
-**Next permitted action:** MILESTONE-030 INDEPENDENT DESIGN REVIEW, then (only if approved) MILESTONE-030 owner design freeze, then MILESTONE-030 implementation.
+**Next permitted action:** MILESTONE-030 FINAL INDEPENDENT DESIGN RE-REVIEW, then (only if approved) MILESTONE-030 owner design freeze, then MILESTONE-030 implementation.

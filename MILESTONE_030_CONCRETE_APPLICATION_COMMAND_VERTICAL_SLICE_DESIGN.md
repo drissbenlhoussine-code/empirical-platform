@@ -2,9 +2,11 @@
 
 ## 1. Document Status
 
-**Status: CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW**
+**Status: CANDIDATE_FOR_FINAL_INDEPENDENT_DESIGN_RE_REVIEW**
 
 This document is a design candidate. It has not been reviewed, approved, or frozen. No implementation of MILESTONE-030 is authorized by this document.
+
+A hostile independent design review of the prior version of this document found two MAJOR defects (M030-DESIGN-REVIEW-0001, M030-DESIGN-REVIEW-0002, both in Design Question 10's architecture-checker decision) and one MINOR governance defect (M030-DESIGN-REVIEW-0003, in `PROJECT_CHECKPOINT.md`, corrected separately). Both MAJOR defects are corrected in this revision — see Section 14 and Section 15's "Corrected Dependency Model" subsection, and the Final Status block (Section 21) for a summary. No other design decision was reopened.
 
 ---
 
@@ -254,19 +256,30 @@ M029's frozen design and implementation already guarantee transparent, unwrapped
 
 ### Decision
 
-**Exactly one addition, and nothing else:**
+**Two changes, both required together, and nothing else:**
 
 ```
 ALLOWED["usecases"] = {"shared", "identifiers", "campaign"}
+
+FORBIDDEN_IMPORT_PREFIXES["usecases"] = (
+    "empirical_platform.shared.persistence",
+    "sqlalchemy",
+    "psycopg",
+    "boto3",
+)
 ```
 
-No change to `FORBIDDEN_IMPORT_PREFIXES` (the `usecases` package specifically *needs* to import `shared.persistence`, so it must not be forbidden — unlike `campaign` and `application`, which are). No change to any existing entry for `campaign`, `application`, `entrypoints`, `shared`, or any other package. No new `ALLOWED_EXACT_IMPORTS` entry is needed (`usecases` does not need a narrow single-symbol exemption; a full package-level allowance is appropriate here, matching the `datasets` precedent).
+**Correction (M030-DESIGN-REVIEW-0001 / -0002):** an earlier version of this design claimed `usecases` "needs to import `shared.persistence`" and therefore proposed no `FORBIDDEN_IMPORT_PREFIXES` entry for it. That claim was wrong and is withdrawn. Design Question 3 already establishes that `CreateCampaignHandler` depends only on the `CampaignRepository` Protocol (`empirical_platform.campaign.repository`) and the `RuntimeIdentifierGenerator` Protocol (`empirical_platform.shared.identifiers` — a *different* submodule from `empirical_platform.shared.persistence`). Neither dependency requires importing `shared.persistence`, `sqlalchemy`, `psycopg`, or `boto3` anywhere inside the `usecases` package. `ALLOWED["usecases"]` including `"shared"` is still correct and necessary (it is what makes `shared.identifiers.RuntimeIdentifierGenerator` reachable), but that same broad `"shared"` grant is precisely why the narrower `FORBIDDEN_IMPORT_PREFIXES["usecases"]` entry is *also* required: `ALLOWED` governs which first-party top-level packages may be imported at all, while `FORBIDDEN_IMPORT_PREFIXES` is the mechanism this checker already uses (identically, for `campaign`, `run`, `evidence`, `review`, `application`) to carve a specific, sensitive submodule (`shared.persistence`) and third-party infrastructure libraries back out of an otherwise-broad `"shared"` grant. Both rules are required together; `ALLOWED` alone cannot express "may use `shared.identifiers` but not `shared.persistence`."
+
+**Concrete persistence and runtime objects are supplied to `CreateCampaignHandler` from outside the `usecases` package** — by a test, or by a future composition boundary this milestone does not build (Design Question 4) — never acquired or imported from within `usecases` itself.
 
 ### Justification
 
-This is the minimum change that makes Design Questions 1-2's placement decision legal under the existing checker, and it directly matches an already-frozen precedent (`ALLOWED["datasets"] = {"shared", "identifiers", "campaign"}`) rather than inventing a new shape of rule. It changes nothing about how `campaign`, `application`, or any other existing package may be used — those packages remain exactly as frozen. This is exactly the "one narrowly-scoped architecture-checker addition" the frozen scope document's Section 15 already conditionally pre-authorized.
+**Why `FORBIDDEN_IMPORT_PREFIXES` is necessary, not optional, given `ALLOWED["usecases"]` includes `"shared"`:** this checker's `imported_top_level()` function only recognizes imports beginning with `empirical_platform.`; a bare `import sqlalchemy`, `import psycopg`, or `import boto3` is invisible to the `ALLOWED`-based check entirely (verified directly against `tools/check_architecture.py`'s `imported_module()`/`imported_top_level()` logic). Without a `FORBIDDEN_IMPORT_PREFIXES["usecases"]` entry, nothing in the checker would catch `usecases` importing any of these third-party infrastructure libraries directly, nor `empirical_platform.shared.persistence` specifically (which *is* reachable once `"shared"` is in `usecases`'s `ALLOWED` set, since `shared.persistence` is a submodule of the already-allowed `shared` top-level package). This is not a hypothetical gap: it is the same reasoning that already justifies the identical `FORBIDDEN_IMPORT_PREFIXES` entries `campaign`, `run`, `evidence`, `review`, and `application` already carry. `usecases` must carry the same protection for the same reason: it is allowed to import `shared` (for `shared.identifiers`), and that grant would otherwise silently also permit `shared.persistence` and unrestricted third-party persistence libraries.
 
-An architecture-checker test fixture (mirroring the pattern M029 itself established: `tests/fixtures/illegal_imports/src/empirical_platform/usecases/bad_*_import.py` proving `usecases` cannot import `entrypoints`, `run`, `evidence`, `review`, or `sqlalchemy`/`psycopg`/`boto3` directly, and that `campaign` still cannot import `usecases`) is implementation-phase work, not decided here.
+**Why `ALLOWED["usecases"]` itself is unchanged and still correct:** this matches an already-frozen precedent (`ALLOWED["datasets"] = {"shared", "identifiers", "campaign"}`) rather than inventing a new shape of rule, exactly as the prior version of this design already established. That reasoning survives this correction unchanged.
+
+This is exactly the "one narrowly-scoped architecture-checker addition" the frozen scope document's Section 15 conditionally pre-authorized — it is one *coherent* addition (an allow-rule and its accompanying forbid-rule, the same paired shape every other persistence-adjacent package already uses), not an expansion of scope.
 
 ### Alternatives Considered
 
@@ -274,7 +287,31 @@ An architecture-checker test fixture (mirroring the pattern M029 itself establis
 | --- | --- | --- | --- |
 | No checker change (use the `shared`-package escape hatch) | Zero checker diff | Architecturally poor placement (Design Question 1); technically legal but not sound | Rejected already in Design Question 1 |
 | Broader `usecases` allowance (e.g., also `run`, `evidence`, `review`, `governance`, `registry`) | Anticipates future milestones' needs in one change | Grants import rights this milestone's scope does not use or justify; premature, unreviewed expansion | Violates "avoid speculative abstractions"; each future aggregate's use case should justify its own import need when it arrives |
-| **Minimal addition: `{"shared", "identifiers", "campaign"}` only** | Grants exactly what this milestone needs, matching an existing precedent shape | Future milestones for other aggregates will need their own (equally narrow, equally justified) additions | **Selected** — narrowest change that is still correct |
+| `ALLOWED["usecases"]` addition only, no `FORBIDDEN_IMPORT_PREFIXES` entry (the original, incorrect version of this design) | One rule instead of two | Leaves `usecases` free to import `shared.persistence`, `sqlalchemy`, `psycopg`, and `boto3` completely undetected by the checker, contradicting Design Question 3's own Protocol-only dependency decision | **Rejected on review** — internally inconsistent; creates exactly the infrastructure escape path Design Question 3 was written to prevent |
+| **`ALLOWED["usecases"]` addition paired with a `FORBIDDEN_IMPORT_PREFIXES["usecases"]` entry blocking `shared.persistence`/`sqlalchemy`/`psycopg`/`boto3`** | Grants exactly what this milestone needs (`shared.identifiers`, `identifiers`, `campaign`) while closing the exact gap `ALLOWED` alone cannot close; matches the identical paired-rule shape every other persistence-adjacent package in this checker already uses | Two rule entries instead of one | **Selected** — the only internally consistent option |
+
+### Future Fixture Coverage (Implementation-Phase Work, Specified Here Only in Shape)
+
+Mirroring the pattern M029's own implementation already established (`tests/fixtures/illegal_imports/src/empirical_platform/application/...`), implementation must add fixtures under `tests/fixtures/illegal_imports/src/empirical_platform/usecases/` proving the **paired** `ALLOWED`/`FORBIDDEN_IMPORT_PREFIXES` rule above is actually enforced, not merely declared. The design specifies the required matrix; it does not write the fixtures.
+
+**Must be accepted** (proves the positive `ALLOWED["usecases"]` grant is usable for what this milestone actually needs):
+
+- `usecases` importing the `CampaignRepository` abstraction (`empirical_platform.campaign.repository`).
+- `usecases` importing the `RuntimeIdentifierGenerator` abstraction and identifier/domain value types (`empirical_platform.shared.identifiers`, `empirical_platform.identifiers`).
+- `usecases` importing any other explicitly justified first-party dependency this milestone's implementation actually uses (e.g. `empirical_platform.shared.contracts.command` for `CommandHandler` typing, `empirical_platform.campaign.aggregate` for `Campaign`/`CampaignScopeStatement`) — no dependency beyond what implementation actually needs should be added to a fixture "accepted" case.
+
+**Must be rejected** (proves the `FORBIDDEN_IMPORT_PREFIXES["usecases"]` entry actually blocks the exact escape path Finding 0001/0002 identified):
+
+- `usecases` importing `empirical_platform.shared.persistence` (any submodule).
+- `usecases` importing a concrete PostgreSQL runtime or adapter module (e.g. `empirical_platform.shared.persistence.postgres_repositories.runtime`, `...campaign_repository`).
+- `usecases` importing `sqlalchemy` directly.
+- `usecases` importing `psycopg` directly.
+- `usecases` importing `boto3` directly.
+- `usecases` importing an unrelated domain aggregate (`run`, `evidence`, `review`) or an unrelated infrastructure package (`entrypoints`, `audit`, `archive`, `acquisition`, `normalization`, `validation`, `decision_candidate`) — none of which this milestone's `ALLOWED["usecases"]` grant includes.
+
+**Must also be reconfirmed** (proves no *other* existing package's rules were weakened by this addition): `campaign` still cannot import `usecases` (no entry for `usecases` exists in `ALLOWED["campaign"]`), and the full existing source tree still passes `test_current_source_tree_respects_boundaries` unmodified.
+
+This milestone's fixtures must cover exactly this matrix — no unrelated fixture requirement is introduced.
 
 ---
 
@@ -286,9 +323,34 @@ Verified against the actual frozen source, not assumed:
 - **Existing Protocols:** `CommandHandler[_CommandT_contra, _ResultT_co]` (M027) is satisfied structurally; not modified, not subclassed, not reinterpreted.
 - **Existing Repository contracts:** `CampaignRepository.add()` (M020) is called exactly as its frozen signature requires; not modified.
 - **Existing EntryPoint contracts:** `CommandEntryPoint[CommandT, ResultT]` (M029) is used exactly as its frozen constructor/`__call__` shape requires; not modified.
-- **Existing Runtime contracts:** `PostgresRepositoryRuntime` and `FoundationRuntime` (M025-M026) are used only insofar as a test/caller sources a `CampaignRepository`-conforming object from `runtime.repository_runtime.campaigns`; neither class is modified.
-- **Existing PostgreSQL adapters:** `PostgresCampaignRepository` (M023) is used exactly as frozen; not modified.
+- **Existing Runtime contracts:** `PostgresRepositoryRuntime` and `FoundationRuntime` (M025-M026) are **never imported or referenced inside the `usecases` package.** A test, or a future composition boundary this milestone does not build, is responsible for sourcing a `CampaignRepository`-conforming object (e.g. `runtime.repository_runtime.campaigns`) and passing it into `CreateCampaignHandler`'s constructor from *outside* `usecases`. Neither `PostgresRepositoryRuntime` nor `FoundationRuntime` is modified, and neither is a dependency of the `usecases` package itself.
+- **Existing PostgreSQL adapters:** `PostgresCampaignRepository` (M023) is used exactly as frozen, and only by whatever external caller supplies the concrete `CampaignRepository`-conforming instance; `usecases` never imports it. Not modified.
 - **Existing dependency direction:** the new `usecases → campaign` edge matches the already-frozen `datasets → campaign` edge; no existing edge is reversed, removed, or weakened.
+
+### Corrected Dependency Model (Precise)
+
+```
+CreateCampaignHandler
+    -> CampaignRepository Protocol            (empirical_platform.campaign.repository)
+    -> RuntimeIdentifierGenerator Protocol    (empirical_platform.shared.identifiers)
+    -> Campaign aggregate and domain value types
+       (Campaign, CampaignScopeStatement, CampaignId, DomainIdentity)
+```
+
+`CreateCampaignHandler` and the `usecases` package as a whole **must not** import or depend directly on:
+
+- `empirical_platform.shared.persistence` (any submodule)
+- `PostgresRepositoryRuntime`
+- `FoundationRuntime`
+- `PostgresCampaignRepository`
+- `sqlalchemy`
+- `psycopg`
+- `boto3`
+- database connections, sessions, or engines
+- transaction factories or unit-of-work objects
+- any other infrastructure adapter
+
+Concrete repository and runtime objects are constructed and supplied entirely outside `usecases` — by tests in this milestone, and potentially by a composition boundary in a later, separately scoped milestone (Design Question 4). This design does not design that future composition code.
 
 ---
 
@@ -312,7 +374,7 @@ Verified against the actual frozen source, not assumed:
 
 - `src/empirical_platform/usecases/__init__.py` (new package).
 - `src/empirical_platform/usecases/create_campaign.py` (new module: `CreateCampaignCommand`, `CreateCampaignHandler`).
-- One `ALLOWED["usecases"]` addition to `tools/check_architecture.py`.
+- One paired `ALLOWED["usecases"]` / `FORBIDDEN_IMPORT_PREFIXES["usecases"]` addition to `tools/check_architecture.py`.
 - Contract tests proving `CreateCampaignHandler` conforms to `CommandHandler[CreateCampaignCommand, DomainIdentity[CampaignId]]`.
 - Unit tests for the handler's translation/orchestration logic against a fake `CampaignRepository`.
 - Integration tests proving the golden path and the `AggregateAlreadyExists` failure path against real PostgreSQL, invoked through a directly-constructed `CommandEntryPoint`.
@@ -356,7 +418,7 @@ Verified against the actual frozen source, not assumed:
 
 **Implementation risks:**
 
-- `tools/check_architecture.py` is a shared, sensitive file last modified during M029's implementation. Implementation must add exactly the one `ALLOWED["usecases"]` entry this design specifies, verify the full existing test suite (`test_current_source_tree_respects_boundaries`) still passes unmodified, and add new negative fixtures proving the new boundary is actually enforced — not merely declared.
+- `tools/check_architecture.py` is a shared, sensitive file last modified during M029's implementation. Implementation must add exactly the paired `ALLOWED["usecases"]` and `FORBIDDEN_IMPORT_PREFIXES["usecases"]` entries this design specifies (Section 14), verify the full existing test suite (`test_current_source_tree_respects_boundaries`) still passes unmodified, and add new positive and negative fixtures proving the full matrix (Section 14) is actually enforced — not merely declared.
 
 ---
 
@@ -376,7 +438,7 @@ This design is complete and ready for independent review when:
 
 ## 20. Next Permitted Action
 
-**MILESTONE-030 INDEPENDENT DESIGN REVIEW.**
+**MILESTONE-030 FINAL INDEPENDENT DESIGN RE-REVIEW.**
 
 If and only if this design is approved and owner-frozen: **MILESTONE-030 IMPLEMENTATION.**
 
@@ -389,16 +451,19 @@ This document does not authorize implementation.
 ```
 ═══════════════════════════════════════════════════════════════════════════════
 
-              MILESTONE-030 DESIGN CANDIDATE
+         MILESTONE-030 DESIGN CANDIDATE (CORRECTED)
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-Status:                          CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW
+Status:                          CANDIDATE_FOR_FINAL_INDEPENDENT_DESIGN_RE_REVIEW
 Design Questions Answered:       10 / 10
 Alternatives Documented:         10 / 10
 Prohibited Items Introduced:     0
 Frozen Contracts Reopened:       0
-Architecture-Checker Changes:    1 (ALLOWED["usecases"] = {"shared", "identifiers", "campaign"})
+Architecture-Checker Changes:    1 coherent addition, 2 rule entries
+                                  (ALLOWED["usecases"] = {"shared", "identifiers", "campaign"};
+                                   FORBIDDEN_IMPORT_PREFIXES["usecases"] = ("empirical_platform.shared.persistence",
+                                     "sqlalchemy", "psycopg", "boto3"))
 
 Selected Package:                empirical_platform.usecases (new)
 Selected Module:                 usecases/create_campaign.py
@@ -407,7 +472,15 @@ Selected Binding:                Direct CommandEntryPoint(handler) construction,
 Selected Identity Strategy:      Caller-supplied CampaignId; handler-generated runtime_id
 Selected Error Strategy:         Fully transparent propagation (no handler-level try/except)
 
-NEXT PERMITTED ACTION: MILESTONE-030 INDEPENDENT DESIGN REVIEW
+Corrections Applied (this revision):
+  M030-DESIGN-REVIEW-0001 (MAJOR) -- removed the false claim that usecases
+    needs shared.persistence access; stated the precise dependency model
+    (CampaignRepository + RuntimeIdentifierGenerator Protocols only).
+  M030-DESIGN-REVIEW-0002 (MAJOR) -- added the required
+    FORBIDDEN_IMPORT_PREFIXES["usecases"] entry; aligned the fixture matrix
+    with the corrected, paired ALLOWED/FORBIDDEN_IMPORT_PREFIXES design.
+
+NEXT PERMITTED ACTION: MILESTONE-030 FINAL INDEPENDENT DESIGN RE-REVIEW
 
 ═══════════════════════════════════════════════════════════════════════════════
 ```
