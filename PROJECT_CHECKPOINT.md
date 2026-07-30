@@ -105,11 +105,15 @@ M029_SCOPE=Application Service Orchestration
 M029_SCOPE_SELECTION_COMMIT=449d7ef3005402e4c92052fc8720dbd19b623102
 M029_SCOPE_SELECTION_STATUS=SCOPE_SELECTED_READY_FOR_RE_REVIEW
 M029_SCOPE_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M029_SCOPE_STATUS=APPROVED_AND_FROZEN
 M029_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
 M029_SCOPE_FREEZE_COMMIT=22cec98d4bd724e00754551034b896236989acec
-M029_DESIGN_STATUS=NOT_STARTED
+M029_DESIGN_STATUS=APPROVED_AND_FROZEN
+M029_DESIGN_COMMIT=f047d3a33fcd8ba4849a5be1f75abc74c64a362f
+M029_DESIGN_FREEZE_COMMIT=PENDING
 M029_IMPLEMENTATION_STATUS=NOT_STARTED
-M029_STATUS=SCOPE_APPROVED_AND_FROZEN
+M029_STATUS=DESIGN_APPROVED_AND_FROZEN
+NEXT_PERMITTED_ACTION=MILESTONE-029 IMPLEMENTATION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -243,19 +247,18 @@ M028 does not authorize any concrete `Query`/`QueryHandler` implementation, a de
 
 ## 9. Deferred Capabilities
 
-- application service orchestration now that both the command and query vocabularies (M027 `CommandHandler`, M028 `QueryHandler`) exist;
+- MILESTONE-029 implementation (scope and design are APPROVED_AND_FROZEN; implementation NOT_STARTED);
 - retry-on-`OptimisticConcurrencyConflict` policy after application services exist;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
-- market-data, vendor, trading, or empirical campaign execution behavior;
-- MILESTONE-029 scope selection.
+- market-data, vendor, trading, or empirical campaign execution behavior.
 
 ## 10. Next Authorized Work
 
-MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`.
+MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`. MILESTONE-029 is `APPROVED_AND_FROZEN` at the scope stage (Section 11; scope-freeze commit `22cec98d4bd724e00754551034b896236989acec`) and at the design stage (design commit `f047d3a33fcd8ba4849a5be1f75abc74c64a362f`, frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`). MILESTONE-029 implementation is `NOT_STARTED` and is the next authorized action.
 
-## 11. MILESTONE-029 Scope Selection
+## 11. MILESTONE-029 Scope and Design
 
-**Scope:** Application Service Orchestration — the thin, generic layer that routes commands to `CommandHandler` implementations and queries to `QueryHandler` implementations, establishing unified error handling, transaction lifecycle boundaries, and execution discipline.
+**Scope:** Application Service Orchestration — the application invocation boundary that routes commands to `CommandHandler` implementations and queries to `QueryHandler` implementations via two composition-bound entry points, with handler-owned transaction execution and transparent error propagation.
 
 **Why now:** M027-M028 provide the CQRS vocabulary (`CommandHandler` and `QueryHandler` Protocols); M029 provides the orchestration that calls them. Without M029, those Protocols are unreachable abstractions. With M029, every business logic layer above it (APIs, workers, Audit, Decision, market-data execution) becomes possible.
 
@@ -263,10 +266,16 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 - M020-M026 (persistence foundation) → provides infrastructure.
 - M027-M028 (CQRS contracts) → defines what orchestration calls.
 - M029 (orchestration) → routes commands and queries to handlers.
-- M030+ (concrete domain models) → define actual commands and handlers.
+- Later concrete business-handler milestones → define actual commands and handlers.
 
-**Scope selection document:** `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_SCOPE_SELECTION.md`
+**Scope selection document:** `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_SCOPE_SELECTION.md` (commit `449d7ef`).
 
-**Status:** Scope selected, ready for independent review.
+**Scope freeze document:** `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_SCOPE_FREEZE.md` (commit `22cec98`).
 
-**Next permitted action:** MILESTONE-029 independent scope review, then MILESTONE-029 design (if scope approved).
+**Design document:** `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN.md` (commit `f047d3a`) — underwent three independent correction passes before final approval: Pass I corrected an options-catalogue structure into concrete architectural decisions; Pass II restated the exact frozen M024/M025 `run_composed()` contract and resolved transaction/error/handler-resolution decisions; Pass III resolved five remaining blocking findings (architectural emptiness, an unjustified `ApplicationBoundaryError`, unspecified runtime Protocol validation, non-implementable milestone-number architecture rules, and inaccurate async-deferral wording).
+
+**Design freeze document:** `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`.
+
+**Status:** Scope APPROVED_AND_FROZEN. Design APPROVED_AND_FROZEN. Implementation NOT_STARTED.
+
+**Next permitted action:** MILESTONE-029 implementation, following the frozen design exactly.
