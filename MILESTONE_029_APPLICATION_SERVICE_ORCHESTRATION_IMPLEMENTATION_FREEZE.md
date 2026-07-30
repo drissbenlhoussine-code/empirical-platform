@@ -286,7 +286,7 @@ Implementation commit:                    5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f9
 Implementation hash-recording commit:     231584e1bb95cd24f88f86691703564bbe6237de
 Evidence/governance correction commit:    a2a64d6bbf166b1d0ef63cbdbb4a6842d50f7ba5
 Final reviewed HEAD:                      a2a64d6bbf166b1d0ef63cbdbb4a6842d50f7ba5
-Implementation freeze commit:             (recorded upon this document's own commit)
+Implementation freeze commit:             8a076c69314e5ea0fba5835fc1c9d165c7498a2c
 
 M020-M028:                      UNCHANGED, ALL REMAIN APPROVED_AND_FROZEN
 M030:                           NOT_STARTED
