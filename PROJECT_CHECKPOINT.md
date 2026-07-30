@@ -112,7 +112,7 @@ M029_DESIGN_STATUS=APPROVED_AND_FROZEN
 M029_DESIGN_COMMIT=f047d3a33fcd8ba4849a5be1f75abc74c64a362f
 M029_DESIGN_FREEZE_COMMIT=81650aeb58e073134127062e8451de6d241f7c5e
 M029_IMPLEMENTATION_STATUS=READY_FOR_INDEPENDENT_REVIEW
-M029_IMPLEMENTATION_COMMIT=PENDING
+M029_IMPLEMENTATION_COMMIT=5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986
 M029_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M029_STATUS=IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW
 NEXT_PERMITTED_ACTION=MILESTONE-029 INDEPENDENT IMPLEMENTATION REVIEW
@@ -282,7 +282,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 12. MILESTONE-029 Implementation Evidence (Pending Independent Review)
 
-**Implementation commit:** to be recorded once created (this checkpoint update is bundled into that commit).
+**Implementation commit:** `5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986` (`feat: implement M029 application service orchestration`).
 
 **New package:** `src/empirical_platform/application/` — `CommandEntryPoint[CommandT, ResultT]` and `QueryEntryPoint[QueryT, QueryResultT]`, each a composition-bound callable wrapping exactly one frozen M027/M028 handler, invoked exactly once per call, propagating results and exceptions unchanged. No handler discovery, no transaction ownership, no custom exception hierarchy, no runtime Protocol introspection, synchronous only — matching the frozen design at every decision point in Sections 5-9 of `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN.md`.
 
