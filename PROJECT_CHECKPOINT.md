@@ -118,7 +118,15 @@ M029_EVIDENCE_GOVERNANCE_CORRECTION_COMMIT=a2a64d6bbf166b1d0ef63cbdbb4a6842d50f7
 M029_IMPLEMENTATION_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M029_IMPLEMENTATION_FREEZE_COMMIT=8a076c69314e5ea0fba5835fc1c9d165c7498a2c
 M029_STATUS=APPROVED_AND_FROZEN
-NEXT_PERMITTED_ACTION=MILESTONE-030 SCOPE SELECTION
+
+M030_SCOPE=Concrete Application Command Vertical Slice (Campaign Creation)
+M030_SCOPE_STATUS=CANDIDATE_FOR_INDEPENDENT_SCOPE_REVIEW
+M030_SCOPE_COMMIT=PENDING
+M030_SCOPE_FREEZE_STATUS=NOT_STARTED
+M030_DESIGN_STATUS=NOT_STARTED
+M030_IMPLEMENTATION_STATUS=NOT_STARTED
+M030_STATUS=SCOPE_CANDIDATE
+NEXT_PERMITTED_ACTION=MILESTONE-030 INDEPENDENT SCOPE REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -252,14 +260,15 @@ M028 does not authorize any concrete `Query`/`QueryHandler` implementation, a de
 
 ## 9. Deferred Capabilities
 
-- MILESTONE-030 scope selection (M029 is now APPROVED_AND_FROZEN at scope, design, and implementation — see Section 12);
-- retry-on-`OptimisticConcurrencyConflict` policy after concrete business handlers exist;
+- MILESTONE-030 independent scope review and owner scope freeze (a scope candidate exists — see Section 13 — but is not yet approved or frozen);
+- the symmetric query-side vertical slice (deferred by the M030 scope candidate itself, pending approval);
+- retry-on-`OptimisticConcurrencyConflict` policy after a concrete handler exists that saves an existing aggregate;
 - APIs, workers, Audit runtime, Decision Candidate, Decision Freeze;
 - market-data, vendor, trading, or empirical campaign execution behavior.
 
 ## 10. Next Authorized Work
 
-MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`. MILESTONE-029 is `APPROVED_AND_FROZEN` at the scope stage (Section 11; scope-freeze commit `22cec98d4bd724e00754551034b896236989acec`), at the design stage (design commit `f047d3a33fcd8ba4849a5be1f75abc74c64a362f`, frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`), and now at the implementation stage (implementation commit `5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986`, owner-frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_IMPLEMENTATION_FREEZE.md` after a final independent implementation re-review found all previously blocking evidence/governance findings resolved; see Section 12). MILESTONE-029 is now fully `APPROVED_AND_FROZEN` at every stage. The next authorized action is MILESTONE-030 SCOPE SELECTION.
+MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 7). MILESTONE-028 is `APPROVED_AND_FROZEN` at both the design and implementation stages (Section 8): the corrected design (Version 1.1) was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_DESIGN_FREEZE.md`; the implementation, reviewed with zero CRITICAL, zero MAJOR, and zero blocking MINOR findings, was frozen via `MILESTONE_028_APPLICATION_QUERY_HANDLER_CONTRACTS_IMPLEMENTATION_FREEZE.md`. MILESTONE-029 is `APPROVED_AND_FROZEN` at the scope stage (Section 11; scope-freeze commit `22cec98d4bd724e00754551034b896236989acec`), at the design stage (design commit `f047d3a33fcd8ba4849a5be1f75abc74c64a362f`, frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`), and at the implementation stage (implementation commit `5b8a7d8a7e6bcd3852161c8fe0fafff5c7f5f986`, owner-frozen via `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_IMPLEMENTATION_FREEZE.md` after a final independent implementation re-review found all previously blocking evidence/governance findings resolved). MILESTONE-029 is fully `APPROVED_AND_FROZEN` at every stage (Section 12). MILESTONE-030 has a scope candidate — Concrete Application Command Vertical Slice (Campaign Creation) — recorded in `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_SCOPE.md` (Section 13), status `CANDIDATE_FOR_INDEPENDENT_SCOPE_REVIEW`. This candidate is NOT approved and NOT frozen. The next authorized action is MILESTONE-030 INDEPENDENT SCOPE REVIEW.
 
 ## 11. MILESTONE-029 Scope and Design
 
@@ -313,4 +322,18 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Review status:** COMPLETE. Owner-frozen. No further M029 implementation change is permitted without explicit owner re-authorization, documented reason, independent review where material, and a new governance commit.
 
-**Next permitted action:** MILESTONE-030 SCOPE SELECTION.
+**Next permitted action:** MILESTONE-030 INDEPENDENT SCOPE REVIEW (see Section 13).
+
+## 13. MILESTONE-030 Scope Candidate (Not Yet Approved)
+
+**Scope:** Concrete Application Command Vertical Slice (Campaign Creation) — one concrete command type and one concrete handler conforming to the frozen M027 `CommandHandler` Protocol, invoked through the frozen M029 `CommandEntryPoint`, persisting a new `Campaign` via the frozen M023 `PostgresCampaignRepository.add()`.
+
+**Why this scope:** Every layer of the CQRS/persistence stack (M020-M029) is frozen, but no two adjacent layers have ever been exercised together with a real, concrete operation — every prior milestone validated its Protocol or boundary exclusively against mock/fake handlers. This is the smallest coherent next capability: one narrow, concrete vertical slice proving the entire frozen stack composes correctly for one real write operation, using `Campaign` because it is the only domain aggregate with zero dependency on any other domain aggregate.
+
+**Explicitly out of scope:** the query-side vertical slice, any other Campaign operation, any other aggregate, any composition-root/registry/DI framework, any transport layer, any retry/optimistic-concurrency handling, and any market-data/vendor/trading/execution behavior.
+
+**Scope document:** `MILESTONE_030_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_SCOPE.md`.
+
+**Status:** `CANDIDATE_FOR_INDEPENDENT_SCOPE_REVIEW`. Not approved. Not frozen. No MILESTONE-030 design or implementation is authorized.
+
+**Next permitted action:** MILESTONE-030 INDEPENDENT SCOPE REVIEW, then (only if approved) MILESTONE-030 owner scope freeze, then MILESTONE-030 design.
