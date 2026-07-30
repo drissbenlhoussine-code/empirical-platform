@@ -32,3 +32,9 @@ def test_negative_fixture_detects_illegal_import() -> None:
         for violation in violations
     )
     assert any("shared may not import audit" in violation for violation in violations)
+    assert any(
+        "application may not import empirical_platform.shared.persistence" in violation
+        for violation in violations
+    )
+    assert any("application may not import entrypoints" in violation for violation in violations)
+    assert any("campaign may not import application" in violation for violation in violations)

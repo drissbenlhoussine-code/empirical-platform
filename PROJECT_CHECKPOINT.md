@@ -111,9 +111,11 @@ M029_SCOPE_FREEZE_COMMIT=22cec98d4bd724e00754551034b896236989acec
 M029_DESIGN_STATUS=APPROVED_AND_FROZEN
 M029_DESIGN_COMMIT=f047d3a33fcd8ba4849a5be1f75abc74c64a362f
 M029_DESIGN_FREEZE_COMMIT=81650aeb58e073134127062e8451de6d241f7c5e
-M029_IMPLEMENTATION_STATUS=NOT_STARTED
-M029_STATUS=DESIGN_APPROVED_AND_FROZEN
-NEXT_PERMITTED_ACTION=MILESTONE-029 IMPLEMENTATION
+M029_IMPLEMENTATION_STATUS=READY_FOR_INDEPENDENT_REVIEW
+M029_IMPLEMENTATION_COMMIT=PENDING
+M029_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
+M029_STATUS=IMPLEMENTATION_READY_FOR_INDEPENDENT_REVIEW
+NEXT_PERMITTED_ACTION=MILESTONE-029 INDEPENDENT IMPLEMENTATION REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -276,6 +278,32 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Design freeze document:** `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN_FREEZE.md`.
 
-**Status:** Scope APPROVED_AND_FROZEN. Design APPROVED_AND_FROZEN. Implementation NOT_STARTED.
+**Status:** Scope APPROVED_AND_FROZEN. Design APPROVED_AND_FROZEN. Implementation READY_FOR_INDEPENDENT_REVIEW (not owner-frozen).
+
+## 12. MILESTONE-029 Implementation Evidence (Pending Independent Review)
+
+**Implementation commit:** to be recorded once created (this checkpoint update is bundled into that commit).
+
+**New package:** `src/empirical_platform/application/` — `CommandEntryPoint[CommandT, ResultT]` and `QueryEntryPoint[QueryT, QueryResultT]`, each a composition-bound callable wrapping exactly one frozen M027/M028 handler, invoked exactly once per call, propagating results and exceptions unchanged. No handler discovery, no transaction ownership, no custom exception hierarchy, no runtime Protocol introspection, synchronous only — matching the frozen design at every decision point in Sections 5-9 of `MILESTONE_029_APPLICATION_SERVICE_ORCHESTRATION_DESIGN.md`.
+
+**Architecture enforcement:** `tools/check_architecture.py` extended with an `"application": {"shared"}` allowed-import rule, a `FORBIDDEN_IMPORT_PREFIXES["application"]` entry blocking `empirical_platform.shared.persistence`/`sqlalchemy`/`psycopg`/`boto3`, and `"entrypoints": {"shared", "application"}` permitting transport to depend on the application boundary. Domain feature packages and persistence retain no path to `application` (enforced by omission from their existing allow-lists, unchanged).
+
+**Tests added:** `tests/unit/test_command_entry_point.py`, `tests/unit/test_query_entry_point.py` (behavioral: exactly-once invocation, unchanged input/result/exception identity, natural-failure-on-malformed-handler), `tests/unit/test_application_boundary_invariants.py` (structural: import surface, no exception hierarchy, no runtime introspection, no registry/discovery identifiers, synchronous-only, distinct command/query types), `tests/unit/test_application_boundary_composition.py` (composition/transport-binding pattern), plus three architecture fixtures under `tests/fixtures/illegal_imports/` and two new assertions in `tests/architecture/test_module_boundaries.py`.
+
+**Validation gates (fresh run against implementation):**
+
+| Gate | Result |
+| --- | --- |
+| Python | 3.13.14 |
+| Full `pytest` suite | PASS — `464 passed, 110 skipped`, coverage `82.85%` (threshold 80%) |
+| Focused MILESTONE-029 tests | PASS — `28 passed` |
+| Ruff format/check (`src tests tools`) | PASS — 184 files formatted, 0 lint issues |
+| mypy strict | PASS — 85 source files (was 82; +3 for the new package) |
+| Architecture checker | PASS — 0 violations |
+| Build | PASS — sdist and wheel built, `application` package present in wheel contents |
+
+**No M020-M028 frozen contracts changed.** No M029 scope/design/freeze documents changed. No persistence, runtime, or transport implementation added. No MILESTONE-030 work started.
+
+**Review status:** Implementation complete and gate-verified; awaiting independent implementation review. Not owner-frozen.
 
 **Next permitted action:** MILESTONE-029 implementation, following the frozen design exactly.
