@@ -38,3 +38,17 @@ def test_negative_fixture_detects_illegal_import() -> None:
     )
     assert any("application may not import entrypoints" in violation for violation in violations)
     assert any("campaign may not import application" in violation for violation in violations)
+    assert any(
+        "usecases may not import empirical_platform.shared.persistence" in violation
+        for violation in violations
+    )
+    assert any(
+        "usecases may not import "
+        "empirical_platform.shared.persistence.postgres_repositories.runtime" in violation
+        for violation in violations
+    )
+    assert any("usecases may not import sqlalchemy" in violation for violation in violations)
+    assert any("usecases may not import psycopg" in violation for violation in violations)
+    assert any("usecases may not import boto3" in violation for violation in violations)
+    assert any("usecases may not import run" in violation for violation in violations)
+    assert any("campaign may not import usecases" in violation for violation in violations)

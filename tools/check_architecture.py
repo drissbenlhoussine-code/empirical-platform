@@ -26,6 +26,7 @@ ALLOWED: dict[str, set[str]] = {
     "archive": {"shared", "identifiers", "evidence", "audit", "decision_candidate"},
     "application": {"shared"},
     "entrypoints": {"shared", "application"},
+    "usecases": {"shared", "identifiers", "campaign"},
 }
 
 ALLOWED_EXACT_IMPORTS: dict[str, set[str]] = {
@@ -64,6 +65,12 @@ FORBIDDEN_IMPORT_PREFIXES: dict[str, tuple[str, ...]] = {
         "boto3",
     ),
     "application": (
+        "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+    "usecases": (
         "empirical_platform.shared.persistence",
         "sqlalchemy",
         "psycopg",
