@@ -148,7 +148,7 @@ M031_DESIGN_STATUS=APPROVED_AND_FROZEN
 M031_DESIGN_COMMIT=f73b924d3c36e4796087aa4bb889a8dcde7b548e
 M031_DESIGN_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
 M031_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
-M031_DESIGN_FREEZE_COMMIT=PENDING
+M031_DESIGN_FREEZE_COMMIT=196150dcde88610c9bc78e6bd0ff40d4d5da9d9b
 M031_IMPLEMENTATION_STATUS=NOT_STARTED
 M031_STATUS=DESIGN_APPROVED_AND_FROZEN
 NEXT_PERMITTED_ACTION=MILESTONE-031 IMPLEMENTATION MISSION
@@ -454,7 +454,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Independent review:** A hostile independent design review verified every load-bearing decision directly against actual frozen source (not the design's own claims) — identity semantics, the four-option return-shape evaluation, repository interaction, not-found/error behavior, revision-metadata treatment, and architecture-checker impact — and found zero CRITICAL and zero MAJOR findings. Three non-blocking MINOR findings were raised (an imprecise field-justification sentence in Section 9; an unresolved "or" in the Section 17.F integration-test seed mechanism; incomplete numeric labeling of the ten design questions) and resolved in the design-freeze record without modifying the frozen design document. Decision: **M031 DESIGN APPROVED WITH NON-BLOCKING OBSERVATIONS.**
 
-**Design freeze document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_DESIGN_FREEZE.md`.
+**Design freeze document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_DESIGN_FREEZE.md` (freeze commit `196150dcde88610c9bc78e6bd0ff40d4d5da9d9b`).
 
 **Status:** `APPROVED_AND_FROZEN`. MILESTONE-031 implementation is now authorized, strictly within the boundaries the freeze record establishes.
 
