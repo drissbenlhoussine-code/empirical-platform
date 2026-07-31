@@ -145,7 +145,7 @@ M031_SCOPE_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
 M031_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
 M031_SCOPE_FREEZE_COMMIT=b31b664e9395aa0a988ccd1aecc21d6b06436d39
 M031_DESIGN_STATUS=CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW
-M031_DESIGN_COMMIT=PENDING
+M031_DESIGN_COMMIT=f73b924d3c36e4796087aa4bb889a8dcde7b548e
 M031_DESIGN_FREEZE_STATUS=NOT_STARTED
 M031_IMPLEMENTATION_STATUS=NOT_STARTED
 M031_STATUS=DESIGN_CANDIDATE
@@ -440,7 +440,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 17. MILESTONE-031 Design (Candidate, Not Yet Approved)
 
-**Design document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_DESIGN.md` (design candidate commit `PENDING` — recorded via a narrow follow-up commit once the candidate commit exists; see Section 1's self-reference note).
+**Design document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_DESIGN.md` (design candidate commit `f73b924d3c36e4796087aa4bb889a8dcde7b548e`).
 
 **Selected architecture:** one concrete query, `GetCampaignQuery` (single field: `identity: DomainIdentity[CampaignId]`), and one concrete handler, `GetCampaignHandler`, both in a new module `usecases/get_campaign.py` alongside M030's `create_campaign.py`. The handler depends on `CampaignRepository` only via constructor injection (no `RuntimeIdentifierGenerator` — nothing is generated on a read); calls `CampaignRepository.get()` exactly once; and returns a new narrow immutable read value, `CampaignSnapshot` (`identity`, `scope_statement`, `state` — deliberately excluding `persisted_version`), rather than the raw mutable `Campaign` aggregate or the write-metadata-bearing `LoadedAggregate[Campaign]`, to avoid aggregate-mutation leakage and write-side metadata leakage through the read boundary. `AggregateNotFound` and any other repository exception propagate transparently, matching M029's frozen invariant and M030's own precedent. `QueryEntryPoint(GetCampaignHandler(...))` binding is demonstrated by direct construction in tests only, exactly matching M030. No architecture-checker change is required: every needed import (`campaign`, `identifiers`, `shared`) is already covered by M030's existing `ALLOWED["usecases"]` grant.
 
