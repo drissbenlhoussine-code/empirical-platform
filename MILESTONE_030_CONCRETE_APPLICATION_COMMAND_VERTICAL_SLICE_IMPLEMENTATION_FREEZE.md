@@ -110,7 +110,7 @@ Implementation:   APPROVED_AND_FROZEN
 
 Implementation commit:      bb66826225f621368ea317b5757631bf94731a56
 Finalization commit:        b2dbc29eed8ebf049f193f2a00aeae981418155b
-Implementation freeze commit: (recorded in a following governance commit)
+Implementation freeze commit: 64682d1790ed3efacbdbdb6d99b3f3b4e7bbee90
 
 M020-M029:  UNCHANGED, ALL REMAIN APPROVED_AND_FROZEN
 M031:       NOT_STARTED
