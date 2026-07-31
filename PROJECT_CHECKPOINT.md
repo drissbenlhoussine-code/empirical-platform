@@ -150,7 +150,7 @@ M031_DESIGN_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
 M031_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
 M031_DESIGN_FREEZE_COMMIT=196150dcde88610c9bc78e6bd0ff40d4d5da9d9b
 M031_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
-M031_IMPLEMENTATION_COMMIT=PENDING
+M031_IMPLEMENTATION_COMMIT=840310c880f4645ab9a1c9e8219d09b4408f9845
 M031_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M031_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
 NEXT_PERMITTED_ACTION=MILESTONE-031 INDEPENDENT IMPLEMENTATION REVIEW
@@ -464,7 +464,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 18. MILESTONE-031 Implementation (Candidate, Not Yet Approved)
 
-**Implementation document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_IMPLEMENTATION.md` (implementation commit `PENDING` — recorded via a narrow follow-up commit once the candidate commit exists; see Section 1's self-reference note).
+**Implementation document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_IMPLEMENTATION.md` (implementation commit `840310c880f4645ab9a1c9e8219d09b4408f9845`).
 
 **Implemented:** `GetCampaignQuery`, `CampaignSnapshot`, and `GetCampaignHandler` in the new `empirical_platform.usecases.get_campaign` module — exactly the vertical slice the frozen design specifies, with no deviation. The handler depends only on the `CampaignRepository` Protocol via constructor injection; performs the frozen sequential flow (read `query.identity` unchanged, call `CampaignRepository.get()` exactly once, build `CampaignSnapshot` from the loaded aggregate's `identity`/`scope_statement`/`state`, intentionally discarding `persisted_version`); propagates every collaborator failure transparently (no `try`/`except` anywhere in the module); and is invocable through the unmodified, frozen `QueryEntryPoint`.
 
