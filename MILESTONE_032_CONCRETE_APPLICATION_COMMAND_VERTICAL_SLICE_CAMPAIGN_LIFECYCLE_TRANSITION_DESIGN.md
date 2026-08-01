@@ -2,9 +2,9 @@
 
 ## 1. Document Status
 
-**Status: CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW**
+**Status: CANDIDATE_FOR_FINAL_INDEPENDENT_DESIGN_RE_REVIEW**
 
-This document is a design candidate. It has not been reviewed, approved, or frozen. No implementation of MILESTONE-032 is authorized by this document.
+This document is a design candidate. An independent hostile design review evaluated the prior version and returned **M032 DESIGN REQUIRES CORRECTION**, citing one MAJOR finding (M032-DESIGN-REVIEW-0001: the PostgreSQL conflict-test strategy's interfering-write mechanism was under-specified and, if implemented as originally described, would not reach `OptimisticConcurrencyConflict`). Section 21's conflict scenario and Section 31's corresponding self-review row have been corrected to resolve that finding; no other decision in this document was reopened. It has not been re-reviewed, approved, or frozen. No implementation of MILESTONE-032 is authorized by this document.
 
 ---
 
@@ -406,7 +406,9 @@ Reuses the exact opt-in fixture pattern `tests/integration/test_m030_create_camp
 **Exact scenarios:**
 
 1. **Golden path:** persist a `Campaign` via M030's `CreateCampaignHandler` (`DRAFT`, version 0); invoke `PrepareCampaignForAuthorizationCommand` through `CommandEntryPoint` with `expected_persisted_version=AggregateVersion(0)`; verify the returned `SaveResult.operation == SaveOperation.UPDATED` and `SaveResult.persisted_version == AggregateVersion(1)`; independently reload via `campaign_repository.get()` and verify `state == CampaignLifecycleState.READY_FOR_AUTHORIZATION` and `version == AggregateVersion(1)`.
-2. **Optimistic-concurrency conflict:** persist a `Campaign` (version 0); advance it to version 1 by calling `campaign_repository.save()` directly (bypassing the command, exactly mirroring M023's own `test_campaign_save_stale_version_raises_optimistic_concurrency_conflict` pattern); invoke the command with the now-stale `expected_persisted_version=AggregateVersion(0)`; verify `OptimisticConcurrencyConflict` is raised with the exact expected/actual version metadata.
+2. **Optimistic-concurrency conflict:** persist a `Campaign` (version 0). Simulate an interfering writer by independently loading the same identity a second time (`campaign_repository.get(identity)`, yielding a second, separate `LoadedAggregate`/`Campaign` in-memory object for the same row), calling `Campaign.revise_scope_statement(...)` on that second object, and persisting it via `campaign_repository.save(interfering_campaign, expected_persisted_version=AggregateVersion(0))` — bypassing the command entirely. This advances the row to version 1 while leaving it in `DRAFT`, because `revise_scope_statement()` is the one existing `Campaign` mutation that bumps `AggregateVersion` without changing lifecycle state. Then invoke `PrepareCampaignForAuthorizationCommand` through `CommandEntryPoint` with the now-stale `expected_persisted_version=AggregateVersion(0)`; verify `OptimisticConcurrencyConflict` is raised with the exact expected/actual version metadata.
+
+   **`revise_scope_statement()` is the required mechanism, not `prepare_for_authorization()` itself.** `Campaign.prepare_for_authorization()` requires the aggregate to be in `DRAFT` (Section 8's frozen contract matrix, verified against `campaign/aggregate.py`); it transitions the aggregate to `READY_FOR_AUTHORIZATION`. If the interfering write instead used `prepare_for_authorization()`, the row would already be `READY_FOR_AUTHORIZATION` by the time the command under test runs its own `campaign.prepare_for_authorization(...)` call in Section 12's load-mutate-save sequence — that call would immediately raise the aggregate's own domain `ValueError` ("cannot transition from READY_FOR_AUTHORIZATION; expected DRAFT"), and execution would never reach `save()` at all. The test would then observe a domain-precondition failure, not `OptimisticConcurrencyConflict`, and the milestone's central proof — that the application boundary correctly surfaces a real, repository-detected version conflict — would go unexercised. `revise_scope_statement()` is the only existing `Campaign` mutation that advances `AggregateVersion` while leaving `_state` at `DRAFT` unchanged, which is exactly what is required to reach the concurrency check inside `save()` rather than the earlier domain-precondition check inside `prepare_for_authorization()` itself. This correction resolves independent design review finding M032-DESIGN-REVIEW-0001; it does not change the selected mutation, command shape, handler, return type, repository interaction, transaction model, expected-version ownership, or any other frozen design decision in this document — it clarifies only the previously under-specified interfering-write mechanism.
 3. **Domain-invalid transition:** invoke the command successfully once (`DRAFT → READY_FOR_AUTHORIZATION`); invoke it again against the same identity; verify the aggregate's own `ValueError` propagates unchanged and no further database write occurs.
 4. **No migration or schema change** — verified no `migrations/` file is touched.
 5. **Full relevant regression** (`tests/integration/`) remains green, run unmodified alongside the new tests.
@@ -541,7 +543,7 @@ Adversarial sweep performed against this document's own content before finalizin
 | --- | --- |
 | Mutation not actually valid from a reproducible initial state | Not found — `prepare_for_authorization` requires only `DRAFT`, which M030's frozen `CreateCampaignHandler` already reliably produces (Section 5-6) |
 | Unresolved expected-version source | Not found — Option A frozen explicitly with full justification (Section 11) |
-| Impossible conflict reproduction | Not found — Section 11 demonstrates a concrete, deterministic, precedent-backed reproduction sequence, mirroring M023's own already-proven test |
+| Impossible conflict reproduction | Not found — Section 21 scenario 2 specifies the exact interfering-write mechanism (`revise_scope_statement()` on an independently loaded aggregate for the same identity), explicitly distinguishing it from `prepare_for_authorization()`, which cannot serve this role without invalidating its own domain precondition before the command under test reaches the concurrency check |
 | Hidden retry | Not found — Section 14/26 explicitly and permanently exclude retry; exactly one `save()` attempt (Section 12) |
 | Hidden second capability | Not found — exactly one command, one handler, one mutation method (Section 25) |
 | Return contract losing version metadata | Not found — `SaveResult.persisted_version` (the new version) is preserved, not discarded (Section 13) |
@@ -568,7 +570,8 @@ No genuine issue survived this sweep requiring correction. No decision in this d
 
 ═══════════════════════════════════════════════════════════════════════════════
 
-Status:                          CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW
+Status:                          CANDIDATE_FOR_FINAL_INDEPENDENT_DESIGN_RE_REVIEW
+Correction Applied:              M032-DESIGN-REVIEW-0001 (Section 21 conflict-scenario mechanism)
 Design Questions Answered:       13 / 13
 Load-Bearing Decisions Justified: 8 / 8 (Section 23)
 Prohibited Items Introduced:     0
@@ -585,7 +588,7 @@ Selected Binding:                Direct CommandEntryPoint(handler) construction,
 Selected Version Model:          Caller-supplied expected_persisted_version (Option A)
 Selected Conflict Strategy:      Fully transparent propagation (no handler-level try/except, no retry)
 
-NEXT PERMITTED ACTION: MILESTONE-032 INDEPENDENT DESIGN REVIEW
+NEXT PERMITTED ACTION: MILESTONE-032 FINAL INDEPENDENT DESIGN RE-REVIEW
 
 ═══════════════════════════════════════════════════════════════════════════════
 ```
