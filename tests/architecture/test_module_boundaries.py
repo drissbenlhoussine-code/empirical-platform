@@ -50,5 +50,6 @@ def test_negative_fixture_detects_illegal_import() -> None:
     assert any("usecases may not import sqlalchemy" in violation for violation in violations)
     assert any("usecases may not import psycopg" in violation for violation in violations)
     assert any("usecases may not import boto3" in violation for violation in violations)
-    assert any("usecases may not import run" in violation for violation in violations)
+    assert any("usecases may not import evidence" in violation for violation in violations)
     assert any("campaign may not import usecases" in violation for violation in violations)
+    assert any("run may not import usecases" in violation for violation in violations)
