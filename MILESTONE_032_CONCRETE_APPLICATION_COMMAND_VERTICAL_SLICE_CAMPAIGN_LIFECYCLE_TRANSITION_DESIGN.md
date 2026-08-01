@@ -260,11 +260,11 @@ Under Option B, `get()` and `save()` happen in immediate sequence inside one han
 Under Option A, the command's `expected_persisted_version` is set once — independently of the handler's own internal `get()` — so a test can deliberately make it stale:
 
 1. Persist a Campaign via M030's frozen `CreateCampaignHandler` (persisted version 0).
-2. Advance the persisted version to 1 by calling `campaign_repository.save()` **directly** (bypassing the M032 command entirely) — exactly mirroring how M023's own frozen integration test `test_campaign_save_stale_version_raises_optimistic_concurrency_conflict` already establishes conflicts, confirmed present in `tests/integration/test_m023_postgres_repositories.py`.
+2. Advance the persisted version to 1 by independently loading the same identity and calling `Campaign.revise_scope_statement(...)` on that separately-loaded aggregate, then `campaign_repository.save()` **directly** (bypassing the M032 command entirely) — using the same frozen repository optimistic-concurrency semantics M023's own `test_campaign_save_stale_version_raises_optimistic_concurrency_conflict` (`tests/integration/test_m023_postgres_repositories.py`) already proves at the repository layer, with an M032-specific interfering write (`revise_scope_statement()`) that preserves `DRAFT` so the command under test can still execute `prepare_for_authorization()` afterward. See Section 21 for the exact scenario.
 3. Construct `PrepareCampaignForAuthorizationCommand` with `expected_persisted_version=AggregateVersion(0)` (now stale).
 4. Invoke it: the handler's `get()` still returns the current (version-1) aggregate to mutate correctly in memory, but `save(campaign, expected_persisted_version=AggregateVersion(0))` is rejected by the database's atomic `UPDATE ... WHERE version = 0` (zero rows match, since the true row is at version 1) — `OptimisticConcurrencyConflict` is raised, deterministically, with zero threading, mocking, or interleaving machinery.
 
-This is not merely theoretically sound — it directly reuses a pattern this repository's own M023 test suite already established at the repository layer.
+This is not merely theoretically sound — it builds on the same frozen repository-layer conflict semantics this repository's own M023 test suite already established, adapted with an M032-specific state-preserving interfering write (Section 21).
 
 ### Selected: Option A
 
@@ -496,7 +496,7 @@ Any retry, backoff, or automatic conflict-resolution policy; any other Campaign 
 
 | Risk | Mitigation |
 | --- | --- |
-| Conflict path becoming untestable | Resolved by design: caller-supplied `expected_persisted_version` (Option A, Section 11), directly mirroring M023's own already-proven conflict-test pattern |
+| Conflict path becoming untestable | Resolved by design: caller-supplied `expected_persisted_version` (Option A, Section 11). The M032 conflict evidence uses the same frozen repository optimistic-concurrency semantics proven in M023, but its interfering write is M032-specific: `revise_scope_statement()` is used to advance the persisted version while preserving `DRAFT` so the command under test can still execute `prepare_for_authorization()` before the stale-version `save()` fails (Section 21) |
 | Lost version metadata | Resolved: `SaveResult.persisted_version` (the *new* version) is returned unchanged, not discarded (Section 13) |
 | Stale-write semantics confusion | Explicitly documented (Section 11): the aggregate mutation always operates on the freshly-loaded (current) state; only the `save()` guard uses the caller-supplied expected version |
 | Mutation-selection bias | Addressed via a full 8-candidate comparison (Section 5) and an honest three-way trade-off among the viable candidates (Section 6), not a first-plausible-option choice |
