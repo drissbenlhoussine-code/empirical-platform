@@ -168,7 +168,7 @@ M032_DESIGN_COMMIT=50f2cd829af2e10799ab3581b4c2e56e9e04d401
 M032_DESIGN_CORRECTION_COMMIT=2f48b1e4af1b039c3b2a7e3598f85e63e007b216
 M032_DESIGN_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
 M032_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
-M032_DESIGN_FREEZE_COMMIT=PENDING
+M032_DESIGN_FREEZE_COMMIT=14204e4c24024fa7e1d56fbf49dccef0a1fa6a58
 M032_IMPLEMENTATION_STATUS=NOT_STARTED
 M032_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M032_STATUS=DESIGN_APPROVED_AND_FROZEN
@@ -566,7 +566,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Final independent design re-review:** confirmed the corrected conflict mechanism (`revise_scope_statement()` as the interfering write) is genuine and deterministic, that no other design decision was disturbed by the correction, and that the design introduces no second application capability. It raised one non-blocking observation, **M032-DESIGN-RE-REVIEW-0001**: residual wording elsewhere in the document (Section 11's reasoning and the Section 28 risk table) still claimed the conflict path "directly mirrors" M023's test pattern without the M032-specific qualification the corrected Section 21 already carried. Decision: **M032 DESIGN APPROVED WITH NON-BLOCKING OBSERVATIONS.** The residual wording was corrected in this same freeze mission (Option A) to consistently state that M032 uses the same frozen repository concurrency semantics M023 proves, adapted with an M032-specific, state-preserving interfering write — no architectural decision was altered.
 
-**Design freeze document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_DESIGN_FREEZE.md`.
+**Design freeze document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_DESIGN_FREEZE.md` (freeze commit `14204e4c24024fa7e1d56fbf49dccef0a1fa6a58`).
 
 **Status:** `APPROVED_AND_FROZEN`. MILESTONE-032 implementation is now authorized, strictly within the boundaries the freeze record establishes.
 
