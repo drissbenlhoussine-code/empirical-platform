@@ -148,7 +148,7 @@ No new architecture fixture was added, per the mission's explicit "do not duplic
 
 **Added:**
 
-- `tests/unit/test_get_campaign_usecase.py` — 17 tests: query immutability/field-preservation, handler `get()`-exactly-once and identity-preservation, no `add()`/`save()`, snapshot field mapping, snapshot immutability/field-exclusivity, aggregate non-mutation, `AggregateNotFound`/arbitrary-exception propagation, `QueryEntryPoint` invocation and rebinding.
+- `tests/unit/test_get_campaign_usecase.py` — 16 tests: query immutability/field-preservation, handler `get()`-exactly-once and identity-preservation, no `add()`/`save()`, snapshot field mapping, snapshot immutability/field-exclusivity, aggregate non-mutation, `AggregateNotFound`/arbitrary-exception propagation, `QueryEntryPoint` invocation and rebinding.
 - `tests/contract/test_get_campaign_handler_contract.py` — 3 tests: mypy-checked typed-assignment Protocol conformance, `handle()` single-parameter signature, no base-class inheritance.
 - `tests/integration/test_m031_get_campaign_usecase.py` — 3 tests: golden path via `QueryEntryPoint` and real `PostgresCampaignRepository`, missing-identity `AggregateNotFound`, no production composition machinery required.
 
@@ -159,7 +159,7 @@ No new architecture fixture was added, per the mission's explicit "do not duplic
 - `tests/integration/test_m030_create_campaign_usecase.py` — used directly as the identity-producing precondition for the new integration tests via the same `CreateCampaignHandler`/`CommandEntryPoint` path.
 - The exact `engine`/`upgraded_schema`/`clean_tables`/`service`/`campaign_repo` fixture chain from `test_m030_create_campaign_usecase.py`, reproduced (not imported, since pytest fixtures are file-scoped) in the new integration test file per the frozen design's evidence strategy (Design Section 18).
 
-**Total new tests: 23** (17 unit + 3 contract + 3 integration).
+**Total new tests: 22** (16 unit + 3 contract + 3 integration).
 
 ---
 
@@ -206,7 +206,7 @@ Executed, not merely asserted, against `src/empirical_platform/usecases/get_camp
 | Full suite, PostgreSQL opt-in | `pytest -q` (opt-in) | PASS — `610 passed, 6 skipped`, coverage `91.92%` |
 | Build | `python -m build` | PASS — sdist and wheel built, `get_campaign.py` present in wheel contents |
 | Security — pip-audit | `python -m pip_audit` | PASS — no known vulnerabilities |
-| Security — secret scan targets | `python tools/secret_scan_targets.py` | PASS — 344 targets discovered (was 302 at M030 freeze) |
+| Security — secret scan targets | `python tools/secret_scan_targets.py` | PASS — 345 targets discovered (was 302 at M030 freeze) |
 
 ---
 
