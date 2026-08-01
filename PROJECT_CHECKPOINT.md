@@ -170,7 +170,7 @@ M032_DESIGN_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
 M032_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
 M032_DESIGN_FREEZE_COMMIT=14204e4c24024fa7e1d56fbf49dccef0a1fa6a58
 M032_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
-M032_IMPLEMENTATION_COMMIT=PENDING
+M032_IMPLEMENTATION_COMMIT=2901a6e7f6c305a86a8ba7635a436c9299433519
 M032_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M032_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
 M033_STATUS=NOT_STARTED
@@ -575,7 +575,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 21. MILESTONE-032 Implementation (Candidate, Not Yet Approved)
 
-**Implementation document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_IMPLEMENTATION.md` (implementation commit `PENDING` — recorded via a narrow follow-up commit once the candidate commit exists; see Section 1's self-reference note).
+**Implementation document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_IMPLEMENTATION.md` (implementation commit `2901a6e7f6c305a86a8ba7635a436c9299433519`).
 
 **Implemented:** `PrepareCampaignForAuthorizationCommand` and `PrepareCampaignForAuthorizationHandler` in the new `empirical_platform.usecases.prepare_campaign_for_authorization` module — exactly the vertical slice the frozen design specifies, with no deviation. The handler depends only on `CampaignRepository` via constructor injection; performs the frozen sequential flow (`get()` exactly once, `Campaign.prepare_for_authorization()` exactly once with the command's own `actor`/`occurred_at`/`correlation_id`/`reason`, `save()` exactly once with the mutated aggregate and the command's own `expected_persisted_version` — never `loaded.persisted_version`); propagates every collaborator failure transparently (no `try`/`except` anywhere); returns the exact `SaveResult` `save()` produced, unchanged; and is invocable through the unmodified, frozen `CommandEntryPoint`.
 
