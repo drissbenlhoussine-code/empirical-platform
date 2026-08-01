@@ -159,7 +159,7 @@ M031_STATUS=APPROVED_AND_FROZEN
 
 M032_SCOPE=Concrete Application Command Vertical Slice (Campaign Lifecycle Transition)
 M032_SCOPE_STATUS=CANDIDATE_FOR_INDEPENDENT_SCOPE_REVIEW
-M032_SCOPE_COMMIT=PENDING
+M032_SCOPE_COMMIT=5ea62d02d65945f0976e42b8c011217d895723e4
 M032_SCOPE_FREEZE_STATUS=NOT_STARTED
 M032_DESIGN_STATUS=NOT_STARTED
 M032_DESIGN_FREEZE_STATUS=NOT_STARTED
@@ -520,7 +520,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 19. MILESTONE-032 Scope (Candidate, Not Yet Approved)
 
-**Scope document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_SCOPE.md` (scope candidate commit `PENDING` — recorded via a narrow follow-up commit once the candidate commit exists; see Section 1's self-reference note).
+**Scope document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_SCOPE.md` (scope candidate commit `5ea62d02d65945f0976e42b8c011217d895723e4`).
 
 **Selected scope:** Concrete Application Command Vertical Slice (Campaign Lifecycle Transition) — one concrete command and one concrete handler conforming to the frozen M027 `CommandHandler` Protocol, invoked through the frozen M029 `CommandEntryPoint`, persisting a Campaign lifecycle-state transition via the frozen M023 `PostgresCampaignRepository.save()` method for the first time anywhere in the application layer.
 
