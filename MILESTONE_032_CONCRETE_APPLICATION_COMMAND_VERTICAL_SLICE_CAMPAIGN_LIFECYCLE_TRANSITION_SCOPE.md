@@ -36,7 +36,7 @@ Verified by direct inspection of source, not inferred from filenames or mileston
 
 | # | Capability | Classification | Evidence |
 | --- | --- | --- | --- |
-| 1 | Domain aggregates/lifecycle | IMPLEMENTED_AND_FROZEN (domain layer only) | `Campaign` (8 methods: `revise_scope_statement`, `prepare_for_authorization`, `record_authorization`, `activate`, `suspend`, `resume`, `complete`, `cancel`), `Run` (7 methods), `EvidencePackage` (3 methods), `Review` (3 methods) — all frozen domain code |
+| 1 | Domain aggregates/lifecycle | IMPLEMENTED_AND_FROZEN (domain layer only) | `Campaign` (8 public mutation methods: 7 lifecycle-state-transition methods — `prepare_for_authorization`, `record_authorization`, `activate`, `suspend`, `resume`, `complete`, `cancel` — plus `revise_scope_statement`, which mutates the scope statement without changing lifecycle state), `Run` (7 methods), `EvidencePackage` (3 methods), `Review` (3 methods) — all frozen domain code |
 | 2 | Repository Protocols | IMPLEMENTED_AND_FROZEN | `CampaignRepository`, `RunRepository`, `EvidencePackageRepository`, `ReviewRepository` — each with `get`/`add`/`save` (M020) |
 | 3 | PostgreSQL repository adapters | IMPLEMENTED_AND_FROZEN | `PostgresCampaignRepository`, `PostgresRunRepository`, `PostgresEvidencePackageRepository`, `PostgresReviewRepository` (M023) |
 | 4 | Transaction/repository runtime | IMPLEMENTED_AND_FROZEN | `PostgresPersistenceService.run_composed()` (M024), `PostgresRepositoryRuntime` (M025) |
@@ -49,7 +49,7 @@ Verified by direct inspection of source, not inferred from filenames or mileston
 | 11 | Composition-root behavior | ABSENT | Explicitly deferred by both M030 and M031 scopes pending evidence of genuine repeated-handler need |
 | 12 | Transport/entrypoint behavior | TEST_SUPPORT_ONLY | `entrypoints/health.py`, `entrypoints/version.py` are static stdout scripts; no HTTP/CLI framework; not wired to any command or query |
 | 13 | Application-layer error/concurrency behavior | ABSENT (at application layer) | `OptimisticConcurrencyConflict` is frozen at the repository layer (M020/M023) but has never propagated through any command handler, because no command ever calls `save()` |
-| 14 | Retry/idempotency behavior | ABSENT, explicitly blocked | M030's own frozen scope: "blocked on a `save()`-based command that does not yet exist" |
+| 14 | Retry/idempotency behavior | ABSENT, explicitly blocked | M030's own frozen scope defers this pending a `save()`-based command (paraphrase; verbatim text in Section 5) |
 | 15 | Audit/governance runtime behavior | ABSENT | `audit/`, `governance/`, `registry/`, `decision_candidate/`, `archive/`, `acquisition/`, `normalization/`, `validation/` are all single-file stub packages containing only a docstring declaring "no behavior is implemented" |
 | 16 | Application result/read contracts | IMPLEMENTED_AND_FROZEN (exactly one) | `CampaignSnapshot` (M031) — narrow, milestone-local, not a framework |
 | 17 | Integration coverage | PARTIALLY_PRESENT | Repository-level PostgreSQL integration tests exist for all four aggregates (M023); usecase-level integration tests exist only for Campaign (M030 create, M031 retrieve) |
@@ -61,8 +61,8 @@ Verified by direct inspection of source, not inferred from filenames or mileston
 
 `CampaignRepository.save()` — and every other aggregate's `.save()` method — has been frozen since M020 and implemented since M023, together with the `OptimisticConcurrencyConflict` contract it guards. Neither has ever been exercised by any application-layer code: `CreateCampaignHandler` (M030) calls only `add()`; `GetCampaignHandler` (M031) calls only `get()`. This is not a speculative or invented gap — it is the literal, explicitly named next dependency in two consecutive frozen scope documents:
 
-- M030's frozen scope: "Any retry, idempotency, or optimistic-concurrency-conflict handling — this remains blocked on a `save()`-based command that does not yet exist."
-- M031's `PROJECT_CHECKPOINT.md` deferred-capabilities entry: "retry-on-`OptimisticConcurrencyConflict` policy after a concrete handler exists that saves an existing aggregate."
+- M030's frozen scope, verbatim (Deferred Work section): "Retry-on-`OptimisticConcurrencyConflict` policy (requires a "save" operation on an existing aggregate, which this milestone does not include)." M030's frozen scope also excludes, verbatim (Out of Scope section): "Any retry, idempotency, or optimistic-concurrency-conflict handling (creation via `add()` has no prior version to conflict with)."
+- M031's `PROJECT_CHECKPOINT.md` deferred-capabilities entry, verbatim: "retry-on-`OptimisticConcurrencyConflict` policy after a concrete handler exists that saves an existing aggregate."
 
 The gap is architecturally real (a frozen, implemented repository method with zero application-layer proof), not already solved, not merely desirable, dependent on nothing unresolved (every collaborator it needs is already frozen), and narrow enough for a single milestone (one command, one aggregate, no new persistence/schema/runtime work).
 
@@ -94,7 +94,7 @@ The gap is architecturally real (a frozen, implemented repository method with ze
 
 **Candidate C — Application composition-root wiring.**
 - Architectural problem solved: would give commands/queries a production binding mechanism instead of test-only direct construction.
-- Why it may be premature: M030 and M031 each explicitly declined this pending "evidence of genuine repeated-handler need" — with only 2 concrete handlers existing, that evidence bar is not yet met; a 3rd handler (Candidate A) does not by itself establish a *pattern* requiring a root, since it is still Campaign-only.
+- Why it may be premature: M030's frozen scope defers this, verbatim (Deferred Work section): "Any composition-root abstraction beyond direct binding, if repeated concrete handlers later reveal a genuine need for one." M031's frozen scope states the same deferral in its own words (Success Criteria section): "a genuine unmet prerequisite (composition-root need not yet evidenced...)". With only 2 concrete handlers existing, that evidence bar is not yet met by either predecessor's own standard; a 3rd handler (Candidate A) does not by itself establish a *pattern* requiring a root, since it is still Campaign-only.
 - Rejected at Phase 5 below.
 
 **Candidate D — Another aggregate's command vertical slice (Run/EvidencePackage/Review creation).**
@@ -146,7 +146,7 @@ The gap is architecturally real (a frozen, implemented repository method with ze
 ## 8. Rejected Candidates
 
 - **B (retry policy):** rejected — explicitly and literally blocked by M030's own frozen scope on a `save()`-based command not yet existing; scoping it now would violate the frozen predecessor's own stated dependency order.
-- **C (composition root):** rejected — the evidence bar M030/M031 both set ("genuine repeated-handler need") is not met by 2 (soon 3) handlers all scoped to one aggregate; scoping this now would be speculative framework-building ahead of evidence, which the frozen predecessor scopes explicitly warned against.
+- **C (composition root):** rejected — the evidence bar M030's and M031's own frozen scopes each set (a genuine, repeated-handler-evidenced need, per the verbatim text quoted in Section 6) is not met by 2 (soon 3) handlers all scoped to one aggregate; scoping this now would be speculative framework-building ahead of evidence, which the frozen predecessor scopes explicitly warned against.
 - **D (2nd aggregate command):** rejected — dominated by Candidate A on architectural necessity and future leverage; it would add a second instance of an already-proven pattern instead of closing the more significant, explicitly-deferred `save()`/optimistic-concurrency gap.
 - **E (2nd aggregate query):** rejected — same reasoning as D, with the added weakness that no writer exists yet for any of Run/EvidencePackage/Review, making a query for them less evidenced than Candidate A (where Campaign already has a real, frozen writer).
 - **F (transport):** rejected — silently depends on Candidate C (composition root), which is itself rejected as premature; would also require resolving authentication/framework/protocol choices with zero prior evidence in this repository, stacking multiple unresolved layers.
@@ -245,7 +245,7 @@ The following must remain exactly as frozen, unmodified, throughout this milesto
 
 ## 18. Open Design Questions
 
-- Which specific `Campaign` lifecycle-transition method this milestone targets (e.g. `revise_scope_statement`, `prepare_for_authorization`, `activate`, or another) — not resolved by this scope.
+- Which specific `Campaign` mutation capability this milestone targets — one of the 7 lifecycle-state-transition methods (e.g. `prepare_for_authorization`, `activate`, or another), or the non-state-transition `revise_scope_statement` — not resolved by this scope.
 - How the handler obtains a valid `expected_persisted_version` for the `save()` call — whether by loading the aggregate via `get()` inside the same handler, or by some other frozen-contract-compatible means.
 - The exact command type's name, shape, and fields.
 - The exact handler type's name and shape.
