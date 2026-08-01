@@ -185,7 +185,7 @@ M033_SCOPE_FREEZE_COMMIT=44dd29e34f6150bd37bc466eed14098d75ac57ab
 M033_DESIGN_STATUS=APPROVED_AND_FROZEN
 M033_DESIGN_COMMIT=8edead3bc25d786cef8563f4fc4815a889a3a447
 M033_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
-M033_DESIGN_FREEZE_COMMIT=PENDING
+M033_DESIGN_FREEZE_COMMIT=ec802143626e850dafe70ce9f0f561fa8516df94
 M033_IMPLEMENTATION_STATUS=NOT_STARTED
 M033_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M033_STATUS=DESIGN_APPROVED_AND_FROZEN
@@ -671,7 +671,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Independent review:** A hostile independent design review verified every load-bearing decision directly against actual frozen source — `Run` aggregate creation semantics, `RunRepository.add()`, `PostgresRunRepository.add()`, the real database foreign-key behavior, duplicate-identity translation, raw `FoundationError` propagation for a missing Campaign, the identity-generation model, the exact command/handler contracts, the exact creation sequence, the return contract, transparent error behavior, the absence of transaction orchestration, the narrow architecture-checker extension, and the PostgreSQL evidence strategy. No CRITICAL, MAJOR, or blocking MINOR finding was found; no correction was required. One non-blocking observation was preserved, not corrected: the missing-Campaign behavior intentionally exposes the existing `FoundationError` (category `PERSISTENCE`) the frozen persistence layer already produces, consistent with M029's transparent-error-propagation principle. Decision: **M033 DESIGN APPROVED FOR OWNER FREEZE.**
 
-**Design freeze document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_DESIGN_FREEZE.md` (freeze commit `PENDING`, to be recorded in a narrow follow-up commit).
+**Design freeze document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_DESIGN_FREEZE.md` (freeze commit `ec802143626e850dafe70ce9f0f561fa8516df94`).
 
 **Status:** `APPROVED_AND_FROZEN`. MILESTONE-033 implementation is now authorized, strictly within the boundaries the freeze record establishes.
 
