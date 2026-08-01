@@ -174,7 +174,7 @@ M032_IMPLEMENTATION_COMMIT=2901a6e7f6c305a86a8ba7635a436c9299433519
 M032_FINALIZATION_COMMIT=8db4febca15299861103c26f716d19b3a5d5bd29
 M032_IMPLEMENTATION_REVIEW_STATUS=APPROVED_FOR_OWNER_FREEZE
 M032_IMPLEMENTATION_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
-M032_IMPLEMENTATION_FREEZE_COMMIT=PENDING
+M032_IMPLEMENTATION_FREEZE_COMMIT=84fcf35082aafc1a02358f2e3aa8f7de81841cc9
 M032_STATUS=APPROVED_AND_FROZEN
 M033_STATUS=NOT_STARTED
 NEXT_PERMITTED_ACTION=MILESTONE-033 SCOPE SELECTION
@@ -610,7 +610,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Independent review:** A hostile independent implementation review verified the 7-file (implementation) + 2-file (finalization) change scope directly against the real commits, re-ran a fresh prohibited-pattern grep sweep (zero matches, including confirming no Campaign mutation other than `prepare_for_authorization()` appears in production code), read all 25 tests for genuine (non-tautological) rigor, and **independently reproduced the real-PostgreSQL evidence from a fresh Docker container** — the golden path, the deterministic `OptimisticConcurrencyConflict` scenario, and the invalid-transition path — with results identical to the implementation's own claims. It also independently re-extracted and re-verified the external review package's manifest (77/77 hashes) and ZIP from a fresh extraction. No CRITICAL or MAJOR finding. No correction required. Decision: **M032 IMPLEMENTATION APPROVED FOR OWNER FREEZE.**
 
-**Implementation freeze document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_IMPLEMENTATION_FREEZE.md`.
+**Implementation freeze document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_IMPLEMENTATION_FREEZE.md` (freeze commit `84fcf35082aafc1a02358f2e3aa8f7de81841cc9`).
 
 **Review status:** `APPROVED_AND_FROZEN`. MILESTONE-032 is now fully frozen at every stage.
 
