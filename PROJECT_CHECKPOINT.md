@@ -154,7 +154,7 @@ M031_IMPLEMENTATION_COMMIT=840310c880f4645ab9a1c9e8219d09b4408f9845
 M031_IMPLEMENTATION_FINALIZATION_COMMIT=fb4b52ce521756168f74b660e7846114630b8622
 M031_IMPLEMENTATION_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
 M031_IMPLEMENTATION_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
-M031_IMPLEMENTATION_FREEZE_COMMIT=PENDING
+M031_IMPLEMENTATION_FREEZE_COMMIT=f144c963f6bcf90a8ada5cf14853fce5e73d48d8
 M031_STATUS=APPROVED_AND_FROZEN
 M032_STATUS=NOT_STARTED
 NEXT_PERMITTED_ACTION=MILESTONE-032 SCOPE SELECTION
@@ -500,7 +500,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Independent review:** A hostile independent implementation review verified the 7-file (implementation) + 2-file (finalization) change scope directly against the real commits, re-ran a fresh prohibited-pattern grep sweep (zero matches), independently re-verified the architecture-checker preservation claim, read all 22 tests for genuine (non-tautological) rigor, and **independently reproduced the real-PostgreSQL evidence from a completely fresh Docker container, twice** — once for the 3 M031-specific integration tests, once for the full 610-test suite and full integration regression — with results identical both times. It also independently re-extracted and re-verified the external review package's manifest (74/74 hashes) and ZIP from a fresh extraction. Two non-blocking observations were raised (a miscounted test total — 22, not 23; a stale secret-scan target count — 345, not 344) and resolved in this same freeze. No CRITICAL or MAJOR finding. Decision: **M031 IMPLEMENTATION APPROVED WITH NON-BLOCKING OBSERVATIONS.**
 
-**Implementation freeze document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_IMPLEMENTATION_FREEZE.md`.
+**Implementation freeze document:** `MILESTONE_031_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_IMPLEMENTATION_FREEZE.md` (freeze commit `f144c963f6bcf90a8ada5cf14853fce5e73d48d8`).
 
 **Review status:** `APPROVED_AND_FROZEN`. MILESTONE-031 is now fully frozen at every stage.
 
