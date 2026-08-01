@@ -162,7 +162,7 @@ M032_SCOPE_STATUS=APPROVED_AND_FROZEN
 M032_SCOPE_COMMIT=5ea62d02d65945f0976e42b8c011217d895723e4
 M032_SCOPE_REVIEW_STATUS=APPROVED_FOR_OWNER_SCOPE_FREEZE
 M032_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
-M032_SCOPE_FREEZE_COMMIT=PENDING
+M032_SCOPE_FREEZE_COMMIT=b18878a514694d6663026e11d98859023c04a136
 M032_DESIGN_STATUS=NOT_STARTED
 M032_DESIGN_FREEZE_STATUS=NOT_STARTED
 M032_IMPLEMENTATION_STATUS=NOT_STARTED
@@ -536,7 +536,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Independent review:** A hostile independent scope review verified repository truth, the frozen predecessor chain, the architectural inventory, the claimed gap (independently reproven from primary source via direct repository search, not merely asserted), candidate comparison and sequencing, scope purity, absence of hidden design/implementation, and frozen-contract preservation. It found three non-blocking documentation findings — two citations of M030/M031 predecessor text that used quotation marks around paraphrased rather than verbatim wording, and one internal 7-vs-8-method terminology inconsistency for `Campaign` — none affecting the substance of the selection. Decision: **APPROVED FOR OWNER SCOPE FREEZE.**
 
-**Scope freeze document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_SCOPE_FREEZE.md`.
+**Scope freeze document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_SCOPE_FREEZE.md` (freeze commit `b18878a514694d6663026e11d98859023c04a136`).
 
 **Status:** `APPROVED_AND_FROZEN`. MILESTONE-032 design is now authorized. MILESTONE-032 implementation is NOT authorized until design is independently reviewed and owner-frozen.
 
