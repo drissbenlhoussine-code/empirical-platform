@@ -181,7 +181,7 @@ M033_SCOPE=Concrete Application Command Vertical Slice (Run Creation)
 M033_SCOPE_STATUS=APPROVED_AND_FROZEN
 M033_SCOPE_COMMIT=04e274240f7958d80bc0cb87f92f825b563fbd5a
 M033_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
-M033_SCOPE_FREEZE_COMMIT=PENDING
+M033_SCOPE_FREEZE_COMMIT=44dd29e34f6150bd37bc466eed14098d75ac57ab
 M033_DESIGN_STATUS=NOT_STARTED
 M033_DESIGN_FREEZE_STATUS=NOT_STARTED
 M033_IMPLEMENTATION_STATUS=NOT_STARTED
@@ -645,7 +645,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 **Independent review:** A hostile independent scope review verified repository truth, the exact governance-only delta, the real absence of any Run application usecase, Run aggregate and repository readiness, PostgreSQL Run adapter readiness, cross-aggregate dependency shape, Campaign-existence validation left correctly as an open design question rather than a hidden second scope, the architecture-checker impact framed as a likely narrow future extension rather than a frozen decision, identity-generation questions left correctly to design, frozen-contract preservation, testability, and governance consistency. No CRITICAL, MAJOR, or blocking MINOR finding was found; no correction was required. Decision: **M033 SCOPE APPROVED FOR OWNER FREEZE.**
 
-**Scope freeze document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_SCOPE_FREEZE.md` (freeze commit `PENDING`, to be recorded in a narrow follow-up commit).
+**Scope freeze document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_SCOPE_FREEZE.md` (freeze commit `44dd29e34f6150bd37bc466eed14098d75ac57ab`).
 
 **Status:** `APPROVED_AND_FROZEN`. MILESTONE-033 design is now authorized. MILESTONE-033 implementation is NOT authorized until design is independently reviewed and owner-frozen.
 
