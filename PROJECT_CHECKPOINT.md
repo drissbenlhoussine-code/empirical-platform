@@ -187,7 +187,7 @@ M033_DESIGN_COMMIT=8edead3bc25d786cef8563f4fc4815a889a3a447
 M033_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
 M033_DESIGN_FREEZE_COMMIT=ec802143626e850dafe70ce9f0f561fa8516df94
 M033_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
-M033_IMPLEMENTATION_COMMIT=PENDING
+M033_IMPLEMENTATION_COMMIT=59fb2ffaa244886990bf68da018c138777a209f0
 M033_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M033_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
 M034_STATUS=NOT_STARTED
@@ -680,7 +680,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 24. MILESTONE-033 Implementation (Candidate, Not Yet Approved)
 
-**Implementation document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_IMPLEMENTATION.md` (implementation commit `PENDING`, to be recorded in a narrow follow-up commit).
+**Implementation document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_IMPLEMENTATION.md` (implementation commit `59fb2ffaa244886990bf68da018c138777a209f0`).
 
 **Implemented:** `CreateRunCommand` and `CreateRunHandler` in the new `empirical_platform.usecases.create_run` module — exactly the vertical slice the frozen design specifies, with no deviation. The handler depends only on `RunRepository` and `RuntimeIdentifierGenerator` via constructor injection (verified structurally: no `campaign_repository` parameter exists); performs the frozen sequential flow (`RunId` construction, one `generate()` call, `DomainIdentity` construction, `CampaignId` construction, one `Run` construction, one `RunRepository.add()` call); returns `run.identity` unchanged; propagates every collaborator failure transparently (no `try`/`except` anywhere); and is invocable through the unmodified, frozen `CommandEntryPoint`.
 
