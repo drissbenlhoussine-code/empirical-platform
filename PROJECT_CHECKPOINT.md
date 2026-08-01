@@ -183,7 +183,7 @@ M033_SCOPE_COMMIT=04e274240f7958d80bc0cb87f92f825b563fbd5a
 M033_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
 M033_SCOPE_FREEZE_COMMIT=44dd29e34f6150bd37bc466eed14098d75ac57ab
 M033_DESIGN_STATUS=CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW
-M033_DESIGN_COMMIT=PENDING
+M033_DESIGN_COMMIT=8edead3bc25d786cef8563f4fc4815a889a3a447
 M033_DESIGN_FREEZE_STATUS=NOT_STARTED
 M033_IMPLEMENTATION_STATUS=NOT_STARTED
 M033_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
@@ -654,7 +654,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 23. MILESTONE-033 Design (Candidate, Not Yet Approved)
 
-**Design document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_DESIGN.md` (design candidate commit `PENDING`, to be recorded in a narrow follow-up commit).
+**Design document:** `MILESTONE_033_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_CREATION_DESIGN.md` (design candidate commit `8edead3bc25d786cef8563f4fc4815a889a3a447`).
 
 **Selected architecture:** one concrete command, `CreateRunCommand` (fields: `run_governance_id: str`, `campaign_governance_id: str`), and one concrete handler, `CreateRunHandler`, both in a new module `usecases/create_run.py`. The handler depends on `RunRepository` and `RuntimeIdentifierGenerator` only via constructor injection — no `CampaignRepository`; performs exactly one `RunId`/`CampaignId` construction, one `runtime_id` generation, one `Run` construction, one `RunRepository.add()` call; returns `DomainIdentity[RunId]`, mirroring M030's own return-shape reasoning exactly.
 
