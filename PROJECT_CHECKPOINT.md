@@ -164,7 +164,7 @@ M032_SCOPE_REVIEW_STATUS=APPROVED_FOR_OWNER_SCOPE_FREEZE
 M032_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
 M032_SCOPE_FREEZE_COMMIT=b18878a514694d6663026e11d98859023c04a136
 M032_DESIGN_STATUS=CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW
-M032_DESIGN_COMMIT=PENDING
+M032_DESIGN_COMMIT=50f2cd829af2e10799ab3581b4c2e56e9e04d401
 M032_DESIGN_FREEZE_STATUS=NOT_STARTED
 M032_IMPLEMENTATION_STATUS=NOT_STARTED
 M032_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
@@ -545,7 +545,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 20. MILESTONE-032 Design (Candidate, Not Yet Approved)
 
-**Design document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_DESIGN.md` (design candidate commit `PENDING` — recorded via a narrow follow-up commit once the candidate commit exists; see Section 1's self-reference note).
+**Design document:** `MILESTONE_032_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_LIFECYCLE_TRANSITION_DESIGN.md` (design candidate commit `50f2cd829af2e10799ab3581b4c2e56e9e04d401`).
 
 **Selected architecture:** one concrete command, `PrepareCampaignForAuthorizationCommand` (fields: `identity: DomainIdentity[CampaignId]`, `expected_persisted_version: AggregateVersion`, `actor: str`, `occurred_at: datetime`, `correlation_id: str | None = None`, `reason: str | None = None`), and one concrete handler, `PrepareCampaignForAuthorizationHandler`, both in a new module `usecases/prepare_campaign_for_authorization.py` alongside M030's/M031's existing use cases. The handler depends on `CampaignRepository` only via constructor injection; performs exactly one `get()` → one `Campaign.prepare_for_authorization()` mutation → one `save()` sequence; returns the frozen `SaveResult` type unchanged. No architecture-checker change is required.
 
