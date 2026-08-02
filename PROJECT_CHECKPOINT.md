@@ -214,7 +214,7 @@ M034_STATUS=APPROVED_AND_FROZEN
 
 M035_SCOPE=Concrete Application Command Vertical Slice (Run Lifecycle Transition)
 M035_SCOPE_STATUS=CANDIDATE_FOR_INDEPENDENT_SCOPE_REVIEW
-M035_SCOPE_COMMIT=PENDING
+M035_SCOPE_COMMIT=26aab1acb1d08150144b8ce52d63f17796f121ef
 M035_SCOPE_FREEZE_STATUS=NOT_STARTED
 M035_DESIGN_STATUS=NOT_STARTED
 M035_DESIGN_FREEZE_STATUS=NOT_STARTED
@@ -814,7 +814,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 28. MILESTONE-035 Scope (Candidate, Not Yet Approved)
 
-**Scope document:** `MILESTONE_035_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_LIFECYCLE_TRANSITION_SCOPE.md` (scope candidate commit `PENDING`).
+**Scope document:** `MILESTONE_035_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_LIFECYCLE_TRANSITION_SCOPE.md` (scope candidate commit `26aab1acb1d08150144b8ce52d63f17796f121ef`).
 
 **Verified gap (evidence-driven, from-source inventory rebuild, not reused from prior tables):** of the three CQRS verbs `usecases` exercises against a repository (`add()`, `get()`, `save()`), `add()` and `get()` have each independently generalized across two aggregates (`Campaign`/`Run`, proven by M030/M033 and M031/M034 respectively), but `save()`/`OptimisticConcurrencyConflict` has been exercised exactly once — for `Campaign` only (M032) — and never for any second aggregate. This is the single largest remaining unproven-generalization gap, independently verified by a repository-wide search finding zero reference to `RunRepository.save()`, `EvidencePackageRepository.save()`, or `ReviewRepository.save()` anywhere in `src/empirical_platform/usecases/`.
 
