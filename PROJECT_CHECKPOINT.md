@@ -222,7 +222,7 @@ M035_DESIGN_COMMIT=bac7f202c4f6dca591702d4d1404a8390c4bb755
 M035_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
 M035_DESIGN_FREEZE_COMMIT=3227bba3d22756bc138cd45bbb0ac98824bc537c
 M035_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
-M035_IMPLEMENTATION_COMMIT=PENDING
+M035_IMPLEMENTATION_COMMIT=1037876fac376238298c22cfae0b4d5b949ffaac
 M035_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M035_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
 M036_STATUS=NOT_STARTED
@@ -862,7 +862,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 30. MILESTONE-035 Implementation (Candidate, Not Yet Approved)
 
-**Implementation document:** `MILESTONE_035_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_LIFECYCLE_TRANSITION_IMPLEMENTATION.md` (implementation commit `PENDING`).
+**Implementation document:** `MILESTONE_035_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_LIFECYCLE_TRANSITION_IMPLEMENTATION.md` (implementation commit `1037876fac376238298c22cfae0b4d5b949ffaac`).
 
 **Delivered:** `AuthorizeRunCommand`/`AuthorizeRunHandler` in `empirical_platform.usecases.authorize_run`, exactly per the frozen design, with export-only additions to `usecases/__init__.py`. Zero `tools/check_architecture.py` change (verified: exit 0, checker file byte-identical to baseline).
 
