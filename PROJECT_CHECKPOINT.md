@@ -206,7 +206,7 @@ M034_DESIGN_CORRECTION_COMMIT=993144e4361372e6978b11d96d6e1fe98e722c73
 M034_DESIGN_FREEZE_STATUS=APPROVED_AND_FROZEN
 M034_DESIGN_FREEZE_COMMIT=072fcee1d75c3f13547a6033c689786f2a110ab3
 M034_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
-M034_IMPLEMENTATION_COMMIT=PENDING
+M034_IMPLEMENTATION_COMMIT=aef1ee96cf9662e6b726bdb1168fe3d79bc8a79e
 M034_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M034_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
 M035_STATUS=NOT_STARTED
@@ -784,7 +784,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 27. MILESTONE-034 Implementation (Candidate, Not Yet Approved)
 
-**Implementation document:** `MILESTONE_034_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_RUN_RETRIEVAL_IMPLEMENTATION.md` (implementation commit `PENDING`).
+**Implementation document:** `MILESTONE_034_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_RUN_RETRIEVAL_IMPLEMENTATION.md` (implementation commit `aef1ee96cf9662e6b726bdb1168fe3d79bc8a79e`).
 
 **Delivered:** `GetRunQuery`/`RunSnapshot`/`GetRunHandler` in `empirical_platform.usecases.get_run`, exactly per the frozen design, with export-only additions to `usecases/__init__.py`. Zero `tools/check_architecture.py` change (verified: `python tools/check_architecture.py .` exit 0, checker file byte-identical to baseline).
 
