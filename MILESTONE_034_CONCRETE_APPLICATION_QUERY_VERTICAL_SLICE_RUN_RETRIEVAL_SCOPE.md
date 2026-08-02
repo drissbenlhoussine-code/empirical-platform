@@ -2,9 +2,11 @@
 
 ## 1. Document Status
 
-**Status: CANDIDATE_FOR_INDEPENDENT_SCOPE_REVIEW**
+**Status: CANDIDATE_FOR_FINAL_INDEPENDENT_SCOPE_RE_REVIEW**
 
 This document is a scope candidate. It has not been reviewed, approved, or frozen. It does not authorize design or implementation.
+
+**Correction history:** An independent hostile scope review (finding `M034-SCOPE-REVIEW-0001`, MAJOR/BLOCKING) found that Sections 9 and 13, and equivalent wording elsewhere, prematurely committed the result of the retrieval handler to a "read value" / "immutable, milestone-local read value" shape. That is a design decision and must not be frozen at scope selection. This correction removed every such commitment and replaced it with neutral language: the handler returns one retrieval result, and the exact result type/representation is resolved during the Design Mission (Section 18), without expanding the capability into listing, filtering, pagination, joins, projections, transport serialization, or a generic read-model framework. The selected capability itself (one Run-retrieval query vertical slice) is unchanged.
 
 ---
 
@@ -80,7 +82,7 @@ A third possible gap — a third aggregate (`EvidencePackage`) receiving the alr
 - Dependencies: `Run` aggregate (frozen), `RunRepository.get()` (frozen), `QueryHandler`/`QueryEntryPoint` (frozen, M028/M029), `usecases` package with `"run"` already in `ALLOWED["usecases"]` (M033) — **zero new architecture-checker change required**, an even narrower footprint than M033 itself.
 - Repository evidence: `RunRepository.get()` has the identical shape to `CampaignRepository.get()`, already exercised once for Campaign; `AggregateNotFound` behavior is already frozen and proven (M023).
 - Probable future implementation surface: one query type, one handler, in `usecases/`, mirroring M031's exact shape for a different aggregate.
-- Explicit inclusions: one retrieval query; `get()` call; transparent `AggregateNotFound` propagation; a Run-specific read-value type (mirroring `CampaignSnapshot`).
+- Explicit inclusions: one retrieval query; `get()` call; transparent `AggregateNotFound` propagation; one retrieval result (exact result type and representation left to the Design Mission).
 - Explicit exclusions: any Run mutation; any other aggregate; any transport; any composition root.
 - Risks: none requiring a new architecture-checker decision — genuinely the narrowest possible next step.
 - Prerequisite gaps: none — every dependency is already frozen and ready.
@@ -153,6 +155,8 @@ A third possible gap — a third aggregate (`EvidencePackage`) receiving the alr
 
 A single read-side (query) operation — retrieving an existing `Run` by its full frozen identity — implemented as one concrete query and one concrete handler conforming to the frozen MILESTONE-028 `QueryHandler` Protocol, invoked through the frozen MILESTONE-029 `QueryEntryPoint`, reading via the frozen MILESTONE-023 concrete `Run` repository adapter's `get()` method — the first time any application-layer code has exercised the read side of the frozen CQRS boundary for any aggregate other than `Campaign`.
 
+The handler returns exactly one retrieval result. This scope does not select the result's exact type or representation — whether a raw `Run`, a `LoadedAggregate[Run]`, an existing frozen type, a new narrow milestone-local type, or another justified shape — that decision belongs entirely to the Design Mission (see Section 18).
+
 ---
 
 ## 10. Mission Statement
@@ -179,11 +183,11 @@ Prove, with one concrete, minimal, real query, that the frozen `usecases` read-s
 ## 13. In-Scope Capability
 
 - One concrete query representing "retrieve an existing Run by its full identity," carrying the minimal data the frozen repository's `get()` method already requires.
-- One concrete handler conforming to the frozen `QueryHandler` Protocol that calls the frozen repository's `get()` method and returns a minimal, immutable, milestone-local read value (mirroring `CampaignSnapshot`'s own deliberate exclusions).
+- One concrete handler conforming to the frozen `QueryHandler` Protocol that calls the frozen repository's `get()` method and returns one retrieval result. The exact result type and representation are not selected by this scope; that decision belongs to the Design Mission (see Section 18).
 - Binding this handler to a `QueryEntryPoint` and invoking it, proving the frozen read-side boundary's contract holds for a second aggregate.
 - Contract tests proving the concrete handler conforms to the frozen `QueryHandler` Protocol.
 - Integration tests proving the golden path (retrieval of a Run created via the frozen M033 slice) and the already-frozen `AggregateNotFound` failure path both work end-to-end against real PostgreSQL.
-- Identification (not resolution) of the design questions a `Run`-specific query handler raises that M031's `Campaign`-specific design did not need to independently re-answer (in particular: the exact fields the Run read-value carries, and whether it excludes write-side metadata the same way `CampaignSnapshot` does).
+- Identification (not resolution) of the design questions a `Run`-specific query handler raises that M031's `Campaign`-specific design did not need to independently re-answer (in particular: the exact result type/shape and which fields or data it carries, and whether it excludes write-side metadata — none of which is assumed to mirror `CampaignSnapshot`).
 
 ---
 
@@ -194,6 +198,7 @@ Prove, with one concrete, minimal, real query, that the frozen `usecases` read-s
 - Any additional Campaign command or query beyond M030-M032.
 - Any command or query for `EvidencePackage` or `Review`.
 - Any listing/filtering/pagination/searching (retrieval-by-identity only, mirroring M031).
+- Any Campaign join, cross-aggregate enrichment, projection framework, generic read-model infrastructure, or transport serialization contract — the open result-contract question (Section 18) must be resolved within the single-Run-by-identity capability boundary, not used to expand it.
 - Any composition-root abstraction, handler registry, service locator, or dependency-injection framework — direct construction only.
 - Any transport layer: no HTTP endpoint, no CLI command, no worker, no queue consumer.
 - Any retry, idempotency, or optimistic-concurrency-conflict handling.
@@ -244,8 +249,8 @@ The following must remain exactly as frozen, unmodified, throughout this milesto
 
 - The exact query type's name, shape, and fields.
 - The exact handler type's name and shape.
-- The exact Run read-value type's name and which fields it carries (expected candidates: `identity`, `campaign_id`, `state` — mirroring `CampaignSnapshot`'s `identity`/`scope_statement`/`state` shape — but not frozen here).
-- Whether `persisted_version` or any other write-side metadata is deliberately excluded, mirroring M031's own justified exclusion for `CampaignSnapshot`.
+- The exact result contract: its type, name, and representation — including whether it is a raw `Run`, a `LoadedAggregate[Run]`, an existing frozen type, a new narrow milestone-local type, or another justified shape — and, once that shape is chosen, which fields or data it carries. Nothing here is selected or preferred by this scope.
+- Whether `persisted_version` or any other write-side metadata is included or excluded in the result, and why — an independent Design Mission determination, not assumed from M031's `CampaignSnapshot` precedent.
 - Whether the query is looked up by full `DomainIdentity[RunId]` (mirroring `GetCampaignQuery`) or some other identity shape.
 - The exact `QueryEntryPoint` binding pattern (expected: identical test-only direct construction, mirroring M031).
 
@@ -300,7 +305,7 @@ It does not continue into any Run mutation, any Run lifecycle transition, any se
 ## 23. Risks
 
 - **Second-generalization-question risk:** the read-side pattern may reveal an accidental `Campaign`-specific assumption when applied to `Run` for the first time, exactly as the write-side risk M033 existed to surface. Mitigation: this is precisely the risk this milestone exists to test — a genuine architectural proof point.
-- **Return-shape symmetry pressure:** risk of copying `CampaignSnapshot`'s exact field-exclusion reasoning onto a Run read-value without independently re-justifying it for Run's own state shape. Mitigation: design must independently re-derive the Run read-value's fields, not merely restate M031's reasoning.
+- **Return-shape symmetry pressure:** risk of the Design Mission defaulting to `CampaignSnapshot`'s exact shape and field-exclusion reasoning for Run's result contract without independently evaluating the available options on their own merits. Mitigation: the Design Mission must independently evaluate and justify Run's result contract — including its type category and fields — not merely restate M031's reasoning.
 - **Scope-creep pressure toward Run mutation:** having proven Run creation and retrieval invites "just add the lifecycle transition too." Mitigation: explicitly excluded above (Sections 14, 21-22); any such addition requires its own scope-change authorization.
 - **Symmetry-driven premature EvidencePackage expansion:** proving Run's full read+write CRUD-lite surface might tempt an immediate jump to EvidencePackage. Mitigation: explicitly deferred (Section 22); the next milestone after this one requires its own independent scope selection.
 
@@ -321,10 +326,10 @@ A hostile independent scope review should verify:
 
 ## 25. Owner Decision Status
 
-**CANDIDATE_FOR_INDEPENDENT_SCOPE_REVIEW.** Not approved. Not frozen. Does not authorize design or implementation.
+**CANDIDATE_FOR_FINAL_INDEPENDENT_SCOPE_RE_REVIEW.** Not approved. Not frozen. Does not authorize design or implementation. Owner Scope Freeze is not authorized until the final independent re-review decision.
 
 ---
 
 ## 26. Next Permitted Action
 
-**MILESTONE-034 INDEPENDENT SCOPE REVIEW.**
+**MILESTONE-034 FINAL INDEPENDENT SCOPE RE-REVIEW.**
