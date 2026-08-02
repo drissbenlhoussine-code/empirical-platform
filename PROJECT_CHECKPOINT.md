@@ -218,7 +218,7 @@ M035_SCOPE_COMMIT=26aab1acb1d08150144b8ce52d63f17796f121ef
 M035_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
 M035_SCOPE_FREEZE_COMMIT=cebbd945107f4242cada86eea29e210e7b7c701c
 M035_DESIGN_STATUS=CANDIDATE_FOR_INDEPENDENT_DESIGN_REVIEW
-M035_DESIGN_COMMIT=PENDING
+M035_DESIGN_COMMIT=bac7f202c4f6dca591702d4d1404a8390c4bb755
 M035_DESIGN_FREEZE_STATUS=NOT_STARTED
 M035_IMPLEMENTATION_STATUS=NOT_STARTED
 M035_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
@@ -838,7 +838,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 29. MILESTONE-035 Design (Candidate, Not Yet Approved)
 
-**Design document:** `MILESTONE_035_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_LIFECYCLE_TRANSITION_DESIGN.md` (design candidate commit `PENDING`).
+**Design document:** `MILESTONE_035_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_LIFECYCLE_TRANSITION_DESIGN.md` (design candidate commit `bac7f202c4f6dca591702d4d1404a8390c4bb755`).
 
 **Selected transition:** `Run.authorize()` (`CREATED` → `AUTHORIZED`) — directly reachable from the state M033's frozen `CreateRunHandler` already produces, zero additional setup, optional `reason` field, mirroring M032's own selection of `Campaign.prepare_for_authorization()` as "the literal first lifecycle transition, reachable directly from the state the prior creation milestone already produces." Every other transition was rejected only for requiring additional test-setup depth, not for any domain-behavior deficiency.
 
