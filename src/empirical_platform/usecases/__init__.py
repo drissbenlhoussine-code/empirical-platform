@@ -15,6 +15,10 @@ Section 23, and
 Section 25 for the frozen infrastructure-import prohibition.
 """
 
+from empirical_platform.usecases.authorize_run import (
+    AuthorizeRunCommand,
+    AuthorizeRunHandler,
+)
 from empirical_platform.usecases.create_campaign import (
     CreateCampaignCommand,
     CreateCampaignHandler,
@@ -39,6 +43,8 @@ from empirical_platform.usecases.prepare_campaign_for_authorization import (
 )
 
 __all__ = [
+    "AuthorizeRunCommand",
+    "AuthorizeRunHandler",
     "CampaignSnapshot",
     "CreateCampaignCommand",
     "CreateCampaignHandler",
