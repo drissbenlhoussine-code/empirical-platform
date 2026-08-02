@@ -124,7 +124,7 @@ Exactly one line changed in `tools/check_architecture.py`: `"usecases": {"shared
 
 ## 21. Tests Added and Reused
 
-**Added:** `tests/unit/test_create_run_usecase.py` (16 tests), `tests/contract/test_create_run_handler_contract.py` (3 tests), `tests/integration/test_m033_create_run_usecase.py` (5 tests), `tests/fixtures/illegal_imports/src/empirical_platform/usecases/bad_evidence_import.py`, `tests/fixtures/illegal_imports/src/empirical_platform/run/bad_usecases_import.py`.
+**Added:** `tests/unit/test_create_run_usecase.py` (15 tests), `tests/contract/test_create_run_handler_contract.py` (3 tests), `tests/integration/test_m033_create_run_usecase.py` (5 tests), `tests/fixtures/illegal_imports/src/empirical_platform/usecases/bad_evidence_import.py`, `tests/fixtures/illegal_imports/src/empirical_platform/run/bad_usecases_import.py`. Twenty-three M033 tests total.
 
 **Reused unmodified:** `tests/unit/test_run_aggregate.py`, `tests/contract/test_run_repository_contract.py`, `tests/integration/test_m023_postgres_repositories.py` (Run-specific cases), `tests/architecture/test_module_boundaries.py::test_current_source_tree_respects_boundaries`, `CommandEntryPoint`'s own generic tests.
 
@@ -174,7 +174,7 @@ Fresh run against the final working state:
 | M030-M032 + M023 Run-specific regression, real PostgreSQL | 35 passed |
 | `build` | sdist + wheel built; `create_run.py` present in wheel contents |
 | `pip_audit` | No known vulnerabilities |
-| `secret_scan_targets.py` | 365 targets discovered |
+| `secret_scan_targets.py` | 366 targets discovered |
 
 ## 28. Changed Files
 
