@@ -202,7 +202,7 @@ M034_SCOPE_FREEZE_STATUS=APPROVED_AND_FROZEN
 M034_SCOPE_FREEZE_COMMIT=e6ad2c0e976ad0eb1cd00f8e15544d58ac45de7e
 M034_DESIGN_STATUS=CANDIDATE_FOR_FINAL_INDEPENDENT_DESIGN_RE_REVIEW
 M034_DESIGN_COMMIT=d343e38cba9b5a49db278c72ca1650dd50839bd2
-M034_DESIGN_CORRECTION_COMMIT=PENDING
+M034_DESIGN_CORRECTION_COMMIT=993144e4361372e6978b11d96d6e1fe98e722c73
 M034_DESIGN_FREEZE_STATUS=NOT_STARTED
 M034_IMPLEMENTATION_STATUS=NOT_STARTED
 M034_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
@@ -760,7 +760,7 @@ MILESTONE-027 is `APPROVED_AND_FROZEN` at both the design and implementation sta
 
 ## 26. MILESTONE-034 Design (Candidate, Not Yet Approved)
 
-**Design document:** `MILESTONE_034_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_RUN_RETRIEVAL_DESIGN.md` (design candidate commit `d343e38cba9b5a49db278c72ca1650dd50839bd2`; correction commit `PENDING`).
+**Design document:** `MILESTONE_034_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_RUN_RETRIEVAL_DESIGN.md` (design candidate commit `d343e38cba9b5a49db278c72ca1650dd50839bd2`; correction commit `993144e4361372e6978b11d96d6e1fe98e722c73`).
 
 **Query identity model:** `GetRunQuery` carries the full `DomainIdentity[RunId]` the frozen `RunRepository.get()` already requires — selected over a split-field model (unnecessary translation), a raw-string model (would force an unused `RuntimeIdentifierGenerator` dependency, unlike M033's `CreateRunCommand` which genuinely needs one to mint a new runtime id), and a governance-ID-only model (no resolution mechanism exists anywhere in the frozen codebase).
 
