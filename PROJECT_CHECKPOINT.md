@@ -249,9 +249,18 @@ M037_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
 M037_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M037_OWNER_FREEZE_COMMIT=9c53e1de89093bc12244ccb50ce2ced11947f396
 M037_STATUS=APPROVED_AND_FROZEN
-M038_STATUS=NOT_STARTED
+
+M038_SCOPE=Concrete Application Command Vertical Slice (EvidencePackage Collection Start)
+M038_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M038_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M038_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M038_IMPLEMENTATION_COMMIT=PENDING
+M038_FINALIZATION_COMMIT=PENDING
+M038_OWNER_FREEZE_STATUS=NOT_STARTED
+M038_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M039_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-038 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-038 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -975,4 +984,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-038 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 36.
+
+## 36. MILESTONE-038 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_038_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_EVIDENCE_PACKAGE_COLLECTION_START_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh architecture inventory:** `EvidencePackage` has two proven verbs (`add()` M036, `get()` M037); `save()`/`OptimisticConcurrencyConflict` remains proven for Campaign (M032) and Run (M035) only — the single largest remaining unproven-generalization gap. `EvidencePackageRepository.save()`/`PostgresEvidencePackageRepository.save()` were already implemented and frozen at M020/M023.
+
+**Selected scope:** one concrete command transitioning an existing `EvidencePackage` from `INITIALIZED` to `COLLECTING` via `EvidencePackage.start_collection()`. Selected over EvidencePackage criterion-result/artifact mutation (gated behind this milestone — not reachable via any frozen application command yet), Review creation (heavier design surface, defers per the same twice-repeated per-aggregate cadence argument M037 used), Review retrieval (depends on Review creation), retry policy (still no evidenced concrete need), and composition-root work (no repeated-handler-need evidence). Full candidate comparison: scope document Section 8.
+
+**Design — independently derived conflict mechanism (not copied from M032/M035):** a fresh inventory of `EvidencePackage`'s aggregate methods found **no non-transition mutation available while `INITIALIZED`** — unlike `Campaign.revise_scope_statement()` (available in `DRAFT`) and `Run.append_manifest()` (available in `CREATED`), `start_collection()` is the only method operating on `INITIALIZED`. Two independently loaded callers racing the same transition therefore produce a domain-level `ValueError` (the second caller's own `start_collection()` call is invalid once the first has advanced the durable state to `COLLECTING`), never a repository-level `OptimisticConcurrencyConflict` — disclosed as a genuine, scope-appropriate boundary of this specific transition (design Sections 6/20), independently reproduced live against real PostgreSQL. `OptimisticConcurrencyConflict` propagation itself remains fully proven at the unit level via a fake repository unconstrained by the aggregate's own state machine.
+
+**Architecture impact:** none. `usecases` already had `evidence` in `ALLOWED["usecases"]` since M036. `tools/check_architecture.py` unchanged (verified via `git diff`); `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 28 new (3 contract, 21 unit, 4 PostgreSQL integration — all executed live against a fresh disposable container, including the two-racing-callers scenario). Full non-integration suite: 648 passed (up from 624), 146 deselected, coverage 83.79%, zero regression. Full integration regression: 140 passed (up from 136). Full suite with PostgreSQL: 788 passed, 92.83% coverage.
+
+**Hostile self-audit:** zero genuine prohibited-pattern matches in the new production module (two docstring "for" false positives only); no `add()` call; no `add_criterion_result`/`add_artifact_reference`/`seal`/`invalidate` call; no `Review`/M039 material anywhere; exactly one `get()` and one `save()` call.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-038 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.

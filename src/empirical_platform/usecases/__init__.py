@@ -50,6 +50,10 @@ from empirical_platform.usecases.prepare_campaign_for_authorization import (
     PrepareCampaignForAuthorizationCommand,
     PrepareCampaignForAuthorizationHandler,
 )
+from empirical_platform.usecases.start_evidence_package_collection import (
+    StartEvidencePackageCollectionCommand,
+    StartEvidencePackageCollectionHandler,
+)
 
 __all__ = [
     "AuthorizeRunCommand",
@@ -71,4 +75,6 @@ __all__ = [
     "PrepareCampaignForAuthorizationCommand",
     "PrepareCampaignForAuthorizationHandler",
     "RunSnapshot",
+    "StartEvidencePackageCollectionCommand",
+    "StartEvidencePackageCollectionHandler",
 ]
