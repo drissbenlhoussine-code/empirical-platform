@@ -232,7 +232,7 @@ M036_SCOPE=Concrete Application Command Vertical Slice (EvidencePackage Creation
 M036_SCOPE_STATUS=CANDIDATE_FOR_INDEPENDENT_REVIEW
 M036_DESIGN_STATUS=CANDIDATE_FOR_INDEPENDENT_REVIEW
 M036_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
-M036_IMPLEMENTATION_COMMIT=PENDING
+M036_IMPLEMENTATION_COMMIT=4672cfc7137e19aa628ebe996883e10a1d3f90c3
 M036_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
 M036_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
 M037_STATUS=NOT_STARTED
@@ -896,7 +896,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 ## 32. MILESTONE-036 Macro Milestone Mission (Candidate, Not Yet Approved)
 
-**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_036_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_EVIDENCE_PACKAGE_CREATION_SCOPE.md`, `..._DESIGN.md`, `..._IMPLEMENTATION.md` (implementation commit `PENDING`).
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_036_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_EVIDENCE_PACKAGE_CREATION_SCOPE.md`, `..._DESIGN.md`, `..._IMPLEMENTATION.md` (implementation commit `4672cfc7137e19aa628ebe996883e10a1d3f90c3`).
 
 **Fresh architecture inventory:** all three CQRS verbs (`add()`, `get()`, `save()`) are now independently proven across two aggregates each (Campaign, Run) — the pattern-generalization question this project closed one verb at a time since M033 is fully answered. `EvidencePackage` and `Review` remain the only aggregates with zero application-layer proof — verified by a repository-wide search finding no reference to either anywhere in `src/empirical_platform/usecases/` (6 modules total, none touching `evidence`/`review`).
 
