@@ -26,7 +26,7 @@ ALLOWED: dict[str, set[str]] = {
     "archive": {"shared", "identifiers", "evidence", "audit", "decision_candidate"},
     "application": {"shared"},
     "entrypoints": {"shared", "application"},
-    "usecases": {"shared", "identifiers", "campaign", "run"},
+    "usecases": {"shared", "identifiers", "campaign", "run", "evidence"},
 }
 
 ALLOWED_EXACT_IMPORTS: dict[str, set[str]] = {
