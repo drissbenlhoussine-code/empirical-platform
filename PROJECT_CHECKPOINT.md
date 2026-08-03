@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-036
+LATEST_FROZEN_MILESTONE=MILESTONE-037
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -240,13 +240,18 @@ M036_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M036_OWNER_FREEZE_COMMIT=8c5f04cb2e4b32749fc6ba04806b33ac38c0216f
 M036_STATUS=APPROVED_AND_FROZEN
 M037_SCOPE=Concrete Application Query Vertical Slice (EvidencePackage Retrieval)
-M037_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M037_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M037_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M037_SCOPE_STATUS=APPROVED_AND_FROZEN
+M037_DESIGN_STATUS=APPROVED_AND_FROZEN
+M037_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M037_IMPLEMENTATION_COMMIT=d041d94492f678f049ae48dfb5edd4ded1f76c39
-M037_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_MACRO_REVIEW
+M037_FINALIZATION_COMMIT=10ea710f9c010e093774d02e6c05717cf3a873e2
+M037_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M037_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M037_OWNER_FREEZE_COMMIT=PENDING
+M037_STATUS=APPROVED_AND_FROZEN
 M038_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-037 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M039_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-038 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -938,7 +943,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 34.
 
-## 34. MILESTONE-037 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 34. MILESTONE-037 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_037_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_EVIDENCE_PACKAGE_RETRIEVAL_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -954,6 +959,20 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** zero genuine prohibited-pattern matches in the new production module (one docstring "for one" false positive only, mirroring M036's own precedent); no `add()`/`save()`/mutation-method call of any kind; no `Review`/`RunRepository`/`CampaignRepository`/M038 material anywhere; exactly one `get()` call.
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** covered scope, design, implementation, tests, evidence, and the external-review package as one consolidated review, per the active Macro Milestone Protocol (Section 31). Decision: **M037 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — no CRITICAL/MAJOR/blocking MINOR finding. Four non-blocking observations, all resolved in the owner freeze record without any code, test, or package correction: (1) M037-OBS-0001 — the implementation document's summary line miscounted the test total as 24 instead of the correct 25 (18 unit + 3 contract + 4 integration), independently re-verified by fresh collection at freeze time; (2) M037-OBS-0002 — the M037-specific PostgreSQL "eager-load regression" test only proves empty-collection loading, not non-empty owned-collection reconstruction, which is separately and already proven by the pre-existing M023 repository regression suite; (3) M037-OBS-0003 — secret-scan target counts recorded as time-scoped values (402 at evidence-capture time, 403 independently reproduced twice at freeze time); a cited final-review figure of 411 could not be independently reproduced during the freeze session and is recorded as an unreconciled, non-blocking discrepancy — security passed under every count; (4) M037-OBS-0004 — the same pre-existing `setuptools` license-table deprecation warning already documented in M034/M036, recorded only.
 
-**Next permitted action:** MILESTONE-037 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_037_EVIDENCE_PACKAGE_RETRIEVAL_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 35.
+
+## 35. MILESTONE-037 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_037_EVIDENCE_PACKAGE_RETRIEVAL_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-037 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the independent hostile macro review recorded in Section 34.
+
+**Delivered capability, frozen:** retrieval of an existing `EvidencePackage` by full identity, via `GetEvidencePackageQuery`/`GetEvidencePackageHandler` (`src/empirical_platform/usecases/get_evidence_package.py`), returning a bounded `EvidencePackageSnapshot`, exactly per Section 34. No `EvidencePackage` mutation/`save()`, `Review` work, retry policy, or composition-root work is authorized by this freeze.
+
+**Freeze declaration:** `M037 MACRO MILESTONE APPROVED_AND_FROZEN`. `M037 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-038 COMPLETE MACRO MILESTONE MISSION.
