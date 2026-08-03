@@ -36,6 +36,11 @@ from empirical_platform.usecases.get_campaign import (
     GetCampaignHandler,
     GetCampaignQuery,
 )
+from empirical_platform.usecases.get_evidence_package import (
+    EvidencePackageSnapshot,
+    GetEvidencePackageHandler,
+    GetEvidencePackageQuery,
+)
 from empirical_platform.usecases.get_run import (
     GetRunHandler,
     GetRunQuery,
@@ -56,8 +61,11 @@ __all__ = [
     "CreateEvidencePackageHandler",
     "CreateRunCommand",
     "CreateRunHandler",
+    "EvidencePackageSnapshot",
     "GetCampaignHandler",
     "GetCampaignQuery",
+    "GetEvidencePackageHandler",
+    "GetEvidencePackageQuery",
     "GetRunHandler",
     "GetRunQuery",
     "PrepareCampaignForAuthorizationCommand",

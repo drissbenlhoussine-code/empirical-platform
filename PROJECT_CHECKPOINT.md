@@ -239,9 +239,14 @@ M036_IMPLEMENTATION_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M036_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M036_OWNER_FREEZE_COMMIT=8c5f04cb2e4b32749fc6ba04806b33ac38c0216f
 M036_STATUS=APPROVED_AND_FROZEN
-M037_STATUS=NOT_STARTED
+M037_SCOPE=Concrete Application Query Vertical Slice (EvidencePackage Retrieval)
+M037_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M037_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M037_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M037_IMPLEMENTATION_COMMIT=PENDING
+M037_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_MACRO_REVIEW
 M038_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-037 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-037 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -931,4 +936,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-037 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 34.
+
+## 34. MILESTONE-037 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_037_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_EVIDENCE_PACKAGE_RETRIEVAL_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh architecture inventory:** `EvidencePackage` has one proven verb (`add()`, M036); `get()` and `save()` remain unproven for it, and all three verbs remain unproven for `Review`. Verified live: `grep -rl "evidence" src/empirical_platform/usecases/*.py` matches only `create_evidence_package.py`; `grep -rl "review" src/empirical_platform/usecases/*.py` matches nothing. `EvidencePackageRepository.get()` is already implemented and frozen at the adapter level (M023).
+
+**Selected scope:** one concrete query retrieving an existing `EvidencePackage` by full identity, via `EvidencePackageRepository.get()`, returning a bounded `EvidencePackageSnapshot`. Selected over EvidencePackage lifecycle transition/`save()` (lower marginal generalization value — the `save()`+`OptimisticConcurrencyConflict` pattern is already proven twice, M032/M035), Review creation (FK-viable per a live-verified `review.target_evidence_package_id -> evidence_package.governance_id` foreign key, but would break the project's own twice-repeated per-aggregate create-retrieve-transition completion cadence: Campaign M030-M032, then Run M033-M035, only then EvidencePackage M036 onward), Review retrieval (depends on Review creation existing first), retry policy (still no evidenced concrete need), and composition-root work (no repeated-handler-need evidence). Full candidate comparison: scope document Section 7.
+
+**Design:** query identity — caller-supplied full `DomainIdentity[EvidencePackageId]` (mirrors `GetRunQuery`/`GetCampaignQuery`; a governance-ID-only lookup was rejected since it would require altering the frozen M020 repository Protocol). Result — `EvidencePackageSnapshot(identity, run_id, state)`, deliberately excluding `version`/`persisted_version`/`criterion_results`/`artifact_references`/`transition_history`, mirroring `RunSnapshot`'s own established exclusions.
+
+**Architecture impact:** none. `usecases` already had `evidence` in `ALLOWED["usecases"]` since M036; this read-only query uses an already-permitted import edge. `tools/check_architecture.py` unchanged (verified via `git diff`); `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 25 new (3 contract, 18 unit, 4 PostgreSQL integration — all executed live against a fresh disposable container, including the not-found scenario and a criterion-result/artifact-reference/transition-history eager-load regression). Full non-integration suite: 624 passed (up from 603), 142 deselected, coverage 83.68%, zero regression. Full integration regression: 136 passed (up from 132). Full suite with PostgreSQL: 760 passed, 92.78% coverage.
+
+**Hostile self-audit:** zero genuine prohibited-pattern matches in the new production module (one docstring "for one" false positive only, mirroring M036's own precedent); no `add()`/`save()`/mutation-method call of any kind; no `Review`/`RunRepository`/`CampaignRepository`/M038 material anywhere; exactly one `get()` call.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-037 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
