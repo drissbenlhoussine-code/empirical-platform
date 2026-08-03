@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-035
+LATEST_FROZEN_MILESTONE=MILESTONE-036
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -229,14 +229,19 @@ M035_IMPLEMENTATION_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M035_IMPLEMENTATION_FREEZE_COMMIT=6853d988634ae264d6e625a90b9ba6815d908df5
 M035_STATUS=APPROVED_AND_FROZEN
 M036_SCOPE=Concrete Application Command Vertical Slice (EvidencePackage Creation)
-M036_SCOPE_STATUS=CANDIDATE_FOR_INDEPENDENT_REVIEW
-M036_DESIGN_STATUS=CANDIDATE_FOR_INDEPENDENT_REVIEW
-M036_IMPLEMENTATION_STATUS=CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW
+M036_SCOPE_STATUS=APPROVED_AND_FROZEN
+M036_DESIGN_STATUS=APPROVED_AND_FROZEN
+M036_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M036_IMPLEMENTATION_COMMIT=4672cfc7137e19aa628ebe996883e10a1d3f90c3
-M036_IMPLEMENTATION_OWNER_FREEZE_STATUS=NOT_STARTED
-M036_STATUS=IMPLEMENTED_PENDING_INDEPENDENT_REVIEW
+M036_FINALIZATION_COMMIT=cd5083289008b2735281f53ab45a2c90a90b0f51
+M036_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M036_IMPLEMENTATION_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M036_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M036_OWNER_FREEZE_COMMIT=PENDING
+M036_STATUS=APPROVED_AND_FROZEN
 M037_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-036 INDEPENDENT IMPLEMENTATION REVIEW
+M038_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-037 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -894,7 +899,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 32.
 
-## 32. MILESTONE-036 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 32. MILESTONE-036 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_036_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_EVIDENCE_PACKAGE_CREATION_SCOPE.md`, `..._DESIGN.md`, `..._IMPLEMENTATION.md` (implementation commit `4672cfc7137e19aa628ebe996883e10a1d3f90c3`).
 
@@ -910,6 +915,20 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** zero genuine prohibited-pattern matches in the new production module (three docstring "for" false positives only); no `RunRepository` dependency; no `EvidencePackage` mutation method referenced; no `Review`/M037 material anywhere.
 
-**Status:** `CANDIDATE_FOR_INDEPENDENT_IMPLEMENTATION_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** covered scope, design, implementation, tests, evidence, and the external-review package as one consolidated review, per the active Macro Milestone Protocol (Section 31). Decision: **M036 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — no CRITICAL/MAJOR/blocking MINOR finding. Three non-blocking observations, none requiring code/test/package correction: (1) M036-OBS-0001 — the implementation commit's title reads "Run authorization usecase" (a copy-paste artifact from the M035 commit template) instead of "EvidencePackage creation usecase"; content and lineage are correct (`git show --stat 4672cfc7` touches only `EvidencePackage`-related files); git history is not amended, per this project's standing no-history-rewrite discipline. (2) M036-OBS-0002 — one initial non-canonical security invocation used system Python 3.14; the canonical `.venv` rerun passed; no correction required. (3) M036-OBS-0003 — a pre-existing `setuptools` license-table deprecation warning during `python -m build`, identical to the one already documented in M034's own freeze record; recorded only, no packaging change unless MILESTONE-037 independently requires one.
 
-**Next permitted action:** MILESTONE-036 INDEPENDENT IMPLEMENTATION REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_036_EVIDENCE_PACKAGE_CREATION_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 33.
+
+## 33. MILESTONE-036 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_036_EVIDENCE_PACKAGE_CREATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-036 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the independent hostile macro review recorded in Section 32.
+
+**Delivered capability, frozen:** creation of a new `EvidencePackage` for an existing `Run`, via `CreateEvidencePackageCommand`/`CreateEvidencePackageHandler` (`src/empirical_platform/usecases/create_evidence_package.py`), exactly per Section 32. No `EvidencePackage` retrieval, mutation, `Review` work, retry policy, or composition-root work is authorized by this freeze.
+
+**Freeze declaration:** `M036 MACRO MILESTONE APPROVED_AND_FROZEN`. `M036 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-037 COMPLETE MACRO MILESTONE MISSION.
