@@ -27,6 +27,10 @@ from empirical_platform.usecases.create_evidence_package import (
     CreateEvidencePackageCommand,
     CreateEvidencePackageHandler,
 )
+from empirical_platform.usecases.create_review import (
+    CreateReviewCommand,
+    CreateReviewHandler,
+)
 from empirical_platform.usecases.create_run import (
     CreateRunCommand,
     CreateRunHandler,
@@ -75,6 +79,8 @@ __all__ = [
     "CreateCampaignHandler",
     "CreateEvidencePackageCommand",
     "CreateEvidencePackageHandler",
+    "CreateReviewCommand",
+    "CreateReviewHandler",
     "CreateRunCommand",
     "CreateRunHandler",
     "EvidencePackageSnapshot",

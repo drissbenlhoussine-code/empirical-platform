@@ -296,8 +296,17 @@ M041_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M041_OWNER_FREEZE_COMMIT=22cd0afdb84c9a789f380b67db72614b8231bd39
 M041_STATUS=APPROVED_AND_FROZEN
 
-M042_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-042 COMPLETE MACRO MILESTONE MISSION
+M042_SCOPE=Concrete Application Command Vertical Slice (Review Creation)
+M042_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M042_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M042_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M042_IMPLEMENTATION_COMMIT=PENDING
+M042_FINALIZATION_COMMIT=PENDING
+M042_OWNER_FREEZE_STATUS=NOT_STARTED
+M042_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
+M043_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-042 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1167,4 +1176,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-042 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 44.
+
+## 44. MILESTONE-042 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_042_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_REVIEW_CREATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory:** a from-scratch inventory (not assumed from any prior milestone's conclusions) found `Review` the only aggregate in the entire domain model with zero application-layer proof of any verb — `Campaign`/`Run`/`EvidencePackage` all have full create/retrieve/transition/owned-collection-append proof with genuine conflict evidence. `ReviewRepository`, `PostgresReviewRepository`, and `ConcreteReviewMapper` were all already frozen (M020/M021/M023) with zero infrastructure gap.
+
+**Selected scope:** one concrete command creating a new `Review` targeting an existing `EvidencePackage`, via `ReviewRepository.add()` — the third proof of the `add()`-with-real-FK pattern (after M033, M036). Four prior scope documents (M037/M039/M040/M041) had each independently deferred Review creation, every time explicitly pending `EvidencePackage` reaching a genuinely `SEALED` state via frozen commands — a condition M041 satisfied. `EvidencePackage.invalidate()` was seriously evaluated and rejected as lower-leverage (repeating an already-four-times-proven single-precondition-transition pattern on a fully-proven aggregate, versus closing the one aggregate with zero proof of anything). Full candidate comparison: scope document Section 8.
+
+**Design:** a three-field command (`review_governance_id`, `target_evidence_package_governance_id`, `reviewer_reference`), mirroring `CreateEvidencePackageCommand`'s shape plus one additional plain-string field. Target existence enforced entirely by the real `review.target_evidence_package_id → evidence_package.governance_id` foreign key, no `EvidencePackageRepository` dependency — independently re-verified against live adapter source, not assumed by analogy.
+
+**Architecture impact:** exactly one narrow addition (`"review"` to `ALLOWED["usecases"]`), with corresponding fixture maintenance (removed the now-obsolete `usecases/bad_review_import.py`; added `review/bad_usecases_import.py`, closing the one remaining gap in the reverse-direction fixture set already established for `campaign`/`run`/`evidence`).
+
+**Tests:** 24 new (3 contract, 16 unit, 5 PostgreSQL integration, all executed live against a fresh disposable container). Full non-integration suite: 745 passed (up from 726), 170 deselected, coverage 84.20%, zero regression. Full integration regression: 164 passed (up from 159). Full suite with PostgreSQL: 909 passed, 93.06% coverage.
+
+**Hostile self-audit:** static grep sweep found zero genuine prohibited-pattern matches. Beyond static review, a direct-SQL adversarial verification script — bypassing the ORM/repository layer entirely, mirroring M041's independent-review technique — confirmed genuinely, via raw SQL row inspection: Review creation succeeds against a deliberately non-`SEALED` (`INITIALIZED`) target with no hidden state dependency (only the documented FK-only constraint applies); duplicate governance-ID and missing-target both behave exactly as designed with zero spurious rows persisted. Full transcript in the external-review package.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-042 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
