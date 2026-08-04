@@ -58,6 +58,10 @@ from empirical_platform.usecases.record_evidence_package_criterion_result import
     RecordEvidencePackageCriterionResultCommand,
     RecordEvidencePackageCriterionResultHandler,
 )
+from empirical_platform.usecases.seal_evidence_package import (
+    SealEvidencePackageCommand,
+    SealEvidencePackageHandler,
+)
 from empirical_platform.usecases.start_evidence_package_collection import (
     StartEvidencePackageCollectionCommand,
     StartEvidencePackageCollectionHandler,
@@ -87,6 +91,8 @@ __all__ = [
     "RecordEvidencePackageCriterionResultCommand",
     "RecordEvidencePackageCriterionResultHandler",
     "RunSnapshot",
+    "SealEvidencePackageCommand",
+    "SealEvidencePackageHandler",
     "StartEvidencePackageCollectionCommand",
     "StartEvidencePackageCollectionHandler",
 ]

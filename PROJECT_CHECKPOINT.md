@@ -283,9 +283,17 @@ M040_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M040_OWNER_FREEZE_COMMIT=62dd6595ce6d039f67c25ebc891b1cd4efab1e73
 M040_STATUS=APPROVED_AND_FROZEN
 
-M041_STATUS=NOT_STARTED
+M041_SCOPE=Concrete Application Command Vertical Slice (EvidencePackage Sealing)
+M041_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M041_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M041_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M041_IMPLEMENTATION_COMMIT=PENDING
+M041_FINALIZATION_COMMIT=PENDING
+M041_OWNER_FREEZE_STATUS=NOT_STARTED
+M041_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M042_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-041 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-041 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1117,4 +1125,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-041 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 42.
+
+## 42. MILESTONE-041 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_041_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_EVIDENCE_PACKAGE_SEALING_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh architecture inventory:** `EvidencePackage`'s owned-collection-append vocabulary completed at M040 (both `add_criterion_result` and `add_artifact_reference` proven). `seal()` requires both collections non-empty plus `COLLECTING` state — for the first time in this lineage, every one of a candidate's own preconditions is satisfiable exclusively via frozen application commands (M036 → M038 → M039 → M040 → `seal()`), with no scaffolding bypass required.
+
+**Selected scope:** one concrete command transitioning an existing, `COLLECTING` `EvidencePackage` (with both collections non-empty) to `SEALED`. Review creation was evaluated a **fourth** time and again deferred — not because its FK is unreachable, but because sealing first means a future Review-creation milestone can target a genuinely completed package, matching real-world semantics this project's domain models imply. Full candidate comparison: scope document Section 8.
+
+**Design:** command shape identical to `StartEvidencePackageCollectionCommand` (M038). Uniquely, this transition introduces **three** independently distinguishable domain-`ValueError` scenarios (empty criterion results, empty artifact references, invalid state) rather than the single-precondition failure every prior transition (M032, M035, M038) exercised — each independently tested at both unit and PostgreSQL integration level. Deterministic conflict mechanism: `add_artifact_reference()` (frozen since M040) used as the interfering write, producing a genuine `OptimisticConcurrencyConflict`.
+
+**Architecture impact:** none. `usecases` already had `evidence` in `ALLOWED["usecases"]` since M036. `tools/check_architecture.py` unchanged; `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 34 new (3 contract, 24 unit, 7 PostgreSQL integration — the largest integration surface of any EvidencePackage milestone to date, proportional to the transition's three-part precondition, all executed live against a fresh disposable container including the genuine deterministic conflict scenario). Full non-integration suite: 726 passed (up from 699), 165 deselected, coverage 84.10%, zero regression. Full integration regression: 159 passed (up from 152). Full suite with PostgreSQL: 885 passed, 92.97% coverage.
+
+**Hostile self-audit:** zero genuine prohibited-pattern matches in the new production module (one docstring "for" false positive only); no `add()` call; no `add_criterion_result`/`add_artifact_reference`/`invalidate`/`start_collection` call; no `Review`/M042 material anywhere; exactly one `get()` and one `save()` call.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-041 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
