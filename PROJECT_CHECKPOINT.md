@@ -272,9 +272,17 @@ M039_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M039_OWNER_FREEZE_COMMIT=e7c1ae10bea6eada60a6ed4aa39cffa2b902bf6c
 M039_STATUS=APPROVED_AND_FROZEN
 
-M040_STATUS=NOT_STARTED
+M040_SCOPE=Concrete Application Command Vertical Slice (EvidencePackage Artifact-Reference Recording)
+M040_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M040_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M040_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M040_IMPLEMENTATION_COMMIT=PENDING
+M040_FINALIZATION_COMMIT=PENDING
+M040_OWNER_FREEZE_STATUS=NOT_STARTED
+M040_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M041_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-040 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-040 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1070,4 +1078,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-040 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 40.
+
+## 40. MILESTONE-040 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_040_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_EVIDENCE_PACKAGE_ARTIFACT_REFERENCE_RECORDING_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh architecture inventory:** `EvidencePackage`'s owned-collection-append vocabulary had `add_criterion_result` proven (M039) but `add_artifact_reference` unproven. `seal()`'s own precondition requires both collections non-empty; since no frozen command could produce a non-empty `artifact_references` collection, `seal()` was found not independently reachable this milestone without a scaffolding compromise (the first time in this project's history that a candidate was excluded for this specific reason).
+
+**Selected scope:** one concrete command recording an `ArtifactReference` on an existing, `COLLECTING` `EvidencePackage`. Review creation was again evaluated and again rejected — explicitly not merely because its FK exists, but because `EvidencePackage`'s own owned-collection vocabulary remained incomplete and the real-world review-of-completed-evidence semantics still could not be reached. Full candidate comparison: scope document Section 7.
+
+**Design — simplest command of any milestone to date:** `ArtifactReference` carries no `evidence_package_id` field at all, so the ownership-derivation question M039 had to resolve does not arise here — the command has exactly three fields. The deterministic conflict mechanism is the exact reverse pairing of M039's own: `add_criterion_result()` (now a frozen, real production capability) serves as the interfering write, again producing a **genuine** `OptimisticConcurrencyConflict` against real PostgreSQL through the natural application call sequence.
+
+**Architecture impact:** none. `usecases` already had `evidence` in `ALLOWED["usecases"]` since M036. `tools/check_architecture.py` unchanged; `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 31 new (3 contract, 22 unit, 6 PostgreSQL integration — all executed live against a fresh disposable container, including the genuine deterministic conflict scenario). Full non-integration suite: 699 passed (up from 674), 158 deselected, coverage 84.00%, zero regression. Full integration regression: 152 passed (up from 146). Full suite with PostgreSQL: 851 passed, 92.92% coverage.
+
+**Hostile self-audit:** zero genuine prohibited-pattern matches in the new production module (one docstring "for" false positive only); no `add()` call; no `add_criterion_result`/`seal`/`invalidate`/`start_collection` call; no `Review`/M041 material anywhere; exactly one `get()` and one `save()` call.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-040 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.

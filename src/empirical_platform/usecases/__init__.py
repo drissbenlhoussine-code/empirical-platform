@@ -50,6 +50,10 @@ from empirical_platform.usecases.prepare_campaign_for_authorization import (
     PrepareCampaignForAuthorizationCommand,
     PrepareCampaignForAuthorizationHandler,
 )
+from empirical_platform.usecases.record_evidence_package_artifact_reference import (
+    RecordEvidencePackageArtifactReferenceCommand,
+    RecordEvidencePackageArtifactReferenceHandler,
+)
 from empirical_platform.usecases.record_evidence_package_criterion_result import (
     RecordEvidencePackageCriterionResultCommand,
     RecordEvidencePackageCriterionResultHandler,
@@ -78,6 +82,8 @@ __all__ = [
     "GetRunQuery",
     "PrepareCampaignForAuthorizationCommand",
     "PrepareCampaignForAuthorizationHandler",
+    "RecordEvidencePackageArtifactReferenceCommand",
+    "RecordEvidencePackageArtifactReferenceHandler",
     "RecordEvidencePackageCriterionResultCommand",
     "RecordEvidencePackageCriterionResultHandler",
     "RunSnapshot",
