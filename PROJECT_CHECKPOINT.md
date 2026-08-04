@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-040
+LATEST_FROZEN_MILESTONE=MILESTONE-041
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -284,18 +284,20 @@ M040_OWNER_FREEZE_COMMIT=62dd6595ce6d039f67c25ebc891b1cd4efab1e73
 M040_STATUS=APPROVED_AND_FROZEN
 
 M041_SCOPE=Concrete Application Command Vertical Slice (EvidencePackage Sealing)
-M041_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M041_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M041_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M041_SCOPE_STATUS=APPROVED_AND_FROZEN
+M041_DESIGN_STATUS=APPROVED_AND_FROZEN
+M041_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M041_IMPLEMENTATION_COMMIT=7f332e7006e8fe452bac1bc62b23fb73fdb7f963
-M041_FINALIZATION_COMMIT=PENDING
-M041_DESIGN_CORRECTION_STATUS=COMPLETED_PENDING_FINAL_INDEPENDENT_MACRO_REVIEW
+M041_FINALIZATION_COMMIT=4db6fa4417ffe62ae055f60b40d8ad0dadbd4f9c
+M041_DESIGN_CORRECTION_STATUS=COMPLETED
 M041_DESIGN_CORRECTION_COMMIT=556b21263182eed229b6528b37c4fa2c4d1e69d6
-M041_OWNER_FREEZE_STATUS=NOT_STARTED
-M041_STATUS=MACRO_CANDIDATE_CORRECTED_PENDING_INDEPENDENT_REVIEW
+M041_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M041_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M041_OWNER_FREEZE_COMMIT=PENDING
+M041_STATUS=APPROVED_AND_FROZEN
 
 M042_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-041 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+NEXT_PERMITTED_ACTION=MILESTONE-042 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1129,7 +1131,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 42.
 
-## 42. MILESTONE-041 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 42. MILESTONE-041 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_041_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_EVIDENCE_PACKAGE_SEALING_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1145,6 +1147,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** zero genuine prohibited-pattern matches in the new production module (one docstring "for" false positive only); no `add()` call; no `add_criterion_result`/`add_artifact_reference`/`invalidate`/`start_collection` call; no `Review`/M042 material anywhere; exactly one `get()` and one `save()` call.
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Correction lineage:** a post-implementation hostile author self-review found one confirmed, minor, documentation-only defect (M041-SELFREVIEW-0001) — Design Section 18 misstated `seal()`'s precondition-check order, claiming an `INITIALIZED` package would fail on the state check first when in fact the two collection-precondition checks execute before the state check. Corrected via commit `556b21263182eed229b6528b37c4fa2c4d1e69d6`, hash-recorded via `a7ae5e25f2305e6aa88410c1917443a20b9f3ae6`; no source, test, or contract changed. The external-review package was refreshed against the corrected HEAD (new ZIP SHA-256 `c38fbbb24edbcc56314b039c8bcdf9eae37c4956bc11fe32bacdd1071e126846`).
 
-**Next permitted action:** MILESTONE-041 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Independent hostile macro review (post-correction):** covered scope, design, implementation, tests, evidence, and the refreshed external-review package as one consolidated review, per the active Macro Milestone Protocol (Section 31). Decision: **M041 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — no CRITICAL/MAJOR/blocking MINOR finding. The review went beyond rerunning the existing test suite: it independently wrote and ran a standalone script bypassing the repository/ORM layer entirely, querying PostgreSQL with raw SQL, to confirm the interfering write, the genuinely-failed `seal()` attempt, the genuine `OptimisticConcurrencyConflict` (not a domain `ValueError`), and the exact transition-history state — all directly, not via the test framework's own assertions. One non-blocking observation: `M041_FINALIZATION_COMMIT=PENDING` at review time, confirmed consistent with the identical M038/M039/M040 pattern (resolved only at each milestone's own Owner Freeze).
+
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31), including the tracked design-wording correction. Owner Freeze record: `MILESTONE_041_EVIDENCE_PACKAGE_SEALING_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 43.
+
+## 43. MILESTONE-041 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_041_EVIDENCE_PACKAGE_SEALING_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-041 scope, design, and implementation (as corrected) as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the independent hostile macro review recorded in Section 42.
+
+**Delivered capability, frozen:** transition of an existing, `COLLECTING` `EvidencePackage` (with both owned collections non-empty) to `SEALED`, via `SealEvidencePackageCommand`/`SealEvidencePackageHandler` (`src/empirical_platform/usecases/seal_evidence_package.py`), completing `EvidencePackage`'s lifecycle-completion transition, exactly per Section 42. No `invalidate`, `Review` work, retry policy, or composition-root work is authorized by this freeze.
+
+**Frozen conflict model:** a genuine `OptimisticConcurrencyConflict` reproduction against real PostgreSQL, independently re-confirmed via direct SQL bypassing the ORM/test-framework layers, using `add_artifact_reference()` (frozen since M040) as the interfering write (freeze record Section 21). No direct SQL fabrication, no patched aggregate internals, no invalid row, no second production command.
+
+**Freeze declaration:** `M041 MACRO MILESTONE APPROVED_AND_FROZEN`. `M041 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-042 COMPLETE MACRO MILESTONE MISSION.
