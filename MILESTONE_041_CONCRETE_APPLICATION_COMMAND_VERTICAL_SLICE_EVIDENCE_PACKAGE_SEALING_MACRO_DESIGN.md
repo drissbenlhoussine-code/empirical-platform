@@ -122,7 +122,11 @@ Fresh disposable `postgres:17` container: create an `EvidencePackage`, transitio
 
 ## 18. PostgreSQL Invalid-State and Missing-Identity Strategy
 
-Fresh disposable `postgres:17` container: an `EvidencePackage` still `INITIALIZED` (never transitioned) rejects `seal()` with a domain `ValueError` (state precondition) before either collection precondition is even reached; a `DomainIdentity` with no persisted `EvidencePackage` raises `AggregateNotFound`.
+**Correction (post-implementation self-review, M041-SELFREVIEW-0001):** an originally authored version of this section claimed an `EvidencePackage` still `INITIALIZED` would be rejected by `seal()`'s state precondition "before either collection precondition is even reached." That claim was false and has been replaced below with the actual, source-verified precondition order and the actual test fixture, matching what was genuinely implemented and tested — no source, test, or contract changed.
+
+`EvidencePackage.seal()` checks preconditions in this exact order: (1) `criterion_results` non-empty, (2) `artifact_references` non-empty, (3) only then does it call `_transition()`, which checks `state == COLLECTING`. An `INITIALIZED` package therefore fails on the **empty-criterion-results** precondition first (Section 16) — its collections are necessarily empty, since both can only be populated while `COLLECTING` — and is not a valid fixture for isolating lifecycle-state invalidity.
+
+Fresh disposable `postgres:17` container: the invalid-state scenario instead uses an already-`SEALED` package — both owned collections remain populated after the first successful `seal()` (neither is cleared by sealing), so both collection preconditions pass, and a second `seal()` attempt genuinely reaches `_transition()`'s state check, which raises the aggregate's `ValueError` ("cannot transition from SEALED to SEALED") before `save()` is ever reached. Separately, a `DomainIdentity` with no persisted `EvidencePackage` raises `AggregateNotFound` from `EvidencePackageRepository.get()`.
 
 ## 19. PostgreSQL Deterministic-Conflict Strategy
 
