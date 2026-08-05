@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-043
+LATEST_FROZEN_MILESTONE=MILESTONE-044
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -319,16 +319,19 @@ M043_OWNER_FREEZE_COMMIT=4b9770cd2dd80fa1b1968871f08167c07f8fddca
 M043_STATUS=APPROVED_AND_FROZEN
 
 M044_SCOPE=Concrete Application Command Vertical Slice (Review Lifecycle Transition)
-M044_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M044_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M044_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M044_SCOPE_STATUS=APPROVED_AND_FROZEN
+M044_DESIGN_STATUS=APPROVED_AND_FROZEN
+M044_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M044_IMPLEMENTATION_COMMIT=37733f357bcabb864a0a0576bba4621685d35621
-M044_FINALIZATION_COMMIT=PENDING
-M044_OWNER_FREEZE_STATUS=NOT_STARTED
-M044_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M044_FINALIZATION_COMMIT=e64414222d6ec45342612fb9788750430fa85c27
+M044_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M044_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M044_OWNER_FREEZE_COMMIT=PENDING
+M044_STATUS=APPROVED_AND_FROZEN
 
 M045_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-044 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M046_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-045 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1276,7 +1279,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 48.
 
-## 48. MILESTONE-044 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 48. MILESTONE-044 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_044_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_REVIEW_LIFECYCLE_TRANSITION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1294,6 +1297,22 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** targeted prohibited-pattern grep on `start_review.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found zero genuine matches for `add_finding`/`complete`/`cancel`/`invalidate`/`M045`/composition-related tokens (the only match is a negative-assertion test name proving absence).
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** a 26-phase independent review, treating every source file, test, governance document, commit message, and packaged claim as potentially false, independently re-derived repository truth, M043 freeze ordering, a fresh architecture inventory at the exact M044 baseline commit tree, the honest non-overstated `cancel()` rejection reasoning, zero scope-creep across the full delta, exact command/handler/identity/expected-version verification via non-tautological adversarial scripts, and — most critically — a freshly authored direct-SQL adversarial script against a separately provisioned container that independently reproduced the full racing-callers sequence, confirming via raw SQL that the second caller genuinely receives a plain domain `ValueError` (never `OptimisticConcurrencyConflict`), with the final persisted state exactly the first writer's result. Decision: **M044 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — the review's own final report recorded zero surviving findings of any severity.
 
-**Next permitted action:** MILESTONE-044 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_044_REVIEW_START_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 49.
+
+## 49. MILESTONE-044 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_044_REVIEW_START_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-044 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the 26-phase independent hostile macro review recorded in Section 48.
+
+**Delivered capability, frozen:** transition of an existing, `ASSIGNED` `Review` to `IN_PROGRESS`, via `StartReviewCommand`/`StartReviewHandler` (`src/empirical_platform/usecases/start_review.py`) — the fourth proof of the `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` pattern, closing the last command-side proof gap for `Review`.
+
+**Frozen real-concurrency boundary:** `Review` has no state-preserving mutation reachable while `ASSIGNED`; genuine PostgreSQL-level `OptimisticConcurrencyConflict` is not achievable for `start()` specifically. Racing callers instead genuinely produce a domain-level `ValueError`, independently confirmed via a freshly authored direct-SQL adversarial script (freeze record Sections 35-37) — mirroring M038's identical, already-accepted boundary.
+
+**Freeze declaration:** `M044 MACRO MILESTONE APPROVED_AND_FROZEN`. `M044 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-045 COMPLETE MACRO MILESTONE MISSION.
