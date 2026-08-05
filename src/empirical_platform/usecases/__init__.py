@@ -15,6 +15,10 @@ Section 23, and
 Section 25 for the frozen infrastructure-import prohibition.
 """
 
+from empirical_platform.usecases.add_review_finding import (
+    AddReviewFindingCommand,
+    AddReviewFindingHandler,
+)
 from empirical_platform.usecases.authorize_run import (
     AuthorizeRunCommand,
     AuthorizeRunHandler,
@@ -81,6 +85,8 @@ from empirical_platform.usecases.start_review import (
 )
 
 __all__ = [
+    "AddReviewFindingCommand",
+    "AddReviewFindingHandler",
     "AuthorizeRunCommand",
     "AuthorizeRunHandler",
     "CampaignSnapshot",
