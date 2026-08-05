@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-042
+LATEST_FROZEN_MILESTONE=MILESTONE-043
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -308,16 +308,19 @@ M042_OWNER_FREEZE_COMMIT=e915c8cb647c4fc7f7a4fc4ad18585ec42199da1
 M042_STATUS=APPROVED_AND_FROZEN
 
 M043_SCOPE=Concrete Application Query Vertical Slice (Review Retrieval)
-M043_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M043_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M043_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M043_SCOPE_STATUS=APPROVED_AND_FROZEN
+M043_DESIGN_STATUS=APPROVED_AND_FROZEN
+M043_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M043_IMPLEMENTATION_COMMIT=c29404f93aff217073de20718f5bed5567000855
-M043_FINALIZATION_COMMIT=PENDING
-M043_OWNER_FREEZE_STATUS=NOT_STARTED
-M043_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M043_FINALIZATION_COMMIT=d43ad9a3c4afed2ab405209385fcdb5170f694e1
+M043_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M043_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M043_OWNER_FREEZE_COMMIT=PENDING
+M043_STATUS=APPROVED_AND_FROZEN
 
 M044_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-043 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M045_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-044 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1227,7 +1230,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 46.
 
-## 46. MILESTONE-043 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 46. MILESTONE-043 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_043_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_REVIEW_RETRIEVAL_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1243,6 +1246,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** targeted prohibited-pattern grep on `get_review.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found only test-fixture-internal `Review.start()`/`add_finding()`/`complete()` calls used exclusively to prove those fields are excluded from `ReviewSnapshot`, not a production capability.
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** a 19-phase independent review, treating every source file, test, governance document, commit message, and packaged claim as potentially wrong, independently re-derived repository truth, a fresh architecture inventory, a full production-code read (zero prohibited patterns), a freshly written adversarial script proving zero snapshot field leakage against a fully populated `Review`, object-identity (`is`) verification of identity pass-through and exception propagation, all test counts against a self-provisioned PostgreSQL container, and a second independently written direct-SQL adversarial script confirming raw persisted state (2 findings, 2 transitions, a disposition) matches repository behavior with zero leakage into the snapshot. Decision: **M043 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS.** Two non-blocking observations raised: M043-REVIEW-0001 (the finalization commit's own message cites a ZIP hash superseded by the final regenerated package; disclosed, not corrected via history rewrite) and M043-REVIEW-0002 (the implementation document states 253 formatted files; the independently and repeatedly reproduced figure is 252).
 
-**Next permitted action:** MILESTONE-043 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_043_REVIEW_RETRIEVAL_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 47.
+
+## 47. MILESTONE-043 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_043_REVIEW_RETRIEVAL_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-043 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the 19-phase independent hostile macro review recorded in Section 46.
+
+**Delivered capability, frozen:** retrieval of an existing `Review` by full frozen identity, via `GetReviewQuery`/`GetReviewHandler` (`src/empirical_platform/usecases/get_review.py`) — the fourth proof of the `get()`-retrieval pattern, closing the last query-side "zero verb-category proof" gap in the domain model. No `Review` lifecycle-transition work is authorized by this freeze.
+
+**Frozen snapshot-boundary model:** `ReviewSnapshot` exposes exactly `identity`/`target_evidence_package_id`/`reviewer_reference`/`state`; independently confirmed via two separately authored adversarial scripts (unit-level and direct-SQL) that findings/transition history/disposition/rationale/cancellation reason/version/persisted version never leak, even from a genuinely populated `Review` (freeze record Sections 19-25, 35).
+
+**Actual delivered package hash:** `cb81bff43cf47ec66ae352d9df765f53d74fcc2f7ca5e21550b1214ee8833177` (freeze record Section 41) — the finalization commit's own message cites a superseded intermediate hash (Section 42); this freeze record is the authoritative reference going forward.
+
+**Freeze declaration:** `M043 MACRO MILESTONE APPROVED_AND_FROZEN`. `M043 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-044 COMPLETE MACRO MILESTONE MISSION.
