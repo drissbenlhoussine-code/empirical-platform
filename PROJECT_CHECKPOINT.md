@@ -307,9 +307,17 @@ M042_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M042_OWNER_FREEZE_COMMIT=e915c8cb647c4fc7f7a4fc4ad18585ec42199da1
 M042_STATUS=APPROVED_AND_FROZEN
 
-M043_STATUS=NOT_STARTED
+M043_SCOPE=Concrete Application Query Vertical Slice (Review Retrieval)
+M043_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M043_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M043_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M043_IMPLEMENTATION_COMMIT=PENDING
+M043_FINALIZATION_COMMIT=PENDING
+M043_OWNER_FREEZE_STATUS=NOT_STARTED
+M043_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M044_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-043 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-043 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1217,4 +1225,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-043 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 46.
+
+## 46. MILESTONE-043 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_043_CONCRETE_APPLICATION_QUERY_VERTICAL_SLICE_REVIEW_RETRIEVAL_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory:** a from-scratch inventory of all 13 `usecases` modules found `Review` the only aggregate in the domain model with zero query-side (`QueryHandler`) proof of any kind — `Campaign`/`Run`/`EvidencePackage` each already have both a frozen `add`/`create` command and a frozen `get`/retrieve query; `Review` had only M042's `add`. `ReviewRepository.get()` and `PostgresReviewRepository.get()` were both already frozen (M020/M023) with zero infrastructure gap.
+
+**Selected scope:** one concrete query retrieving an existing `Review` by full identity, via `ReviewRepository.get()` — the fourth proof of the `get()`-retrieval pattern (after M031 Campaign, M034 Run, M037 EvidencePackage). `Review`'s first lifecycle transition (`start()`), finding recording (`add_finding()`), and completion (`complete()`) were each evaluated and rejected: `start()` would be a fifth instance of an already four-times-proven single-precondition-transition pattern; `add_finding()` and `complete()` each have an unmet sequencing prerequisite (`add_finding()` requires `start()` first; `complete()` requires both `start()` and `add_finding()` first), making either selection alone either incomplete or a multi-capability violation of "one capability only." Full candidate comparison: scope document Section 8.
+
+**Design:** a one-field query (`identity`), mirroring `GetEvidencePackageQuery`'s shape exactly. Result contract `ReviewSnapshot` (four fields: `identity`, `target_evidence_package_id`, `reviewer_reference`, `state`) mirrors `EvidencePackageSnapshot`'s deliberately bounded shape, excluding `findings`, `transition_history`, `version`, `persisted_version`, `disposition`, `final_disposition_rationale`, and `cancellation_reason`.
+
+**Architecture impact:** none. `usecases` already had `review` in `ALLOWED["usecases"]` since M042. `tools/check_architecture.py` unchanged; `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 25 new (3 contract, 18 unit, 4 PostgreSQL integration, all executed live against a fresh disposable container). Full non-integration suite: 766 passed (up from 745), 174 deselected, coverage 84.29%, zero regression. Full integration regression: 168 passed (up from 164). Full suite with PostgreSQL: 934 passed, 93.10% coverage.
+
+**Hostile self-audit:** targeted prohibited-pattern grep on `get_review.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found only test-fixture-internal `Review.start()`/`add_finding()`/`complete()` calls used exclusively to prove those fields are excluded from `ReviewSnapshot`, not a production capability.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-043 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
