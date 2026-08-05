@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-041
+LATEST_FROZEN_MILESTONE=MILESTONE-042
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -297,16 +297,19 @@ M041_OWNER_FREEZE_COMMIT=22cd0afdb84c9a789f380b67db72614b8231bd39
 M041_STATUS=APPROVED_AND_FROZEN
 
 M042_SCOPE=Concrete Application Command Vertical Slice (Review Creation)
-M042_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M042_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M042_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M042_SCOPE_STATUS=APPROVED_AND_FROZEN
+M042_DESIGN_STATUS=APPROVED_AND_FROZEN
+M042_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M042_IMPLEMENTATION_COMMIT=4614c73f0807f9c1db29c51039ce33b254a69d71
-M042_FINALIZATION_COMMIT=PENDING
-M042_OWNER_FREEZE_STATUS=NOT_STARTED
-M042_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M042_FINALIZATION_COMMIT=01c0cbacf75989442aa1289321c5990c6d3235eb
+M042_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M042_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M042_OWNER_FREEZE_COMMIT=PENDING
+M042_STATUS=APPROVED_AND_FROZEN
 
 M043_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-042 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M044_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-043 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1178,7 +1181,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 44.
 
-## 44. MILESTONE-042 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 44. MILESTONE-042 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_042_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_REVIEW_CREATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1194,6 +1197,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** static grep sweep found zero genuine prohibited-pattern matches. Beyond static review, a direct-SQL adversarial verification script — bypassing the ORM/repository layer entirely, mirroring M041's independent-review technique — confirmed genuinely, via raw SQL row inspection: Review creation succeeds against a deliberately non-`SEALED` (`INITIALIZED`) target with no hidden state dependency (only the documented FK-only constraint applies); duplicate governance-ID and missing-target both behave exactly as designed with zero spurious rows persisted. Full transcript in the external-review package.
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** a 27-phase independent review, treating every source file, test, governance document, and packaged claim as potentially wrong, independently re-derived repository truth, the domain contract (fresh full read of `review/aggregate.py` confirming zero target-state reference), the schema/FK constraints, the command/handler contracts (prohibited-pattern grep, zero matches), all test counts against a freshly self-provisioned PostgreSQL container, the architecture-checker diff and fixture maintenance, and the external-review ZIP SHA-256 — and independently wrote and ran its own direct-SQL adversarial script, separate from the implementation session's own, reproducing identical results with zero contradiction. Decision: **M042 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS.** Two non-blocking observations raised: M042-REVIEW-0001 (the review mission's own stated "9 files" premise did not match the actual, correct 13-file delta) and M042-REVIEW-0002 (the packaged evidence recorded 442 secret-scan targets against an independently reproduced 443; the scan itself found zero findings under either count).
 
-**Next permitted action:** MILESTONE-042 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Validation-completion mission:** a subsequent narrow, read-only mission independently rebuilt the sdist/wheel, inspected full contents (`create_review.py` present; tests/external-review/cache/pyc excluded), smoke-imported both frozen symbols, ran `scripts/security.ps1` and `scripts/verify.ps1` end-to-end (the latter's own negative architecture-fixture step independently re-confirming the fixture-maintenance claim via a distinct mechanism), ran `pip-audit` standalone, reproduced the secret-scan count (443, confirming M042-REVIEW-0002 as a genuine, non-blocking, zero-security-impact drift), and reconfirmed the external-review ZIP SHA-256 byte-for-byte. Decision unchanged: **APPROVED WITH NON-BLOCKING OBSERVATIONS.**
+
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_042_REVIEW_CREATION_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 45.
+
+## 45. MILESTONE-042 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_042_REVIEW_CREATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-042 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the independent hostile macro review and the subsequent validation-completion mission recorded in Section 44.
+
+**Delivered capability, frozen:** creation of a new `Review` targeting an existing `EvidencePackage` by governance ID, via `CreateReviewCommand`/`CreateReviewHandler` (`src/empirical_platform/usecases/create_review.py`) — the third proof of the `add()`-with-real-FK pattern, closing the last aggregate with zero prior application-layer proof. No `Review` retrieval, lifecycle transition, or `EvidencePackage.invalidate()` work is authorized by this freeze.
+
+**Frozen referential-integrity model:** target existence enforced entirely by the real PostgreSQL foreign key `review.target_evidence_package_id -> evidence_package.governance_id`; no application-level pre-check; no target-state requirement of any kind, independently confirmed twice via two separately authored direct-SQL adversarial scripts against separately provisioned containers (freeze record Sections 23-26, 40).
+
+**Freeze declaration:** `M042 MACRO MILESTONE APPROVED_AND_FROZEN`. `M042 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-043 COMPLETE MACRO MILESTONE MISSION.
