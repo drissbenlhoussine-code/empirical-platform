@@ -318,9 +318,17 @@ M043_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M043_OWNER_FREEZE_COMMIT=4b9770cd2dd80fa1b1968871f08167c07f8fddca
 M043_STATUS=APPROVED_AND_FROZEN
 
-M044_STATUS=NOT_STARTED
+M044_SCOPE=Concrete Application Command Vertical Slice (Review Lifecycle Transition)
+M044_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M044_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M044_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M044_IMPLEMENTATION_COMMIT=PENDING
+M044_FINALIZATION_COMMIT=PENDING
+M044_OWNER_FREEZE_STATUS=NOT_STARTED
+M044_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M045_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-044 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-044 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1266,4 +1274,26 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-044 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 48.
+
+## 48. MILESTONE-044 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_044_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_REVIEW_LIFECYCLE_TRANSITION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory:** `Review` now has `create` (M042) and `get` (M043); it has zero command-side proof of `ReviewRepository.save()`/`OptimisticConcurrencyConflict` propagation. `grep` across all 14 `usecases` modules confirmed zero `.save(` call sites and zero `OptimisticConcurrencyConflict` references referencing `Review`. `ReviewRepository.save()`/`PostgresReviewRepository.save()` were both already frozen (M020/M023) with zero infrastructure gap.
+
+**Selected scope:** one concrete command transitioning an existing, `ASSIGNED` `Review` to `IN_PROGRESS`, via `Review.start()` — the fourth proof of the `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` pattern (after M032 Campaign, M035 Run, M038 EvidencePackage). `add_finding()`/`complete()` remain genuinely blocked behind `start()`'s own prior non-existence; `cancel()` and `EvidencePackage.invalidate()` were both evaluated and rejected as lower-leverage repeats of an already-proven pattern. Full candidate comparison: scope document Section 8.
+
+**Conflict feasibility — genuinely determined, not assumed:** independently inspected `Review.aggregate` for any state-preserving mutation reachable while `ASSIGNED`, finding none exists — mirroring the identical reasoning M038's design independently discovered for `EvidencePackage.start_collection()`. A true `OptimisticConcurrencyConflict` reproduction via genuine, caller-driven, real-PostgreSQL evidence is therefore **not achievable** for `start()` specifically; two racing callers instead produce a domain-level `ValueError`, independently reproduced against real PostgreSQL. `OptimisticConcurrencyConflict` propagation itself is proven at the unit level via a fake repository, mirroring M038's identical, already-accepted resolution.
+
+**Design:** a six-field command, field-for-field identical to `StartEvidencePackageCollectionCommand` (M038).
+
+**Architecture impact:** none. `usecases` already had `review` in `ALLOWED["usecases"]` since M042. `tools/check_architecture.py` unchanged; `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 28 new (3 contract, 21 unit, 4 PostgreSQL integration — including the golden path and the two-racing-callers domain-`ValueError` race, all executed live against a fresh disposable container). Full non-integration suite: 790 passed (up from 766), 178 deselected, coverage 84.39%, zero regression. Full integration regression: 172 passed (up from 168). Full suite with PostgreSQL: 962 passed, 93.15% coverage.
+
+**Hostile self-audit:** targeted prohibited-pattern grep on `start_review.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found zero genuine matches for `add_finding`/`complete`/`cancel`/`invalidate`/`M045`/composition-related tokens (the only match is a negative-assertion test name proving absence).
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-044 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.

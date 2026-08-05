@@ -75,6 +75,10 @@ from empirical_platform.usecases.start_evidence_package_collection import (
     StartEvidencePackageCollectionCommand,
     StartEvidencePackageCollectionHandler,
 )
+from empirical_platform.usecases.start_review import (
+    StartReviewCommand,
+    StartReviewHandler,
+)
 
 __all__ = [
     "AuthorizeRunCommand",
@@ -109,4 +113,6 @@ __all__ = [
     "SealEvidencePackageHandler",
     "StartEvidencePackageCollectionCommand",
     "StartEvidencePackageCollectionHandler",
+    "StartReviewCommand",
+    "StartReviewHandler",
 ]
