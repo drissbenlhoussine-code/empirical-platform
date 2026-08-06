@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-045
+LATEST_FROZEN_MILESTONE=MILESTONE-046
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -341,16 +341,19 @@ M045_OWNER_FREEZE_COMMIT=426412db74034314b90091365accf5de35ed4ed4
 M045_STATUS=APPROVED_AND_FROZEN
 
 M046_SCOPE=Concrete Application Command Vertical Slice (Review Completion)
-M046_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M046_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M046_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M046_SCOPE_STATUS=APPROVED_AND_FROZEN
+M046_DESIGN_STATUS=APPROVED_AND_FROZEN
+M046_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M046_IMPLEMENTATION_COMMIT=147c12a20b3be62e31bc272c06383f88c1c3845f
-M046_FINALIZATION_COMMIT=PENDING
-M046_OWNER_FREEZE_STATUS=NOT_STARTED
-M046_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M046_FINALIZATION_COMMIT=6da3675b3df4b6187ac0be8c6daa2f4eb785515f
+M046_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M046_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M046_OWNER_FREEZE_COMMIT=PENDING
+M046_STATUS=APPROVED_AND_FROZEN
 
 M047_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-046 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M048_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-047 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1374,7 +1377,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 52.
 
-## 52. MILESTONE-046 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 52. MILESTONE-046 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_046_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_REVIEW_COMPLETION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1392,6 +1395,22 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** targeted prohibited-pattern grep on `complete_review.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive (an initial alphabetical-ordering slip was caught and corrected by `ruff` before commit); a full scope-creep sweep across the diff found zero genuine matches for `.cancel(`/`invalidate`/`M047`/composition-related tokens (the only match is a negative-assertion test name proving absence).
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** a 19-phase (Phase 0-19) independent review, treating every source file, test, governance document, commit message, and packaged claim as potentially false, independently re-derived repository truth, M045 freeze ordering, a fresh architecture inventory at the exact M046 baseline commit tree, exact command/handler/identity/expected-version verification via a non-tautological adversarial script, direct re-confirmation that `complete()`'s own state/findings checks fire before `_transition()`'s internal check (making the latter structurally unreachable on this path), transparent propagation of six adversarial exception scenarios, a full independent read and count of all 33 tests, and — most critically — a freshly authored direct-SQL adversarial script against a separately provisioned container that independently reproduced the genuine conflict scenario using a distinct `add_finding()` interferer, confirming via raw SQL a genuine, unqualified `OptimisticConcurrencyConflict` (exact type, not `ValueError`) with the interferer's write authoritative and the stale completion never persisted. Decision: **M046 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — one non-blocking documentation observation (`mypy src` vs. canonical bare `mypy` file-count difference, a pre-existing convention, not an M046 defect); zero CRITICAL/MAJOR/blocking MINOR findings.
 
-**Next permitted action:** MILESTONE-046 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_046_REVIEW_COMPLETION_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 53.
+
+## 53. MILESTONE-046 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_046_REVIEW_COMPLETION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-046 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the 19-phase independent hostile macro review recorded in Section 52.
+
+**Delivered capability, frozen:** completing an existing, `IN_PROGRESS` `Review` with non-empty `findings`, via `CompleteReviewCommand`/`CompleteReviewHandler` (`src/empirical_platform/usecases/complete_review.py`) — the fifth proof of the `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` pattern, and the second multi-precondition transition in this project's lineage (after M041 `seal()`).
+
+**Frozen real-conflict model:** a genuine, unqualified `OptimisticConcurrencyConflict` reproduction against real PostgreSQL, independently re-confirmed via a freshly authored direct-SQL adversarial script bypassing the ORM/test-framework layers, using a distinct `add_finding()` call (a genuinely different, state-preserving Review mutation) as the interfering write (freeze record Sections 40-41). No direct SQL fabrication, no patched aggregate internals, no invalid row, no second production command.
+
+**Freeze declaration:** `M046 MACRO MILESTONE APPROVED_AND_FROZEN`. `M046 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-047 COMPLETE MACRO MILESTONE MISSION.
