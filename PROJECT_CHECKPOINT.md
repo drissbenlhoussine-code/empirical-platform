@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-046
+LATEST_FROZEN_MILESTONE=MILESTONE-047
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -352,16 +352,19 @@ M046_OWNER_FREEZE_COMMIT=7c390db264989edfffda8c8d4cf4ed0bde7245ac
 M046_STATUS=APPROVED_AND_FROZEN
 
 M047_SCOPE=Concrete Application Command Vertical Slice (Campaign Cancellation)
-M047_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M047_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M047_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M047_SCOPE_STATUS=APPROVED_AND_FROZEN
+M047_DESIGN_STATUS=APPROVED_AND_FROZEN
+M047_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M047_IMPLEMENTATION_COMMIT=1f35acaf042dc04f650378126ecdc4fc4f509321
-M047_FINALIZATION_COMMIT=PENDING
-M047_OWNER_FREEZE_STATUS=NOT_STARTED
-M047_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M047_FINALIZATION_COMMIT=297719266500582a841462be9f934feb378aa9d1
+M047_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M047_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M047_OWNER_FREEZE_COMMIT=PENDING
+M047_STATUS=APPROVED_AND_FROZEN
 
 M048_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-047 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M049_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-048 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1423,7 +1426,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 54.
 
-## 54. MILESTONE-047 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 54. MILESTONE-047 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_047_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_CANCELLATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1441,6 +1444,22 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** targeted prohibited-pattern grep on `cancel_campaign.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found zero genuine matches for `.suspend(`/`.resume(`/`.activate(`/`.complete(`/`.record_authorization(`/`M048`/composition-related tokens inside the production source itself (test fixtures call these predecessor domain methods directly, as documented test setup only, never through a production command).
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** a 27-phase independent review, treating every source file, test, governance document, commit message, and packaged claim as potentially false, independently re-derived repository truth, M046 freeze ordering, a fresh architecture inventory re-deriving the `allowed_states`/conditional-validation shape of all 5 negative-terminal candidates directly from source (confirming `Campaign.cancel()`'s selection is `HIGHEST_LEVERAGE`), an exhaustive 17-scenario domain-level probe of every allowed/terminal state and reason combination, transparent propagation of 6 adversarial exception scenarios using exception types distinct from the implementation's own self-audit, an independent count of all 33 tests, and — most critically — a freshly authored direct-SQL adversarial script against a separately provisioned container that independently reproduced the genuine conflict scenario using `revise_scope_statement()` as the interferer, confirming via raw SQL a genuine, unqualified `OptimisticConcurrencyConflict` (exact type, not `ValueError`) with the interferer's write authoritative and the stale cancellation never persisted. Decision: **M047 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — the review's own final report recorded zero findings of any severity.
 
-**Next permitted action:** MILESTONE-047 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_047_CAMPAIGN_CANCELLATION_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 55.
+
+## 55. MILESTONE-047 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_047_CAMPAIGN_CANCELLATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-047 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the 27-phase independent hostile macro review recorded in Section 54.
+
+**Delivered capability, frozen:** cancelling an existing Campaign from any of its five non-terminal, non-completed states, via `CancelCampaignCommand`/`CancelCampaignHandler` (`src/empirical_platform/usecases/cancel_campaign.py`) — the sixth proof of the `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` pattern, the first proof of a negative/terminal transition at the application layer for any aggregate, and the first proof of state-dependent conditional domain validation.
+
+**Frozen real-conflict model:** a genuine, unqualified `OptimisticConcurrencyConflict` reproduction against real PostgreSQL, independently re-confirmed via a freshly authored direct-SQL adversarial script bypassing the ORM/test-framework layers, using `Campaign.revise_scope_statement()` (M032's own interfering write, re-applied to this new target transition) as the interfering write (freeze record Sections 39-40). No direct SQL fabrication, no patched aggregate internals, no invalid row, no second production command.
+
+**Freeze declaration:** `M047 MACRO MILESTONE APPROVED_AND_FROZEN`. `M047 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-048 COMPLETE MACRO MILESTONE MISSION.
