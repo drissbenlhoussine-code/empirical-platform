@@ -23,6 +23,10 @@ from empirical_platform.usecases.authorize_run import (
     AuthorizeRunCommand,
     AuthorizeRunHandler,
 )
+from empirical_platform.usecases.cancel_campaign import (
+    CancelCampaignCommand,
+    CancelCampaignHandler,
+)
 from empirical_platform.usecases.complete_review import (
     CompleteReviewCommand,
     CompleteReviewHandler,
@@ -94,6 +98,8 @@ __all__ = [
     "AuthorizeRunCommand",
     "AuthorizeRunHandler",
     "CampaignSnapshot",
+    "CancelCampaignCommand",
+    "CancelCampaignHandler",
     "CompleteReviewCommand",
     "CompleteReviewHandler",
     "CreateCampaignCommand",

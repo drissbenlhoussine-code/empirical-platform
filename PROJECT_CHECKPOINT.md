@@ -351,9 +351,17 @@ M046_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M046_OWNER_FREEZE_COMMIT=7c390db264989edfffda8c8d4cf4ed0bde7245ac
 M046_STATUS=APPROVED_AND_FROZEN
 
-M047_STATUS=NOT_STARTED
+M047_SCOPE=Concrete Application Command Vertical Slice (Campaign Cancellation)
+M047_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M047_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M047_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M047_IMPLEMENTATION_COMMIT=PENDING
+M047_FINALIZATION_COMMIT=PENDING
+M047_OWNER_FREEZE_STATUS=NOT_STARTED
+M047_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M048_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-047 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-047 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1413,4 +1421,26 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-047 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 54.
+
+## 54. MILESTONE-047 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_047_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_CAMPAIGN_CANCELLATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory:** all four aggregates now have at least one proven `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` transition (Campaign M032, Run M035, EvidencePackage M038-M041, Review M044-M046) — that generalization axis is closed. A full domain-method inventory found Campaign and Run each carry the largest remaining absolute gap (7 of 8 domain methods unproven each), against EvidencePackage's and Review's single remaining gap each (`invalidate()`, `cancel()`). A second, cross-cutting gap was independently identified: no negative/terminal (cancellation, invalidation, failure) transition has ever been proven at the application layer, for any aggregate. A direct comparison of all five candidate methods (`EvidencePackage.invalidate()`, `Run.cancel()`, `Review.cancel()`, `Run.fail()`, `Campaign.cancel()`) found `Campaign.cancel()` uniquely combines the widest multi-state `allowed_states` reachability (5 states, versus 1-3 for every other candidate) with state-dependent conditional validation (`reason` required from `AUTHORIZED`/`ACTIVE`/`SUSPENDED`, optional from `DRAFT`/`READY_FOR_AUTHORIZATION`) — a precondition shape never exercised by any transition proven at M030-M046.
+
+**Selected scope:** one concrete command cancelling an existing Campaign from any of its five non-terminal, non-completed states, via `Campaign.cancel()` — the sixth proof of the `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` pattern, the first proof of a negative/terminal transition at the application layer for any aggregate, and the first proof of state-dependent conditional domain validation.
+
+**Conflict feasibility — empirically confirmed, not assumed:** `Campaign.revise_scope_statement()` (M032's own frozen interfering write, `DRAFT`-only, state-preserving) was independently re-verified to genuinely serve as the interfering write against `cancel()` when cancelling from `DRAFT` — the identical M032 mechanism, re-applied to this new target transition and re-confirmed empirically (not assumed by analogy), against real PostgreSQL.
+
+**Design:** a six-field command mirroring `Campaign.cancel()`'s own actual signature (`actor`, `occurred_at`, `reason=None`, `correlation_id=None`), plus the two universal `identity`/`expected_persisted_version` fields.
+
+**Architecture impact:** none. `usecases` already had `campaign` in `ALLOWED["usecases"]` since M030. `tools/check_architecture.py` unchanged; `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 33 new (3 contract, 23 unit, 7 PostgreSQL integration — including the genuine deterministic conflict reproduction and both branches of the conditional `reason` validation, all executed live against a fresh disposable container). Full non-integration suite: 868 passed (up from 842), 196 deselected, coverage 84.69%, zero regression. Full integration regression: 190 passed (up from 183). Full suite with PostgreSQL: 1058 passed, 93.54% coverage.
+
+**Hostile self-audit:** targeted prohibited-pattern grep on `cancel_campaign.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found zero genuine matches for `.suspend(`/`.resume(`/`.activate(`/`.complete(`/`.record_authorization(`/`M048`/composition-related tokens inside the production source itself (test fixtures call these predecessor domain methods directly, as documented test setup only, never through a production command).
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-047 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
