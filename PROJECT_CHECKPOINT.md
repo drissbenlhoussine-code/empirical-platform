@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-047
+LATEST_FROZEN_MILESTONE=MILESTONE-048
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -363,16 +363,19 @@ M047_OWNER_FREEZE_COMMIT=53e3c4786922ea82e5d85ba5ce59dbfeb9dad934
 M047_STATUS=APPROVED_AND_FROZEN
 
 M048_SCOPE=Concrete Application Command Vertical Slice (Run Execution Failure)
-M048_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M048_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M048_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M048_SCOPE_STATUS=APPROVED_AND_FROZEN
+M048_DESIGN_STATUS=APPROVED_AND_FROZEN
+M048_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M048_IMPLEMENTATION_COMMIT=c78099fdd0638a252de94ce3f21cc1512ccdfea6
-M048_FINALIZATION_COMMIT=PENDING
-M048_OWNER_FREEZE_STATUS=NOT_STARTED
-M048_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M048_FINALIZATION_COMMIT=cc1526dde697e453c9498ecc26a663251589c0ad
+M048_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M048_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M048_OWNER_FREEZE_COMMIT=PENDING
+M048_STATUS=APPROVED_AND_FROZEN
 
 M049_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-048 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M050_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-049 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1472,7 +1475,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 56.
 
-## 56. MILESTONE-048 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 56. MILESTONE-048 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_048_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_EXECUTION_FAILURE_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1490,6 +1493,22 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** targeted prohibited-pattern grep on `fail_run.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found zero genuine matches for `.start_acquisition(`/`.start_normalization(`/`.start_validation(`/`.complete_execution(`/`.cancel(`/`M049`/composition-related tokens inside the production source itself (test fixtures call `start_acquisition()` directly, as documented test setup only, never through a production command).
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+**Independent hostile macro review:** a 27-phase independent review, treating every source file, test, governance document, commit message, and packaged claim as potentially false, independently re-derived repository truth, M047 freeze ordering, a fresh architecture inventory re-deriving the `allowed_states` shapes of all 4 remaining negative-terminal candidates directly from source (confirming `Run.fail()`'s selection is `HIGHEST_LEVERAGE`), an exhaustive 8-state domain-level probe of every source state (3 allowed with manifest preservation, 5 disallowed) plus signature-level confirmation that `reason` has no default, transparent propagation of 6 adversarial exception scenarios using exception types distinct from the implementation's own self-audit, an independent count of all 30 tests, and — most critically — a freshly authored direct-SQL adversarial script against a separately provisioned container that independently reproduced the genuine conflict scenario using `append_manifest()` as the interferer, confirming via raw SQL a genuine, unqualified `OptimisticConcurrencyConflict` (exact type, not `ValueError`) with the interferer's manifest authoritative and the stale failure never persisted. Decision: **M048 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — the review's own final report recorded zero findings of any severity.
 
-**Next permitted action:** MILESTONE-048 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation are frozen as one consolidated unit per the Macro Milestone Protocol (Section 31). Owner Freeze record: `MILESTONE_048_RUN_EXECUTION_FAILURE_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 57.
+
+## 57. MILESTONE-048 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_048_RUN_EXECUTION_FAILURE_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-048 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the 27-phase independent hostile macro review recorded in Section 56.
+
+**Delivered capability, frozen:** failing an existing Run from any of its three execution-stage states (`ACQUIRING`, `NORMALIZING`, `VALIDATING`), via `FailRunCommand`/`FailRunHandler` (`src/empirical_platform/usecases/fail_run.py`) — the seventh proof of the `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` pattern, and the first generalization of the negative/terminal-transition axis (opened by M047's `Campaign.cancel()`) to a second aggregate.
+
+**Frozen real-conflict model:** a genuine, unqualified `OptimisticConcurrencyConflict` reproduction against real PostgreSQL, independently re-confirmed via a freshly authored direct-SQL adversarial script bypassing the ORM/test-framework layers, using `Run.append_manifest()` (M035's own interfering write, re-applied to this third target transition) as the interfering write (freeze record Sections 40-41). No direct SQL fabrication, no patched aggregate internals, no invalid row, no second production command.
+
+**Freeze declaration:** `M048 MACRO MILESTONE APPROVED_AND_FROZEN`. `M048 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-049 COMPLETE MACRO MILESTONE MISSION.
