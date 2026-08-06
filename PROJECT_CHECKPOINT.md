@@ -362,9 +362,17 @@ M047_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M047_OWNER_FREEZE_COMMIT=53e3c4786922ea82e5d85ba5ce59dbfeb9dad934
 M047_STATUS=APPROVED_AND_FROZEN
 
-M048_STATUS=NOT_STARTED
+M048_SCOPE=Concrete Application Command Vertical Slice (Run Execution Failure)
+M048_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M048_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M048_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M048_IMPLEMENTATION_COMMIT=PENDING
+M048_FINALIZATION_COMMIT=PENDING
+M048_OWNER_FREEZE_STATUS=NOT_STARTED
+M048_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M049_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-048 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-048 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1462,4 +1470,26 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-048 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 56.
+
+## 56. MILESTONE-048 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_048_CONCRETE_APPLICATION_COMMAND_VERTICAL_SLICE_RUN_EXECUTION_FAILURE_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory:** `get()`/`add()`/`save()` remain proven for every aggregate (closed since M046). M047 additionally proved a negative/terminal transition (`Campaign.cancel()`) for the first time in this project, but on exactly one aggregate. A full domain-method inventory found Run now carries the single largest remaining absolute gap (7 of 8 domain methods unproven). A direct comparison of the four remaining negative/terminal candidates (`Run.cancel()`, `Run.fail()`, `Review.cancel()`, `EvidencePackage.invalidate()`) against the now-frozen `Campaign.cancel()` precedent found `Run.fail()` uniquely combines the second-widest `allowed_states` (3 elements) with a semantically distinct scenario (mid-execution failure, not deliberate abandonment) — the only remaining candidate that generalizes the negative/terminal axis to a new real-world scenario rather than merely repeating `Campaign.cancel()`'s own abandonment semantics on a narrower scale.
+
+**Selected scope:** one concrete command failing an existing Run from any of its three execution-stage states (`ACQUIRING`, `NORMALIZING`, `VALIDATING`), via `Run.fail()` — the seventh proof of the `get()`→mutate→`save()`/`OptimisticConcurrencyConflict` pattern, and the first generalization of the negative/terminal-transition axis (opened by M047) to a second aggregate.
+
+**Conflict feasibility — empirically confirmed, not assumed:** `Run.append_manifest()` (M035's own frozen interfering write, state-preserving across `_MANIFEST_APPEND_STATES`, a superset including all three of `fail()`'s allowed states) was independently re-verified to genuinely serve as the interfering write against `fail()` when failing from `ACQUIRING` — the identical M035 mechanism, re-applied to a third target transition (after `authorize()` and M047's own `revise_scope_statement()` reuse for `cancel()`) and re-confirmed empirically, against real PostgreSQL.
+
+**Design:** a six-field command mirroring `Run.fail()`'s own actual signature (`reason` unconditionally required, unlike `Campaign.cancel()`'s state-dependent optionality), plus the two universal `identity`/`expected_persisted_version` fields.
+
+**Architecture impact:** none. `usecases` already had `run` in `ALLOWED["usecases"]` since M033. `tools/check_architecture.py` unchanged; `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 30 new (3 contract, 21 unit, 6 PostgreSQL integration — including the genuine deterministic conflict reproduction, all executed live against a fresh disposable container). Full integration regression: 196 passed (up from 190). Full suite with PostgreSQL: 1088 passed (up from 1058), 93.65% coverage, zero regression.
+
+**Hostile self-audit:** targeted prohibited-pattern grep on `fail_run.py` found zero genuine matches; the `usecases/__init__.py` diff is purely additive; a full scope-creep sweep across the diff found zero genuine matches for `.start_acquisition(`/`.start_normalization(`/`.start_validation(`/`.complete_execution(`/`.cancel(`/`M049`/composition-related tokens inside the production source itself (test fixtures call `start_acquisition()` directly, as documented test setup only, never through a production command).
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation are all candidates within this one consolidated mission per the active Macro Milestone Protocol (Section 31). None frozen.
+
+**Next permitted action:** MILESTONE-048 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
