@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-049
+LATEST_FROZEN_MILESTONE=MILESTONE-050
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -385,17 +385,18 @@ M049_OWNER_FREEZE_COMMIT=3ae497c32dd93579409f6a156391196ce910ec82
 M049_STATUS=APPROVED_AND_FROZEN
 
 M050_SCOPE=Application Composition Root (Real End-to-End Campaign Retrieval)
-M050_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M050_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M050_IMPLEMENTATION_STATUS=CORRECTED_CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M050_SCOPE_STATUS=APPROVED_AND_FROZEN
+M050_DESIGN_STATUS=APPROVED_AND_FROZEN
+M050_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M050_IMPLEMENTATION_COMMIT=e5d65385f01b6617657bc86d24426f6dec8babf2
-M050_CORRECTION_COMMIT=83043d4a4b83222bc5a75fefaa22a0b466b6be54
-M050_FINALIZATION_COMMIT=PENDING
-M050_OWNER_FREEZE_STATUS=NOT_STARTED
-M050_STATUS=MACRO_CANDIDATE_CORRECTED_PENDING_RE_REVIEW
+M050_FINALIZATION_COMMIT=9a1331c9c1d7e3c362fa835f9856e8a5ea1150d1
+M050_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M050_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M050_OWNER_FREEZE_COMMIT=PENDING
+M050_STATUS=APPROVED_AND_FROZEN
 
 M051_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO RE-REVIEW
+NEXT_PERMITTED_ACTION=MILESTONE-051 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1571,7 +1572,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 60.
 
-## 60. MILESTONE-050 Macro Milestone Mission (Corrected Candidate, Not Yet Approved)
+## 60. MILESTONE-050 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_050_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_RETRIEVAL_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1593,6 +1594,22 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Correction applied:** `service.initialize()` moved one line, from immediately before the `try:` to the first statement inside it — the entire service lifetime is now owned by one `try`/`finally` boundary. No other production line changed; no new abstraction, framework, or exception policy introduced. Three new focused unit tests added (`test_run_get_campaign_closes_service_when_initialize_raises` — independently confirmed to fail pre-fix and pass post-fix — plus two companion regression guards for the already-correct success and post-initialize-failure paths). Full suite with PostgreSQL after correction: 1134 passed (up from 1131 by exactly the 3 new tests), 6 skipped, 93.70% coverage, zero regression. Full correction record: `MILESTONE_050_..._MACRO_IMPLEMENTATION.md` Section 12.
 
-**Status:** `CORRECTED_CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope and design produced as part of the original consolidated mission; implementation corrected once, in place, per the first independent review's own finding. Not yet re-reviewed or frozen.
+**Second independent hostile macro re-review:** covering both the original mission and the M050-Y-1 correction, independently re-derived repository truth and commit lineage; the correction delta (exactly 6 files, a minimal 2-line production change); a fresh, non-reused reproduction of the pre-fix defect via a temporarily-restored original source file; a more thorough post-fix probe additionally proving zero downstream composition work occurs after a failed `initialize()`; independent re-execution of the actual pytest defect test against both pre-fix and post-fix source (FAILED, then PASSED); close-failure semantics classified SOUND; an unbiased re-run of the strategic-pivot assessment (unchanged conclusion); a second, independently-chosen failure mode (credential rejection against a live listening server, not merely connection-refused); five fresh architecture negative probes (all correctly rejected); and full regression/toolchain/package-integrity re-verification on a third independently-provisioned container, zero drift. Decision: **M050 CORRECTED MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — one MINOR, explicitly non-blocking cosmetic finding (a section-numbering gap in the Macro Implementation document), zero CRITICAL or MAJOR findings.
 
-**Next permitted action:** MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO RE-REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation (as corrected) frozen as one consolidated unit per the Macro Milestone Protocol (Section 31), on the authority of two independent hostile macro reviews recorded above. Owner Freeze record: `MILESTONE_050_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_RETRIEVAL_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 61.
+
+## 61. MILESTONE-050 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_050_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_RETRIEVAL_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-050 scope, design, and implementation (as corrected for finding M050-Y-1) as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of two independent hostile macro reviews recorded in Section 60 — the first of which returned "REQUIRES CORRECTION," and the second of which, after the M050-Y-1 fix, returned "APPROVED WITH NON-BLOCKING OBSERVATIONS."
+
+**Delivered capability, frozen:** the project's first real, production, end-to-end application composition — `entrypoints.get_campaign` (`run_get_campaign()` + thin `main()` CLI wrapper, `src/empirical_platform/entrypoints/get_campaign.py`), composing real configuration resolution, a real PostgreSQL persistence service, the frozen M025 `PostgresRepositoryRuntime`, and the frozen M031 `GetCampaignHandler`/`GetCampaignQuery`/`QueryEntryPoint` into one real, invocable flow, registered as the `empirical-platform-get-campaign` console script.
+
+**Frozen resource-lifecycle shape (corrected):** service construction, followed immediately by a `try`/`finally` block whose `try` opens with `.initialize()` as its first statement and whose `finally` unconditionally calls `.close()` — independently re-verified to guarantee exactly one construction, one `.initialize()`, one `.close()`, one `PostgresRepositoryRuntime` construction per invocation, and zero downstream composition work when `.initialize()` fails.
+
+**Freeze declaration:** `M050 MACRO MILESTONE APPROVED_AND_FROZEN`. `M050 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-051 COMPLETE MACRO MILESTONE MISSION.
