@@ -395,8 +395,17 @@ M050_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M050_OWNER_FREEZE_COMMIT=77f7ed85c58493d144349dd8c41f8e15000d2b8c
 M050_STATUS=APPROVED_AND_FROZEN
 
-M051_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-051 COMPLETE MACRO MILESTONE MISSION
+M051_SCOPE=Application Composition Root (Real End-to-End Campaign Cancellation)
+M051_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M051_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M051_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M051_IMPLEMENTATION_COMMIT=PENDING
+M051_FINALIZATION_COMMIT=PENDING
+M051_OWNER_FREEZE_STATUS=NOT_STARTED
+M051_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
+M052_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-051 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1612,4 +1621,26 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-051 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 62.
+
+## 62. MILESTONE-051 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_051_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CANCELLATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory — deepening, not repeating, the M050 pivot.** Independently re-derived from live source: Campaign has 6 unproven mutation methods, Run has 6, EvidencePackage has 1 (`invalidate`), Review is complete (4/4, since M049). Every remaining Campaign/Run transition independently confirmed to repeat an already-proven single-state `_transition()` shape. `EvidencePackage.invalidate()` independently re-confirmed to have zero genuine interfering write reachable from `SEALED` (`add_criterion_result`/`add_artifact_reference`/`seal` all require `COLLECTING` explicitly) — selecting it would be the first rigor regression in this project's negative-transition axis. `entrypoints/` independently confirmed to contain exactly one composition root (M050's `get_campaign`, read-only) — the `expected_persisted_version`/`OptimisticConcurrencyConflict` dimension of a write command flowing through a real entrypoint remains completely unproven. M050's own scope document (Section 6) explicitly named this as "a natural, well-motivated candidate for a future milestone, once the read-side pattern is independently reviewed and frozen" — now true.
+
+**Selected scope:** a real, production `entrypoints.cancel_campaign` composition root — the first write command composed through a production entrypoint — `resolve_foundation_config()` → `PostgresPersistenceService` → the frozen M025 `PostgresRepositoryRuntime` → the frozen M047 `CancelCampaignHandler`/`CancelCampaignCommand` → the frozen `CommandEntryPoint` (M029), invocable as a real CLI command (`empirical-platform-cancel-campaign`). Pairs with M050's own `get_campaign` on the same aggregate. Zero new business capability; reuses 100% already-frozen capabilities.
+
+**Composition feasibility — empirically confirmed, not assumed:** against a fresh disposable `postgres:17` container, `run_cancel_campaign()` independently confirmed golden-path cancellation, genuine `AggregateNotFound` propagation, genuine invalid-state `ValueError` propagation, and — the dimension M050 could not exercise — a genuine, exact-type `OptimisticConcurrencyConflict` propagating through the entrypoint when a real independently-loaded interferer (`revise_scope_statement()`, reusing M047's own frozen mechanism) advances the persisted version out from under a stale caller.
+
+**Design:** `run_cancel_campaign()` owns the full composition and the sole unit of work; applies the M050-Y-1 resource-lifecycle correction from the first line written (`.initialize()` as the first statement inside `try:`), independently sanity-checked via a fail-before/pass-after reintroduction of the defect during implementation.
+
+**Architecture impact:** none. `ALLOWED["entrypoints"]`/`FORBIDDEN_IMPORT_PREFIXES["entrypoints"]` (both established by M050) already permit everything this milestone needs. `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 16 new (11 unit, 5 PostgreSQL integration, all executed live against a fresh disposable container). Full integration suite: 212 passed (up from 207). Full suite with PostgreSQL: 1150 passed (up from 1134), 93.71% coverage, zero regression.
+
+**Hostile self-audit:** targeted prohibited-pattern grep on `cancel_campaign.py` found exactly one `try:`, zero `except`; construction/lifecycle counts confirmed exactly 1 each; zero domain/usecase/repository files touched; a bonus adversarial probe confirmed an impossibly-high claimed version transparently propagates the distinct, pre-existing `InvalidAggregateForPersistence` exception rather than being reclassified.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation produced as one consolidated unit per the Macro Milestone Protocol (Section 31), not yet independently reviewed or frozen.
+
+**Next permitted action:** MILESTONE-051 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
