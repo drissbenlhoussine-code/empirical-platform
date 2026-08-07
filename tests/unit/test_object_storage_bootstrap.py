@@ -27,3 +27,29 @@ def test_bootstrap_with_unreachable_object_storage_fails_before_ready_runtime() 
             {"EMPIRICAL_PLATFORM_ENVIRONMENT": "test"},
             object_storage=FakeObjectStorageService(reachable=False),
         )
+
+
+def test_bootstrap_with_unreachable_object_storage_closes_service_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test: `object_storage_service.close()` must be attempted
+    even when `object_storage_service.initialize()` itself raises, mirroring
+    the M050-Y-1 resource-lifecycle correction applied to the entrypoint
+    composition roots."""
+    object_storage = FakeObjectStorageService(reachable=False)
+    close_calls: list[None] = []
+    original_close = object_storage.close
+
+    def _tracking_close() -> None:
+        close_calls.append(None)
+        original_close()
+
+    monkeypatch.setattr(object_storage, "close", _tracking_close)
+
+    with pytest.raises(FoundationError):
+        initialize_foundation_runtime_with_object_storage(
+            {"EMPIRICAL_PLATFORM_ENVIRONMENT": "test"},
+            object_storage=object_storage,
+        )
+
+    assert close_calls == [None]

@@ -309,3 +309,29 @@ NOT APPROVED
 NOT FROZEN
 M027 NOT STARTED
 ```
+
+## 17. Post-Freeze Correction — Resource-Lifecycle Defect in `initialize_foundation_runtime_with_postgresql` / `initialize_foundation_runtime_with_object_storage`
+
+Identified during MILESTONE-052 exploratory architecture review (unrelated scope), reported against this already-frozen milestone, and independently reproduced before correction.
+
+**Finding.** Item 5 of the Section 14 hostile self-audit above checked construction *ordering* relative to `initialize()` and found no defect, but never checked whether `close()` runs when `initialize()` itself raises. It does not, in two of `bootstrap.py`'s four `initialize_*` functions:
+
+- `initialize_foundation_runtime_with_postgresql`: `persistence_service = persistence or PostgresPersistenceService(config.postgresql)` followed immediately by `persistence_service.initialize()`, with no surrounding `try`/`except`/`finally`. If `initialize()` raises (e.g. unreachable/misconfigured database), the constructed service is never closed.
+- `initialize_foundation_runtime_with_object_storage`: the identical pattern with `object_storage_service`.
+
+(`initialize_infrastructure_runtime`, the third `initialize_*` function that constructs a persistence/object-storage service, already wraps its whole body in `try`/`except Exception` with `_cleanup_initialized` on the failure path — it does not have this defect. `initialize_foundation_runtime` constructs no persistence or object-storage service at all and is unaffected.)
+
+This is the same defect class as finding M050-Y-1 (`MILESTONE_050_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_RETRIEVAL_MACRO_IMPLEMENTATION.md` Section 12): a constructed resource is not closed when its own `initialize()` fails. Reproduced independently with `FakePersistenceService(reachable=False)` / `FakeObjectStorageService(reachable=False)`: both `initialize_foundation_runtime_with_postgresql` and `initialize_foundation_runtime_with_object_storage` raised the expected `FoundationError` while leaving `close()` uncalled.
+
+**Practical impact: none in production today.** No production entrypoint (`health.py`, `version.py`, `get_campaign.py`, `cancel_campaign.py`) invokes any `bootstrap.py` `initialize_*` function — only test modules do (`test_bootstrap.py`, `test_m026_bootstrap_repository_runtime.py`, `test_persistence_bootstrap.py`, `test_object_storage_bootstrap.py`, `test_unified_infrastructure_runtime.py`). The leak has zero live consequence unless `bootstrap.py` is wired into a real long-running entrypoint in the future.
+
+**Correction applied.** In both functions, `initialize()` was moved inside a `try` block whose `except Exception` branch calls the service's `close()` before re-raising — the same pattern `initialize_infrastructure_runtime` already used correctly for its (list-based, multi-resource) case, applied here to the single-resource case. This differs in shape from the M050-Y-1 `try`/`finally` fix: `get_campaign.py`'s service is closed unconditionally because ownership never leaves the function, whereas here a successful `initialize()` hands the service to the returned `FoundationRuntime`, whose caller owns its lifecycle via `FoundationRuntime.close()` — so `close()` must fire only on the failure path, not on success. No context manager, resource-manager framework, or new exception policy was introduced.
+
+**Verification.**
+
+1. *Pre-fix reproduction*: a temporarily-restored pre-correction copy of `bootstrap.py`, run against both new regression tests below, confirmed both fail (`close_calls == []` / `persistence.closed is False`) against the original source.
+2. *Post-fix confirmation*: the corrected source, run against the same two tests, passes.
+3. *Regression tests added*: `tests/unit/test_persistence_bootstrap.py::test_bootstrap_with_unreachable_persistence_closes_service_on_failure` and `tests/unit/test_object_storage_bootstrap.py::test_bootstrap_with_unreachable_object_storage_closes_service_on_failure`.
+4. Full unit suite: `805 passed` (up from 803), zero regression.
+
+**Scope discipline.** This is a narrow correction to already-frozen M026 source, not a new milestone: it changes no scope, design, or public contract of `FoundationRuntime`; it is mechanically identical in kind to the already-precedented M050-Y-1 fix; and the affected code path has no live production caller. `M026_STATUS` remains `APPROVED_AND_FROZEN`; no MILESTONE-052 material is introduced by this correction.

@@ -300,7 +300,11 @@ def initialize_foundation_runtime_with_postgresql(
     config = resolve_foundation_config(environ)
     configure_logging(LoggingSettings(log_level=config.logging.log_level))
     persistence_service = persistence or PostgresPersistenceService(config.postgresql)
-    persistence_service.initialize()
+    try:
+        persistence_service.initialize()
+    except Exception:
+        persistence_service.close()
+        raise
     repository_runtime = (
         PostgresRepositoryRuntime(persistence_service)
         if isinstance(persistence_service, PostgresPersistenceService)
@@ -364,7 +368,11 @@ def initialize_foundation_runtime_with_object_storage(
     config = resolve_foundation_config(environ)
     configure_logging(LoggingSettings(log_level=config.logging.log_level))
     object_storage_service = object_storage or S3ObjectStorageService(config.object_storage)
-    object_storage_service.initialize()
+    try:
+        object_storage_service.initialize()
+    except Exception:
+        object_storage_service.close()
+        raise
     runtime = FoundationRuntime(
         config=config,
         wall_clock=wall_clock or SystemWallClock(),

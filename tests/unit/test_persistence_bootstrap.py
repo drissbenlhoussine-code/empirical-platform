@@ -26,3 +26,19 @@ def test_bootstrap_with_unreachable_persistence_fails_before_ready_runtime() -> 
             {"EMPIRICAL_PLATFORM_ENVIRONMENT": "test"},
             persistence=FakePersistenceService(reachable=False),
         )
+
+
+def test_bootstrap_with_unreachable_persistence_closes_service_on_failure() -> None:
+    """Regression test: `persistence_service.close()` must be attempted even
+    when `persistence_service.initialize()` itself raises, mirroring the
+    M050-Y-1 resource-lifecycle correction applied to the entrypoint
+    composition roots."""
+    persistence = FakePersistenceService(reachable=False)
+
+    with pytest.raises(FoundationError):
+        initialize_foundation_runtime_with_postgresql(
+            {"EMPIRICAL_PLATFORM_ENVIRONMENT": "test"},
+            persistence=persistence,
+        )
+
+    assert persistence.closed is True
