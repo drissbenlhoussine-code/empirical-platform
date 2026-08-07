@@ -101,7 +101,7 @@ One concrete, narrow composition: a real, production `entrypoints.get_campaign` 
 
 ## 11. Persistence/Transaction Implications
 
-`PostgresPersistenceService` is constructed and `.initialize()`d once per invocation, and `.close()`d in a `finally` block, guaranteeing no leaked connections regardless of success or failure — mirroring the identical lifecycle every integration test's own fixtures already use. No new transaction primitive is introduced; `GetCampaignHandler`'s own single `get()` call is the entire unit of work, exactly as already frozen since M031.
+`PostgresPersistenceService` is constructed once per invocation, and the entire lifetime of that service — including its own `.initialize()` call — is owned by one `try`/`finally` block whose `finally` clause unconditionally calls `.close()`, guaranteeing `.close()` is attempted regardless of whether initialization, repository composition, or query handling succeeds or fails. (An earlier candidate revision of this milestone called `.initialize()` before the `try` opened, so a failure during initialization itself bypassed `.close()` entirely; this was caught by independent hostile review as finding M050-Y-1, empirically reproduced — `close()` call count of zero on a failed `initialize()` — and corrected by moving `.initialize()` inside the `try`. No new resource-management abstraction was introduced; this is the same `try`/`finally` shape every integration test's own fixtures already use, now drawn around the correct boundary.) No new transaction primitive is introduced; `GetCampaignHandler`'s own single `get()` call is the entire unit of work, exactly as already frozen since M031.
 
 ## 12. Risks
 

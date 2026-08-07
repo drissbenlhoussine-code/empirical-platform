@@ -65,8 +65,8 @@ def run_get_campaign(
 ) -> CampaignSnapshot:
     resolved_config = config if config is not None else resolve_foundation_config().postgresql
     service = PostgresPersistenceService(resolved_config)
-    service.initialize()
     try:
+        service.initialize()
         runtime = PostgresRepositoryRuntime(service)
         handler = GetCampaignHandler(campaign_repository=runtime.campaigns)
         entry_point = QueryEntryPoint(handler)
@@ -79,7 +79,7 @@ def run_get_campaign(
         service.close()
 ```
 
-Exactly one `PostgresPersistenceService` is constructed, `.initialize()`d, and `.close()`d (in a `finally`, guaranteeing cleanup on both success and failure) per invocation. Exactly one `PostgresRepositoryRuntime`, one `GetCampaignHandler`, one `QueryEntryPoint`, one query, one result. No caching, no connection pooling beyond what `PostgresPersistenceService` itself already provides, no retry.
+Exactly one `PostgresPersistenceService` is constructed per invocation, and its entire lifetime — `.initialize()`, repository/handler/entry-point composition, and the query call — is owned by a single `try`/`finally` block whose `finally` clause unconditionally calls `.close()`. The `try` boundary starts immediately after construction, deliberately including `.initialize()` itself, so `.close()` is attempted whether initialization succeeds or fails, not only for failures that occur after a successful `.initialize()`. (Independent hostile review — finding M050-Y-1 — caught and this milestone corrected a candidate revision where `.initialize()` was called before the `try` opened, which left an initialization failure unable to reach `.close()`; see the Macro Implementation document's own correction record.) Exactly one `PostgresRepositoryRuntime`, one `GetCampaignHandler`, one `QueryEntryPoint`, one query, one result. No caching, no connection pooling beyond what `PostgresPersistenceService` itself already provides, no retry.
 
 ## 7. Transaction Ownership
 

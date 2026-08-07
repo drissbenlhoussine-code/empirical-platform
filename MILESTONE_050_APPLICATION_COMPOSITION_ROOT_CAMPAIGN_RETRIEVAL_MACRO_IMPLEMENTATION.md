@@ -2,9 +2,9 @@
 
 ## 1. Document Status
 
-**Status: CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW**
+**Status: CORRECTED_CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW**
 
-Produced in the same consolidated M050 mission as the scope and design documents.
+Produced in the same consolidated M050 mission as the scope and design documents. This document has been updated once, in place, to correct finding M050-Y-1 identified by the first independent hostile macro review; see Section 12 for the complete correction record. No other decision from the original mission was reopened.
 
 ## 2. Repository Authority
 
@@ -29,8 +29,8 @@ def run_get_campaign(
 ) -> CampaignSnapshot:
     resolved_config = config if config is not None else resolve_foundation_config().postgresql
     service = PostgresPersistenceService(resolved_config)
-    service.initialize()
     try:
+        service.initialize()
         runtime = PostgresRepositoryRuntime(service)
         handler = GetCampaignHandler(campaign_repository=runtime.campaigns)
         entry_point = QueryEntryPoint(handler)
@@ -85,16 +85,22 @@ Scope Section 12 / design Section 17 raised this milestone's central risk: this 
 
 ## 8. Test Evidence
 
-- Focused unit (CLI wrapper, monkeypatched `run_get_campaign`, never touching real persistence): **7 passed**.
-- M050 focused PostgreSQL integration (fresh disposable `postgres:17` container, host-mapped port 32768): **4 passed** — golden path, `AggregateNotFound` propagation, `ValueError` propagation, default-config environment resolution.
-- Non-integration suite: **924 passed** (up from 917), 213 deselected (up from 209), coverage 84.72%.
-- Full integration regression: **207 passed** (up from 203), 6 skipped.
-- Full suite with PostgreSQL: **1131 passed** (up from 1120), 6 skipped, coverage 93.70%, zero regression.
+Original mission (pre-correction): focused unit 7 passed; M050 focused PostgreSQL integration 4 passed; non-integration suite 924 passed (213 deselected, coverage 84.72%); full integration regression 207 passed (6 skipped); full suite with PostgreSQL 1131 passed (6 skipped, coverage 93.70%).
+
+Post-correction (this document's current numbers, re-run in full against a fresh, uniquely-named/ported `postgres:17` container never reused from the original mission's own evidence):
+
+- Focused unit (CLI wrapper + `run_get_campaign()` resource-lifecycle coverage): **10 passed** (up from 7 — three new tests added by the M050-Y-1 correction; see Section 12).
+- M050 focused PostgreSQL integration: **4 passed**, unchanged — golden path, `AggregateNotFound` propagation, `ValueError` propagation, default-config environment resolution.
+- M031 Campaign-retrieval regression: **3 passed**, unchanged.
+- Non-integration suite: **927 passed** (up from 924 by exactly the 3 new unit tests), 213 deselected, coverage 84.96%.
+- Full integration suite: **207 passed**, unchanged, 6 skipped.
+- Full suite with PostgreSQL: **1134 passed** (up from 1131 by exactly the 3 new unit tests), 6 skipped, coverage 93.70%, zero regression.
 - `ruff format --check` / `ruff check`: clean, 282 files formatted.
-- Canonical bare `mypy`: clean, 107 source files (up from 106).
+- Canonical bare `mypy`: clean, 107 source files, unchanged.
 - `python -m build --wheel`: succeeds; wheel inspection confirms `empirical_platform/entrypoints/get_campaign.py` packaged and `empirical-platform-get-campaign = empirical_platform.entrypoints.get_campaign:main` correctly registered under `[console_scripts]`.
+- Smoke import (`from empirical_platform.entrypoints.get_campaign import run_get_campaign, main`): succeeds.
 - `pip-audit`: no known vulnerabilities.
-- Secret-scan: 0 findings across all 500 currently-tracked files (pre-commit baseline); target count after this milestone's own commit: 509 (500 + 9 new tracked files).
+- Secret-scan: 0 findings across all 509 currently-tracked files (no new tracked file is introduced by this correction — only existing tracked files were edited).
 
 ## 9. Hostile Self-Audit
 
@@ -104,6 +110,25 @@ Targeted prohibited-pattern grep on `get_campaign.py` (`try:|except|retry|while 
 
 No composition of any command/query beyond `GetCampaignQuery`; no generic dispatcher, registry, or handler-discovery mechanism; no retry policy; no transport/HTTP/API layer; no schema/migration change; no change to `Campaign`, `CampaignRepository`, `PostgresCampaignRepository`, `GetCampaignQuery`, `GetCampaignHandler`, `CampaignSnapshot`, `PostgresRepositoryRuntime`, `resolve_foundation_config`, or any other already-frozen contract; no MILESTONE-051 work.
 
-## 11. Status
+## 12. Correction Record — M050-Y-1
 
-**CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW.**
+The first independent hostile macro review (conducted against implementation commit `e5d6538`/finalization commit `f452c5c`) found one MAJOR, Owner-Freeze-blocking defect:
+
+- **Finding M050-Y-1.** In the reviewed candidate, `service.initialize()` was called *before* the `try:` block opened in `run_get_campaign()`. The `finally: service.close()` clause therefore only covered failures occurring *after* a successful `initialize()`. When `initialize()` itself raised (e.g. an unreachable or misconfigured database), `close()` was never invoked, leaking the constructed-but-undisposed `PostgresPersistenceService`/SQLAlchemy engine. The reviewer reproduced this with an instrumented probe: `close()` call count of zero against a controlled `initialize()` failure. This directly contradicted the scope document's own claim (Section 11, pre-correction) that cleanup was guaranteed "regardless of success or failure."
+
+**Correction applied.** `service.initialize()` was moved one line, from immediately before the `try:` to the first statement inside it, so the entire service lifetime — initialization, repository/handler/entry-point composition, and the query call — is now owned by one `try`/`finally` boundary. This is the complete correction; no other line of `get_campaign.py` changed, no new abstraction, context manager, resource-manager framework, or exception policy was introduced.
+
+**Verification of the correction.**
+
+1. *Pre-fix reproduction*, independent of the original review's own probe: a fresh instrumented script confirmed `close()` call count of `0` against the pre-correction source when `initialize()` was made to raise.
+2. *Post-fix confirmation*: the identical script, run again after the one-line correction, confirmed `close()` call count of `1`, with the original exception (`FoundationError`, unaltered) still propagating to the caller.
+3. *Regression test added*: `tests/unit/test_get_campaign_entrypoint.py::test_run_get_campaign_closes_service_when_initialize_raises` — monkeypatches `PostgresPersistenceService` with a fake whose `initialize()` raises and whose `close()` is tracked, and monkeypatches `PostgresRepositoryRuntime` to assert it is never constructed. Independently confirmed to **fail** against the pre-correction source (`close_calls == []`) and **pass** against the corrected source (`close_calls == [None]`), satisfying the "must fail before, pass after" requirement.
+4. Two companion regression tests added for coverage completeness: `test_run_get_campaign_closes_service_exactly_once_on_success` (the already-correct success path, now explicitly guarded) and `test_run_get_campaign_closes_service_when_query_handler_raises` (the already-correct post-initialize-failure path, now explicitly guarded) — both pass, preserving the two scenarios the original implementation already handled correctly.
+
+**Close-failure semantics — clarified, not changed.** `PostgresPersistenceService.close()` (frozen since M008/M023) contains no `try`/`except` of its own; if it were to raise while an exception from the `try` body is already propagating, ordinary Python `finally` semantics apply unchanged: the exception raised by `close()` becomes the actively propagating exception, with the original exception attached as its `__context__`. This is pre-existing, frozen behavior identical to every other `try`/`finally` resource-cleanup site in this codebase (including every integration test's own `service`/`seeding_service` fixtures) — M050 introduces no new exception-translation or suppression policy of any kind, in the correction or otherwise.
+
+**Scope discipline preserved.** No second entrypoint, no dispatcher/registry/service-locator/mediator, no generic resource-manager abstraction, no retry policy, no MILESTONE-051 material — the correction is exactly the one-line change described above, plus the tests and governance wording needed to prove and document it.
+
+## 13. Status
+
+**CORRECTED_CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW.** Ready for a fresh independent hostile macro re-review covering both the original mission and this correction.

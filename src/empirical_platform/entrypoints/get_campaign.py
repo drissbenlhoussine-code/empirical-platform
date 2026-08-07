@@ -44,8 +44,8 @@ def run_get_campaign(
     """
     resolved_config = config if config is not None else resolve_foundation_config().postgresql
     service = PostgresPersistenceService(resolved_config)
-    service.initialize()
     try:
+        service.initialize()
         runtime = PostgresRepositoryRuntime(service)
         handler = GetCampaignHandler(campaign_repository=runtime.campaigns)
         entry_point = QueryEntryPoint(handler)

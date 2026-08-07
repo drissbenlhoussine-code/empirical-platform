@@ -13,16 +13,34 @@ from __future__ import annotations
 import json
 
 import pytest
+from pydantic import SecretStr
 
 from empirical_platform.campaign.aggregate import CampaignScopeStatement
 from empirical_platform.campaign.lifecycle import CampaignLifecycleState
 from empirical_platform.entrypoints import get_campaign as get_campaign_module
 from empirical_platform.identifiers.pairs import DomainIdentity
 from empirical_platform.identifiers.types import CampaignId
+from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.identifiers import RuntimeIdentifier
 from empirical_platform.usecases.get_campaign import CampaignSnapshot
 
 _RUNTIME_ID_VALUE = "12345678-1234-4321-8765-1234567890ab"
+
+
+def _dummy_config() -> PostgreSQLConfigSnapshot:
+    """A structurally valid config for tests that patch `PostgresPersistenceService`
+    entirely and never actually connect to a database."""
+    return PostgreSQLConfigSnapshot(
+        host="unused",
+        port=1,
+        database="unused",
+        user="unused",
+        password=SecretStr("unused"),
+        pool_size=1,
+        max_overflow=0,
+        connection_timeout_seconds=1,
+        application_name="unit-test-dummy",
+    )
 
 
 def _snapshot() -> CampaignSnapshot:
@@ -135,3 +153,147 @@ def test_run_get_campaign_accepts_optional_config_override() -> None:
     signature = inspect.signature(get_campaign_module.run_get_campaign)
     assert "config" in signature.parameters
     assert signature.parameters["config"].default is None
+
+
+def test_run_get_campaign_closes_service_when_initialize_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for M050-Y-1: `service.close()` must be attempted even
+    when `service.initialize()` itself raises, and no downstream composition
+    step (repository runtime, handler, entry point) may run against a
+    never-initialized service."""
+    close_calls: list[None] = []
+    runtime_constructed: list[None] = []
+    sentinel = RuntimeError("adversarial initialize failure")
+
+    class _FailingInitializeService:
+        def __init__(self, config: object) -> None:
+            del config
+
+        def initialize(self) -> None:
+            raise sentinel
+
+        def close(self) -> None:
+            close_calls.append(None)
+
+    def _unexpected_runtime_construction(service: object) -> None:
+        del service
+        runtime_constructed.append(None)
+        raise AssertionError("PostgresRepositoryRuntime must not be constructed")
+
+    monkeypatch.setattr(
+        get_campaign_module, "PostgresPersistenceService", _FailingInitializeService
+    )
+    monkeypatch.setattr(
+        get_campaign_module, "PostgresRepositoryRuntime", _unexpected_runtime_construction
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        get_campaign_module.run_get_campaign(
+            campaign_governance_id="CAMP-0001",
+            campaign_runtime_id=_RUNTIME_ID_VALUE,
+            config=_dummy_config(),
+        )
+
+    assert excinfo.value is sentinel
+    assert close_calls == [None]
+    assert runtime_constructed == []
+
+
+def test_run_get_campaign_closes_service_exactly_once_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Companion coverage: the success path still closes the service exactly
+    once, preserving the pre-fix guarantee for the already-covered case."""
+    close_calls: list[None] = []
+
+    class _SucceedingService:
+        def __init__(self, config: object) -> None:
+            del config
+
+        def initialize(self) -> None:
+            return None
+
+        def close(self) -> None:
+            close_calls.append(None)
+
+    class _StubRuntime:
+        def __init__(self, service: object) -> None:
+            del service
+            self.campaigns = object()
+
+    def _stub_handler(*, campaign_repository: object) -> object:
+        del campaign_repository
+        return object()
+
+    def _stub_entry_point(handler: object) -> object:
+        del handler
+        return lambda query: _snapshot()
+
+    monkeypatch.setattr(get_campaign_module, "PostgresPersistenceService", _SucceedingService)
+    monkeypatch.setattr(get_campaign_module, "PostgresRepositoryRuntime", _StubRuntime)
+    monkeypatch.setattr(get_campaign_module, "GetCampaignHandler", _stub_handler)
+    monkeypatch.setattr(get_campaign_module, "QueryEntryPoint", _stub_entry_point)
+
+    snapshot = get_campaign_module.run_get_campaign(
+        campaign_governance_id="CAMP-0001",
+        campaign_runtime_id=_RUNTIME_ID_VALUE,
+        config=_dummy_config(),
+    )
+
+    assert snapshot == _snapshot()
+    assert close_calls == [None]
+
+
+def test_run_get_campaign_closes_service_when_query_handler_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Companion coverage: a post-initialize failure (e.g. inside the query
+    handler) must still close the service exactly once -- the case already
+    correctly handled before this correction, kept as an explicit regression
+    guard alongside the new initialize()-failure coverage above."""
+    close_calls: list[None] = []
+    sentinel = RuntimeError("adversarial handler failure")
+
+    class _SucceedingService:
+        def __init__(self, config: object) -> None:
+            del config
+
+        def initialize(self) -> None:
+            return None
+
+        def close(self) -> None:
+            close_calls.append(None)
+
+    class _StubRuntime:
+        def __init__(self, service: object) -> None:
+            del service
+            self.campaigns = object()
+
+    def _stub_handler(*, campaign_repository: object) -> object:
+        del campaign_repository
+        return object()
+
+    def _failing_entry_point(handler: object) -> object:
+        del handler
+
+        def _raise(query: object) -> object:
+            del query
+            raise sentinel
+
+        return _raise
+
+    monkeypatch.setattr(get_campaign_module, "PostgresPersistenceService", _SucceedingService)
+    monkeypatch.setattr(get_campaign_module, "PostgresRepositoryRuntime", _StubRuntime)
+    monkeypatch.setattr(get_campaign_module, "GetCampaignHandler", _stub_handler)
+    monkeypatch.setattr(get_campaign_module, "QueryEntryPoint", _failing_entry_point)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        get_campaign_module.run_get_campaign(
+            campaign_governance_id="CAMP-0001",
+            campaign_runtime_id=_RUNTIME_ID_VALUE,
+            config=_dummy_config(),
+        )
+
+    assert excinfo.value is sentinel
+    assert close_calls == [None]
