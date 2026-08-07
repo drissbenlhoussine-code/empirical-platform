@@ -387,14 +387,15 @@ M049_STATUS=APPROVED_AND_FROZEN
 M050_SCOPE=Application Composition Root (Real End-to-End Campaign Retrieval)
 M050_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
 M050_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M050_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M050_IMPLEMENTATION_STATUS=CORRECTED_CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
 M050_IMPLEMENTATION_COMMIT=e5d65385f01b6617657bc86d24426f6dec8babf2
+M050_CORRECTION_COMMIT=83043d4a4b83222bc5a75fefaa22a0b466b6be54
 M050_FINALIZATION_COMMIT=PENDING
 M050_OWNER_FREEZE_STATUS=NOT_STARTED
-M050_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M050_STATUS=MACRO_CANDIDATE_CORRECTED_PENDING_RE_REVIEW
 
 M051_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+NEXT_PERMITTED_ACTION=MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO RE-REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1570,7 +1571,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 60.
 
-## 60. MILESTONE-050 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 60. MILESTONE-050 Macro Milestone Mission (Corrected Candidate, Not Yet Approved)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_050_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_RETRIEVAL_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1584,10 +1585,14 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Architecture impact:** `ALLOWED["entrypoints"]` extended to permit `identifiers`/`usecases`; a new `FORBIDDEN_IMPORT_PREFIXES["entrypoints"]` entry forbids direct `sqlalchemy`/`psycopg`/`boto3` imports while deliberately permitting `shared.persistence` composition. `python tools/check_architecture.py .` exit 0.
 
-**Tests:** 11 new (7 unit, 4 PostgreSQL integration, all executed live against a fresh disposable container). Full integration regression: 207 passed (up from 203). Full suite with PostgreSQL: 1131 passed (up from 1120), 93.70% coverage, zero regression.
+**Tests (original mission):** 11 new (7 unit, 4 PostgreSQL integration, all executed live against a fresh disposable container). Full integration regression: 207 passed (up from 203). Full suite with PostgreSQL: 1131 passed (up from 1120), 93.70% coverage, zero regression.
 
-**Hostile self-audit:** targeted prohibited-pattern grep on `get_campaign.py` found exactly one `try:` (the `try/finally` guaranteeing `service.close()`, zero `except` clauses anywhere); a full scope-creep sweep across the diff found zero genuine matches for dispatcher/registry/locator/mediator/transport/M051-related tokens.
+**Hostile self-audit (original mission):** targeted prohibited-pattern grep on `get_campaign.py` found exactly one `try:` (the `try/finally` guaranteeing `service.close()`, zero `except` clauses anywhere); a full scope-creep sweep across the diff found zero genuine matches for dispatcher/registry/locator/mediator/transport/M051-related tokens.
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation produced as one consolidated unit per the Macro Milestone Protocol (Section 31), not yet independently reviewed or frozen.
+**Independent hostile macro review (first pass):** found one MAJOR, Owner-Freeze-blocking finding, M050-Y-1 — `service.initialize()` was called before the `try:` block opened in `run_get_campaign()`, so `finally: service.close()` never ran when `initialize()` itself raised (empirically reproduced: `close()` call count of zero against a controlled failure). Decision: **M050 MACRO MILESTONE REQUIRES CORRECTION**.
 
-**Next permitted action:** MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Correction applied:** `service.initialize()` moved one line, from immediately before the `try:` to the first statement inside it — the entire service lifetime is now owned by one `try`/`finally` boundary. No other production line changed; no new abstraction, framework, or exception policy introduced. Three new focused unit tests added (`test_run_get_campaign_closes_service_when_initialize_raises` — independently confirmed to fail pre-fix and pass post-fix — plus two companion regression guards for the already-correct success and post-initialize-failure paths). Full suite with PostgreSQL after correction: 1134 passed (up from 1131 by exactly the 3 new tests), 6 skipped, 93.70% coverage, zero regression. Full correction record: `MILESTONE_050_..._MACRO_IMPLEMENTATION.md` Section 12.
+
+**Status:** `CORRECTED_CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope and design produced as part of the original consolidated mission; implementation corrected once, in place, per the first independent review's own finding. Not yet re-reviewed or frozen.
+
+**Next permitted action:** MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO RE-REVIEW.
