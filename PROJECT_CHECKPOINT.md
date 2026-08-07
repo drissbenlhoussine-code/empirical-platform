@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-050
+LATEST_FROZEN_MILESTONE=MILESTONE-051
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -396,16 +396,19 @@ M050_OWNER_FREEZE_COMMIT=77f7ed85c58493d144349dd8c41f8e15000d2b8c
 M050_STATUS=APPROVED_AND_FROZEN
 
 M051_SCOPE=Application Composition Root (Real End-to-End Campaign Cancellation)
-M051_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M051_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M051_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M051_SCOPE_STATUS=APPROVED_AND_FROZEN
+M051_DESIGN_STATUS=APPROVED_AND_FROZEN
+M051_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M051_IMPLEMENTATION_COMMIT=06f42a7f153545a5669253b847199f680c0cad31
-M051_FINALIZATION_COMMIT=PENDING
-M051_OWNER_FREEZE_STATUS=NOT_STARTED
-M051_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M051_FINALIZATION_COMMIT=bc173721e71474727f0ba44a7b5ec18ff9a38627
+M051_MACRO_REVIEW_STATUS=APPROVED_WITH_NON_BLOCKING_OBSERVATIONS
+M051_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M051_OWNER_FREEZE_COMMIT=PENDING
+M051_STATUS=APPROVED_AND_FROZEN
 
 M052_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-051 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+M053_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-052 COMPLETE MACRO MILESTONE MISSION
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1623,7 +1626,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 62.
 
-## 62. MILESTONE-051 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 62. MILESTONE-051 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_051_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CANCELLATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1641,6 +1644,24 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** targeted prohibited-pattern grep on `cancel_campaign.py` found exactly one `try:`, zero `except`; construction/lifecycle counts confirmed exactly 1 each; zero domain/usecase/repository files touched; a bonus adversarial probe confirmed an impossibly-high claimed version transparently propagates the distinct, pre-existing `InvalidAggregateForPersistence` exception rather than being reclassified.
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation produced as one consolidated unit per the Macro Milestone Protocol (Section 31), not yet independently reviewed or frozen.
+**Independent hostile macro review:** a complete independent review, treating every source file, test, governance document, evidence artifact, reported count, commit, manifest, console script, and ZIP as potentially false, independently re-derived the full 8-file lineage, reconfirmed `EvidencePackage.invalidate()`'s evidentiary gap and M050's own genuine pre-authorization text, read `cancel_campaign.py` in full confirming pure composition with zero direct `.get()`/`.cancel()`/`.save()` calls, independently reproduced the resource-lifecycle regression (fresh probe plus a fail-before/pass-after defect reintroduction), five fresh architecture negative probes, a direct-SQL PostgreSQL success verification, a freshly-authored genuine-conflict probe with direct-SQL confirmation that the losing cancellation never persisted, an independently-authored impossibly-high-version probe, full regression/toolchain re-verification with zero drift, and independent package-integrity verification (ZIP SHA-256 matched exactly from disk). Decision: **M051 MACRO MILESTONE APPROVED WITH NON-BLOCKING OBSERVATIONS** — zero findings of any severity.
 
-**Next permitted action:** MILESTONE-051 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Scope, design, and implementation frozen as one consolidated unit per the Macro Milestone Protocol (Section 31), on the authority of the independent hostile macro review recorded above. Owner Freeze record: `MILESTONE_051_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CANCELLATION_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 63.
+
+## 63. MILESTONE-051 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_051_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CANCELLATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-051 scope, design, and implementation as one consolidated unit, per the Macro Milestone Protocol (Section 31), on the authority of the independent hostile macro review recorded in Section 62.
+
+**Delivered capability, frozen:** the project's first write-side production composition entrypoint — `entrypoints.cancel_campaign` (`run_cancel_campaign()` + thin `main()` CLI wrapper, `src/empirical_platform/entrypoints/cancel_campaign.py`), composing real configuration resolution, a real PostgreSQL persistence service, the frozen M025 `PostgresRepositoryRuntime`, and the frozen M047 `CancelCampaignHandler`/`CancelCampaignCommand`/`CommandEntryPoint` into one real, invocable flow, registered as the `empirical-platform-cancel-campaign` console script. Pairs with M050's own `get_campaign` on the same aggregate — the platform-integration pivot is now proven on both halves of the CQRS boundary.
+
+**Frozen version-trust boundary:** the entrypoint never calls `.get()` itself and never re-derives the current persisted version — the caller's own `expected_persisted_version` flows unchanged into `CancelCampaignCommand`, independently re-verified via source read and via two distinct live-PostgreSQL probes (a genuine stale-version `OptimisticConcurrencyConflict` and an impossibly-high-version `InvalidAggregateForPersistence`, both transparently propagated, neither reclassified).
+
+**Frozen resource-lifecycle shape:** identical in kind to M050's own corrected shape — service construction, followed immediately by a `try`/`finally` block whose `try` opens with `.initialize()` as its first statement and whose `finally` unconditionally calls `.close()` — independently re-verified to guarantee exactly one construction, one `.initialize()`, one `.close()`, one `PostgresRepositoryRuntime` construction per invocation, and zero downstream composition work when `.initialize()` fails.
+
+**Freeze declaration:** `M051 MACRO MILESTONE APPROVED_AND_FROZEN`. `M051 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-052 COMPLETE MACRO MILESTONE MISSION.
