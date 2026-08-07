@@ -25,7 +25,7 @@ ALLOWED: dict[str, set[str]] = {
     "decision_candidate": {"shared", "identifiers", "audit", "evidence"},
     "archive": {"shared", "identifiers", "evidence", "audit", "decision_candidate"},
     "application": {"shared"},
-    "entrypoints": {"shared", "application"},
+    "entrypoints": {"shared", "application", "identifiers", "usecases"},
     "usecases": {"shared", "identifiers", "campaign", "run", "evidence", "review"},
 }
 
@@ -72,6 +72,11 @@ FORBIDDEN_IMPORT_PREFIXES: dict[str, tuple[str, ...]] = {
     ),
     "usecases": (
         "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+    "entrypoints": (
         "sqlalchemy",
         "psycopg",
         "boto3",

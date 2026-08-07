@@ -384,9 +384,17 @@ M049_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M049_OWNER_FREEZE_COMMIT=3ae497c32dd93579409f6a156391196ce910ec82
 M049_STATUS=APPROVED_AND_FROZEN
 
-M050_STATUS=NOT_STARTED
+M050_SCOPE=Application Composition Root (Real End-to-End Campaign Retrieval)
+M050_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M050_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M050_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M050_IMPLEMENTATION_COMMIT=PENDING
+M050_FINALIZATION_COMMIT=PENDING
+M050_OWNER_FREEZE_STATUS=NOT_STARTED
+M050_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M051_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-050 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1560,4 +1568,26 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-050 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 60.
+
+## 60. MILESTONE-050 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_050_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_RETRIEVAL_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory — the first deliberate strategic pivot in the project's history.** Mandated leverage reassessment (scope Section 4) independently confirmed from live source: every remaining domain-completion candidate (`EvidencePackage.invalidate()`, `Run.cancel()`, any Campaign/Run forward transition) repeats an already-proven mechanism shape (single-state, unconditionally-validated `_transition()`, proven 9+ times); meanwhile zero production code anywhere has ever constructed a real chain from configuration to a command/query result — all 21 frozen handlers (M030-M049) have only ever been invoked from hand-wired test fixtures, and "composition root" has been named in the Deferred Work/Out-of-Scope section of 18 consecutive milestones (M032-M049). Answer to the mandated question: **yes, platform integration now has higher leverage than another isolated domain transition.**
+
+**Selected scope:** a real, production `entrypoints.get_campaign` composition root proving genuine end-to-end wiring for the first time in production code — `resolve_foundation_config()` → `PostgresPersistenceService` → the frozen M025 `PostgresRepositoryRuntime` → the frozen M031 `GetCampaignHandler`/`GetCampaignQuery` → the frozen `QueryEntryPoint` — invocable as a real CLI command (`empirical-platform-get-campaign`). Zero new business capability; reuses 100% already-frozen capabilities. Deliberately the narrowest possible slice: one read-only query, no generic dispatcher, no service locator, no transport/HTTP layer.
+
+**Composition feasibility — empirically confirmed, not assumed:** against a fresh disposable `postgres:17` container, `run_get_campaign()` independently confirmed golden-path retrieval of a real, freshly-created Campaign, genuine `AggregateNotFound` propagation for a missing Campaign, genuine `ValueError` propagation for a malformed identifier, and genuine environment-based resolution of the production default `config` path — all with zero exception translation at the composition-function level.
+
+**Design:** `run_get_campaign()` owns the full composition and the sole unit of work; `main()` performs only CLI-argument-count validation and delegates, catching nothing, mirroring `health.py`'s own complete absence of exception handling.
+
+**Architecture impact:** `ALLOWED["entrypoints"]` extended to permit `identifiers`/`usecases`; a new `FORBIDDEN_IMPORT_PREFIXES["entrypoints"]` entry forbids direct `sqlalchemy`/`psycopg`/`boto3` imports while deliberately permitting `shared.persistence` composition. `python tools/check_architecture.py .` exit 0.
+
+**Tests:** 11 new (7 unit, 4 PostgreSQL integration, all executed live against a fresh disposable container). Full integration regression: 207 passed (up from 203). Full suite with PostgreSQL: 1131 passed (up from 1120), 93.70% coverage, zero regression.
+
+**Hostile self-audit:** targeted prohibited-pattern grep on `get_campaign.py` found exactly one `try:` (the `try/finally` guaranteeing `service.close()`, zero `except` clauses anywhere); a full scope-creep sweep across the diff found zero genuine matches for dispatcher/registry/locator/mediator/transport/M051-related tokens.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation produced as one consolidated unit per the Macro Milestone Protocol (Section 31), not yet independently reviewed or frozen.
+
+**Next permitted action:** MILESTONE-050 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
