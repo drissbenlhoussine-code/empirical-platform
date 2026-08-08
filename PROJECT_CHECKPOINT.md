@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-055
+LATEST_FROZEN_MILESTONE=MILESTONE-056
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -447,8 +447,18 @@ M055_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M055_OWNER_FREEZE_COMMIT=9c5b574d7edf9454c8e1b5c5f7d6fd4b8bf618e4
 M055_STATUS=APPROVED_AND_FROZEN
 
-M056_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-056 LARGE PRODUCT-ORIENTED MACRO MILESTONE
+M056_SCOPE=Campaign Lifecycle End-to-End
+M056_SCOPE_STATUS=APPROVED_AND_FROZEN
+M056_DESIGN_STATUS=APPROVED_AND_FROZEN
+M056_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M056_IMPLEMENTATION_COMMIT=9191857335ec2372cd85d66caf6f283430256f0
+M056_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M056_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M056_STATUS=APPROVED_AND_FROZEN
+M056_CORE_ENGINE_CLOSURE=CAMPAIGN_RUN_EVIDENCEPACKAGE_REVIEW_SEQUENTIALLY_COMPOSABLE
+
+M057_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-057 (RECOMMENDATION: TRADING-PRODUCT INTEGRATION, NOT FURTHER AGGREGATE-COMPLETENESS WORK -- SEE M056 FINAL REPORT)
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1840,4 +1850,40 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-056 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
+**Next permitted action:** see Section 72.
+
+## 72. MILESTONE-056 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_056_CAMPAIGN_LIFECYCLE_SCOPE_AND_DESIGN.md` (scope + design) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence + both review passes + owner approval + core engine closure assessment) — two governance documents, continuing the reduced-ceremony convention.
+
+**Fresh Campaign architecture inventory.** Independently re-derived from source: all mutation methods (`revise_scope_statement`, `prepare_for_authorization`, `record_authorization`, `activate`, `suspend`, `resume`, `complete`, `cancel`) already existed on the frozen `Campaign` aggregate, requiring zero new domain design. Only `create_campaign`, `get_campaign`, `prepare_campaign_for_authorization`, `cancel_campaign` usecases existed; `prepare_campaign_for_authorization` had zero production entrypoint. No usecases existed for `revise_scope_statement`, `record_authorization`, `activate`, `suspend`, `resume`, or `complete`.
+
+**Selected scope:** six new usecases plus seven new entrypoints composing them and the already-frozen M032 `prepare_campaign_for_authorization` usecase — the complete legal forward Campaign lifecycle including the suspend/resume side-path, plus scope-statement revision in DRAFT as a concrete Campaign-owned-data preservation proof. The already-frozen M047/M051 `cancel_campaign` was integrated as this milestone's negative path, not rebuilt.
+
+**No predecessor source file required correction this time** (unlike M055's `run/__init__.py` situation) — `CampaignScopeStatement` already lives inside the `campaign` package, which `usecases` may already import directly per the architecture boundary.
+
+**Tests:** 48 new focused tests (15 usecase, 33 entrypoint CLI) plus one comprehensive PostgreSQL end-to-end acceptance test (4 tests) proving the complete legal lifecycle with scope-statement preservation, plus one cross-aggregate acceptance test proving Campaign, Run, EvidencePackage, and Review can be driven sequentially by a real caller through their existing production entrypoints alone. Full regression: 1128 non-integration tests passed (84.35% coverage), 236 PostgreSQL integration tests passed (6 pre-existing unrelated skips), zero regressions.
+
+**Concurrency decision:** no new OCC scenario added — Campaign OCC is already exhaustively proven by M047, and this milestone introduces no materially new concurrency boundary. Lifecycle acceptance was prioritized instead, per the mission's own instruction.
+
+**Hostile self-review:** attacked all 14 questions from the mission's own checklist — reachability, precondition bypass, state fabrication, caller-controlled version, transition-history correctness, data preservation, failure transparency, resource cleanup, business-logic leakage, unnecessary predecessor changes, accidental scope expansion, tautological tests, and BEFORE/AFTER truth. Zero findings requiring correction.
+
+**Independent second review:** real subprocess invocation of the entire chain against a second fresh disposable PostgreSQL container, driving one Campaign to `COMPLETED` (including a genuine post-DRAFT scope-revision `ValueError`, and `get_campaign` confirming data preservation across all six subsequent transitions) and one Campaign to `CANCELLED` from `ACTIVE`, independently cross-checked via raw `psql`. Zero CRITICAL, MAJOR, or MINOR findings.
+
+**Core engine closure assessment:** Campaign, Run, EvidencePackage, and Review are now each independently composed into real production entrypoints AND proven sequentially composable by a real caller with no new orchestration layer (this milestone's own cross-aggregate acceptance test). **The core engine is now functionally closed.** Recommendation: future work should move toward trading-product integration rather than further aggregate-completeness milestones.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_056_CAMPAIGN_LIFECYCLE_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 73.
+
+## 73. MILESTONE-056 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_056_CAMPAIGN_LIFECYCLE_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-056 scope, design, implementation, hostile self-review, independent second review, and core engine closure assessment as one consolidated unit.
+
+**Delivered capability, frozen:** the Campaign Lifecycle End-to-End — revise scope, prepare for authorization, record authorization, activate, suspend, resume, and complete, composed into seven real CLI entrypoints against real PostgreSQL, plus proof that the full Campaign→Run→EvidencePackage→Review core engine is now sequentially usable by a real caller.
+
+**Freeze declaration:** `M056 MACRO MILESTONE APPROVED_AND_FROZEN`. `M056 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-057 — recommendation: trading-product integration (see M056 final report Section Y). Not yet selected or started.
