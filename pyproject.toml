@@ -84,6 +84,8 @@ empirical-platform-activate-campaign = "empirical_platform.entrypoints.activate_
 empirical-platform-suspend-campaign = "empirical_platform.entrypoints.suspend_campaign:main"
 empirical-platform-resume-campaign = "empirical_platform.entrypoints.resume_campaign:main"
 empirical-platform-complete-campaign = "empirical_platform.entrypoints.complete_campaign:main"
+empirical-platform-evaluate-trading-observation = "empirical_platform.entrypoints.evaluate_trading_observation:main"
+empirical-platform-get-decision-candidate = "empirical_platform.entrypoints.get_decision_candidate:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -9,7 +9,7 @@ from pathlib import Path
 PACKAGE = "empirical_platform"
 
 ALLOWED: dict[str, set[str]] = {
-    "shared": {"campaign", "run", "evidence", "review", "identifiers"},
+    "shared": {"campaign", "run", "evidence", "review", "identifiers", "decision_candidate"},
     "identifiers": {"shared"},
     "registry": {"shared", "identifiers"},
     "governance": {"shared", "identifiers", "registry"},
@@ -26,7 +26,15 @@ ALLOWED: dict[str, set[str]] = {
     "archive": {"shared", "identifiers", "evidence", "audit", "decision_candidate"},
     "application": {"shared"},
     "entrypoints": {"shared", "application", "identifiers", "usecases"},
-    "usecases": {"shared", "identifiers", "campaign", "run", "evidence", "review"},
+    "usecases": {
+        "shared",
+        "identifiers",
+        "campaign",
+        "run",
+        "evidence",
+        "review",
+        "decision_candidate",
+    },
 }
 
 ALLOWED_EXACT_IMPORTS: dict[str, set[str]] = {
@@ -53,6 +61,12 @@ FORBIDDEN_IMPORT_PREFIXES: dict[str, tuple[str, ...]] = {
         "boto3",
     ),
     "review": (
+        "empirical_platform.shared.persistence",
+        "sqlalchemy",
+        "psycopg",
+        "boto3",
+    ),
+    "decision_candidate": (
         "empirical_platform.shared.persistence",
         "sqlalchemy",
         "psycopg",

@@ -1,0 +1,8 @@
+[
+  {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:30:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+  {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:31:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+  {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:32:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+  {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:33:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+  {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:34:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+  {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:35:00+00:00", "open": "100.35", "high": "200.00", "low": "100.30", "close": "150.00", "volume": "5000"}
+]

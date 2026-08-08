@@ -13,6 +13,9 @@ from empirical_platform.shared.persistence.postgres import PostgresPersistenceSe
 from empirical_platform.shared.persistence.postgres_repositories.campaign_repository import (
     PostgresCampaignRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.decision_candidate_repository import (  # noqa: E501
+    PostgresDecisionCandidateRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.evidence_package_repository import (  # noqa: E501
     PostgresEvidencePackageRepository,
 )
@@ -38,7 +41,14 @@ class PostgresRepositoryRuntime:
     service, on first use.
     """
 
-    __slots__ = ("_service", "_campaigns", "_runs", "_evidence_packages", "_reviews")
+    __slots__ = (
+        "_service",
+        "_campaigns",
+        "_runs",
+        "_evidence_packages",
+        "_reviews",
+        "_decision_candidates",
+    )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
         if not isinstance(service, PostgresPersistenceService):
@@ -50,6 +60,7 @@ class PostgresRepositoryRuntime:
         self._runs = PostgresRunRepository(service)
         self._evidence_packages = PostgresEvidencePackageRepository(service)
         self._reviews = PostgresReviewRepository(service)
+        self._decision_candidates = PostgresDecisionCandidateRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -66,6 +77,10 @@ class PostgresRepositoryRuntime:
     @property
     def reviews(self) -> PostgresReviewRepository:
         return self._reviews
+
+    @property
+    def decision_candidates(self) -> PostgresDecisionCandidateRepository:
+        return self._decision_candidates
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""
