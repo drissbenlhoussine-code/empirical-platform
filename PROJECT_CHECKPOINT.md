@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-051
+LATEST_FROZEN_MILESTONE=MILESTONE-052
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -407,16 +407,18 @@ M051_OWNER_FREEZE_COMMIT=b69a95b18ed9879c9443a97317bc866d563f53b9
 M051_STATUS=APPROVED_AND_FROZEN
 
 M052_SCOPE=Application Composition Root (Real End-to-End Campaign Creation)
-M052_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
-M052_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
-M052_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M052_SCOPE_STATUS=APPROVED_AND_FROZEN
+M052_DESIGN_STATUS=APPROVED_AND_FROZEN
+M052_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
 M052_IMPLEMENTATION_COMMIT=59173e21bf040aa4560bd30ff7792225cd8a774e
-M052_FINALIZATION_COMMIT=PENDING
-M052_OWNER_FREEZE_STATUS=NOT_STARTED
-M052_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+M052_FINALIZATION_COMMIT=f17e6d3ddcffdedb680c21a439a615f837d78742
+M052_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M052_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M052_OWNER_FREEZE_COMMIT=PENDING
+M052_STATUS=APPROVED_AND_FROZEN
 
 M053_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-052 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
+NEXT_PERMITTED_ACTION=MILESTONE-053 LARGE PRODUCT-ORIENTED MACRO MILESTONE
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1674,7 +1676,7 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** see Section 64.
 
-## 64. MILESTONE-052 Macro Milestone Mission (Candidate, Not Yet Approved)
+## 64. MILESTONE-052 Macro Milestone Mission (APPROVED_AND_FROZEN)
 
 **Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_052_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CREATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
 
@@ -1694,6 +1696,20 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Hostile self-audit:** targeted prohibited-pattern grep on `create_campaign.py` found exactly one `try:`, zero `except`; construction/lifecycle counts confirmed exactly 1 each; zero domain/usecase/repository files touched; the M050-Y-1 regression guard was independently sanity-checked via a fail-before/pass-after defect reintroduction during implementation.
 
-**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation produced as one consolidated unit per the Macro Milestone Protocol (Section 31), not yet independently reviewed or frozen.
+**Independent hostile macro review:** re-derived repository truth and the M052 delta from live Git history; confirmed the concurrent M026 bootstrap correction is legitimate, narrow, and untouched by M052's own diff. Performed one materially stronger check beyond all prior evidence: invoked the actual CLI entrypoint as a real subprocess against a fresh disposable PostgreSQL container — golden-path creation genuinely persisted (verified via raw `psql`), missing-argument and duplicate-governance-id error paths both propagated correctly with exit code 1 through the full external-process stack. Zero CRITICAL, MAJOR, or MINOR findings; no correction required.
 
-**Next permitted action:** MILESTONE-052 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_052_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CREATION_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 65.
+
+## 65. MILESTONE-052 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_052_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CREATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-052 scope, design, and implementation as one consolidated unit, on the authority of the independent hostile macro review recorded in Section 64.
+
+**Delivered capability, frozen:** `entrypoints.create_campaign` — the third platform-integration entrypoint, completing a full create→retrieve→cancel real-world-usable trio for Campaign.
+
+**Freeze declaration:** `M052 MACRO MILESTONE APPROVED_AND_FROZEN`. `M052 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-053 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
