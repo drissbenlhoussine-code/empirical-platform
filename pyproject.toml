@@ -77,6 +77,13 @@ empirical-platform-start-run-normalization = "empirical_platform.entrypoints.sta
 empirical-platform-start-run-validation = "empirical_platform.entrypoints.start_run_validation:main"
 empirical-platform-complete-run-execution = "empirical_platform.entrypoints.complete_run_execution:main"
 empirical-platform-fail-run = "empirical_platform.entrypoints.fail_run:main"
+empirical-platform-prepare-campaign-for-authorization = "empirical_platform.entrypoints.prepare_campaign_for_authorization:main"
+empirical-platform-revise-campaign-scope-statement = "empirical_platform.entrypoints.revise_campaign_scope_statement:main"
+empirical-platform-record-campaign-authorization = "empirical_platform.entrypoints.record_campaign_authorization:main"
+empirical-platform-activate-campaign = "empirical_platform.entrypoints.activate_campaign:main"
+empirical-platform-suspend-campaign = "empirical_platform.entrypoints.suspend_campaign:main"
+empirical-platform-resume-campaign = "empirical_platform.entrypoints.resume_campaign:main"
+empirical-platform-complete-campaign = "empirical_platform.entrypoints.complete_campaign:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
