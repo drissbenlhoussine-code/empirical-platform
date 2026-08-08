@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-056
+LATEST_FROZEN_MILESTONE=MILESTONE-057
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -458,8 +458,19 @@ M056_OWNER_FREEZE_COMMIT=6656dfa6cdf229ae46a1fb5907dbbec15afeae16
 M056_STATUS=APPROVED_AND_FROZEN
 M056_CORE_ENGINE_CLOSURE=CAMPAIGN_RUN_EVIDENCEPACKAGE_REVIEW_SEQUENTIALLY_COMPOSABLE
 
-M057_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-057 (RECOMMENDATION: TRADING-PRODUCT INTEGRATION, NOT FURTHER AGGREGATE-COMPLETENESS WORK -- SEE M056 FINAL REPORT)
+M057_SCOPE=First Trading Intelligence Vertical Slice (Market Observation -> Strategy Evaluation -> Trading Decision Evidence)
+M057_SCOPE_STATUS=APPROVED_AND_FROZEN
+M057_DESIGN_STATUS=APPROVED_AND_FROZEN
+M057_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M057_IMPLEMENTATION_COMMIT=8518dcfcc49f664afecc3895fd9db411e5fa69f9
+M057_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M057_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M057_OWNER_FREEZE_COMMIT=PENDING
+M057_STATUS=APPROVED_AND_FROZEN
+M057_PROFITABILITY_CLAIM=NONE_MADE
+
+M058_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-058 -- not yet selected or started; see M057 final report for a non-binding recommended direction
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1888,3 +1899,41 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-057 — recommendation: trading-product integration (see M056 final report Section Y). Not yet selected or started.
+
+## 74. MILESTONE-057 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_057_TRADING_EVALUATION_SCOPE_AND_DESIGN.md` (trading capability inventory, scope-authority determination, strategy candidate comparison, design) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, hostile trading review, independent second review, look-ahead-bias audit, owner approval) — two governance documents, continuing the reduced-ceremony convention. This milestone is a **phase transition**: the first to add genuine trading-domain functionality on top of the now-closed core evidence/governance engine (M053-M056).
+
+**Trading capability inventory.** Exhaustive keyword search across all governance and source found no pre-existing market/bar/instrument/strategy/decision type anywhere in `src/`, confirming a genuine "C — absent, required" gap. Critically, `tools/check_architecture.py` already declared `"decision_candidate": {"shared", "identifiers", "audit", "evidence"}` — a pre-planned dependency shape from the project's original M012-era foundation, predating this session — which directly overturned an initial design instinct to link the new `DecisionCandidate` type to `Run` in favor of `EvidencePackage`, mirroring `Review`'s own existing shape.
+
+**No authoritative frozen trading scope existed anywhere in repository history.** Per the mission's own instruction, this milestone transparently originates a new, minimum explicit scope (US equities/ETFs, regular session, intraday 1/5-minute bars, long-only, no leverage) rather than fabricating false prior authority.
+
+**Selected scope:** one deterministic, versioned strategy (`PRIOR_WINDOW_BREAKOUT_VOLUME_CONFIRMATION` v1, selected over four other candidates including a rejected pure-random control case) evaluating a caller-supplied `ObservationWindow` and producing a persisted, structured `DecisionCandidate` — a new, deliberately non-lifecycle domain-object category (immutable, `get()`/`add()` only, no `save()`, no OCC, no transition history) linked to its target `EvidencePackage` via a typed reference plus a separate `ArtifactReference`, per the established one-aggregate-mutation-per-command discipline.
+
+**Predecessor correction, applied inline:** `entrypoints` cannot import `decision_candidate` directly (architecture boundary unchanged). The two new usecases modules now explicitly re-export (`import X as X`) the domain types the entrypoints construct — the same idiom used in M054's `ReviewDisposition` correction, zero-behavior-change, mypy-strict-driven.
+
+**Tests:** 35 pure-domain unit tests (market data, strategy, independent verification) plus one PostgreSQL end-to-end acceptance suite (4 tests: positive `LONG_CANDIDATE` with retrieval and `EvidencePackage` artifact-reference linkage; first-class `NO_TRADE`; deterministic replay; look-ahead-bias regression probe). Full regression: 1017 non-integration tests passed, 240 PostgreSQL integration tests passed (6 pre-existing, unrelated skips), zero regressions across M020-M056.
+
+**Look-ahead-bias audit (mandatory):** `ObservationWindow`'s own invariant makes constructing a window with a bar dated after the evaluation bar structurally impossible. The residual risk — the evaluation bar's own OHLCV contaminating reference-window statistics — is guarded by a purpose-built fixture and regression test (both the acceptance suite and the independent-verification suite), proven to fail loudly under the described bug class.
+
+**Hostile trading review:** all 20 questions from the mission's own checklist attacked and answered (determinism, Decimal semantics, timestamp/duplicate/interval/instrument integrity, strategy-version preservation, NO_TRADE/positive-candidate correctness, independent measurement verification, reason-code correctness, persistence round-trip, evidence/core integration, no look-ahead bias, no randomness, no LLM dependency, no profit guarantee encoded, no scope creep). Zero findings requiring correction.
+
+**Independent second review:** a completely fresh, disposable PostgreSQL container, driven entirely through real subprocess CLI invocations (never direct function calls) — seed chain, positive/NO_TRADE/look-ahead-probe evaluations, independent retrieval, `EvidencePackage` artifact-reference linkage — with final state independently cross-checked via raw `psql`, bypassing all application code. Zero CRITICAL, MAJOR, or MINOR findings.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_057_TRADING_EVALUATION_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability is made or implied by the selected strategy's presence** — its purpose is to prove the trading-evaluation architecture, not to demonstrate expected returns.
+
+**Next permitted action:** see Section 75.
+
+## 75. MILESTONE-057 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_057_TRADING_EVALUATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-057 scope, design, implementation, hostile trading review, independent second review, and look-ahead-bias audit as one consolidated unit.
+
+**Delivered capability, frozen:** the first trading intelligence vertical slice — Market Observation → Strategy Evaluation → Trading Decision Evidence — composed into two real CLI entrypoints against real PostgreSQL, producing persisted, retrievable, explainable `LONG_CANDIDATE` and `NO_TRADE` outcomes, linked to the existing evidence/governance core via a typed reference and an `ArtifactReference`.
+
+**Freeze declaration:** `M057 MACRO MILESTONE APPROVED_AND_FROZEN`. `M057 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-058 — not yet selected or started. See M057 final report for a non-binding recommended direction.
