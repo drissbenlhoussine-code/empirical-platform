@@ -56,6 +56,14 @@ empirical-platform-version = "empirical_platform.entrypoints.version:main"
 empirical-platform-get-campaign = "empirical_platform.entrypoints.get_campaign:main"
 empirical-platform-cancel-campaign = "empirical_platform.entrypoints.cancel_campaign:main"
 empirical-platform-create-campaign = "empirical_platform.entrypoints.create_campaign:main"
+empirical-platform-create-run = "empirical_platform.entrypoints.create_run:main"
+empirical-platform-get-run = "empirical_platform.entrypoints.get_run:main"
+empirical-platform-create-evidence-package = "empirical_platform.entrypoints.create_evidence_package:main"
+empirical-platform-get-evidence-package = "empirical_platform.entrypoints.get_evidence_package:main"
+empirical-platform-start-evidence-package-collection = "empirical_platform.entrypoints.start_evidence_package_collection:main"
+empirical-platform-record-evidence-package-criterion-result = "empirical_platform.entrypoints.record_evidence_package_criterion_result:main"
+empirical-platform-record-evidence-package-artifact-reference = "empirical_platform.entrypoints.record_evidence_package_artifact_reference:main"
+empirical-platform-seal-evidence-package = "empirical_platform.entrypoints.seal_evidence_package:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
