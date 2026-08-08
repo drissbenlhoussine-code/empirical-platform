@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-054
+LATEST_FROZEN_MILESTONE=MILESTONE-055
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -437,8 +437,17 @@ M054_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M054_OWNER_FREEZE_COMMIT=bdea032e0d12e33a97008cac088ee9d9087f73cd
 M054_STATUS=APPROVED_AND_FROZEN
 
-M055_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-055 LARGE PRODUCT-ORIENTED MACRO MILESTONE
+M055_SCOPE=Run Execution Lifecycle End-to-End
+M055_SCOPE_STATUS=APPROVED_AND_FROZEN
+M055_DESIGN_STATUS=APPROVED_AND_FROZEN
+M055_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M055_IMPLEMENTATION_COMMIT=6da49c3d694da28405977f59f8d52e2899b2fdc8
+M055_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M055_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M055_STATUS=APPROVED_AND_FROZEN
+
+M056_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-056 LARGE PRODUCT-ORIENTED MACRO MILESTONE
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1798,4 +1807,36 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-055 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
+**Next permitted action:** see Section 70.
+
+## 70. MILESTONE-055 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_055_RUN_EXECUTION_LIFECYCLE_SCOPE_AND_DESIGN.md` (scope + design) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence + both review passes + owner approval) — two governance documents, continuing the reduced-ceremony convention.
+
+**Fresh Run architecture inventory.** Independently re-derived from source: all seven Run lifecycle transition methods (`authorize`, `start_acquisition`, `start_normalization`, `start_validation`, `complete_execution`, `cancel`, `fail`) plus `append_manifest()` already existed on the frozen `Run` aggregate, requiring zero new domain design. Only `create_run`, `get_run`, `authorize_run`, `fail_run` usecases existed; `authorize_run`/`fail_run` had zero production entrypoints. No usecases existed at all for `start_acquisition`, `start_normalization`, `start_validation`, `complete_execution`, or `append_manifest`.
+
+**Selected scope:** five new usecases (`start_run_acquisition`, `append_run_manifest`, `start_run_normalization`, `start_run_validation`, `complete_run_execution`) plus seven new entrypoints composing them and the two already-frozen M035/M048 usecases — the complete legal forward Run execution lifecycle, plus the negative `fail_run` path. `cancel_run` explicitly identified and excluded (different terminal path, no usecase, not requested).
+
+**One genuine, minimal correction made inside this milestone:** `run/__init__.py` gained a two-line, zero-behavior-change re-export of `DatasetManifest` (which lives in the separate `datasets` package, unlike `EvidencePackage`/`Review`'s own owned value objects), required because `usecases` cannot import `datasets` directly and this is the first usecase ever needing Run's owned manifest type. Zero regression in 36 pre-existing Run-related contract/mapper/reconstruction tests.
+
+**Tests:** 54 new focused tests (18 usecase, 36 entrypoint CLI) plus one comprehensive PostgreSQL end-to-end acceptance test (5 tests) proving the complete legal lifecycle against a real, disposable Docker container, including a genuine optimistic-concurrency conflict during manifest recording, the negative `fail_run` path with manifest-data preservation, and the two new failure modes this slice introduces (out-of-order transition; post-completion manifest append). Full regression: 1080 non-integration tests passed (84.29% coverage), 231 PostgreSQL integration tests passed (6 pre-existing unrelated skips), zero regressions.
+
+**Hostile self-review:** attacked all 13 questions from the mission's own checklist — reachability, precondition bypass, state fabrication, caller-controlled version, partial-execution corruption, data preservation, transition-history correctness, negative-path correctness, resource cleanup, business-logic leakage, unnecessary predecessor changes, accidental scope expansion, and tautological tests. Zero findings beyond the explicit re-export correction above.
+
+**Independent second review:** real subprocess invocation of the entire chain against a second fresh disposable PostgreSQL container, driving one Run to `EXECUTION_COMPLETED` (with a genuine `OptimisticConcurrencyConflict` and corrected retry, and a genuine post-completion `ValueError`) and one Run to `FAILED` from `ACQUIRING` with manifest data intact, independently cross-checked via raw `psql` against both Runs' final states, manifests, and complete transition histories. Zero CRITICAL, MAJOR, or MINOR findings.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_055_RUN_EXECUTION_LIFECYCLE_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 71.
+
+## 71. MILESTONE-055 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_055_RUN_EXECUTION_LIFECYCLE_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-055 scope, design, implementation, hostile self-review, and independent second review as one consolidated unit.
+
+**Delivered capability, frozen:** the Run Execution Lifecycle End-to-End — authorize, start acquisition, record dataset manifests, start normalization, start validation, complete execution, and fail, composed into seven real CLI entrypoints against real PostgreSQL.
+
+**Freeze declaration:** `M055 MACRO MILESTONE APPROVED_AND_FROZEN`. `M055 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-056 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
