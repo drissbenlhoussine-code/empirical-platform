@@ -70,6 +70,13 @@ empirical-platform-start-review = "empirical_platform.entrypoints.start_review:m
 empirical-platform-add-review-finding = "empirical_platform.entrypoints.add_review_finding:main"
 empirical-platform-complete-review = "empirical_platform.entrypoints.complete_review:main"
 empirical-platform-cancel-review = "empirical_platform.entrypoints.cancel_review:main"
+empirical-platform-authorize-run = "empirical_platform.entrypoints.authorize_run:main"
+empirical-platform-start-run-acquisition = "empirical_platform.entrypoints.start_run_acquisition:main"
+empirical-platform-append-run-manifest = "empirical_platform.entrypoints.append_run_manifest:main"
+empirical-platform-start-run-normalization = "empirical_platform.entrypoints.start_run_normalization:main"
+empirical-platform-start-run-validation = "empirical_platform.entrypoints.start_run_validation:main"
+empirical-platform-complete-run-execution = "empirical_platform.entrypoints.complete_run_execution:main"
+empirical-platform-fail-run = "empirical_platform.entrypoints.fail_run:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
