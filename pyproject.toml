@@ -55,6 +55,7 @@ empirical-platform-health = "empirical_platform.entrypoints.health:main"
 empirical-platform-version = "empirical_platform.entrypoints.version:main"
 empirical-platform-get-campaign = "empirical_platform.entrypoints.get_campaign:main"
 empirical-platform-cancel-campaign = "empirical_platform.entrypoints.cancel_campaign:main"
+empirical-platform-create-campaign = "empirical_platform.entrypoints.create_campaign:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

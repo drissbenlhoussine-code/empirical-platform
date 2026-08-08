@@ -406,9 +406,17 @@ M051_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M051_OWNER_FREEZE_COMMIT=b69a95b18ed9879c9443a97317bc866d563f53b9
 M051_STATUS=APPROVED_AND_FROZEN
 
-M052_STATUS=NOT_STARTED
+M052_SCOPE=Application Composition Root (Real End-to-End Campaign Creation)
+M052_SCOPE_STATUS=CANDIDATE_INTERNAL_MACRO_SCOPE
+M052_DESIGN_STATUS=CANDIDATE_INTERNAL_MACRO_DESIGN
+M052_IMPLEMENTATION_STATUS=CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW
+M052_IMPLEMENTATION_COMMIT=PENDING
+M052_FINALIZATION_COMMIT=PENDING
+M052_OWNER_FREEZE_STATUS=NOT_STARTED
+M052_STATUS=MACRO_CANDIDATE_PENDING_INDEPENDENT_REVIEW
+
 M053_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-052 COMPLETE MACRO MILESTONE MISSION
+NEXT_PERMITTED_ACTION=MILESTONE-052 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1664,4 +1672,28 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-052 COMPLETE MACRO MILESTONE MISSION.
+**Next permitted action:** see Section 64.
+
+## 64. MILESTONE-052 Macro Milestone Mission (Candidate, Not Yet Approved)
+
+**Governance documents (all candidate, produced in one consolidated mission):** `MILESTONE_052_APPLICATION_COMPOSITION_ROOT_CAMPAIGN_CREATION_MACRO_SCOPE.md`, `..._MACRO_DESIGN.md`, `..._MACRO_IMPLEMENTATION.md`.
+
+**Fresh, complete architecture inventory.** Independently re-derived: `entrypoints/` composed exactly 2 of 20 already-frozen usecases (`get_campaign`, `cancel_campaign`); 18 remain unreachable by any real caller, including every aggregate's own creation command. No production entrypoint had ever exercised the repository's `.add()` code path or constructed `UuidRuntimeIdentifierGenerator`. Answer to the product-execution-gap question ("what still prevents a real external caller from executing a meaningful workflow?"): **nothing can be created** — the literal first step of every workflow has no production entry point.
+
+**Selected scope:** `entrypoints.create_campaign`, composing the frozen M030 `CreateCampaignHandler`/`CreateCampaignCommand` through a real CLI command (`empirical-platform-create-campaign`), completing a full create→retrieve→cancel real-world-usable trio for Campaign. Zero new business capability.
+
+**FoundationRuntime investigated and rejected:** a hostile self-review caught and corrected an initial false claim that `UuidRuntimeIdentifierGenerator` was entirely unconstructed in production code — it is constructed inside `bootstrap.py`'s `FoundationRuntime`, which independent investigation found (a) is never invoked by any production entrypoint, and (b) carried its own uncorrected M050-Y-1-class resource-lifecycle defect. Decision: continue the established ad-hoc composition pattern rather than adopt `FoundationRuntime`. The flagged defect was separately corrected out of band (commit `1bff790`) while this mission was in progress; M052's own baseline was updated to sit on top of that correction (see governance Section 7 for the full explanation) — this mission's own diff does not touch `bootstrap.py`.
+
+**Anti-abstraction gate applied:** cross-entrypoint duplication between `get_campaign.py`/`cancel_campaign.py` was directly measured (~10 lines of trivial boilerplate) and found insufficient to justify any shared composition helper, base class, or facade — explicit composition continues unabstracted for the third entrypoint.
+
+**Composition feasibility — empirically confirmed, not assumed:** against a fresh disposable `postgres:17` container, `run_create_campaign()` independently confirmed a golden-path creation using the **real, non-deterministic** `UuidRuntimeIdentifierGenerator` (verified via direct-SQL read-back), a deterministic-override identity, a genuine `AggregateAlreadyExists`, a genuine `ValueError`, and genuine environment-based default-config resolution.
+
+**Architecture impact:** none. `python tools/check_architecture.py .` exit 0, zero diff to `tools/check_architecture.py`.
+
+**Tests:** 16 new (11 unit, 5 PostgreSQL integration, all executed live against a fresh disposable container). Full suite with PostgreSQL: 1168 passed (up from the true concurrent-corrected baseline of 1152), 93.73% coverage, zero regression.
+
+**Hostile self-audit:** targeted prohibited-pattern grep on `create_campaign.py` found exactly one `try:`, zero `except`; construction/lifecycle counts confirmed exactly 1 each; zero domain/usecase/repository files touched; the M050-Y-1 regression guard was independently sanity-checked via a fail-before/pass-after defect reintroduction during implementation.
+
+**Status:** `CANDIDATE_FOR_COMPLETE_INDEPENDENT_MACRO_REVIEW`. Scope, design, and implementation produced as one consolidated unit per the Macro Milestone Protocol (Section 31), not yet independently reviewed or frozen.
+
+**Next permitted action:** MILESTONE-052 COMPLETE INDEPENDENT HOSTILE MACRO REVIEW.
