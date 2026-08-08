@@ -10,7 +10,7 @@ from datetime import datetime
 
 from empirical_platform.identifiers.pairs import DomainIdentity
 from empirical_platform.identifiers.types import ReviewId
-from empirical_platform.review.lifecycle import ReviewDisposition
+from empirical_platform.review.lifecycle import ReviewDisposition as ReviewDisposition
 from empirical_platform.review.repository import ReviewRepository
 from empirical_platform.shared.contracts.repository import SaveResult
 from empirical_platform.shared.domain.versioning import AggregateVersion

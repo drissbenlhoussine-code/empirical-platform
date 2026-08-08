@@ -64,6 +64,12 @@ empirical-platform-start-evidence-package-collection = "empirical_platform.entry
 empirical-platform-record-evidence-package-criterion-result = "empirical_platform.entrypoints.record_evidence_package_criterion_result:main"
 empirical-platform-record-evidence-package-artifact-reference = "empirical_platform.entrypoints.record_evidence_package_artifact_reference:main"
 empirical-platform-seal-evidence-package = "empirical_platform.entrypoints.seal_evidence_package:main"
+empirical-platform-create-review = "empirical_platform.entrypoints.create_review:main"
+empirical-platform-get-review = "empirical_platform.entrypoints.get_review:main"
+empirical-platform-start-review = "empirical_platform.entrypoints.start_review:main"
+empirical-platform-add-review-finding = "empirical_platform.entrypoints.add_review_finding:main"
+empirical-platform-complete-review = "empirical_platform.entrypoints.complete_review:main"
+empirical-platform-cancel-review = "empirical_platform.entrypoints.cancel_review:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
