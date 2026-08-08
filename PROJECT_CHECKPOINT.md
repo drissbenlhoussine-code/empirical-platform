@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-053
+LATEST_FROZEN_MILESTONE=MILESTONE-054
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -427,8 +427,17 @@ M053_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M053_OWNER_FREEZE_COMMIT=3b49475f630c67ad44cc0ee00d24868e91445839
 M053_STATUS=APPROVED_AND_FROZEN
 
-M054_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-054 LARGE PRODUCT-ORIENTED MACRO MILESTONE
+M054_SCOPE=Review Workflow Production Composition
+M054_SCOPE_STATUS=APPROVED_AND_FROZEN
+M054_DESIGN_STATUS=APPROVED_AND_FROZEN
+M054_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M054_IMPLEMENTATION_COMMIT=87985fc338471e3c65de67b2c9eb81745e8597a3
+M054_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M054_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M054_STATUS=APPROVED_AND_FROZEN
+
+M055_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-055 LARGE PRODUCT-ORIENTED MACRO MILESTONE
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1754,4 +1763,38 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-054 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
+**Next permitted action:** see Section 68.
+
+## 68. MILESTONE-054 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_054_REVIEW_WORKFLOW_PRODUCTION_COMPOSITION_SCOPE_AND_DESIGN.md` (scope + design) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence + both review passes + owner approval) — two governance documents, continuing the reduced-ceremony convention established in M053.
+
+**Fresh, product-oriented architecture inventory.** Independently re-derived: Review is the only aggregate with 100% frozen usecase coverage (`create`, `get`, `start`, `add_finding`, `complete`, `cancel` — all 6, M042/M043/M044/M045/M046/M049) and zero production reachability. A caller could produce sealed evidence via M053 but had nowhere to take it next.
+
+**Selected scope, extended per this mission's own instruction to prefer the larger safe continuation:** all six Review entrypoints, proven not merely in isolation but as a genuine cross-milestone continuation — a real EvidencePackage driven to SEALED through the frozen M052/M053 entrypoints, then directly into a full Review lifecycle. `CreateReviewCommand` targets an `EvidencePackageId` with no state precondition (DB-FK-enforced only, identical shape to M053's own `create_run`/`create_evidence_package`), which is what made this larger continuation safe.
+
+**Reuse, no new abstraction.** The M053 `_composition.py` helper is reused unchanged for all six entrypoints; M050-M053's own entrypoints remain untouched.
+
+**One genuine, minimal correction made inside this milestone (not a separate milestone):** `usecases/complete_review.py`'s `ReviewDisposition` import needed to become an explicit re-export (`import X as X`) for `entrypoints.complete_review` to construct it under mypy strict mode while staying within the architecture boundary (`entrypoints` cannot import `review` directly). One-line, zero-behavior-change fix; zero regression in the existing M046 suites.
+
+**Tests:** 28 new focused unit tests plus one comprehensive PostgreSQL end-to-end acceptance test (5 tests) proving the full continuation from a genuinely sealed EvidencePackage through a completed Review, including a genuine optimistic-concurrency conflict and the two new failure modes this slice introduces (complete without any finding; add finding before start). Full regression: 1026 non-integration tests passed (84.28% coverage), 226 PostgreSQL integration tests passed (6 pre-existing unrelated skips), zero regressions.
+
+**Hostile self-review:** confirmed zero `try:`/`except` and zero direct repository calls in any of the 6 new entrypoints; traced every version transition against independently-verified direct-SQL state. Zero findings beyond the explicit-re-export correction above.
+
+**Independent second review:** real subprocess invocation of the entire cross-milestone chain (seed through M052/M053 entrypoints to a genuinely SEALED EvidencePackage, then all 6 new M054 entrypoints, including a genuine complete-without-findings failure and a genuine stale-version conflict) against a second fresh disposable PostgreSQL container, independently cross-checked via raw `psql`. Zero CRITICAL, MAJOR, or MINOR findings.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_054_REVIEW_WORKFLOW_PRODUCTION_COMPOSITION_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 69.
+
+## 69. MILESTONE-054 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_054_REVIEW_WORKFLOW_PRODUCTION_COMPOSITION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-054 scope, design, implementation, hostile self-review, and independent second review as one consolidated unit.
+
+**Delivered capability, frozen:** the Review Workflow Production Composition — create, start, record findings, complete, cancel, and retrieve a Review, composed into six real CLI entrypoints against real PostgreSQL, continuing directly from a genuinely sealed EvidencePackage.
+
+**Freeze declaration:** `M054 MACRO MILESTONE APPROVED_AND_FROZEN`. `M054 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-055 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
