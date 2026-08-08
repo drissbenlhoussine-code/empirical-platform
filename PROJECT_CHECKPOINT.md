@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-052
+LATEST_FROZEN_MILESTONE=MILESTONE-053
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -417,8 +417,17 @@ M052_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
 M052_OWNER_FREEZE_COMMIT=c98928470c58baac48f0dfb51018cb63c1d6f957
 M052_STATUS=APPROVED_AND_FROZEN
 
-M053_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-053 LARGE PRODUCT-ORIENTED MACRO MILESTONE
+M053_SCOPE=Evidence Submission Workflow (Run + EvidencePackage Composition Roots)
+M053_SCOPE_STATUS=APPROVED_AND_FROZEN
+M053_DESIGN_STATUS=APPROVED_AND_FROZEN
+M053_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M053_IMPLEMENTATION_COMMIT=531ea1daa1816d6d7eb7d24b3e1cfdd15d992123
+M053_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M053_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M053_STATUS=APPROVED_AND_FROZEN
+
+M054_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-054 LARGE PRODUCT-ORIENTED MACRO MILESTONE
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1712,4 +1721,36 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-053 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
+**Next permitted action:** see Section 66.
+
+## 66. MILESTONE-053 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents (reduced-ceremony process now in effect):** one consolidated `MILESTONE_053_EVIDENCE_SUBMISSION_WORKFLOW_SCOPE_AND_DESIGN.md` (scope + design in one document) and one consolidated `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence + both review passes + owner approval in one document) — two governance documents total, down from M052's four, per this mission's explicit ceremony-reduction directive.
+
+**Fresh, product-oriented architecture inventory.** Independently re-derived: exactly 3 of 20 already-frozen usecases were reachable by any real caller as of the M052 freeze (`create_campaign`, `get_campaign`, `cancel_campaign`); the entire application layers of Run, EvidencePackage, and Review remained reachable only from test fixtures. A Campaign could be created and cancelled, but nothing could be *done* with it. BEFORE/AFTER: before M053 the platform cannot record or seal any evidence for any Run; after M053 an external caller can create a Run, create an EvidencePackage, record criterion results and artifact references, seal it, and retrieve the final sealed state, entirely through real CLI commands against real PostgreSQL, with an automated end-to-end test proving the whole chain.
+
+**Selected scope:** eight new production entrypoints composing eight already-frozen usecases (M033-M041) — `create_run`, `get_run`, `create_evidence_package`, `get_evidence_package`, `start_evidence_package_collection`, `record_evidence_package_criterion_result`, `record_evidence_package_artifact_reference`, `seal_evidence_package`. Zero new business/domain capability; every command, handler, aggregate, and repository touched is already frozen and unmodified.
+
+**Anti-abstraction gate reassessed and overturned, narrowly.** M050-M052 each measured 2-3 files of trivial duplication and found no abstraction justified. Eight new entrypoints repeating the identical resource-lifecycle skeleton — the exact defect class already found twice (M050-Y-1, the M026 bootstrap correction) — changed that calculus. Decision: extract exactly one narrow helper, `entrypoints._composition.postgres_repository_runtime()`, owning only the resource-lifecycle boundary, with zero handler/command/dispatch awareness. M050-M052's own entrypoints are deliberately not retrofitted.
+
+**Tests:** 47 new focused unit tests (composition-helper resource lifecycle including a fail-before/pass-after defect-reintroduction proof, Run-entrypoint CLI tests, EvidencePackage-entrypoint CLI tests) plus one comprehensive PostgreSQL end-to-end acceptance test (4 tests) proving the full chain against a real, disposable Docker container, including a genuine optimistic-concurrency conflict from two sequential criterion-result recordings and the two new failure modes this slice introduces (seal without evidence; record before collection started). Full regression: 998 non-integration tests passed (84.65% coverage), 221 PostgreSQL integration tests passed (6 pre-existing unrelated skips), zero regressions.
+
+**Hostile self-review (Part C):** reviewed all 9 new files against resource leaks, transaction boundaries, partial persistence, lifecycle validity, identity/version correctness, error swallowing, hidden coupling, fake/unreachable integration, test-only wiring, and accidental scope expansion. Zero findings requiring correction.
+
+**Independent second review (Part D):** re-derived repository truth fresh; performed a second, independent verification technique beyond the automated suite — real subprocess invocation of every CLI entrypoint (`python -m empirical_platform.entrypoints.<name>`) against a second fresh disposable PostgreSQL container, including a genuine `OptimisticConcurrencyConflict` and a genuine double-seal `ValueError`, both with exit code 1 — then independently verified final state via raw `psql`, bypassing all application code. Zero CRITICAL, MAJOR, or MINOR findings; no correction required.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_053_EVIDENCE_SUBMISSION_WORKFLOW_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 67.
+
+## 67. MILESTONE-053 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_053_EVIDENCE_SUBMISSION_WORKFLOW_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-053 scope, design, implementation, hostile self-review, and independent second review as one consolidated unit.
+
+**Delivered capability, frozen:** the Evidence Submission Workflow — Run creation/retrieval and the full EvidencePackage collection lifecycle (create, start collection, record criterion results, record artifact references, seal, retrieve), composed into eight real CLI entrypoints against real PostgreSQL.
+
+**Freeze declaration:** `M053 MACRO MILESTONE APPROVED_AND_FROZEN`. `M053 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-054 LARGE PRODUCT-ORIENTED MACRO MILESTONE.
