@@ -1,0 +1,32 @@
+﻿M061 independent second pass
+fixture=C:\Users\LuxSy\Documents\trading\tests\fixtures\m061_historical_backtest\synthetic_6instrument_historical_backtest_dataset.json
+database_url_host=localhost:55432
+migration=head applied
+run1_runtime_id=7e78910f-0e54-4d47-8d6a-5f47d15f7840
+run2_runtime_id=115850d4-d567-4c66-84bd-b3d21c2eb184
+retrieved_matches_identity=True
+dataset_sha256=a5e7f1cdd69a8c312cbbf45b5e3ba8f0c25fb835b683b712b7c640c13e46e36a
+dataset_id=DATASET-6101
+classification=VALIDATION_ENGINE_PROVEN_FIXTURE_RESULTS_RECORDED
+approved_trade_plan_count=5
+simulated_trade_count=5
+executed_trade_count=4
+deterministic_replay_equal=True
+lookahead_guard_trade_1_equal=True
+lookahead_guard_trade_2_equal=True
+lookahead_guard_trade_3_equal=True
+raw_sql_run_row={'governance_id': 'BTRUN-6121', 'dataset_id': 'DATASET-6101', 'dataset_version': '1', 'dataset_sha256': 'a5e7f1cdd69a8c312cbbf45b5e3ba8f0c25fb835b683b712b7c640c13e46e36a', 'approved_trade_plan_count': 5, 'simulated_trade_count': 5, 'executed_trade_count': 4, 'net_pnl': Decimal('9.734280'), 'maximum_realized_pnl_drawdown': Decimal('31.234800')}
+raw_sql_trade_rows=[{'instrument_symbol': 'AAPL', 'outcome': 'TARGET_HIT', 'quantity': 24, 'simulated_entry_price': Decimal('101.000000'), 'exit_price': Decimal('102.510000'), 'net_pnl': Decimal('33.797880'), 'ambiguity_triggered': False}, {'instrument_symbol': 'AMZN', 'outcome': 'STOP_HIT', 'quantity': 24, 'simulated_entry_price': Decimal('101.000000'), 'exit_price': Decimal('100.500000'), 'net_pnl': Decimal('-14.418000'), 'ambiguity_triggered': False}, {'instrument_symbol': 'NVDA', 'outcome': 'STOP_HIT', 'quantity': 24, 'simulated_entry_price': Decimal('101.000000'), 'exit_price': Decimal('100.400000'), 'net_pnl': Decimal('-16.816800'), 'ambiguity_triggered': True}, {'instrument_symbol': 'GOOG', 'outcome': 'NO_ENTRY', 'quantity': 24, 'simulated_entry_price': None, 'exit_price': None, 'net_pnl': Decimal('0.000000'), 'ambiguity_triggered': False}, {'instrument_symbol': 'TSLA', 'outcome': 'TIME_EXIT', 'quantity': 24, 'simulated_entry_price': Decimal('101.000000'), 'exit_price': Decimal('101.400000'), 'net_pnl': Decimal('7.171200'), 'ambiguity_triggered': False}]
+recomputed_AAPL=gross:36.24 net:33.797880 outcome:TARGET_HIT
+recomputed_AMZN=gross:-12.0 net:-14.41800 outcome:STOP_HIT
+recomputed_NVDA=gross:-14.4 net:-16.81680 outcome:STOP_HIT
+recomputed_TSLA=gross:9.6 net:7.17120 outcome:TIME_EXIT
+independent_total_gross=19.44
+independent_total_net=9.734280
+independent_profit_factor=1.311648545852702754619847094
+independent_drawdown=31.234800
+fixture_goog_open_bar_10=102.7
+no_broker_or_network_dependency=local_fixture_plus_local_postgres_only
+m061_second_pass_status=PASS
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.

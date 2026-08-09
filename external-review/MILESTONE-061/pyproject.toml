@@ -1,0 +1,143 @@
+[build-system]
+requires = ["setuptools>=80,<81", "wheel>=0.45,<0.46"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "empirical-platform"
+version = "0.0.0"
+description = "Foundation scaffold for a governance-aware empirical validation platform."
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = { text = "Proprietary" }
+authors = [{ name = "Research Lead" }]
+dependencies = [
+  "pydantic>=2.13,<3",
+  "pydantic-settings>=2.8,<3",
+  "python-dotenv>=1.0,<2",
+  "structlog>=25,<26",
+]
+
+[project.optional-dependencies]
+persistence = [
+  "sqlalchemy>=2.0,<3",
+  "alembic>=1.16,<2",
+  "psycopg[binary]>=3.2,<4",
+]
+object-storage = [
+  "boto3>=1.35,<2",
+]
+compute = [
+  "polars>=1.32,<2",
+  "duckdb>=1.3,<2",
+]
+dev = [
+  "ruff>=0.12,<1",
+  "mypy>=1.16,<2",
+  "pre-commit>=4.2,<5",
+]
+test = [
+  "pytest>=9.0.3,<10",
+  "pytest-cov>=6.2,<7",
+  "pytest-xdist>=3.7,<4",
+  "hypothesis>=6.135,<7",
+  "freezegun>=1.5,<2",
+]
+security = [
+  "detect-secrets>=1.5,<2",
+  "pip-audit>=2.9,<3",
+]
+build = [
+  "build>=1.2,<2",
+]
+
+[project.scripts]
+empirical-platform-health = "empirical_platform.entrypoints.health:main"
+empirical-platform-version = "empirical_platform.entrypoints.version:main"
+empirical-platform-get-campaign = "empirical_platform.entrypoints.get_campaign:main"
+empirical-platform-cancel-campaign = "empirical_platform.entrypoints.cancel_campaign:main"
+empirical-platform-create-campaign = "empirical_platform.entrypoints.create_campaign:main"
+empirical-platform-create-run = "empirical_platform.entrypoints.create_run:main"
+empirical-platform-get-run = "empirical_platform.entrypoints.get_run:main"
+empirical-platform-create-evidence-package = "empirical_platform.entrypoints.create_evidence_package:main"
+empirical-platform-get-evidence-package = "empirical_platform.entrypoints.get_evidence_package:main"
+empirical-platform-start-evidence-package-collection = "empirical_platform.entrypoints.start_evidence_package_collection:main"
+empirical-platform-record-evidence-package-criterion-result = "empirical_platform.entrypoints.record_evidence_package_criterion_result:main"
+empirical-platform-record-evidence-package-artifact-reference = "empirical_platform.entrypoints.record_evidence_package_artifact_reference:main"
+empirical-platform-seal-evidence-package = "empirical_platform.entrypoints.seal_evidence_package:main"
+empirical-platform-create-review = "empirical_platform.entrypoints.create_review:main"
+empirical-platform-get-review = "empirical_platform.entrypoints.get_review:main"
+empirical-platform-start-review = "empirical_platform.entrypoints.start_review:main"
+empirical-platform-add-review-finding = "empirical_platform.entrypoints.add_review_finding:main"
+empirical-platform-complete-review = "empirical_platform.entrypoints.complete_review:main"
+empirical-platform-cancel-review = "empirical_platform.entrypoints.cancel_review:main"
+empirical-platform-authorize-run = "empirical_platform.entrypoints.authorize_run:main"
+empirical-platform-start-run-acquisition = "empirical_platform.entrypoints.start_run_acquisition:main"
+empirical-platform-append-run-manifest = "empirical_platform.entrypoints.append_run_manifest:main"
+empirical-platform-start-run-normalization = "empirical_platform.entrypoints.start_run_normalization:main"
+empirical-platform-start-run-validation = "empirical_platform.entrypoints.start_run_validation:main"
+empirical-platform-complete-run-execution = "empirical_platform.entrypoints.complete_run_execution:main"
+empirical-platform-fail-run = "empirical_platform.entrypoints.fail_run:main"
+empirical-platform-prepare-campaign-for-authorization = "empirical_platform.entrypoints.prepare_campaign_for_authorization:main"
+empirical-platform-revise-campaign-scope-statement = "empirical_platform.entrypoints.revise_campaign_scope_statement:main"
+empirical-platform-record-campaign-authorization = "empirical_platform.entrypoints.record_campaign_authorization:main"
+empirical-platform-activate-campaign = "empirical_platform.entrypoints.activate_campaign:main"
+empirical-platform-suspend-campaign = "empirical_platform.entrypoints.suspend_campaign:main"
+empirical-platform-resume-campaign = "empirical_platform.entrypoints.resume_campaign:main"
+empirical-platform-complete-campaign = "empirical_platform.entrypoints.complete_campaign:main"
+empirical-platform-evaluate-trading-observation = "empirical_platform.entrypoints.evaluate_trading_observation:main"
+empirical-platform-get-decision-candidate = "empirical_platform.entrypoints.get_decision_candidate:main"
+empirical-platform-run-trading-opportunity-scan = "empirical_platform.entrypoints.run_trading_opportunity_scan:main"
+empirical-platform-get-trading-opportunity-scan = "empirical_platform.entrypoints.get_trading_opportunity_scan:main"
+empirical-platform-build-trade-plan = "empirical_platform.entrypoints.build_trade_plan:main"
+empirical-platform-get-trade-plan = "empirical_platform.entrypoints.get_trade_plan:main"
+empirical-platform-build-position-plan = "empirical_platform.entrypoints.build_position_plan:main"
+empirical-platform-get-position-plan = "empirical_platform.entrypoints.get_position_plan:main"
+empirical-platform-run-historical-backtest = "empirical_platform.entrypoints.run_historical_backtest:main"
+empirical-platform-get-historical-backtest-run = "empirical_platform.entrypoints.get_historical_backtest_run:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "N", "ANN"]
+ignore = [
+  "S101",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+mypy_path = "src"
+packages = ["empirical_platform"]
+
+[tool.pytest.ini_options]
+minversion = "8.4"
+testpaths = ["tests"]
+markers = [
+  "integration: tests that require local external dependencies",
+]
+addopts = [
+  "--strict-markers",
+  "--strict-config",
+  "--cov=empirical_platform",
+  "--cov-report=term-missing",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["empirical_platform"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true

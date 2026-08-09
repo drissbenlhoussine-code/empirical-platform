@@ -1,0 +1,36 @@
+MILESTONE-061 Repository Truth
+================================
+
+Repository: C:\Users\LuxSy\Documents\trading
+Branch: master
+
+M060 owner-freeze hash-recording HEAD (M061's own frozen baseline):
+a544be6ee073456d0360108e87105d4f3ab1be59
+
+M061 implementation commit:
+3b6ea1d4d81e7ad379ceb04d73a5336c66f7009d
+feat: implement M061 historical strategy validation and backtesting V1
+
+M061 owner-freeze commit:
+c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
+docs: record M061 owner macro milestone freeze
+
+This external-review package was assembled after the owner-freeze commit and is intended
+to be recorded by the subsequent hash-recording/package commit. Reviewers should verify
+live repository truth directly with `git rev-parse HEAD` and `git status --short --branch`.
+The substantive milestone diff is the frozen M061 span `a544be6ee073456d0360108e87105d4f3ab1be59..c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c`.
+
+This package's `complete.diff` spans `a544be6ee073456d0360108e87105d4f3ab1be59..c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c` -- the complete M061 implementation
+and owner-freeze delta. The delta introduces the M061 scope+design document, one new owner-freeze governance document,
+one new PostgreSQL migration (`8c3b5d3b7f61`), one new BacktestRun domain file and repository Protocol,
+one new PostgreSQL repository adapter, two new usecases, two new production CLI entrypoints,
+one new identifier type (`BacktestRunId` / `BTRUN`), deterministic historical dataset fixtures,
+focused unit and integration suites, and narrow security-scan hardening for frozen-diff review evidence.
+
+Product delta vs M060:
+Before M060, the platform could size one approved prospective trade under explicit risk and capital constraints.
+After M061, it can also replay the frozen M057-M060 decision stack against one fixed historical dataset,
+persist per-trade hypothetical outcomes plus aggregate report metrics in PostgreSQL, retrieve them later,
+and independently re-verify those results through raw SQL and non-production recomputation.
+
+No profitability claim is made.

@@ -1,0 +1,1429 @@
+Python 3.13.14
+Obtaining file:///C:/Users/LuxSy/Documents/trading
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Checking if build backend supports build_editable: started
+  Checking if build backend supports build_editable: finished with status 'done'
+  Getting requirements to build editable: started
+  Getting requirements to build editable: finished with status 'done'
+  Preparing editable metadata (pyproject.toml): started
+  Preparing editable metadata (pyproject.toml): finished with status 'done'
+Requirement already satisfied: pydantic<3,>=2.13 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.13.4)
+Requirement already satisfied: pydantic-settings<3,>=2.8 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.14.2)
+Requirement already satisfied: python-dotenv<2,>=1.0 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.2.2)
+Requirement already satisfied: structlog<26,>=25 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (25.5.0)
+Requirement already satisfied: sqlalchemy<3,>=2.0 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.0.51)
+Requirement already satisfied: alembic<2,>=1.16 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.18.5)
+Requirement already satisfied: psycopg<4,>=3.2 in .\.venv\Lib\site-packages (from psycopg[binary]<4,>=3.2; extra == "persistence"->empirical-platform==0.0.0) (3.3.4)
+Requirement already satisfied: boto3<2,>=1.35 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.43.48)
+Requirement already satisfied: ruff<1,>=0.12 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (0.15.21)
+Requirement already satisfied: mypy<2,>=1.16 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.20.2)
+Requirement already satisfied: pre-commit<5,>=4.2 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (4.6.0)
+Requirement already satisfied: pytest<10,>=9.0.3 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (9.1.1)
+Requirement already satisfied: pytest-cov<7,>=6.2 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (6.3.0)
+Requirement already satisfied: pytest-xdist<4,>=3.7 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (3.8.0)
+Requirement already satisfied: hypothesis<7,>=6.135 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (6.156.6)
+Requirement already satisfied: freezegun<2,>=1.5 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.5.5)
+Requirement already satisfied: detect-secrets<2,>=1.5 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.5.0)
+Requirement already satisfied: pip-audit<3,>=2.9 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.10.1)
+Requirement already satisfied: build<2,>=1.2 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.5.1)
+Requirement already satisfied: Mako in .\.venv\Lib\site-packages (from alembic<2,>=1.16->empirical-platform==0.0.0) (1.3.12)
+Requirement already satisfied: typing-extensions>=4.12 in .\.venv\Lib\site-packages (from alembic<2,>=1.16->empirical-platform==0.0.0) (4.16.0)
+Requirement already satisfied: botocore<1.44.0,>=1.43.48 in .\.venv\Lib\site-packages (from boto3<2,>=1.35->empirical-platform==0.0.0) (1.43.48)
+Requirement already satisfied: jmespath<2.0.0,>=0.7.1 in .\.venv\Lib\site-packages (from boto3<2,>=1.35->empirical-platform==0.0.0) (1.1.0)
+Requirement already satisfied: s3transfer<0.20.0,>=0.19.0 in .\.venv\Lib\site-packages (from boto3<2,>=1.35->empirical-platform==0.0.0) (0.19.1)
+Requirement already satisfied: python-dateutil<3.0.0,>=2.1 in .\.venv\Lib\site-packages (from botocore<1.44.0,>=1.43.48->boto3<2,>=1.35->empirical-platform==0.0.0) (2.9.0.post0)
+Requirement already satisfied: urllib3!=2.2.0,<3,>=1.25.4 in .\.venv\Lib\site-packages (from botocore<1.44.0,>=1.43.48->boto3<2,>=1.35->empirical-platform==0.0.0) (2.7.0)
+Requirement already satisfied: packaging>=24.0 in .\.venv\Lib\site-packages (from build<2,>=1.2->empirical-platform==0.0.0) (26.2)
+Requirement already satisfied: pyproject_hooks in .\.venv\Lib\site-packages (from build<2,>=1.2->empirical-platform==0.0.0) (1.2.0)
+Requirement already satisfied: colorama in .\.venv\Lib\site-packages (from build<2,>=1.2->empirical-platform==0.0.0) (0.4.6)
+Requirement already satisfied: pyyaml in .\.venv\Lib\site-packages (from detect-secrets<2,>=1.5->empirical-platform==0.0.0) (6.0.3)
+Requirement already satisfied: requests in .\.venv\Lib\site-packages (from detect-secrets<2,>=1.5->empirical-platform==0.0.0) (2.34.2)
+Requirement already satisfied: sortedcontainers<3.0.0,>=2.1.0 in .\.venv\Lib\site-packages (from hypothesis<7,>=6.135->empirical-platform==0.0.0) (2.4.0)
+Requirement already satisfied: mypy_extensions>=1.0.0 in .\.venv\Lib\site-packages (from mypy<2,>=1.16->empirical-platform==0.0.0) (1.1.0)
+Requirement already satisfied: pathspec>=1.0.0 in .\.venv\Lib\site-packages (from mypy<2,>=1.16->empirical-platform==0.0.0) (1.1.1)
+Requirement already satisfied: librt>=0.8.0 in .\.venv\Lib\site-packages (from mypy<2,>=1.16->empirical-platform==0.0.0) (0.13.0)
+Requirement already satisfied: CacheControl>=0.13.0 in .\.venv\Lib\site-packages (from CacheControl[filecache]>=0.13.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.14.4)
+Requirement already satisfied: cyclonedx-python-lib<12,>=5 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (11.11.0)
+Requirement already satisfied: pip-api>=0.0.28 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.0.34)
+Requirement already satisfied: pip-requirements-parser>=32.0.0 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (32.0.1)
+Requirement already satisfied: rich>=12.4 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (15.0.0)
+Requirement already satisfied: tomli>=2.2.1 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (2.4.1)
+Requirement already satisfied: tomli-w>=1.2.0 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (1.2.0)
+Requirement already satisfied: platformdirs>=4.2.0 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (4.10.0)
+Requirement already satisfied: license-expression<31,>=30 in .\.venv\Lib\site-packages (from cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (30.4.4)
+Requirement already satisfied: packageurl-python<2,>=0.11 in .\.venv\Lib\site-packages (from cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.17.6)
+Requirement already satisfied: py-serializable<3.0.0,>=2.1.0 in .\.venv\Lib\site-packages (from cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (2.1.0)
+Requirement already satisfied: boolean.py>=4.0 in .\.venv\Lib\site-packages (from license-expression<31,>=30->cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (5.0)
+Requirement already satisfied: cfgv>=2.0.0 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (3.5.0)
+Requirement already satisfied: identify>=1.0.0 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (2.6.19)
+Requirement already satisfied: nodeenv>=0.11.1 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (1.10.0)
+Requirement already satisfied: virtualenv>=20.10.0 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (21.6.1)
+Requirement already satisfied: tzdata in .\.venv\Lib\site-packages (from psycopg<4,>=3.2->psycopg[binary]<4,>=3.2; extra == "persistence"->empirical-platform==0.0.0) (2026.3)
+Requirement already satisfied: psycopg-binary==3.3.4 in .\.venv\Lib\site-packages (from psycopg[binary]<4,>=3.2; extra == "persistence"->empirical-platform==0.0.0) (3.3.4)
+Requirement already satisfied: defusedxml<0.8.0,>=0.7.1 in .\.venv\Lib\site-packages (from py-serializable<3.0.0,>=2.1.0->cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.7.1)
+Requirement already satisfied: annotated-types>=0.6.0 in .\.venv\Lib\site-packages (from pydantic<3,>=2.13->empirical-platform==0.0.0) (0.7.0)
+Requirement already satisfied: pydantic-core==2.46.4 in .\.venv\Lib\site-packages (from pydantic<3,>=2.13->empirical-platform==0.0.0) (2.46.4)
+Requirement already satisfied: typing-inspection>=0.4.2 in .\.venv\Lib\site-packages (from pydantic<3,>=2.13->empirical-platform==0.0.0) (0.4.2)
+Requirement already satisfied: iniconfig>=1.0.1 in .\.venv\Lib\site-packages (from pytest<10,>=9.0.3->empirical-platform==0.0.0) (2.3.0)
+Requirement already satisfied: pluggy<2,>=1.5 in .\.venv\Lib\site-packages (from pytest<10,>=9.0.3->empirical-platform==0.0.0) (1.6.0)
+Requirement already satisfied: pygments>=2.7.2 in .\.venv\Lib\site-packages (from pytest<10,>=9.0.3->empirical-platform==0.0.0) (2.20.0)
+Requirement already satisfied: coverage>=7.5 in .\.venv\Lib\site-packages (from coverage[toml]>=7.5->pytest-cov<7,>=6.2->empirical-platform==0.0.0) (7.15.1)
+Requirement already satisfied: execnet>=2.1 in .\.venv\Lib\site-packages (from pytest-xdist<4,>=3.7->empirical-platform==0.0.0) (2.1.2)
+Requirement already satisfied: six>=1.5 in .\.venv\Lib\site-packages (from python-dateutil<3.0.0,>=2.1->botocore<1.44.0,>=1.43.48->boto3<2,>=1.35->empirical-platform==0.0.0) (1.17.0)
+Requirement already satisfied: greenlet>=1 in .\.venv\Lib\site-packages (from sqlalchemy<3,>=2.0->empirical-platform==0.0.0) (3.5.3)
+Requirement already satisfied: msgpack<2.0.0,>=0.5.2 in .\.venv\Lib\site-packages (from CacheControl>=0.13.0->CacheControl[filecache]>=0.13.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (1.2.1)
+Requirement already satisfied: filelock>=3.8.0 in .\.venv\Lib\site-packages (from CacheControl[filecache]>=0.13.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (3.29.7)
+Requirement already satisfied: pip in .\.venv\Lib\site-packages (from pip-api>=0.0.28->pip-audit<3,>=2.9->empirical-platform==0.0.0) (26.1.2)
+Requirement already satisfied: pyparsing in .\.venv\Lib\site-packages (from pip-requirements-parser>=32.0.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (3.3.2)
+Requirement already satisfied: charset_normalizer<4,>=2 in .\.venv\Lib\site-packages (from requests->detect-secrets<2,>=1.5->empirical-platform==0.0.0) (3.4.9)
+Requirement already satisfied: idna<4,>=2.5 in .\.venv\Lib\site-packages (from requests->detect-secrets<2,>=1.5->empirical-platform==0.0.0) (3.18)
+Requirement already satisfied: certifi>=2023.5.7 in .\.venv\Lib\site-packages (from requests->detect-secrets<2,>=1.5->empirical-platform==0.0.0) (2026.6.17)
+Requirement already satisfied: markdown-it-py>=2.2.0 in .\.venv\Lib\site-packages (from rich>=12.4->pip-audit<3,>=2.9->empirical-platform==0.0.0) (4.2.0)
+Requirement already satisfied: mdurl~=0.1 in .\.venv\Lib\site-packages (from markdown-it-py>=2.2.0->rich>=12.4->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.1.2)
+Requirement already satisfied: distlib<1,>=0.3.7 in .\.venv\Lib\site-packages (from virtualenv>=20.10.0->pre-commit<5,>=4.2->empirical-platform==0.0.0) (0.4.3)
+Requirement already satisfied: python-discovery>=1.4.2 in .\.venv\Lib\site-packages (from virtualenv>=20.10.0->pre-commit<5,>=4.2->empirical-platform==0.0.0) (1.4.4)
+Requirement already satisfied: MarkupSafe>=0.9.2 in .\.venv\Lib\site-packages (from Mako->alembic<2,>=1.16->empirical-platform==0.0.0) (3.0.3)
+Building wheels for collected packages: empirical-platform
+  Building editable for empirical-platform (pyproject.toml): started
+  Building editable for empirical-platform (pyproject.toml): finished with status 'done'
+  Created wheel for empirical-platform: filename=empirical_platform-0.0.0-0.editable-py3-none-any.whl size=3449 sha256=1622a3e99c497e5d7bf23ae214cf8a7c9c69d5dcab2089b0b53d33c4ab93346c
+  Stored in directory: C:\Users\LuxSy\AppData\Local\Temp\pip-ephem-wheel-cache-10g8_3q0\wheels\00\df\56\7bb4b14598606db928cc204652775893bdd61a229b6f6df183
+Successfully built empirical-platform
+Installing collected packages: empirical-platform
+  Attempting uninstall: empirical-platform
+    Found existing installation: empirical-platform 0.0.0
+    Uninstalling empirical-platform-0.0.0:
+      Successfully uninstalled empirical-platform-0.0.0
+Successfully installed empirical-platform-0.0.0
+
+[notice] A new release of pip is available: 26.1.2 -> 26.2.1
+[notice] To update, run: python.exe -m pip install --upgrade pip
+407 files already formatted
+All checks passed!
+Success: no issues found in 188 source files
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\LuxSy\Documents\trading
+configfile: pyproject.toml
+testpaths: tests
+plugins: hypothesis-6.156.6, cov-6.3.0, xdist-3.8.0
+collected 1536 items
+
+tests\architecture\test_module_boundaries.py ..                          [  0%]
+tests\contract\test_add_review_finding_handler_contract.py ...           [  0%]
+tests\contract\test_authorize_run_handler_contract.py ...                [  0%]
+tests\contract\test_campaign_mapper_contract.py .....                    [  0%]
+tests\contract\test_campaign_repository_contract.py .............        [  1%]
+tests\contract\test_cancel_campaign_handler_contract.py ...              [  1%]
+tests\contract\test_cancel_review_handler_contract.py ...                [  2%]
+tests\contract\test_complete_review_handler_contract.py ...              [  2%]
+tests\contract\test_create_campaign_handler_contract.py ...              [  2%]
+tests\contract\test_create_evidence_package_handler_contract.py ...      [  2%]
+tests\contract\test_create_review_handler_contract.py ...                [  2%]
+tests\contract\test_create_run_handler_contract.py ...                   [  3%]
+tests\contract\test_evidence_package_mapper_contract.py ....             [  3%]
+tests\contract\test_evidence_package_repository_contract.py ............ [  4%]
+.                                                                        [  4%]
+tests\contract\test_fail_run_handler_contract.py ...                     [  4%]
+tests\contract\test_get_campaign_handler_contract.py ...                 [  4%]
+tests\contract\test_get_evidence_package_handler_contract.py ...         [  4%]
+tests\contract\test_get_review_handler_contract.py ...                   [  4%]
+tests\contract\test_get_run_handler_contract.py ...                      [  5%]
+tests\contract\test_mapper_contract_common.py ......                     [  5%]
+tests\contract\test_prepare_campaign_for_authorization_handler_contract.py . [  5%]
+..                                                                       [  5%]
+tests\contract\test_record_evidence_package_artifact_reference_handler_contract.py . [  5%]
+..                                                                       [  5%]
+tests\contract\test_record_evidence_package_criterion_result_handler_contract.py . [  5%]
+..                                                                       [  6%]
+tests\contract\test_repository_contract_common.py .......                [  6%]
+tests\contract\test_review_mapper_contract.py ......                     [  6%]
+tests\contract\test_review_repository_contract.py .............          [  7%]
+tests\contract\test_run_mapper_contract.py ....                          [  8%]
+tests\contract\test_run_repository_contract.py .............             [  8%]
+tests\contract\test_seal_evidence_package_handler_contract.py ...        [  9%]
+tests\contract\test_start_evidence_package_collection_handler_contract.py . [  9%]
+..                                                                       [  9%]
+tests\contract\test_start_review_handler_contract.py ...                 [  9%]
+tests\integration\test_m022_schema_migration.py ssssssssssssssssssssssss [ 11%]
+sssssssssssssssssssssssss                                                [ 12%]
+tests\integration\test_m023_postgres_repositories.py sssssssssssssssssss [ 13%]
+sssssss                                                                  [ 14%]
+tests\integration\test_m024_postgres_composed_unit_of_work.py ssssssssss [ 15%]
+ss                                                                       [ 15%]
+tests\integration\test_m025_postgres_repository_runtime.py sssssssss     [ 15%]
+tests\integration\test_m026_foundation_runtime_repository_composition.py s [ 15%]
+ssss                                                                     [ 16%]
+tests\integration\test_m030_create_campaign_usecase.py sss               [ 16%]
+tests\integration\test_m031_get_campaign_usecase.py sss                  [ 16%]
+tests\integration\test_m032_prepare_campaign_for_authorization_usecase.py s [ 16%]
+ss                                                                       [ 16%]
+tests\integration\test_m033_create_run_usecase.py sssss                  [ 16%]
+tests\integration\test_m034_get_run_usecase.py ssss                      [ 17%]
+tests\integration\test_m035_authorize_run_usecase.py sssss               [ 17%]
+tests\integration\test_m036_create_evidence_package_usecase.py sssss     [ 17%]
+tests\integration\test_m037_get_evidence_package_usecase.py ssss         [ 18%]
+tests\integration\test_m038_start_evidence_package_collection_usecase.py s [ 18%]
+sss                                                                      [ 18%]
+tests\integration\test_m039_record_evidence_package_criterion_result_usecase.py s [ 18%]
+sssss                                                                    [ 18%]
+tests\integration\test_m040_record_evidence_package_artifact_reference_usecase.py s [ 18%]
+sssss                                                                    [ 19%]
+tests\integration\test_m041_seal_evidence_package_usecase.py sssssss     [ 19%]
+tests\integration\test_m042_create_review_usecase.py sssss               [ 19%]
+tests\integration\test_m043_get_review_usecase.py ssss                   [ 20%]
+tests\integration\test_m044_start_review_usecase.py ssss                 [ 20%]
+tests\integration\test_m045_add_review_finding_usecase.py sssss          [ 20%]
+tests\integration\test_m046_complete_review_usecase.py ssssss            [ 21%]
+tests\integration\test_m047_cancel_campaign_usecase.py sssssss           [ 21%]
+tests\integration\test_m048_fail_run_usecase.py ssssss                   [ 22%]
+tests\integration\test_m049_cancel_review_usecase.py sssssss             [ 22%]
+tests\integration\test_m050_get_campaign_entrypoint.py ssss              [ 22%]
+tests\integration\test_m051_cancel_campaign_entrypoint.py sssss          [ 23%]
+tests\integration\test_m052_create_campaign_entrypoint.py sssss          [ 23%]
+tests\integration\test_m053_evidence_submission_workflow.py ssss         [ 23%]
+tests\integration\test_m054_review_workflow.py sssss                     [ 24%]
+tests\integration\test_m055_run_execution_lifecycle.py sssss             [ 24%]
+tests\integration\test_m056_campaign_lifecycle.py ssss                   [ 24%]
+tests\integration\test_m056_cross_aggregate_workflow.py s                [ 24%]
+tests\integration\test_m057_trading_evaluation_lifecycle.py ssss         [ 24%]
+tests\integration\test_m058_trading_opportunity_scan_lifecycle.py sss    [ 25%]
+tests\integration\test_m059_trade_plan_lifecycle.py sssssss              [ 25%]
+tests\integration\test_m060_position_plan_lifecycle.py ssss              [ 25%]
+tests\integration\test_m061_historical_backtest_lifecycle.py ssss        [ 26%]
+tests\integration\test_minio_object_storage.py ssss                      [ 26%]
+tests\integration\test_postgres_connectivity.py sss                      [ 26%]
+tests\integration\test_unified_infrastructure_runtime.py ss              [ 26%]
+tests\unit\test_add_review_finding_usecase.py ......................     [ 28%]
+tests\unit\test_aggregate_reconstruction.py .......................      [ 29%]
+tests\unit\test_application_boundary_composition.py ...                  [ 29%]
+tests\unit\test_application_boundary_invariants.py ........              [ 30%]
+tests\unit\test_authorize_run_usecase.py .....................           [ 31%]
+tests\unit\test_bootstrap.py ..                                          [ 31%]
+tests\unit\test_campaign_aggregate.py .................................. [ 34%]
+............                                                             [ 34%]
+tests\unit\test_campaign_lifecycle_entrypoints.py ...................... [ 36%]
+...........                                                              [ 36%]
+tests\unit\test_campaign_lifecycle_usecases.py ...............           [ 37%]
+tests\unit\test_cancel_campaign_entrypoint.py ...........                [ 38%]
+tests\unit\test_cancel_campaign_usecase.py .......................       [ 40%]
+tests\unit\test_cancel_review_usecase.py ......................          [ 41%]
+tests\unit\test_clocks.py ....                                           [ 41%]
+tests\unit\test_command_entry_point.py ........                          [ 42%]
+tests\unit\test_command_handler_contract.py ....                         [ 42%]
+tests\unit\test_command_handler_typing.py ......                         [ 43%]
+tests\unit\test_command_query_relationship.py ............               [ 43%]
+tests\unit\test_complete_review_usecase.py ........................      [ 45%]
+tests\unit\test_config.py ...                                            [ 45%]
+tests\unit\test_config_snapshot.py ....                                  [ 45%]
+tests\unit\test_create_campaign_entrypoint.py ...........                [ 46%]
+tests\unit\test_create_campaign_usecase.py ..............                [ 47%]
+tests\unit\test_create_evidence_package_usecase.py ...............       [ 48%]
+tests\unit\test_create_review_usecase.py ................                [ 49%]
+tests\unit\test_create_run_usecase.py ...............                    [ 50%]
+tests\unit\test_criterion_result_primitive.py ..                         [ 50%]
+tests\unit\test_dataset_manifest_primitive.py ..                         [ 50%]
+tests\unit\test_decision_candidate_independent_verification.py ...       [ 50%]
+tests\unit\test_decision_candidate_market_data.py ...................... [ 52%]
+..                                                                       [ 52%]
+tests\unit\test_decision_candidate_position_plan.py ...............      [ 53%]
+tests\unit\test_decision_candidate_position_plan_independent_verification.py . [ 53%]
+...                                                                      [ 53%]
+tests\unit\test_decision_candidate_position_plan_no_future_data_audit.py . [ 53%]
+.                                                                        [ 53%]
+tests\unit\test_decision_candidate_ranking.py ......                     [ 54%]
+tests\unit\test_decision_candidate_scan.py ....................          [ 55%]
+tests\unit\test_decision_candidate_scan_independent_ranking_verification.py . [ 55%]
+..                                                                       [ 55%]
+tests\unit\test_decision_candidate_scan_lookahead_audit.py ...           [ 55%]
+tests\unit\test_decision_candidate_strategy.py ........                  [ 56%]
+tests\unit\test_decision_candidate_trade_plan.py ....................... [ 57%]
+....                                                                     [ 58%]
+tests\unit\test_decision_candidate_trade_plan_independent_verification.py . [ 58%]
+.....                                                                    [ 58%]
+tests\unit\test_decision_candidate_trade_plan_lookahead_audit.py ...     [ 58%]
+tests\unit\test_domain_identity_pairs.py ...                             [ 58%]
+tests\unit\test_domain_lifecycle_primitives.py ....                      [ 59%]
+tests\unit\test_domain_versioning_and_transitions.py ........            [ 59%]
+tests\unit\test_entrypoint_composition.py .......                        [ 60%]
+tests\unit\test_entrypoints.py ....                                      [ 60%]
+tests\unit\test_evidence_package_aggregate.py .................          [ 61%]
+tests\unit\test_evidence_package_entrypoints.py ........................ [ 63%]
+..                                                                       [ 63%]
+tests\unit\test_fail_run_usecase.py .....................                [ 64%]
+tests\unit\test_foundation_errors.py ..                                  [ 64%]
+tests\unit\test_foundation_logging.py ..                                 [ 64%]
+tests\unit\test_get_campaign_entrypoint.py ..........                    [ 65%]
+tests\unit\test_get_campaign_usecase.py ................                 [ 66%]
+tests\unit\test_get_evidence_package_usecase.py ..................       [ 67%]
+tests\unit\test_get_review_usecase.py ..................                 [ 68%]
+tests\unit\test_get_run_usecase.py ..................                    [ 70%]
+tests\unit\test_health_model.py ....                                     [ 70%]
+tests\unit\test_historical_backtest.py ...                               [ 70%]
+tests\unit\test_historical_backtest_entrypoints.py .....                 [ 70%]
+tests\unit\test_historical_backtest_independent_verification.py .        [ 70%]
+tests\unit\test_identifiers.py ..                                        [ 71%]
+tests\unit\test_imports_and_version.py ..                                [ 71%]
+tests\unit\test_infrastructure_runtime.py ...........                    [ 71%]
+tests\unit\test_logging.py ..                                            [ 72%]
+tests\unit\test_m023_concrete_mappers.py ................                [ 73%]
+tests\unit\test_m024_composed_unit_of_work.py ......................     [ 74%]
+tests\unit\test_m025_repository_runtime.py .......................       [ 76%]
+tests\unit\test_m026_bootstrap_repository_runtime.py .................   [ 77%]
+tests\unit\test_object_storage_bootstrap.py ...                          [ 77%]
+tests\unit\test_object_storage_config.py ....                            [ 77%]
+tests\unit\test_object_storage_fake.py ....                              [ 77%]
+tests\unit\test_persistence_bootstrap.py ...                             [ 78%]
+tests\unit\test_persistence_fake.py .....                                [ 78%]
+tests\unit\test_position_plan_entrypoints.py .....                       [ 78%]
+tests\unit\test_postgres_persistence.py ......                           [ 79%]
+tests\unit\test_postgresql_config.py ....                                [ 79%]
+tests\unit\test_prepare_campaign_for_authorization_usecase.py .......... [ 80%]
+.........                                                                [ 80%]
+tests\unit\test_query_entry_point.py .......                             [ 81%]
+tests\unit\test_query_handler_contract.py ....                           [ 81%]
+tests\unit\test_query_handler_typing.py ......                           [ 81%]
+tests\unit\test_record_evidence_package_artifact_reference_usecase.py .. [ 81%]
+....................                                                     [ 83%]
+tests\unit\test_record_evidence_package_criterion_result_usecase.py .... [ 83%]
+...................                                                      [ 84%]
+tests\unit\test_review_aggregate.py ......................               [ 86%]
+tests\unit\test_review_entrypoints.py ............................       [ 87%]
+tests\unit\test_run_aggregate.py ..................................      [ 90%]
+tests\unit\test_run_entrypoints.py ..............                        [ 91%]
+tests\unit\test_run_execution_entrypoints.py ........................... [ 92%]
+.........                                                                [ 93%]
+tests\unit\test_run_execution_usecases.py ..................             [ 94%]
+tests\unit\test_runtime_identifiers.py ...                               [ 94%]
+tests\unit\test_s3_object_storage.py ......                              [ 95%]
+tests\unit\test_seal_evidence_package_usecase.py ....................... [ 96%]
+.                                                                        [ 96%]
+tests\unit\test_secret_scan_targets.py .........                         [ 97%]
+tests\unit\test_start_evidence_package_collection_usecase.py ........... [ 97%]
+..........                                                               [ 98%]
+tests\unit\test_start_review_usecase.py .....................            [100%]
+
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.13.14-final-0 _______________
+
+Name                                                                                                     Stmts   Miss Branch BrPart  Cover   Missing
+----------------------------------------------------------------------------------------------------------------------------------------------------
+src\empirical_platform\campaign\_reconstruction.py                                                          53      4     18      3    87%   43, 118, 162-163
+src\empirical_platform\datasets\manifest.py                                                                 30      1     10      1    95%   27
+src\empirical_platform\decision_candidate\candidate.py                                                      41     11     22     11    65%   55, 57, 59, 61, 63, 65, 67, 69, 71, 73, 75
+src\empirical_platform\decision_candidate\historical_backtest.py                                           441     53    144     53    82%   138, 140, 142, 162, 164, 166, 168, 183, 185, 188, 192, 215, 217, 219, 221, 223, 225, 227, 239, 244, 248, 251, 259, 261, 265, 267, 311, 313, 315, 317, 319, 321, 323, 326, 328, 330, 332, 335, 337, 339, 414, 416, 418, 420, 422, 432, 459, 491, 561, 606, 636, 638, 727
+src\empirical_platform\decision_candidate\market_data.py                                                    78      5     36      5    91%   68, 70, 72, 82, 109
+src\empirical_platform\decision_candidate\position_plan.py                                                 172     33     94     33    75%   67, 69, 71, 73, 157, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 219, 221, 223, 225, 227, 229, 231, 233, 236, 238, 240, 247, 249, 251, 253, 256, 260
+src\empirical_platform\decision_candidate\scan.py                                                           97      8     38      8    88%   120, 122, 124, 126, 130, 132, 134, 136
+src\empirical_platform\decision_candidate\strategy.py                                                       48      2      6      2    93%   65, 67
+src\empirical_platform\decision_candidate\trade_plan.py                                                    131     12     56     12    87%   66, 68, 119, 123, 125, 127, 217, 219, 221, 223, 225, 235
+src\empirical_platform\entrypoints\activate_campaign.py                                                     29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\add_review_finding.py                                                    28      7      4      1    75%   37-51, 80
+src\empirical_platform\entrypoints\append_run_manifest.py                                                   29      7      4      1    76%   41-58, 90
+src\empirical_platform\entrypoints\authorize_run.py                                                         29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\build_position_plan.py                                                   28      7      4      1    75%   39-61, 117
+src\empirical_platform\entrypoints\build_trade_plan.py                                                      28     14      4      1    47%   51-76, 81-82, 115-130, 134
+src\empirical_platform\entrypoints\cancel_campaign.py                                                       35      1      4      1    95%   107
+src\empirical_platform\entrypoints\cancel_review.py                                                         29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\complete_campaign.py                                                     29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\complete_review.py                                                       29      7      4      1    76%   41-57, 90
+src\empirical_platform\entrypoints\complete_run_execution.py                                                29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\create_campaign.py                                                       32      1      4      1    94%   99
+src\empirical_platform\entrypoints\create_evidence_package.py                                               26      7      4      1    73%   38-49, 75
+src\empirical_platform\entrypoints\create_review.py                                                         26      7      4      1    73%   36-48, 75
+src\empirical_platform\entrypoints\create_run.py                                                            26      7      4      1    73%   34-45, 70
+src\empirical_platform\entrypoints\evaluate_trading_observation.py                                          41     23      8      1    39%   47-64, 77-95, 100-101, 124-136, 140
+src\empirical_platform\entrypoints\fail_run.py                                                              29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\get_campaign.py                                                          31      1      4      1    94%   83
+src\empirical_platform\entrypoints\get_decision_candidate.py                                                26     12      4      1    50%   32-41, 46-47, 70-78, 82
+src\empirical_platform\entrypoints\get_evidence_package.py                                                  25      6      4      1    76%   32-39, 66
+src\empirical_platform\entrypoints\get_historical_backtest_run.py                                           23      5      4      1    78%   28-31, 54
+src\empirical_platform\entrypoints\get_position_plan.py                                                     25      5      4      1    79%   28-31, 87
+src\empirical_platform\entrypoints\get_review.py                                                            25      6      4      1    76%   28-35, 61
+src\empirical_platform\entrypoints\get_run.py                                                               25      6      4      1    76%   28-35, 60
+src\empirical_platform\entrypoints\get_trade_plan.py                                                        26     12      4      1    50%   32-39, 44-45, 79-85, 89
+src\empirical_platform\entrypoints\get_trading_opportunity_scan.py                                          25     11      4      1    52%   32-41, 46, 78-86, 90
+src\empirical_platform\entrypoints\health.py                                                                12      1      2      1    86%   24
+src\empirical_platform\entrypoints\prepare_campaign_for_authorization.py                                    29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\record_campaign_authorization.py                                         29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\record_evidence_package_artifact_reference.py                            28      7      4      1    75%   35-49, 77
+src\empirical_platform\entrypoints\record_evidence_package_criterion_result.py                              29      7      4      1    76%   40-58, 90
+src\empirical_platform\entrypoints\resume_campaign.py                                                       29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\revise_campaign_scope_statement.py                                       28      7      4      1    75%   35-47, 75
+src\empirical_platform\entrypoints\run_historical_backtest.py                                               27      7      4      1    74%   48-53, 95
+src\empirical_platform\entrypoints\run_trading_opportunity_scan.py                                          44     25      8      1    38%   46, 70-82, 95-113, 118, 149-161, 165
+src\empirical_platform\entrypoints\seal_evidence_package.py                                                 29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\start_evidence_package_collection.py                                     29      7      4      1    76%   39-56, 88
+src\empirical_platform\entrypoints\start_review.py                                                          29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\start_run_acquisition.py                                                 29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\start_run_normalization.py                                               29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\start_run_validation.py                                                  29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\suspend_campaign.py                                                      29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\version.py                                                                9      1      2      1    82%   21
+src\empirical_platform\evidence\_reconstruction.py                                                          73      7     24      7    86%   46, 161, 167, 177, 191, 200, 207
+src\empirical_platform\review\_reconstruction.py                                                            86     10     32     10    83%   53, 77, 142, 169, 179, 189, 201, 210, 216, 228
+src\empirical_platform\review\mapper.py                                                                     71      2      2      0    97%   209-210
+src\empirical_platform\run\_reconstruction.py                                                               62      3     18      2    91%   45, 166-167
+src\empirical_platform\shared\bootstrap.py                                                                 161      9     30      8    90%   83->exit, 99->102, 102->105, 113-114, 129-130, 262, 468, 471, 483-484
+src\empirical_platform\shared\config\settings.py                                                           109      0      6      1    99%   188->190
+src\empirical_platform\shared\contracts\repository.py                                                       52      8      8      4    80%   35, 37, 49, 51, 114-119, 126-131
+src\empirical_platform\shared\domain\reconstruction.py                                                      66      6     36      7    87%   56, 73, 100, 111, 142, 153->155, 158
+src\empirical_platform\shared\health.py                                                                     56      3     14      1    94%   50, 110-111
+src\empirical_platform\shared\identifiers.py                                                                38      2      4      0    95%   45-46
+src\empirical_platform\shared\interfaces\clock.py                                                           41      3      6      1    91%   41, 62, 66
+src\empirical_platform\shared\logging\configure.py                                                          38      4      4      1    88%   49-50, 70, 81
+src\empirical_platform\shared\object_storage\fake.py                                                       101      2     18      1    97%   85-91
+src\empirical_platform\shared\object_storage\s3.py                                                         194     32     48     13    79%   128, 139, 143-144, 167-169, 179-185, 187-189, 203->205, 229->231, 231->233, 242-243, 258-264, 285-291, 335-336, 362, 419, 428-435
+src\empirical_platform\shared\persistence\fake.py                                                           84      4     24      4    93%   56, 98, 135, 155
+src\empirical_platform\shared\persistence\postgres.py                                                      223     22     52     10    88%   44, 51-53, 79-81, 137, 145->147, 277->280, 307, 318, 320, 328, 346-361, 404-411, 430->432, 441
+src\empirical_platform\shared\persistence\postgres_repositories\_errors.py                                  15     11      6      0    19%   25-35
+src\empirical_platform\shared\persistence\postgres_repositories\campaign_repository.py                      93     67     22      0    23%   51-57, 73-74, 106-160, 164-208, 217-302
+src\empirical_platform\shared\persistence\postgres_repositories\decision_candidate_repository.py            41     19      4      0    49%   41-52, 78-90, 94-134
+src\empirical_platform\shared\persistence\postgres_repositories\evidence_package_repository.py             109     81     30      0    20%   54-60, 76-77, 99, 112, 138-206, 210-275, 287-405
+src\empirical_platform\shared\persistence\postgres_repositories\historical_backtest_repository.py           45     23      6      0    43%   36-37, 71, 156-174, 177-372
+src\empirical_platform\shared\persistence\postgres_repositories\position_plan_repository.py                 41     20      6      0    45%   31-45, 72-84, 87-141
+src\empirical_platform\shared\persistence\postgres_repositories\review_repository.py                       103     75     26      0    22%   52-58, 74-75, 95, 104, 126-190, 194-254, 263-368
+src\empirical_platform\shared\persistence\postgres_repositories\run_repository.py                          103     75     26      0    22%   52-58, 72-73, 95, 109, 134-194, 198-251, 258-356
+src\empirical_platform\shared\persistence\postgres_repositories\runtime.py                                  58      5      2      0    92%   103, 107, 111, 115, 119
+src\empirical_platform\shared\persistence\postgres_repositories\trade_plan_repository.py                    42     20      6      0    46%   44-54, 88-100, 104-158
+src\empirical_platform\shared\persistence\postgres_repositories\trading_opportunity_scan_repository.py      44     21      6      0    46%   57-63, 83-108, 127-174
+src\empirical_platform\usecases\build_position_plan.py                                                      27      6      0      0    78%   51-52, 55-63
+src\empirical_platform\usecases\build_trade_plan.py                                                         30      8      0      0    73%   75-77, 80-92
+src\empirical_platform\usecases\evaluate_trading_observation.py                                             27      5      0      0    81%   60, 65-78
+src\empirical_platform\usecases\get_decision_candidate.py                                                   15      2      0      0    87%   29, 38
+src\empirical_platform\usecases\get_historical_backtest_run.py                                              15      2      0      0    87%   31, 34
+src\empirical_platform\usecases\get_position_plan.py                                                        15      2      0      0    87%   29, 32
+src\empirical_platform\usecases\get_trade_plan.py                                                           15      2      0      0    87%   29, 38
+src\empirical_platform\usecases\get_trading_opportunity_scan.py                                             15      2      0      0    87%   34, 43
+src\empirical_platform\usecases\historical_backtest_io.py                                                  126      1      4      1    98%   143
+src\empirical_platform\usecases\run_historical_backtest.py                                                  32      5      0      0    84%   61, 64-77, 94
+src\empirical_platform\usecases\run_trading_opportunity_scan.py                                             42     13      2      0    66%   105-106, 111-146
+----------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                                                                                                     6723   1030   1224    242    82%
+
+95 files skipped due to complete coverage.
+Required test coverage of 80.0% reached. Total coverage: 81.80%
+===================== 1272 passed, 264 skipped in 21.15s ======================
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\application\bad_entrypoints_import.py: application may not import entrypoints
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\application\bad_persistence_import.py: application may not import empirical_platform.shared.persistence
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\campaign\bad_application_import.py: campaign may not import application
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\campaign\bad_dataset_import.py: campaign may not import datasets
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\campaign\bad_mapper_sqlalchemy_import.py: campaign may not import sqlalchemy
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\campaign\bad_persistence_import.py: campaign may not import empirical_platform.shared.persistence
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\campaign\bad_repository_boto3_import.py: campaign may not import boto3
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\campaign\bad_run_import.py: campaign may not import run
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\campaign\bad_usecases_import.py: campaign may not import usecases
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\datasets\bad_run_import.py: datasets may not import run
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\entrypoints\bad_boto3_import.py: entrypoints may not import boto3
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\entrypoints\bad_psycopg_import.py: entrypoints may not import psycopg
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\entrypoints\bad_sqlalchemy_import.py: entrypoints may not import sqlalchemy
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\evidence\bad_mapper_boto3_import.py: evidence may not import boto3
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\evidence\bad_repository_psycopg_import.py: evidence may not import psycopg
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\evidence\bad_run_import.py: evidence may not import run
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\evidence\bad_usecases_import.py: evidence may not import usecases
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\review\bad_import.py: review may not import acquisition
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\review\bad_mapper_psycopg_import.py: review may not import psycopg
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\review\bad_run_import.py: review may not import run
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\review\bad_sqlalchemy_import.py: review may not import sqlalchemy
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\review\bad_usecases_import.py: review may not import usecases
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\run\bad_campaign_import.py: run may not import campaign
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\run\bad_mapper_persistence_import.py: run may not import empirical_platform.shared.persistence
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\run\bad_repository_campaign_aggregate_import.py: run may not import campaign
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\run\bad_usecases_import.py: run may not import usecases
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\shared\bad_shared_import_audit.py: shared may not import audit
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\usecases\bad_boto3_import.py: usecases may not import boto3
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\usecases\bad_persistence_import.py: usecases may not import empirical_platform.shared.persistence
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\usecases\bad_postgres_runtime_import.py: usecases may not import empirical_platform.shared.persistence.postgres_repositories.runtime
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\usecases\bad_psycopg_import.py: usecases may not import psycopg
+C:\Users\LuxSy\Documents\trading\tests\fixtures\illegal_imports\src\empirical_platform\usecases\bad_sqlalchemy_import.py: usecases may not import sqlalchemy
+No known vulnerabilities found
+Name               Skip Reason
+------------------ ---------------------------------------------------------------------------------
+empirical-platform Dependency not found on PyPI and could not be audited: empirical-platform (0.0.0)
+Secret scan target count: 711
+* Creating isolated environment: venv+pip...
+* Installing packages in isolated environment:
+  - setuptools>=80,<81
+  - wheel>=0.45,<0.46
+* Getting build dependencies for sdist...
+C:\Users\LuxSy\AppData\Local\Temp\build-env-wgoa_5ty\Lib\site-packages\setuptools\config\_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        By 2027-Feb-18, you need to update your project and remove deprecated calls
+        or your builds will no longer be supported.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+running egg_info
+writing src\empirical_platform.egg-info\PKG-INFO
+writing dependency_links to src\empirical_platform.egg-info\dependency_links.txt
+writing entry points to src\empirical_platform.egg-info\entry_points.txt
+writing requirements to src\empirical_platform.egg-info\requires.txt
+writing top-level names to src\empirical_platform.egg-info\top_level.txt
+reading manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+* Installed build dependency versions:
+  - setuptools==80.10.2
+  - wheel==0.45.1
+* Building sdist...
+C:\Users\LuxSy\AppData\Local\Temp\build-env-wgoa_5ty\Lib\site-packages\setuptools\config\_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        By 2027-Feb-18, you need to update your project and remove deprecated calls
+        or your builds will no longer be supported.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+running sdist
+running egg_info
+writing src\empirical_platform.egg-info\PKG-INFO
+writing dependency_links to src\empirical_platform.egg-info\dependency_links.txt
+writing entry points to src\empirical_platform.egg-info\entry_points.txt
+writing requirements to src\empirical_platform.egg-info\requires.txt
+writing top-level names to src\empirical_platform.egg-info\top_level.txt
+reading manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+running check
+creating empirical_platform-0.0.0
+creating empirical_platform-0.0.0\src\empirical_platform
+creating empirical_platform-0.0.0\src\empirical_platform.egg-info
+creating empirical_platform-0.0.0\src\empirical_platform\acquisition
+creating empirical_platform-0.0.0\src\empirical_platform\application
+creating empirical_platform-0.0.0\src\empirical_platform\archive
+creating empirical_platform-0.0.0\src\empirical_platform\audit
+creating empirical_platform-0.0.0\src\empirical_platform\campaign
+creating empirical_platform-0.0.0\src\empirical_platform\datasets
+creating empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+creating empirical_platform-0.0.0\src\empirical_platform\entrypoints
+creating empirical_platform-0.0.0\src\empirical_platform\evidence
+creating empirical_platform-0.0.0\src\empirical_platform\governance
+creating empirical_platform-0.0.0\src\empirical_platform\identifiers
+creating empirical_platform-0.0.0\src\empirical_platform\normalization
+creating empirical_platform-0.0.0\src\empirical_platform\registry
+creating empirical_platform-0.0.0\src\empirical_platform\review
+creating empirical_platform-0.0.0\src\empirical_platform\run
+creating empirical_platform-0.0.0\src\empirical_platform\shared
+creating empirical_platform-0.0.0\src\empirical_platform\shared\config
+creating empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+creating empirical_platform-0.0.0\src\empirical_platform\shared\domain
+creating empirical_platform-0.0.0\src\empirical_platform\shared\errors
+creating empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+creating empirical_platform-0.0.0\src\empirical_platform\shared\logging
+creating empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+creating empirical_platform-0.0.0\src\empirical_platform\shared\observability
+creating empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+creating empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+creating empirical_platform-0.0.0\src\empirical_platform\usecases
+creating empirical_platform-0.0.0\src\empirical_platform\validation
+copying files to empirical_platform-0.0.0...
+copying LICENSE -> empirical_platform-0.0.0
+copying README.md -> empirical_platform-0.0.0
+copying pyproject.toml -> empirical_platform-0.0.0
+copying src\empirical_platform\__init__.py -> empirical_platform-0.0.0\src\empirical_platform
+copying src\empirical_platform\_version.py -> empirical_platform-0.0.0\src\empirical_platform
+copying src\empirical_platform.egg-info\PKG-INFO -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\SOURCES.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\dependency_links.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\entry_points.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\requires.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\top_level.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform\acquisition\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\acquisition
+copying src\empirical_platform\application\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\application
+copying src\empirical_platform\application\command.py -> empirical_platform-0.0.0\src\empirical_platform\application
+copying src\empirical_platform\application\query.py -> empirical_platform-0.0.0\src\empirical_platform\application
+copying src\empirical_platform\archive\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\archive
+copying src\empirical_platform\audit\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\audit
+copying src\empirical_platform\campaign\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\aggregate.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\lifecycle.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\repository.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\datasets\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\datasets
+copying src\empirical_platform\datasets\manifest.py -> empirical_platform-0.0.0\src\empirical_platform\datasets
+copying src\empirical_platform\decision_candidate\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\candidate.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\historical_backtest.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\historical_backtest_repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\market_data.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\position_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\ranking.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\scan.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\scan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\strategy.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\trade_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\entrypoints\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\_composition.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\activate_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\add_review_finding.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\append_run_manifest.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\authorize_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\build_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\build_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\cancel_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\cancel_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_run_execution.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\evaluate_trading_observation.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\fail_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_decision_candidate.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_historical_backtest_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\health.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\prepare_campaign_for_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_campaign_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_evidence_package_artifact_reference.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_evidence_package_criterion_result.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\resume_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\revise_campaign_scope_statement.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\run_historical_backtest.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\run_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\seal_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_evidence_package_collection.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_acquisition.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_normalization.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_validation.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\suspend_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\version.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\evidence\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\lifecycle.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\package.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\repository.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\results.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\governance\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\governance
+copying src\empirical_platform\identifiers\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\identifiers
+copying src\empirical_platform\identifiers\pairs.py -> empirical_platform-0.0.0\src\empirical_platform\identifiers
+copying src\empirical_platform\identifiers\types.py -> empirical_platform-0.0.0\src\empirical_platform\identifiers
+copying src\empirical_platform\normalization\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\normalization
+copying src\empirical_platform\registry\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\registry
+copying src\empirical_platform\review\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\aggregate.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\lifecycle.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\repository.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\run\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\aggregate.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\repository.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\shared\bootstrap.py -> empirical_platform-0.0.0\src\empirical_platform\shared
+copying src\empirical_platform\shared\health.py -> empirical_platform-0.0.0\src\empirical_platform\shared
+copying src\empirical_platform\shared\identifiers.py -> empirical_platform-0.0.0\src\empirical_platform\shared
+copying src\empirical_platform\shared\config\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\config
+copying src\empirical_platform\shared\config\redaction.py -> empirical_platform-0.0.0\src\empirical_platform\shared\config
+copying src\empirical_platform\shared\config\settings.py -> empirical_platform-0.0.0\src\empirical_platform\shared\config
+copying src\empirical_platform\shared\contracts\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\command.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\mapping.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\query.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\domain\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\transitions.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\versioning.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\errors\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\errors
+copying src\empirical_platform\shared\errors\foundation.py -> empirical_platform-0.0.0\src\empirical_platform\shared\errors
+copying src\empirical_platform\shared\interfaces\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\clock.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\object_storage.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\orchestration.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\persistence.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\logging\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\logging
+copying src\empirical_platform\shared\logging\configure.py -> empirical_platform-0.0.0\src\empirical_platform\shared\logging
+copying src\empirical_platform\shared\logging\context.py -> empirical_platform-0.0.0\src\empirical_platform\shared\logging
+copying src\empirical_platform\shared\object_storage\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\object_storage\fake.py -> empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\object_storage\s3.py -> empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\observability\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\observability
+copying src\empirical_platform\shared\persistence\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\fake.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\postgres.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\postgres_repositories\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\_errors.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\campaign_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\decision_candidate_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\evidence_package_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\historical_backtest_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\position_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\review_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\run_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\runtime.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\trade_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\trading_opportunity_scan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\usecases\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\activate_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\add_review_finding.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\append_run_manifest.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\authorize_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\build_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\build_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\cancel_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\cancel_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_run_execution.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\evaluate_trading_observation.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\fail_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_decision_candidate.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_historical_backtest_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\historical_backtest_io.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\prepare_campaign_for_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_campaign_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_evidence_package_artifact_reference.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_evidence_package_criterion_result.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\resume_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\revise_campaign_scope_statement.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\run_historical_backtest.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\run_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\seal_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_evidence_package_collection.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_acquisition.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_normalization.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_validation.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\suspend_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\validation\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\validation
+copying src\empirical_platform.egg-info\SOURCES.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+Writing empirical_platform-0.0.0\setup.cfg
+Creating tar archive
+removing 'empirical_platform-0.0.0' (and everything under it)
+* Building wheel from sdist
+* Creating isolated environment: venv+pip...
+* Installing packages in isolated environment:
+  - setuptools>=80,<81
+  - wheel>=0.45,<0.46
+* Getting build dependencies for wheel...
+C:\Users\LuxSy\AppData\Local\Temp\build-env-p6owvpbz\Lib\site-packages\setuptools\config\_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        By 2027-Feb-18, you need to update your project and remove deprecated calls
+        or your builds will no longer be supported.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+running egg_info
+writing src\empirical_platform.egg-info\PKG-INFO
+writing dependency_links to src\empirical_platform.egg-info\dependency_links.txt
+writing entry points to src\empirical_platform.egg-info\entry_points.txt
+writing requirements to src\empirical_platform.egg-info\requires.txt
+writing top-level names to src\empirical_platform.egg-info\top_level.txt
+reading manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+* Installed build dependency versions:
+  - setuptools==80.10.2
+  - wheel==0.45.1
+* Building wheel...
+C:\Users\LuxSy\AppData\Local\Temp\build-env-p6owvpbz\Lib\site-packages\setuptools\config\_apply_pyprojecttoml.py:82: SetuptoolsDeprecationWarning: `project.license` as a TOML table is deprecated
+!!
+
+        ********************************************************************************
+        Please use a simple string containing a SPDX expression for `project.license`. You can also use `project.license-files`. (Both options available on setuptools>=77.0.0).
+
+        By 2027-Feb-18, you need to update your project and remove deprecated calls
+        or your builds will no longer be supported.
+
+        See https://packaging.python.org/en/latest/guides/writing-pyproject-toml/#license for details.
+        ********************************************************************************
+
+!!
+  corresp(dist, value, root_dir)
+running bdist_wheel
+running build
+running build_py
+creating build\lib\empirical_platform
+copying src\empirical_platform\_version.py -> build\lib\empirical_platform
+copying src\empirical_platform\__init__.py -> build\lib\empirical_platform
+creating build\lib\empirical_platform\acquisition
+copying src\empirical_platform\acquisition\__init__.py -> build\lib\empirical_platform\acquisition
+creating build\lib\empirical_platform\application
+copying src\empirical_platform\application\command.py -> build\lib\empirical_platform\application
+copying src\empirical_platform\application\query.py -> build\lib\empirical_platform\application
+copying src\empirical_platform\application\__init__.py -> build\lib\empirical_platform\application
+creating build\lib\empirical_platform\archive
+copying src\empirical_platform\archive\__init__.py -> build\lib\empirical_platform\archive
+creating build\lib\empirical_platform\audit
+copying src\empirical_platform\audit\__init__.py -> build\lib\empirical_platform\audit
+creating build\lib\empirical_platform\campaign
+copying src\empirical_platform\campaign\aggregate.py -> build\lib\empirical_platform\campaign
+copying src\empirical_platform\campaign\lifecycle.py -> build\lib\empirical_platform\campaign
+copying src\empirical_platform\campaign\mapper.py -> build\lib\empirical_platform\campaign
+copying src\empirical_platform\campaign\repository.py -> build\lib\empirical_platform\campaign
+copying src\empirical_platform\campaign\_reconstruction.py -> build\lib\empirical_platform\campaign
+copying src\empirical_platform\campaign\__init__.py -> build\lib\empirical_platform\campaign
+creating build\lib\empirical_platform\datasets
+copying src\empirical_platform\datasets\manifest.py -> build\lib\empirical_platform\datasets
+copying src\empirical_platform\datasets\__init__.py -> build\lib\empirical_platform\datasets
+creating build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\candidate.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\historical_backtest.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\historical_backtest_repository.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\market_data.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\position_plan.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\position_plan_repository.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\ranking.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\repository.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\scan.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\scan_repository.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\strategy.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\trade_plan.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\trade_plan_repository.py -> build\lib\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\__init__.py -> build\lib\empirical_platform\decision_candidate
+creating build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\activate_campaign.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\add_review_finding.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\append_run_manifest.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\authorize_run.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\build_position_plan.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\build_trade_plan.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\cancel_campaign.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\cancel_review.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_campaign.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_review.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_run_execution.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_campaign.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_evidence_package.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_review.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_run.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\evaluate_trading_observation.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\fail_run.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_campaign.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_decision_candidate.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_evidence_package.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_historical_backtest_run.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_position_plan.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_review.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_run.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_trade_plan.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_trading_opportunity_scan.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\health.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\prepare_campaign_for_authorization.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_campaign_authorization.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_evidence_package_artifact_reference.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_evidence_package_criterion_result.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\resume_campaign.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\revise_campaign_scope_statement.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\run_historical_backtest.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\run_trading_opportunity_scan.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\seal_evidence_package.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_evidence_package_collection.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_review.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_acquisition.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_normalization.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_validation.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\suspend_campaign.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\version.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\_composition.py -> build\lib\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\__init__.py -> build\lib\empirical_platform\entrypoints
+creating build\lib\empirical_platform\evidence
+copying src\empirical_platform\evidence\lifecycle.py -> build\lib\empirical_platform\evidence
+copying src\empirical_platform\evidence\mapper.py -> build\lib\empirical_platform\evidence
+copying src\empirical_platform\evidence\package.py -> build\lib\empirical_platform\evidence
+copying src\empirical_platform\evidence\repository.py -> build\lib\empirical_platform\evidence
+copying src\empirical_platform\evidence\results.py -> build\lib\empirical_platform\evidence
+copying src\empirical_platform\evidence\_reconstruction.py -> build\lib\empirical_platform\evidence
+copying src\empirical_platform\evidence\__init__.py -> build\lib\empirical_platform\evidence
+creating build\lib\empirical_platform\governance
+copying src\empirical_platform\governance\__init__.py -> build\lib\empirical_platform\governance
+creating build\lib\empirical_platform\identifiers
+copying src\empirical_platform\identifiers\pairs.py -> build\lib\empirical_platform\identifiers
+copying src\empirical_platform\identifiers\types.py -> build\lib\empirical_platform\identifiers
+copying src\empirical_platform\identifiers\__init__.py -> build\lib\empirical_platform\identifiers
+creating build\lib\empirical_platform\normalization
+copying src\empirical_platform\normalization\__init__.py -> build\lib\empirical_platform\normalization
+creating build\lib\empirical_platform\registry
+copying src\empirical_platform\registry\__init__.py -> build\lib\empirical_platform\registry
+creating build\lib\empirical_platform\review
+copying src\empirical_platform\review\aggregate.py -> build\lib\empirical_platform\review
+copying src\empirical_platform\review\lifecycle.py -> build\lib\empirical_platform\review
+copying src\empirical_platform\review\mapper.py -> build\lib\empirical_platform\review
+copying src\empirical_platform\review\repository.py -> build\lib\empirical_platform\review
+copying src\empirical_platform\review\_reconstruction.py -> build\lib\empirical_platform\review
+copying src\empirical_platform\review\__init__.py -> build\lib\empirical_platform\review
+creating build\lib\empirical_platform\run
+copying src\empirical_platform\run\aggregate.py -> build\lib\empirical_platform\run
+copying src\empirical_platform\run\mapper.py -> build\lib\empirical_platform\run
+copying src\empirical_platform\run\repository.py -> build\lib\empirical_platform\run
+copying src\empirical_platform\run\_reconstruction.py -> build\lib\empirical_platform\run
+copying src\empirical_platform\run\__init__.py -> build\lib\empirical_platform\run
+creating build\lib\empirical_platform\shared
+copying src\empirical_platform\shared\bootstrap.py -> build\lib\empirical_platform\shared
+copying src\empirical_platform\shared\health.py -> build\lib\empirical_platform\shared
+copying src\empirical_platform\shared\identifiers.py -> build\lib\empirical_platform\shared
+creating build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\activate_campaign.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\add_review_finding.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\append_run_manifest.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\authorize_run.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\build_position_plan.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\build_trade_plan.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\cancel_campaign.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\cancel_review.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_campaign.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_review.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_run_execution.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_campaign.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_evidence_package.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_review.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_run.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\evaluate_trading_observation.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\fail_run.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_campaign.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_decision_candidate.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_evidence_package.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_historical_backtest_run.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_position_plan.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_review.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_run.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_trade_plan.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_trading_opportunity_scan.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\historical_backtest_io.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\prepare_campaign_for_authorization.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_campaign_authorization.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_evidence_package_artifact_reference.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_evidence_package_criterion_result.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\resume_campaign.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\revise_campaign_scope_statement.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\run_historical_backtest.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\run_trading_opportunity_scan.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\seal_evidence_package.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_evidence_package_collection.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_review.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_acquisition.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_normalization.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_validation.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\suspend_campaign.py -> build\lib\empirical_platform\usecases
+copying src\empirical_platform\usecases\__init__.py -> build\lib\empirical_platform\usecases
+creating build\lib\empirical_platform\validation
+copying src\empirical_platform\validation\__init__.py -> build\lib\empirical_platform\validation
+creating build\lib\empirical_platform\shared\config
+copying src\empirical_platform\shared\config\redaction.py -> build\lib\empirical_platform\shared\config
+copying src\empirical_platform\shared\config\settings.py -> build\lib\empirical_platform\shared\config
+copying src\empirical_platform\shared\config\__init__.py -> build\lib\empirical_platform\shared\config
+creating build\lib\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\command.py -> build\lib\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\mapping.py -> build\lib\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\query.py -> build\lib\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\repository.py -> build\lib\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\__init__.py -> build\lib\empirical_platform\shared\contracts
+creating build\lib\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\reconstruction.py -> build\lib\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\transitions.py -> build\lib\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\versioning.py -> build\lib\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\__init__.py -> build\lib\empirical_platform\shared\domain
+creating build\lib\empirical_platform\shared\errors
+copying src\empirical_platform\shared\errors\foundation.py -> build\lib\empirical_platform\shared\errors
+copying src\empirical_platform\shared\errors\__init__.py -> build\lib\empirical_platform\shared\errors
+creating build\lib\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\clock.py -> build\lib\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\object_storage.py -> build\lib\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\orchestration.py -> build\lib\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\persistence.py -> build\lib\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\__init__.py -> build\lib\empirical_platform\shared\interfaces
+creating build\lib\empirical_platform\shared\logging
+copying src\empirical_platform\shared\logging\configure.py -> build\lib\empirical_platform\shared\logging
+copying src\empirical_platform\shared\logging\context.py -> build\lib\empirical_platform\shared\logging
+copying src\empirical_platform\shared\logging\__init__.py -> build\lib\empirical_platform\shared\logging
+creating build\lib\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\object_storage\fake.py -> build\lib\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\object_storage\s3.py -> build\lib\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\object_storage\__init__.py -> build\lib\empirical_platform\shared\object_storage
+creating build\lib\empirical_platform\shared\observability
+copying src\empirical_platform\shared\observability\__init__.py -> build\lib\empirical_platform\shared\observability
+creating build\lib\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\fake.py -> build\lib\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\postgres.py -> build\lib\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\__init__.py -> build\lib\empirical_platform\shared\persistence
+creating build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\campaign_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\decision_candidate_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\evidence_package_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\historical_backtest_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\position_plan_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\review_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\runtime.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\run_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\trade_plan_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\trading_opportunity_scan_repository.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\_errors.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\__init__.py -> build\lib\empirical_platform\shared\persistence\postgres_repositories
+running egg_info
+writing src\empirical_platform.egg-info\PKG-INFO
+writing dependency_links to src\empirical_platform.egg-info\dependency_links.txt
+writing entry points to src\empirical_platform.egg-info\entry_points.txt
+writing requirements to src\empirical_platform.egg-info\requires.txt
+writing top-level names to src\empirical_platform.egg-info\top_level.txt
+reading manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+adding license file 'LICENSE'
+writing manifest file 'src\empirical_platform.egg-info\SOURCES.txt'
+installing to build\bdist.win-amd64\wheel
+running install
+running install_lib
+creating build\bdist.win-amd64\wheel
+creating build\bdist.win-amd64\wheel\empirical_platform
+creating build\bdist.win-amd64\wheel\empirical_platform\acquisition
+copying build\lib\empirical_platform\acquisition\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\acquisition
+creating build\bdist.win-amd64\wheel\empirical_platform\application
+copying build\lib\empirical_platform\application\command.py -> build\bdist.win-amd64\wheel\.\empirical_platform\application
+copying build\lib\empirical_platform\application\query.py -> build\bdist.win-amd64\wheel\.\empirical_platform\application
+copying build\lib\empirical_platform\application\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\application
+creating build\bdist.win-amd64\wheel\empirical_platform\archive
+copying build\lib\empirical_platform\archive\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\archive
+creating build\bdist.win-amd64\wheel\empirical_platform\audit
+copying build\lib\empirical_platform\audit\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\audit
+creating build\bdist.win-amd64\wheel\empirical_platform\campaign
+copying build\lib\empirical_platform\campaign\aggregate.py -> build\bdist.win-amd64\wheel\.\empirical_platform\campaign
+copying build\lib\empirical_platform\campaign\lifecycle.py -> build\bdist.win-amd64\wheel\.\empirical_platform\campaign
+copying build\lib\empirical_platform\campaign\mapper.py -> build\bdist.win-amd64\wheel\.\empirical_platform\campaign
+copying build\lib\empirical_platform\campaign\repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\campaign
+copying build\lib\empirical_platform\campaign\_reconstruction.py -> build\bdist.win-amd64\wheel\.\empirical_platform\campaign
+copying build\lib\empirical_platform\campaign\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\campaign
+creating build\bdist.win-amd64\wheel\empirical_platform\datasets
+copying build\lib\empirical_platform\datasets\manifest.py -> build\bdist.win-amd64\wheel\.\empirical_platform\datasets
+copying build\lib\empirical_platform\datasets\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\datasets
+creating build\bdist.win-amd64\wheel\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\candidate.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\historical_backtest.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\historical_backtest_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\market_data.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\position_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\position_plan_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\ranking.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\scan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\scan_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\strategy.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\trade_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\trade_plan_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+copying build\lib\empirical_platform\decision_candidate\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\decision_candidate
+creating build\bdist.win-amd64\wheel\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\activate_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\add_review_finding.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\append_run_manifest.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\authorize_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\build_position_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\build_trade_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\cancel_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\cancel_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\complete_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\complete_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\complete_run_execution.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\create_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\create_evidence_package.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\create_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\create_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\evaluate_trading_observation.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\fail_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_decision_candidate.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_evidence_package.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_historical_backtest_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_position_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_trade_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\get_trading_opportunity_scan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\health.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\prepare_campaign_for_authorization.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\record_campaign_authorization.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\record_evidence_package_artifact_reference.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\record_evidence_package_criterion_result.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\resume_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\revise_campaign_scope_statement.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\run_historical_backtest.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\run_trading_opportunity_scan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\seal_evidence_package.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\start_evidence_package_collection.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\start_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\start_run_acquisition.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\start_run_normalization.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\start_run_validation.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\suspend_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\version.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\_composition.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+copying build\lib\empirical_platform\entrypoints\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\entrypoints
+creating build\bdist.win-amd64\wheel\empirical_platform\evidence
+copying build\lib\empirical_platform\evidence\lifecycle.py -> build\bdist.win-amd64\wheel\.\empirical_platform\evidence
+copying build\lib\empirical_platform\evidence\mapper.py -> build\bdist.win-amd64\wheel\.\empirical_platform\evidence
+copying build\lib\empirical_platform\evidence\package.py -> build\bdist.win-amd64\wheel\.\empirical_platform\evidence
+copying build\lib\empirical_platform\evidence\repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\evidence
+copying build\lib\empirical_platform\evidence\results.py -> build\bdist.win-amd64\wheel\.\empirical_platform\evidence
+copying build\lib\empirical_platform\evidence\_reconstruction.py -> build\bdist.win-amd64\wheel\.\empirical_platform\evidence
+copying build\lib\empirical_platform\evidence\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\evidence
+creating build\bdist.win-amd64\wheel\empirical_platform\governance
+copying build\lib\empirical_platform\governance\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\governance
+creating build\bdist.win-amd64\wheel\empirical_platform\identifiers
+copying build\lib\empirical_platform\identifiers\pairs.py -> build\bdist.win-amd64\wheel\.\empirical_platform\identifiers
+copying build\lib\empirical_platform\identifiers\types.py -> build\bdist.win-amd64\wheel\.\empirical_platform\identifiers
+copying build\lib\empirical_platform\identifiers\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\identifiers
+creating build\bdist.win-amd64\wheel\empirical_platform\normalization
+copying build\lib\empirical_platform\normalization\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\normalization
+creating build\bdist.win-amd64\wheel\empirical_platform\registry
+copying build\lib\empirical_platform\registry\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\registry
+creating build\bdist.win-amd64\wheel\empirical_platform\review
+copying build\lib\empirical_platform\review\aggregate.py -> build\bdist.win-amd64\wheel\.\empirical_platform\review
+copying build\lib\empirical_platform\review\lifecycle.py -> build\bdist.win-amd64\wheel\.\empirical_platform\review
+copying build\lib\empirical_platform\review\mapper.py -> build\bdist.win-amd64\wheel\.\empirical_platform\review
+copying build\lib\empirical_platform\review\repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\review
+copying build\lib\empirical_platform\review\_reconstruction.py -> build\bdist.win-amd64\wheel\.\empirical_platform\review
+copying build\lib\empirical_platform\review\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\review
+creating build\bdist.win-amd64\wheel\empirical_platform\run
+copying build\lib\empirical_platform\run\aggregate.py -> build\bdist.win-amd64\wheel\.\empirical_platform\run
+copying build\lib\empirical_platform\run\mapper.py -> build\bdist.win-amd64\wheel\.\empirical_platform\run
+copying build\lib\empirical_platform\run\repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\run
+copying build\lib\empirical_platform\run\_reconstruction.py -> build\bdist.win-amd64\wheel\.\empirical_platform\run
+copying build\lib\empirical_platform\run\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\run
+creating build\bdist.win-amd64\wheel\empirical_platform\shared
+copying build\lib\empirical_platform\shared\bootstrap.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\config
+copying build\lib\empirical_platform\shared\config\redaction.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\config
+copying build\lib\empirical_platform\shared\config\settings.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\config
+copying build\lib\empirical_platform\shared\config\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\config
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\contracts
+copying build\lib\empirical_platform\shared\contracts\command.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\contracts
+copying build\lib\empirical_platform\shared\contracts\mapping.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\contracts
+copying build\lib\empirical_platform\shared\contracts\query.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\contracts
+copying build\lib\empirical_platform\shared\contracts\repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\contracts
+copying build\lib\empirical_platform\shared\contracts\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\contracts
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\domain
+copying build\lib\empirical_platform\shared\domain\reconstruction.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\domain
+copying build\lib\empirical_platform\shared\domain\transitions.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\domain
+copying build\lib\empirical_platform\shared\domain\versioning.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\domain
+copying build\lib\empirical_platform\shared\domain\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\domain
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\errors
+copying build\lib\empirical_platform\shared\errors\foundation.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\errors
+copying build\lib\empirical_platform\shared\errors\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\errors
+copying build\lib\empirical_platform\shared\health.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared
+copying build\lib\empirical_platform\shared\identifiers.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\interfaces
+copying build\lib\empirical_platform\shared\interfaces\clock.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\interfaces
+copying build\lib\empirical_platform\shared\interfaces\object_storage.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\interfaces
+copying build\lib\empirical_platform\shared\interfaces\orchestration.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\interfaces
+copying build\lib\empirical_platform\shared\interfaces\persistence.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\interfaces
+copying build\lib\empirical_platform\shared\interfaces\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\interfaces
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\logging
+copying build\lib\empirical_platform\shared\logging\configure.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\logging
+copying build\lib\empirical_platform\shared\logging\context.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\logging
+copying build\lib\empirical_platform\shared\logging\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\logging
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\object_storage
+copying build\lib\empirical_platform\shared\object_storage\fake.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\object_storage
+copying build\lib\empirical_platform\shared\object_storage\s3.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\object_storage
+copying build\lib\empirical_platform\shared\object_storage\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\object_storage
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\observability
+copying build\lib\empirical_platform\shared\observability\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\observability
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\persistence
+copying build\lib\empirical_platform\shared\persistence\fake.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence
+copying build\lib\empirical_platform\shared\persistence\postgres.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence
+creating build\bdist.win-amd64\wheel\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\campaign_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\decision_candidate_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\evidence_package_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\historical_backtest_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\position_plan_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\review_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\runtime.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\run_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\trade_plan_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\trading_opportunity_scan_repository.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\_errors.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\postgres_repositories\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence\postgres_repositories
+copying build\lib\empirical_platform\shared\persistence\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\shared\persistence
+creating build\bdist.win-amd64\wheel\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\activate_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\add_review_finding.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\append_run_manifest.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\authorize_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\build_position_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\build_trade_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\cancel_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\cancel_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\complete_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\complete_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\complete_run_execution.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\create_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\create_evidence_package.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\create_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\create_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\evaluate_trading_observation.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\fail_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_decision_candidate.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_evidence_package.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_historical_backtest_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_position_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_run.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_trade_plan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\get_trading_opportunity_scan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\historical_backtest_io.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\prepare_campaign_for_authorization.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\record_campaign_authorization.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\record_evidence_package_artifact_reference.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\record_evidence_package_criterion_result.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\resume_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\revise_campaign_scope_statement.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\run_historical_backtest.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\run_trading_opportunity_scan.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\seal_evidence_package.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\start_evidence_package_collection.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\start_review.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\start_run_acquisition.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\start_run_normalization.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\start_run_validation.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\suspend_campaign.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+copying build\lib\empirical_platform\usecases\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\usecases
+creating build\bdist.win-amd64\wheel\empirical_platform\validation
+copying build\lib\empirical_platform\validation\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform\validation
+copying build\lib\empirical_platform\_version.py -> build\bdist.win-amd64\wheel\.\empirical_platform
+copying build\lib\empirical_platform\__init__.py -> build\bdist.win-amd64\wheel\.\empirical_platform
+running install_egg_info
+Copying src\empirical_platform.egg-info to build\bdist.win-amd64\wheel\.\empirical_platform-0.0.0-py3.13.egg-info
+running install_scripts
+creating build\bdist.win-amd64\wheel\empirical_platform-0.0.0.dist-info\WHEEL
+creating 'C:\Users\LuxSy\Documents\trading\dist\.tmp-gv9n29m8\empirical_platform-0.0.0-py3-none-any.whl' and adding 'build\bdist.win-amd64\wheel' to it
+adding 'empirical_platform/__init__.py'
+adding 'empirical_platform/_version.py'
+adding 'empirical_platform/acquisition/__init__.py'
+adding 'empirical_platform/application/__init__.py'
+adding 'empirical_platform/application/command.py'
+adding 'empirical_platform/application/query.py'
+adding 'empirical_platform/archive/__init__.py'
+adding 'empirical_platform/audit/__init__.py'
+adding 'empirical_platform/campaign/__init__.py'
+adding 'empirical_platform/campaign/_reconstruction.py'
+adding 'empirical_platform/campaign/aggregate.py'
+adding 'empirical_platform/campaign/lifecycle.py'
+adding 'empirical_platform/campaign/mapper.py'
+adding 'empirical_platform/campaign/repository.py'
+adding 'empirical_platform/datasets/__init__.py'
+adding 'empirical_platform/datasets/manifest.py'
+adding 'empirical_platform/decision_candidate/__init__.py'
+adding 'empirical_platform/decision_candidate/candidate.py'
+adding 'empirical_platform/decision_candidate/historical_backtest.py'
+adding 'empirical_platform/decision_candidate/historical_backtest_repository.py'
+adding 'empirical_platform/decision_candidate/market_data.py'
+adding 'empirical_platform/decision_candidate/position_plan.py'
+adding 'empirical_platform/decision_candidate/position_plan_repository.py'
+adding 'empirical_platform/decision_candidate/ranking.py'
+adding 'empirical_platform/decision_candidate/repository.py'
+adding 'empirical_platform/decision_candidate/scan.py'
+adding 'empirical_platform/decision_candidate/scan_repository.py'
+adding 'empirical_platform/decision_candidate/strategy.py'
+adding 'empirical_platform/decision_candidate/trade_plan.py'
+adding 'empirical_platform/decision_candidate/trade_plan_repository.py'
+adding 'empirical_platform/entrypoints/__init__.py'
+adding 'empirical_platform/entrypoints/_composition.py'
+adding 'empirical_platform/entrypoints/activate_campaign.py'
+adding 'empirical_platform/entrypoints/add_review_finding.py'
+adding 'empirical_platform/entrypoints/append_run_manifest.py'
+adding 'empirical_platform/entrypoints/authorize_run.py'
+adding 'empirical_platform/entrypoints/build_position_plan.py'
+adding 'empirical_platform/entrypoints/build_trade_plan.py'
+adding 'empirical_platform/entrypoints/cancel_campaign.py'
+adding 'empirical_platform/entrypoints/cancel_review.py'
+adding 'empirical_platform/entrypoints/complete_campaign.py'
+adding 'empirical_platform/entrypoints/complete_review.py'
+adding 'empirical_platform/entrypoints/complete_run_execution.py'
+adding 'empirical_platform/entrypoints/create_campaign.py'
+adding 'empirical_platform/entrypoints/create_evidence_package.py'
+adding 'empirical_platform/entrypoints/create_review.py'
+adding 'empirical_platform/entrypoints/create_run.py'
+adding 'empirical_platform/entrypoints/evaluate_trading_observation.py'
+adding 'empirical_platform/entrypoints/fail_run.py'
+adding 'empirical_platform/entrypoints/get_campaign.py'
+adding 'empirical_platform/entrypoints/get_decision_candidate.py'
+adding 'empirical_platform/entrypoints/get_evidence_package.py'
+adding 'empirical_platform/entrypoints/get_historical_backtest_run.py'
+adding 'empirical_platform/entrypoints/get_position_plan.py'
+adding 'empirical_platform/entrypoints/get_review.py'
+adding 'empirical_platform/entrypoints/get_run.py'
+adding 'empirical_platform/entrypoints/get_trade_plan.py'
+adding 'empirical_platform/entrypoints/get_trading_opportunity_scan.py'
+adding 'empirical_platform/entrypoints/health.py'
+adding 'empirical_platform/entrypoints/prepare_campaign_for_authorization.py'
+adding 'empirical_platform/entrypoints/record_campaign_authorization.py'
+adding 'empirical_platform/entrypoints/record_evidence_package_artifact_reference.py'
+adding 'empirical_platform/entrypoints/record_evidence_package_criterion_result.py'
+adding 'empirical_platform/entrypoints/resume_campaign.py'
+adding 'empirical_platform/entrypoints/revise_campaign_scope_statement.py'
+adding 'empirical_platform/entrypoints/run_historical_backtest.py'
+adding 'empirical_platform/entrypoints/run_trading_opportunity_scan.py'
+adding 'empirical_platform/entrypoints/seal_evidence_package.py'
+adding 'empirical_platform/entrypoints/start_evidence_package_collection.py'
+adding 'empirical_platform/entrypoints/start_review.py'
+adding 'empirical_platform/entrypoints/start_run_acquisition.py'
+adding 'empirical_platform/entrypoints/start_run_normalization.py'
+adding 'empirical_platform/entrypoints/start_run_validation.py'
+adding 'empirical_platform/entrypoints/suspend_campaign.py'
+adding 'empirical_platform/entrypoints/version.py'
+adding 'empirical_platform/evidence/__init__.py'
+adding 'empirical_platform/evidence/_reconstruction.py'
+adding 'empirical_platform/evidence/lifecycle.py'
+adding 'empirical_platform/evidence/mapper.py'
+adding 'empirical_platform/evidence/package.py'
+adding 'empirical_platform/evidence/repository.py'
+adding 'empirical_platform/evidence/results.py'
+adding 'empirical_platform/governance/__init__.py'
+adding 'empirical_platform/identifiers/__init__.py'
+adding 'empirical_platform/identifiers/pairs.py'
+adding 'empirical_platform/identifiers/types.py'
+adding 'empirical_platform/normalization/__init__.py'
+adding 'empirical_platform/registry/__init__.py'
+adding 'empirical_platform/review/__init__.py'
+adding 'empirical_platform/review/_reconstruction.py'
+adding 'empirical_platform/review/aggregate.py'
+adding 'empirical_platform/review/lifecycle.py'
+adding 'empirical_platform/review/mapper.py'
+adding 'empirical_platform/review/repository.py'
+adding 'empirical_platform/run/__init__.py'
+adding 'empirical_platform/run/_reconstruction.py'
+adding 'empirical_platform/run/aggregate.py'
+adding 'empirical_platform/run/mapper.py'
+adding 'empirical_platform/run/repository.py'
+adding 'empirical_platform/shared/bootstrap.py'
+adding 'empirical_platform/shared/health.py'
+adding 'empirical_platform/shared/identifiers.py'
+adding 'empirical_platform/shared/config/__init__.py'
+adding 'empirical_platform/shared/config/redaction.py'
+adding 'empirical_platform/shared/config/settings.py'
+adding 'empirical_platform/shared/contracts/__init__.py'
+adding 'empirical_platform/shared/contracts/command.py'
+adding 'empirical_platform/shared/contracts/mapping.py'
+adding 'empirical_platform/shared/contracts/query.py'
+adding 'empirical_platform/shared/contracts/repository.py'
+adding 'empirical_platform/shared/domain/__init__.py'
+adding 'empirical_platform/shared/domain/reconstruction.py'
+adding 'empirical_platform/shared/domain/transitions.py'
+adding 'empirical_platform/shared/domain/versioning.py'
+adding 'empirical_platform/shared/errors/__init__.py'
+adding 'empirical_platform/shared/errors/foundation.py'
+adding 'empirical_platform/shared/interfaces/__init__.py'
+adding 'empirical_platform/shared/interfaces/clock.py'
+adding 'empirical_platform/shared/interfaces/object_storage.py'
+adding 'empirical_platform/shared/interfaces/orchestration.py'
+adding 'empirical_platform/shared/interfaces/persistence.py'
+adding 'empirical_platform/shared/logging/__init__.py'
+adding 'empirical_platform/shared/logging/configure.py'
+adding 'empirical_platform/shared/logging/context.py'
+adding 'empirical_platform/shared/object_storage/__init__.py'
+adding 'empirical_platform/shared/object_storage/fake.py'
+adding 'empirical_platform/shared/object_storage/s3.py'
+adding 'empirical_platform/shared/observability/__init__.py'
+adding 'empirical_platform/shared/persistence/__init__.py'
+adding 'empirical_platform/shared/persistence/fake.py'
+adding 'empirical_platform/shared/persistence/postgres.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/__init__.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/_errors.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/campaign_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/decision_candidate_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/evidence_package_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/historical_backtest_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/position_plan_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/review_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/run_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/runtime.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/trade_plan_repository.py'
+adding 'empirical_platform/shared/persistence/postgres_repositories/trading_opportunity_scan_repository.py'
+adding 'empirical_platform/usecases/__init__.py'
+adding 'empirical_platform/usecases/activate_campaign.py'
+adding 'empirical_platform/usecases/add_review_finding.py'
+adding 'empirical_platform/usecases/append_run_manifest.py'
+adding 'empirical_platform/usecases/authorize_run.py'
+adding 'empirical_platform/usecases/build_position_plan.py'
+adding 'empirical_platform/usecases/build_trade_plan.py'
+adding 'empirical_platform/usecases/cancel_campaign.py'
+adding 'empirical_platform/usecases/cancel_review.py'
+adding 'empirical_platform/usecases/complete_campaign.py'
+adding 'empirical_platform/usecases/complete_review.py'
+adding 'empirical_platform/usecases/complete_run_execution.py'
+adding 'empirical_platform/usecases/create_campaign.py'
+adding 'empirical_platform/usecases/create_evidence_package.py'
+adding 'empirical_platform/usecases/create_review.py'
+adding 'empirical_platform/usecases/create_run.py'
+adding 'empirical_platform/usecases/evaluate_trading_observation.py'
+adding 'empirical_platform/usecases/fail_run.py'
+adding 'empirical_platform/usecases/get_campaign.py'
+adding 'empirical_platform/usecases/get_decision_candidate.py'
+adding 'empirical_platform/usecases/get_evidence_package.py'
+adding 'empirical_platform/usecases/get_historical_backtest_run.py'
+adding 'empirical_platform/usecases/get_position_plan.py'
+adding 'empirical_platform/usecases/get_review.py'
+adding 'empirical_platform/usecases/get_run.py'
+adding 'empirical_platform/usecases/get_trade_plan.py'
+adding 'empirical_platform/usecases/get_trading_opportunity_scan.py'
+adding 'empirical_platform/usecases/historical_backtest_io.py'
+adding 'empirical_platform/usecases/prepare_campaign_for_authorization.py'
+adding 'empirical_platform/usecases/record_campaign_authorization.py'
+adding 'empirical_platform/usecases/record_evidence_package_artifact_reference.py'
+adding 'empirical_platform/usecases/record_evidence_package_criterion_result.py'
+adding 'empirical_platform/usecases/resume_campaign.py'
+adding 'empirical_platform/usecases/revise_campaign_scope_statement.py'
+adding 'empirical_platform/usecases/run_historical_backtest.py'
+adding 'empirical_platform/usecases/run_trading_opportunity_scan.py'
+adding 'empirical_platform/usecases/seal_evidence_package.py'
+adding 'empirical_platform/usecases/start_evidence_package_collection.py'
+adding 'empirical_platform/usecases/start_review.py'
+adding 'empirical_platform/usecases/start_run_acquisition.py'
+adding 'empirical_platform/usecases/start_run_normalization.py'
+adding 'empirical_platform/usecases/start_run_validation.py'
+adding 'empirical_platform/usecases/suspend_campaign.py'
+adding 'empirical_platform/validation/__init__.py'
+adding 'empirical_platform-0.0.0.dist-info/licenses/LICENSE'
+adding 'empirical_platform-0.0.0.dist-info/METADATA'
+adding 'empirical_platform-0.0.0.dist-info/WHEEL'
+adding 'empirical_platform-0.0.0.dist-info/entry_points.txt'
+adding 'empirical_platform-0.0.0.dist-info/top_level.txt'
+adding 'empirical_platform-0.0.0.dist-info/RECORD'
+removing build\bdist.win-amd64\wheel
+Successfully built empirical_platform-0.0.0.tar.gz and empirical_platform-0.0.0-py3-none-any.whl
+0.0.0

@@ -1,0 +1,14 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\LuxSy\Documents\trading
+configfile: pyproject.toml
+plugins: hypothesis-6.156.6, cov-6.3.0, xdist-3.8.0
+collected 22 items
+
+tests\integration\test_m057_trading_evaluation_lifecycle.py ssss         [ 18%]
+tests\integration\test_m058_trading_opportunity_scan_lifecycle.py sss    [ 31%]
+tests\integration\test_m059_trade_plan_lifecycle.py sssssss              [ 63%]
+tests\integration\test_m060_position_plan_lifecycle.py ssss              [ 81%]
+tests\integration\test_m061_historical_backtest_lifecycle.py ssss        [100%]
+
+============================= 22 skipped in 0.93s =============================
