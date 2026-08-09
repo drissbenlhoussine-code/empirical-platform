@@ -93,3 +93,9 @@ class ValidationStudyId(Identifier):
     """Historical validation study identifier."""
 
     prefix = "STUDY"
+
+
+class RobustnessStudyId(Identifier):
+    """Broad historical robustness study identifier."""
+
+    prefix = "ROBUST"

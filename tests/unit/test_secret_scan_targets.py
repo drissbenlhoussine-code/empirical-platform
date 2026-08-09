@@ -251,3 +251,35 @@ def test_non_benign_high_entropy_findings_are_preserved(tmp_path: Path) -> None:
     }
 
     assert _filter_benign_secret_findings(tmp_path, findings) == findings
+
+
+def test_fixture_sha256_evidence_constants_are_filtered(tmp_path: Path) -> None:
+    document = tmp_path / "tests" / "unit" / "test_fixture_hash.py"
+    sha256 = "".join(
+        [
+            "ca98",
+            "478c",
+            "e615",
+            "6f41",
+            "c453",
+            "5eaa",
+            "040f",
+            "d3e1",
+            "6122",
+            "9a71",
+            "acd7",
+            "71a4",
+            "77ee",
+            "9648",
+            "ac3d",
+            "d506",
+        ]
+    )
+    _write(document, f'_EXPECTED_SHA256 = "{sha256}"\n')
+    findings = {
+        "tests/unit/test_fixture_hash.py": [
+            {"type": "Hex High Entropy String", "line_number": 1},
+        ]
+    }
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == {}

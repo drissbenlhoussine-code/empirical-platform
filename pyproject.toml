@@ -96,6 +96,8 @@ empirical-platform-run-historical-backtest = "empirical_platform.entrypoints.run
 empirical-platform-get-historical-backtest-run = "empirical_platform.entrypoints.get_historical_backtest_run:main"
 empirical-platform-run-historical-validation-study = "empirical_platform.entrypoints.run_historical_validation_study:main"
 empirical-platform-get-historical-validation-study = "empirical_platform.entrypoints.get_historical_validation_study:main"
+empirical-platform-run-historical-robustness-study = "empirical_platform.entrypoints.run_historical_robustness_study:main"
+empirical-platform-get-historical-robustness-study = "empirical_platform.entrypoints.get_historical_robustness_study:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

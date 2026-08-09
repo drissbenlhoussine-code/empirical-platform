@@ -28,6 +28,9 @@ from empirical_platform.shared.persistence.postgres_repositories.position_plan_r
 from empirical_platform.shared.persistence.postgres_repositories.review_repository import (
     PostgresReviewRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.robustness_study_repository import (  # noqa: E501
+    PostgresHistoricalRobustnessStudyRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.run_repository import (
     PostgresRunRepository,
 )
@@ -68,6 +71,7 @@ class PostgresRepositoryRuntime:
         "_position_plans",
         "_historical_backtests",
         "_validation_studies",
+        "_robustness_studies",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -86,6 +90,7 @@ class PostgresRepositoryRuntime:
         self._position_plans = PostgresPositionPlanRepository(service)
         self._historical_backtests = PostgresHistoricalBacktestRunRepository(service)
         self._validation_studies = PostgresHistoricalValidationStudyRepository(service)
+        self._robustness_studies = PostgresHistoricalRobustnessStudyRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -126,6 +131,10 @@ class PostgresRepositoryRuntime:
     @property
     def validation_studies(self) -> PostgresHistoricalValidationStudyRepository:
         return self._validation_studies
+
+    @property
+    def robustness_studies(self) -> PostgresHistoricalRobustnessStudyRepository:
+        return self._robustness_studies
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""
