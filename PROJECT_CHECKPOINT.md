@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-059
+LATEST_FROZEN_MILESTONE=MILESTONE-060
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -491,8 +491,19 @@ M059_OWNER_FREEZE_COMMIT=2128f9f71ef059f0ef8ecb7ca0fe0677692da294
 M059_STATUS=APPROVED_AND_FROZEN
 M059_PROFITABILITY_CLAIM=NONE_MADE
 
-M060_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-060 -- not yet selected or started; see M059 final report for a non-binding recommended direction
+M060_SCOPE=Position Sizing + Capital Exposure Gate (deterministic size and capital-risk gate over an approved M059 TradePlan, APPROVED_POSITION_PLAN/REJECTED_POSITION_PLAN)
+M060_SCOPE_STATUS=APPROVED_AND_FROZEN
+M060_DESIGN_STATUS=APPROVED_AND_FROZEN
+M060_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M060_IMPLEMENTATION_COMMIT=89592838d76f13eedbd22305b45627356766f58b
+M060_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M060_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M060_OWNER_FREEZE_COMMIT=TO_BE_RECORDED_BY_NEXT_CHECKPOINT_HASH_COMMIT
+M060_STATUS=APPROVED_AND_FROZEN
+M060_PROFITABILITY_CLAIM=NONE_MADE
+
+M061_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-061 -- recommendation only; not started as part of M060
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2032,4 +2043,42 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Next permitted action:** MILESTONE-060 — not yet selected or started. **Not started or built as part of this mission.** See M059 final report for a non-binding recommended direction.
 
-**Next permitted action:** MILESTONE-059 — not yet selected or started. See M058 final report for a non-binding recommended direction.
+## 80. MILESTONE-060 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_060_POSITION_SIZING_CAPITAL_EXPOSURE_GATE_SCOPE_AND_DESIGN.md` (capital/position inventory, fresh M057-M059 implementation inventory, first sizing-contract authority, policy authority, sizing math, capital-gate choice, provenance model, persistence model, evidence-integration decision) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, hostile review findings and inline corrections, no-future-data audit, no-broker/no-portfolio audit, independent second review, owner approval).
+
+**Fresh M057-M059 inventory.** `DecisionCandidate`/`EvaluationOutcome`/`TradingOpportunityScan`/`TradePlan`/`TradePlanGeometry` remain unchanged and are consumed as authoritative persisted predecessors. `build_position_plan()` reads only the already-persisted M059 `TradePlan` geometry and status; it never accepts caller-supplied entry/stop/target/risk-per-unit values, never re-evaluates market data, and never reaches back to raw bars or wall-clock time. No M057/M058/M059 source file was modified.
+
+**No prior frozen sizing-policy authority existed.** Per the mission's own instruction, M060 transparently originates one minimal, explicit, versioned policy rather than fabricating historical authority: `EQUITY_PERCENT_RISK_SIZING_GATE` v1, with `maximum_risk_percent = 0.02`, `maximum_notional_percent = 0.25`, and `allow_fractional_shares = False`. Whole shares only were selected explicitly for v1 to preserve deterministic, broker-neutral auditability while the platform still has no broker or fractional-capability surface.
+
+**Selected scope:** one deterministic `PositionPlan` domain object (mirroring `DecisionCandidate`, `TradingOpportunityScan`, and `TradePlan` as an immutable planning record rather than a lifecycle aggregate) that consumes one authoritative approved M059 `TradePlan` plus one caller-supplied immutable `PositionSizingContext` (`account_equity`, `risk_percent`), computes risk-based size and capital-based size with Decimal-safe floor semantics, applies a deterministic capital gate, and persists a structured `APPROVED_POSITION_PLAN` or `REJECTED_POSITION_PLAN` linked back to its source trade plan and forward into the existing `EvidencePackage` artifact chain.
+
+**Capital-gate decision, frozen:** when both risk-based size and capital-based size are positive, M060 approves the deterministic minimum of the two quantities instead of rejecting the whole sizing result. This means the platform answers the product question "how many units may I safely take?" rather than only announcing that the first size guess was too large. Rejection still occurs when risk or capital cannot fund even one whole share (`ZERO_POSITION_SIZE` / `CAPITAL_LIMIT_EXCEEDED`) or when the source M059 plan was not approved (`SOURCE_PLAN_NOT_APPROVED`).
+
+**Tests:** focused M060 validation covered the pure domain, independently-authored sizing math, no-future-data structure, entrypoint behavior, and one PostgreSQL acceptance suite exercising approved, small-budget, capital-capped, rejected-source, duplicate-identity, missing-source, and exact-boundary paths. Full canonical validation passed with PostgreSQL integration enabled: `1516 passed`, `6 skipped`, `0 failed`, `92.14%` coverage, `mypy` clean across `180` source files, architecture checker clean, negative architecture fixture cleanly failing, build clean, `pip-audit` clean, and secret scan clean after scanner hardening.
+
+**Hostile review:** all 30 mission-specified questions were attacked. Three genuine findings were discovered and corrected inline: (1) entrypoints initially imported `decision_candidate.position_plan` directly, violating the frozen application boundary; corrected by routing imports through the usecase layer, matching the established M059 pattern. (2) the repository had grown large enough that `security.ps1`'s direct `detect-secrets` invocation exceeded Windows command-length limits; corrected by adding batched scan execution through `tools/secret_scan_targets.py --scan-json`. (3) the hardened scanner then exposed false positives in benign Alembic revision lines and in literal fake secret-shaped test values; corrected by programmatically constructing test literals and filtering only the known benign migration-revision patterns after scan collection. Zero CRITICAL or MAJOR findings remain.
+
+**No-future-data audit:** `build_position_plan()` accepts only `identity`, authoritative `trade_plan`, caller-supplied `sizing_context`, and `policy`. It does not accept bars, observation windows, quotes, or wall-clock inputs. Position sizing therefore depends only on frozen M059 trade geometry plus caller-supplied capital/risk context.
+
+**No-broker / no-portfolio audit:** direct source and diff inspection confirmed zero broker connector, order placement, fill, execution engine, open-position, portfolio aggregate, cash ledger, leverage, or margin behavior anywhere in the M060 delta. `PositionPlan` is a hypothetical planning record only.
+
+**Independent second review:** a completely fresh PostgreSQL 17 container on a new port was migrated from empty and then driven entirely through real subprocess CLI entrypoints: one real `Campaign`, one real `Run`, one real `EvidencePackage`, one real M058 scan, one approved and one rejected M059 trade plan, four M060 position plans (approved one-share, tiny-budget rejection, capital-capped approval, rejected-source rejection), one real retrieval, full `EvidencePackage` artifact linkage, independent recomputation of the capital-capped quantity, and raw-SQL verification of persisted rows and lineage. Result: **ALL CHECKS PASSED**.
+
+**Product delta, proven:** before M060, the platform could determine whether a ranked opportunity satisfied explicit trade-geometry risk rules. After M060, it can also determine how large that trade may safely be under explicit risk-budget and capital/notional limits. No profitability claim is made.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_060_POSITION_SIZING_CAPITAL_EXPOSURE_GATE_MACRO_MILESTONE_FREEZE.md`.
+
+**Next permitted action:** see Section 81.
+
+## 81. MILESTONE-060 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_060_POSITION_SIZING_CAPITAL_EXPOSURE_GATE_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-060 scope, design, implementation, hostile review, independent second review, no-future-data audit, and no-broker/no-portfolio audit as one consolidated unit.
+
+**Delivered capability, frozen:** the first deterministic position-sizing and capital-exposure gate — an already-approved M059 trade plan evaluated against one explicit, versioned sizing policy and one caller-supplied immutable capital/risk context, producing a structured, persisted, explainable `APPROVED_POSITION_PLAN` or `REJECTED_POSITION_PLAN`, composed into two real CLI entrypoints against real PostgreSQL and linked into the existing evidence/governance core.
+
+**Freeze declaration:** `M060 MACRO MILESTONE APPROVED_AND_FROZEN`. `M060 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-061 — recommendation only; not started as part of M060.
