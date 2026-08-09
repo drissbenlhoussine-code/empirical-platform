@@ -1,0 +1,5 @@
+No known vulnerabilities found
+Name               Skip Reason
+------------------ ---------------------------------------------------------------------------------
+empirical-platform Dependency not found on PyPI and could not be audited: empirical-platform (0.0.0)
+Secret scan target count: 655

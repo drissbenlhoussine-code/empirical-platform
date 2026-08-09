@@ -1,0 +1,38 @@
+MILESTONE-060 Repository Truth
+================================
+
+Repository: C:\Users\LuxSy\Documents\trading
+Branch: master
+
+M059 Owner Freeze hash-recording HEAD (M060's own frozen baseline):
+5526ee325416d39d3b37dd7d0b51e3f1cd1d05ef
+
+M060 implementation commit:
+89592838d76f13eedbd22305b45627356766f58b
+feat: implement M060 position sizing and capital exposure gate
+
+M060 owner-freeze commit:
+06cdd26622c6fe700c32de3d66139056098088e8
+docs: record M060 owner macro milestone freeze
+
+This external-review package was assembled after the owner-freeze commit and is intended
+to be recorded by the subsequent hash-recording/package commit. Reviewers should verify
+live repository truth directly with `git rev-parse HEAD` and `git status --short --branch`.
+The substantive milestone diff is the frozen M060 span `5526ee325416d39d3b37dd7d0b51e3f1cd1d05ef..06cdd26622c6fe700c32de3d66139056098088e8`.
+
+This package's `complete.diff` spans `5526ee325416d39d3b37dd7d0b51e3f1cd1d05ef..06cdd26622c6fe700c32de3d66139056098088e8` -- the complete M060 implementation
+and owner-freeze delta: 23 implementation-diff files plus the owner-freeze governance updates.
+The delta introduces the M060 scope+design document, one new owner-freeze governance document,
+one new PostgreSQL migration (`73f4a1d89b22`), one new PositionPlan domain file and repository
+Protocol, one new PostgreSQL repository adapter, two new usecases, two new production CLI
+entrypoints, one new identifier type (`PositionPlanId` / `POS`), one additive runtime-composition
+extension, four focused M060 unit suites, one PostgreSQL acceptance suite, and the scanner/security
+hardening needed to keep canonical validation truthful on Windows.
+
+Product delta vs M059:
+Before M060, the platform could decide whether a persisted M059 TradePlan satisfied explicit
+trade-geometry risk rules. After M060, it can also determine how many whole shares may be taken
+without violating explicit caller-supplied risk budget and capital/notional constraints, returning a
+structured, persisted, explainable `APPROVED_POSITION_PLAN` or `REJECTED_POSITION_PLAN`.
+
+No profitability claim is made.

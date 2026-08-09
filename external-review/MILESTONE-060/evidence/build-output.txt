@@ -1,0 +1,316 @@
+Requirement already satisfied: pydantic<3,>=2.13 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.13.4)
+Requirement already satisfied: pydantic-settings<3,>=2.8 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.14.2)
+Requirement already satisfied: python-dotenv<2,>=1.0 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.2.2)
+Requirement already satisfied: structlog<26,>=25 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (25.5.0)
+Requirement already satisfied: sqlalchemy<3,>=2.0 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.0.51)
+Requirement already satisfied: alembic<2,>=1.16 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.18.5)
+Requirement already satisfied: psycopg<4,>=3.2 in .\.venv\Lib\site-packages (from psycopg[binary]<4,>=3.2; extra == "persistence"->empirical-platform==0.0.0) (3.3.4)
+Requirement already satisfied: boto3<2,>=1.35 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.43.48)
+Requirement already satisfied: ruff<1,>=0.12 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (0.15.21)
+Requirement already satisfied: mypy<2,>=1.16 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.20.2)
+Requirement already satisfied: pre-commit<5,>=4.2 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (4.6.0)
+Requirement already satisfied: pytest<10,>=9.0.3 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (9.1.1)
+Requirement already satisfied: pytest-cov<7,>=6.2 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (6.3.0)
+Requirement already satisfied: pytest-xdist<4,>=3.7 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (3.8.0)
+Requirement already satisfied: hypothesis<7,>=6.135 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (6.156.6)
+Requirement already satisfied: freezegun<2,>=1.5 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.5.5)
+Requirement already satisfied: detect-secrets<2,>=1.5 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.5.0)
+Requirement already satisfied: pip-audit<3,>=2.9 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (2.10.1)
+Requirement already satisfied: build<2,>=1.2 in .\.venv\Lib\site-packages (from empirical-platform==0.0.0) (1.5.1)
+Requirement already satisfied: Mako in .\.venv\Lib\site-packages (from alembic<2,>=1.16->empirical-platform==0.0.0) (1.3.12)
+Requirement already satisfied: typing-extensions>=4.12 in .\.venv\Lib\site-packages (from alembic<2,>=1.16->empirical-platform==0.0.0) (4.16.0)
+Requirement already satisfied: botocore<1.44.0,>=1.43.48 in .\.venv\Lib\site-packages (from boto3<2,>=1.35->empirical-platform==0.0.0) (1.43.48)
+Requirement already satisfied: jmespath<2.0.0,>=0.7.1 in .\.venv\Lib\site-packages (from boto3<2,>=1.35->empirical-platform==0.0.0) (1.1.0)
+Requirement already satisfied: s3transfer<0.20.0,>=0.19.0 in .\.venv\Lib\site-packages (from boto3<2,>=1.35->empirical-platform==0.0.0) (0.19.1)
+Requirement already satisfied: python-dateutil<3.0.0,>=2.1 in .\.venv\Lib\site-packages (from botocore<1.44.0,>=1.43.48->boto3<2,>=1.35->empirical-platform==0.0.0) (2.9.0.post0)
+Requirement already satisfied: urllib3!=2.2.0,<3,>=1.25.4 in .\.venv\Lib\site-packages (from botocore<1.44.0,>=1.43.48->boto3<2,>=1.35->empirical-platform==0.0.0) (2.7.0)
+Requirement already satisfied: packaging>=24.0 in .\.venv\Lib\site-packages (from build<2,>=1.2->empirical-platform==0.0.0) (26.2)
+Requirement already satisfied: pyproject_hooks in .\.venv\Lib\site-packages (from build<2,>=1.2->empirical-platform==0.0.0) (1.2.0)
+Requirement already satisfied: colorama in .\.venv\Lib\site-packages (from build<2,>=1.2->empirical-platform==0.0.0) (0.4.6)
+Requirement already satisfied: pyyaml in .\.venv\Lib\site-packages (from detect-secrets<2,>=1.5->empirical-platform==0.0.0) (6.0.3)
+Requirement already satisfied: requests in .\.venv\Lib\site-packages (from detect-secrets<2,>=1.5->empirical-platform==0.0.0) (2.34.2)
+Requirement already satisfied: sortedcontainers<3.0.0,>=2.1.0 in .\.venv\Lib\site-packages (from hypothesis<7,>=6.135->empirical-platform==0.0.0) (2.4.0)
+Requirement already satisfied: mypy_extensions>=1.0.0 in .\.venv\Lib\site-packages (from mypy<2,>=1.16->empirical-platform==0.0.0) (1.1.0)
+Requirement already satisfied: pathspec>=1.0.0 in .\.venv\Lib\site-packages (from mypy<2,>=1.16->empirical-platform==0.0.0) (1.1.1)
+Requirement already satisfied: librt>=0.8.0 in .\.venv\Lib\site-packages (from mypy<2,>=1.16->empirical-platform==0.0.0) (0.13.0)
+Requirement already satisfied: CacheControl>=0.13.0 in .\.venv\Lib\site-packages (from CacheControl[filecache]>=0.13.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.14.4)
+Requirement already satisfied: cyclonedx-python-lib<12,>=5 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (11.11.0)
+Requirement already satisfied: pip-api>=0.0.28 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.0.34)
+Requirement already satisfied: pip-requirements-parser>=32.0.0 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (32.0.1)
+Requirement already satisfied: rich>=12.4 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (15.0.0)
+Requirement already satisfied: tomli>=2.2.1 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (2.4.1)
+Requirement already satisfied: tomli-w>=1.2.0 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (1.2.0)
+Requirement already satisfied: platformdirs>=4.2.0 in .\.venv\Lib\site-packages (from pip-audit<3,>=2.9->empirical-platform==0.0.0) (4.10.0)
+Requirement already satisfied: license-expression<31,>=30 in .\.venv\Lib\site-packages (from cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (30.4.4)
+Requirement already satisfied: packageurl-python<2,>=0.11 in .\.venv\Lib\site-packages (from cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.17.6)
+Requirement already satisfied: py-serializable<3.0.0,>=2.1.0 in .\.venv\Lib\site-packages (from cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (2.1.0)
+Requirement already satisfied: boolean.py>=4.0 in .\.venv\Lib\site-packages (from license-expression<31,>=30->cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (5.0)
+Requirement already satisfied: cfgv>=2.0.0 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (3.5.0)
+Requirement already satisfied: identify>=1.0.0 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (2.6.19)
+Requirement already satisfied: nodeenv>=0.11.1 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (1.10.0)
+Requirement already satisfied: virtualenv>=20.10.0 in .\.venv\Lib\site-packages (from pre-commit<5,>=4.2->empirical-platform==0.0.0) (21.6.1)
+Requirement already satisfied: tzdata in .\.venv\Lib\site-packages (from psycopg<4,>=3.2->psycopg[binary]<4,>=3.2; extra == "persistence"->empirical-platform==0.0.0) (2026.3)
+Requirement already satisfied: psycopg-binary==3.3.4 in .\.venv\Lib\site-packages (from psycopg[binary]<4,>=3.2; extra == "persistence"->empirical-platform==0.0.0) (3.3.4)
+Requirement already satisfied: defusedxml<0.8.0,>=0.7.1 in .\.venv\Lib\site-packages (from py-serializable<3.0.0,>=2.1.0->cyclonedx-python-lib<12,>=5->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.7.1)
+Requirement already satisfied: annotated-types>=0.6.0 in .\.venv\Lib\site-packages (from pydantic<3,>=2.13->empirical-platform==0.0.0) (0.7.0)
+Requirement already satisfied: pydantic-core==2.46.4 in .\.venv\Lib\site-packages (from pydantic<3,>=2.13->empirical-platform==0.0.0) (2.46.4)
+Requirement already satisfied: typing-inspection>=0.4.2 in .\.venv\Lib\site-packages (from pydantic<3,>=2.13->empirical-platform==0.0.0) (0.4.2)
+Requirement already satisfied: iniconfig>=1.0.1 in .\.venv\Lib\site-packages (from pytest<10,>=9.0.3->empirical-platform==0.0.0) (2.3.0)
+Requirement already satisfied: pluggy<2,>=1.5 in .\.venv\Lib\site-packages (from pytest<10,>=9.0.3->empirical-platform==0.0.0) (1.6.0)
+Requirement already satisfied: pygments>=2.7.2 in .\.venv\Lib\site-packages (from pytest<10,>=9.0.3->empirical-platform==0.0.0) (2.20.0)
+Requirement already satisfied: coverage>=7.5 in .\.venv\Lib\site-packages (from coverage[toml]>=7.5->pytest-cov<7,>=6.2->empirical-platform==0.0.0) (7.15.1)
+Requirement already satisfied: execnet>=2.1 in .\.venv\Lib\site-packages (from pytest-xdist<4,>=3.7->empirical-platform==0.0.0) (2.1.2)
+Requirement already satisfied: six>=1.5 in .\.venv\Lib\site-packages (from python-dateutil<3.0.0,>=2.1->botocore<1.44.0,>=1.43.48->boto3<2,>=1.35->empirical-platform==0.0.0) (1.17.0)
+Requirement already satisfied: greenlet>=1 in .\.venv\Lib\site-packages (from sqlalchemy<3,>=2.0->empirical-platform==0.0.0) (3.5.3)
+Requirement already satisfied: msgpack<2.0.0,>=0.5.2 in .\.venv\Lib\site-packages (from CacheControl>=0.13.0->CacheControl[filecache]>=0.13.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (1.2.1)
+Requirement already satisfied: filelock>=3.8.0 in .\.venv\Lib\site-packages (from CacheControl[filecache]>=0.13.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (3.29.7)
+Requirement already satisfied: pip in .\.venv\Lib\site-packages (from pip-api>=0.0.28->pip-audit<3,>=2.9->empirical-platform==0.0.0) (26.1.2)
+Requirement already satisfied: pyparsing in .\.venv\Lib\site-packages (from pip-requirements-parser>=32.0.0->pip-audit<3,>=2.9->empirical-platform==0.0.0) (3.3.2)
+Requirement already satisfied: charset_normalizer<4,>=2 in .\.venv\Lib\site-packages (from requests->detect-secrets<2,>=1.5->empirical-platform==0.0.0) (3.4.9)
+Requirement already satisfied: idna<4,>=2.5 in .\.venv\Lib\site-packages (from requests->detect-secrets<2,>=1.5->empirical-platform==0.0.0) (3.18)
+Requirement already satisfied: certifi>=2023.5.7 in .\.venv\Lib\site-packages (from requests->detect-secrets<2,>=1.5->empirical-platform==0.0.0) (2026.6.17)
+Requirement already satisfied: markdown-it-py>=2.2.0 in .\.venv\Lib\site-packages (from rich>=12.4->pip-audit<3,>=2.9->empirical-platform==0.0.0) (4.2.0)
+Requirement already satisfied: mdurl~=0.1 in .\.venv\Lib\site-packages (from markdown-it-py>=2.2.0->rich>=12.4->pip-audit<3,>=2.9->empirical-platform==0.0.0) (0.1.2)
+Requirement already satisfied: distlib<1,>=0.3.7 in .\.venv\Lib\site-packages (from virtualenv>=20.10.0->pre-commit<5,>=4.2->empirical-platform==0.0.0) (0.4.3)
+Requirement already satisfied: python-discovery>=1.4.2 in .\.venv\Lib\site-packages (from virtualenv>=20.10.0->pre-commit<5,>=4.2->empirical-platform==0.0.0) (1.4.4)
+Requirement already satisfied: MarkupSafe>=0.9.2 in .\.venv\Lib\site-packages (from Mako->alembic<2,>=1.16->empirical-platform==0.0.0) (3.0.3)
+  Created wheel for empirical-platform: filename=empirical_platform-0.0.0-0.editable-py3-none-any.whl size=3419 sha256=48eafa83f6cf2ac529b2c5bad9c7f27bf2a7d21e7881986293ef1d6737f9dc64
+    Found existing installation: empirical-platform 0.0.0
+    Uninstalling empirical-platform-0.0.0:
+      Successfully uninstalled empirical-platform-0.0.0
+Successfully installed empirical-platform-0.0.0
+empirical-platform Dependency not found on PyPI and could not be audited: empirical-platform (0.0.0)
+creating empirical_platform-0.0.0
+creating empirical_platform-0.0.0\src\empirical_platform
+creating empirical_platform-0.0.0\src\empirical_platform.egg-info
+creating empirical_platform-0.0.0\src\empirical_platform\acquisition
+creating empirical_platform-0.0.0\src\empirical_platform\application
+creating empirical_platform-0.0.0\src\empirical_platform\archive
+creating empirical_platform-0.0.0\src\empirical_platform\audit
+creating empirical_platform-0.0.0\src\empirical_platform\campaign
+creating empirical_platform-0.0.0\src\empirical_platform\datasets
+creating empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+creating empirical_platform-0.0.0\src\empirical_platform\entrypoints
+creating empirical_platform-0.0.0\src\empirical_platform\evidence
+creating empirical_platform-0.0.0\src\empirical_platform\governance
+creating empirical_platform-0.0.0\src\empirical_platform\identifiers
+creating empirical_platform-0.0.0\src\empirical_platform\normalization
+creating empirical_platform-0.0.0\src\empirical_platform\registry
+creating empirical_platform-0.0.0\src\empirical_platform\review
+creating empirical_platform-0.0.0\src\empirical_platform\run
+creating empirical_platform-0.0.0\src\empirical_platform\shared
+creating empirical_platform-0.0.0\src\empirical_platform\shared\config
+creating empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+creating empirical_platform-0.0.0\src\empirical_platform\shared\domain
+creating empirical_platform-0.0.0\src\empirical_platform\shared\errors
+creating empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+creating empirical_platform-0.0.0\src\empirical_platform\shared\logging
+creating empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+creating empirical_platform-0.0.0\src\empirical_platform\shared\observability
+creating empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+creating empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+creating empirical_platform-0.0.0\src\empirical_platform\usecases
+creating empirical_platform-0.0.0\src\empirical_platform\validation
+copying files to empirical_platform-0.0.0...
+copying LICENSE -> empirical_platform-0.0.0
+copying README.md -> empirical_platform-0.0.0
+copying pyproject.toml -> empirical_platform-0.0.0
+copying src\empirical_platform\__init__.py -> empirical_platform-0.0.0\src\empirical_platform
+copying src\empirical_platform\_version.py -> empirical_platform-0.0.0\src\empirical_platform
+copying src\empirical_platform.egg-info\PKG-INFO -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\SOURCES.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\dependency_links.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\entry_points.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\requires.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform.egg-info\top_level.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+copying src\empirical_platform\acquisition\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\acquisition
+copying src\empirical_platform\application\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\application
+copying src\empirical_platform\application\command.py -> empirical_platform-0.0.0\src\empirical_platform\application
+copying src\empirical_platform\application\query.py -> empirical_platform-0.0.0\src\empirical_platform\application
+copying src\empirical_platform\archive\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\archive
+copying src\empirical_platform\audit\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\audit
+copying src\empirical_platform\campaign\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\aggregate.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\lifecycle.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\campaign\repository.py -> empirical_platform-0.0.0\src\empirical_platform\campaign
+copying src\empirical_platform\datasets\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\datasets
+copying src\empirical_platform\datasets\manifest.py -> empirical_platform-0.0.0\src\empirical_platform\datasets
+copying src\empirical_platform\decision_candidate\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\candidate.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\market_data.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\position_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\ranking.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\scan.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\scan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\strategy.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\decision_candidate\trade_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\decision_candidate
+copying src\empirical_platform\entrypoints\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\_composition.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\activate_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\add_review_finding.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\append_run_manifest.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\authorize_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\build_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\build_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\cancel_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\cancel_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\complete_run_execution.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\create_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\evaluate_trading_observation.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\fail_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_decision_candidate.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_run.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\get_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\health.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\prepare_campaign_for_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_campaign_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_evidence_package_artifact_reference.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\record_evidence_package_criterion_result.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\resume_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\revise_campaign_scope_statement.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\run_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\seal_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_evidence_package_collection.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_review.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_acquisition.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_normalization.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\start_run_validation.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\suspend_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\entrypoints\version.py -> empirical_platform-0.0.0\src\empirical_platform\entrypoints
+copying src\empirical_platform\evidence\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\lifecycle.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\package.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\repository.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\evidence\results.py -> empirical_platform-0.0.0\src\empirical_platform\evidence
+copying src\empirical_platform\governance\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\governance
+copying src\empirical_platform\identifiers\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\identifiers
+copying src\empirical_platform\identifiers\pairs.py -> empirical_platform-0.0.0\src\empirical_platform\identifiers
+copying src\empirical_platform\identifiers\types.py -> empirical_platform-0.0.0\src\empirical_platform\identifiers
+copying src\empirical_platform\normalization\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\normalization
+copying src\empirical_platform\registry\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\registry
+copying src\empirical_platform\review\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\aggregate.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\lifecycle.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\review\repository.py -> empirical_platform-0.0.0\src\empirical_platform\review
+copying src\empirical_platform\run\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\_reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\aggregate.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\mapper.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\run\repository.py -> empirical_platform-0.0.0\src\empirical_platform\run
+copying src\empirical_platform\shared\bootstrap.py -> empirical_platform-0.0.0\src\empirical_platform\shared
+copying src\empirical_platform\shared\health.py -> empirical_platform-0.0.0\src\empirical_platform\shared
+copying src\empirical_platform\shared\identifiers.py -> empirical_platform-0.0.0\src\empirical_platform\shared
+copying src\empirical_platform\shared\config\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\config
+copying src\empirical_platform\shared\config\redaction.py -> empirical_platform-0.0.0\src\empirical_platform\shared\config
+copying src\empirical_platform\shared\config\settings.py -> empirical_platform-0.0.0\src\empirical_platform\shared\config
+copying src\empirical_platform\shared\contracts\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\command.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\mapping.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\query.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\contracts\repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\contracts
+copying src\empirical_platform\shared\domain\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\reconstruction.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\transitions.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\domain\versioning.py -> empirical_platform-0.0.0\src\empirical_platform\shared\domain
+copying src\empirical_platform\shared\errors\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\errors
+copying src\empirical_platform\shared\errors\foundation.py -> empirical_platform-0.0.0\src\empirical_platform\shared\errors
+copying src\empirical_platform\shared\interfaces\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\clock.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\object_storage.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\orchestration.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\interfaces\persistence.py -> empirical_platform-0.0.0\src\empirical_platform\shared\interfaces
+copying src\empirical_platform\shared\logging\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\logging
+copying src\empirical_platform\shared\logging\configure.py -> empirical_platform-0.0.0\src\empirical_platform\shared\logging
+copying src\empirical_platform\shared\logging\context.py -> empirical_platform-0.0.0\src\empirical_platform\shared\logging
+copying src\empirical_platform\shared\object_storage\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\object_storage\fake.py -> empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\object_storage\s3.py -> empirical_platform-0.0.0\src\empirical_platform\shared\object_storage
+copying src\empirical_platform\shared\observability\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\observability
+copying src\empirical_platform\shared\persistence\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\fake.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\postgres.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence
+copying src\empirical_platform\shared\persistence\postgres_repositories\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\_errors.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\campaign_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\decision_candidate_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\evidence_package_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\position_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\review_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\run_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\runtime.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\trade_plan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\shared\persistence\postgres_repositories\trading_opportunity_scan_repository.py -> empirical_platform-0.0.0\src\empirical_platform\shared\persistence\postgres_repositories
+copying src\empirical_platform\usecases\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\activate_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\add_review_finding.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\append_run_manifest.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\authorize_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\build_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\build_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\cancel_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\cancel_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\complete_run_execution.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\create_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\evaluate_trading_observation.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\fail_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_decision_candidate.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_position_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_run.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_trade_plan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\get_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\prepare_campaign_for_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_campaign_authorization.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_evidence_package_artifact_reference.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\record_evidence_package_criterion_result.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\resume_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\revise_campaign_scope_statement.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\run_trading_opportunity_scan.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\seal_evidence_package.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_evidence_package_collection.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_review.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_acquisition.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_normalization.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\start_run_validation.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\usecases\suspend_campaign.py -> empirical_platform-0.0.0\src\empirical_platform\usecases
+copying src\empirical_platform\validation\__init__.py -> empirical_platform-0.0.0\src\empirical_platform\validation
+copying src\empirical_platform.egg-info\SOURCES.txt -> empirical_platform-0.0.0\src\empirical_platform.egg-info
+Writing empirical_platform-0.0.0\setup.cfg
+removing 'empirical_platform-0.0.0' (and everything under it)
+Copying src\empirical_platform.egg-info to build\bdist.win-amd64\wheel\.\empirical_platform-0.0.0-py3.13.egg-info
+creating build\bdist.win-amd64\wheel\empirical_platform-0.0.0.dist-info\WHEEL
+creating 'C:\Users\LuxSy\Documents\trading\dist\.tmp-3r0exydw\empirical_platform-0.0.0-py3-none-any.whl' and adding 'build\bdist.win-amd64\wheel' to it
+adding 'empirical_platform-0.0.0.dist-info/licenses/LICENSE'
+adding 'empirical_platform-0.0.0.dist-info/METADATA'
+adding 'empirical_platform-0.0.0.dist-info/WHEEL'
+adding 'empirical_platform-0.0.0.dist-info/entry_points.txt'
+adding 'empirical_platform-0.0.0.dist-info/top_level.txt'
+adding 'empirical_platform-0.0.0.dist-info/RECORD'
+Successfully built empirical_platform-0.0.0.tar.gz and empirical_platform-0.0.0-py3-none-any.whl
+0.0.0
