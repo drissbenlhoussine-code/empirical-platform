@@ -87,3 +87,9 @@ class PositionPlanId(Identifier):
     """Position-sizing and capital-risk-gated plan identifier."""
 
     prefix = "POS"
+
+
+class ValidationStudyId(Identifier):
+    """Historical validation study identifier."""
+
+    prefix = "STUDY"

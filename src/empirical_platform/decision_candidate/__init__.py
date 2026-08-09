@@ -106,10 +106,27 @@ from empirical_platform.decision_candidate.trade_plan import (
     build_trade_plan,
 )
 from empirical_platform.decision_candidate.trade_plan_repository import TradePlanRepository
+from empirical_platform.decision_candidate.validation_study import (
+    SURVIVORSHIP_BIAS_DISCLOSURE,
+    HistoricalValidationStudy,
+    HistoricalValidationStudyClassification,
+    HistoricalValidationStudyStatus,
+    ValidationDatasetBundle,
+    ValidationDatasetBundleAuthority,
+    ValidationSegment,
+    ValidationSegmentResult,
+    ValidationSegmentRole,
+    ValidationSegmentSpec,
+    build_validation_study,
+)
+from empirical_platform.decision_candidate.validation_study_repository import (
+    HistoricalValidationStudyRepository,
+)
 
 __all__ = [
     "DEFAULT_RISK_POLICY",
     "DEFAULT_SIZING_POLICY",
+    "SURVIVORSHIP_BIAS_DISCLOSURE",
     "COST_MODEL_ID",
     "COST_MODEL_VERSION",
     "DECISION_CADENCE",
@@ -147,6 +164,10 @@ __all__ = [
     "HistoricalOutcomeModel",
     "HistoricalTradeOutcome",
     "HistoricalValidationClassification",
+    "HistoricalValidationStudy",
+    "HistoricalValidationStudyClassification",
+    "HistoricalValidationStudyRepository",
+    "HistoricalValidationStudyStatus",
     "Instrument",
     "ObservationWindow",
     "PositionPlan",
@@ -168,10 +189,17 @@ __all__ = [
     "TradingDecision",
     "TradingOpportunityScan",
     "TradingOpportunityScanRepository",
+    "ValidationDatasetBundle",
+    "ValidationDatasetBundleAuthority",
+    "ValidationSegment",
+    "ValidationSegmentResult",
+    "ValidationSegmentRole",
+    "ValidationSegmentSpec",
     "build_historical_backtest_run",
     "build_position_plan",
     "build_scan",
     "build_trade_plan",
+    "build_validation_study",
     "compute_ranking_score",
     "dataset_sha256",
     "evaluate",

@@ -94,6 +94,8 @@ empirical-platform-build-position-plan = "empirical_platform.entrypoints.build_p
 empirical-platform-get-position-plan = "empirical_platform.entrypoints.get_position_plan:main"
 empirical-platform-run-historical-backtest = "empirical_platform.entrypoints.run_historical_backtest:main"
 empirical-platform-get-historical-backtest-run = "empirical_platform.entrypoints.get_historical_backtest_run:main"
+empirical-platform-run-historical-validation-study = "empirical_platform.entrypoints.run_historical_validation_study:main"
+empirical-platform-get-historical-validation-study = "empirical_platform.entrypoints.get_historical_validation_study:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

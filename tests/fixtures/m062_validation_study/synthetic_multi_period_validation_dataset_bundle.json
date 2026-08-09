@@ -1,0 +1,1971 @@
+{
+  "dataset_bundle_id": "DATASET-6201",
+  "dataset_bundle_version": "1",
+  "source_kind": "FIXED_VALIDATION_FIXTURE",
+  "generation_seed": 6062001,
+  "segments": [
+    {
+      "segment_id": "DEV",
+      "role": "DEVELOPMENT_REFERENCE",
+      "warmup_bar_count": 5,
+      "scoring_bar_count": 8,
+      "buffer_bar_count": 3
+    },
+    {
+      "segment_id": "HOLDOUT_1",
+      "role": "HOLDOUT_1",
+      "warmup_bar_count": 5,
+      "scoring_bar_count": 8,
+      "buffer_bar_count": 3
+    },
+    {
+      "segment_id": "HOLDOUT_2",
+      "role": "HOLDOUT_2",
+      "warmup_bar_count": 5,
+      "scoring_bar_count": 8,
+      "buffer_bar_count": 3
+    }
+  ],
+  "instruments": [
+    {
+      "instrument": "AAPL",
+      "bars": [
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:00:00+00:00",
+          "open": "100.0",
+          "high": "100.60",
+          "low": "99.58",
+          "close": "100.34",
+          "volume": 1210
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:01:00+00:00",
+          "open": "100.34",
+          "high": "100.82",
+          "low": "99.95",
+          "close": "100.27",
+          "volume": 791
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:02:00+00:00",
+          "open": "100.27",
+          "high": "101.75",
+          "low": "99.72",
+          "close": "101.66",
+          "volume": 2273
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:03:00+00:00",
+          "open": "101.66",
+          "high": "102.24",
+          "low": "101.51",
+          "close": "101.92",
+          "volume": 1359
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:04:00+00:00",
+          "open": "101.92",
+          "high": "102.32",
+          "low": "101.48",
+          "close": "102.21",
+          "volume": 1177
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:05:00+00:00",
+          "open": "102.21",
+          "high": "102.91",
+          "low": "101.99",
+          "close": "102.50",
+          "volume": 1571
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:06:00+00:00",
+          "open": "102.50",
+          "high": "104.61",
+          "low": "102.41",
+          "close": "104.14",
+          "volume": 2923
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:07:00+00:00",
+          "open": "104.14",
+          "high": "105.21",
+          "low": "103.89",
+          "close": "105.07",
+          "volume": 2521
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:08:00+00:00",
+          "open": "105.07",
+          "high": "106.43",
+          "low": "105.00",
+          "close": "106.19",
+          "volume": 2433
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:09:00+00:00",
+          "open": "106.19",
+          "high": "106.46",
+          "low": "105.73",
+          "close": "106.36",
+          "volume": 767
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:10:00+00:00",
+          "open": "106.36",
+          "high": "106.88",
+          "low": "105.60",
+          "close": "106.11",
+          "volume": 1480
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:11:00+00:00",
+          "open": "106.11",
+          "high": "106.68",
+          "low": "105.97",
+          "close": "106.49",
+          "volume": 856
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:12:00+00:00",
+          "open": "106.49",
+          "high": "106.99",
+          "low": "105.73",
+          "close": "106.27",
+          "volume": 1426
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:13:00+00:00",
+          "open": "106.27",
+          "high": "108.47",
+          "low": "105.98",
+          "close": "108.21",
+          "volume": 1908
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:14:00+00:00",
+          "open": "108.21",
+          "high": "108.96",
+          "low": "107.97",
+          "close": "108.49",
+          "volume": 1057
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:15:00+00:00",
+          "open": "108.49",
+          "high": "108.93",
+          "low": "108.28",
+          "close": "108.44",
+          "volume": 1343
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:16:00+00:00",
+          "open": "108.44",
+          "high": "108.85",
+          "low": "107.96",
+          "close": "108.27",
+          "volume": 1165
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:17:00+00:00",
+          "open": "108.27",
+          "high": "108.52",
+          "low": "108.08",
+          "close": "108.45",
+          "volume": 734
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:18:00+00:00",
+          "open": "108.45",
+          "high": "108.68",
+          "low": "107.75",
+          "close": "108.15",
+          "volume": 1305
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:19:00+00:00",
+          "open": "108.15",
+          "high": "108.58",
+          "low": "108.07",
+          "close": "108.30",
+          "volume": 937
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:20:00+00:00",
+          "open": "108.30",
+          "high": "108.53",
+          "low": "107.97",
+          "close": "108.36",
+          "volume": 784
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:21:00+00:00",
+          "open": "108.36",
+          "high": "108.47",
+          "low": "107.82",
+          "close": "108.24",
+          "volume": 708
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:22:00+00:00",
+          "open": "108.24",
+          "high": "108.99",
+          "low": "108.15",
+          "close": "108.48",
+          "volume": 1043
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:23:00+00:00",
+          "open": "108.48",
+          "high": "109.02",
+          "low": "107.93",
+          "close": "108.34",
+          "volume": 1550
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:24:00+00:00",
+          "open": "108.34",
+          "high": "108.77",
+          "low": "107.85",
+          "close": "108.30",
+          "volume": 1407
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:25:00+00:00",
+          "open": "108.30",
+          "high": "108.98",
+          "low": "107.95",
+          "close": "108.46",
+          "volume": 924
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:26:00+00:00",
+          "open": "108.46",
+          "high": "108.74",
+          "low": "107.93",
+          "close": "108.62",
+          "volume": 1322
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:27:00+00:00",
+          "open": "108.62",
+          "high": "108.83",
+          "low": "107.96",
+          "close": "108.41",
+          "volume": 1236
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:28:00+00:00",
+          "open": "108.41",
+          "high": "108.85",
+          "low": "108.33",
+          "close": "108.44",
+          "volume": 1280
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:29:00+00:00",
+          "open": "108.44",
+          "high": "108.66",
+          "low": "107.90",
+          "close": "108.59",
+          "volume": 1049
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:30:00+00:00",
+          "open": "108.59",
+          "high": "109.41",
+          "low": "108.16",
+          "close": "108.98",
+          "volume": 941
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:31:00+00:00",
+          "open": "108.98",
+          "high": "110.66",
+          "low": "108.44",
+          "close": "110.14",
+          "volume": 2879
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:32:00+00:00",
+          "open": "110.14",
+          "high": "110.48",
+          "low": "109.52",
+          "close": "110.02",
+          "volume": 946
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:33:00+00:00",
+          "open": "110.02",
+          "high": "111.84",
+          "low": "109.62",
+          "close": "111.41",
+          "volume": 3073
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:34:00+00:00",
+          "open": "111.41",
+          "high": "113.59",
+          "low": "111.13",
+          "close": "113.11",
+          "volume": 2820
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:35:00+00:00",
+          "open": "113.11",
+          "high": "113.87",
+          "low": "112.93",
+          "close": "113.42",
+          "volume": 1127
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:36:00+00:00",
+          "open": "113.42",
+          "high": "114.82",
+          "low": "113.23",
+          "close": "114.74",
+          "volume": 2449
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:37:00+00:00",
+          "open": "114.74",
+          "high": "114.88",
+          "low": "114.42",
+          "close": "114.64",
+          "volume": 1022
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:38:00+00:00",
+          "open": "114.64",
+          "high": "116.08",
+          "low": "114.31",
+          "close": "115.73",
+          "volume": 3215
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:39:00+00:00",
+          "open": "115.73",
+          "high": "116.02",
+          "low": "115.54",
+          "close": "115.94",
+          "volume": 1200
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:40:00+00:00",
+          "open": "115.94",
+          "high": "116.37",
+          "low": "115.57",
+          "close": "115.93",
+          "volume": 899
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:41:00+00:00",
+          "open": "115.93",
+          "high": "116.51",
+          "low": "115.75",
+          "close": "116.15",
+          "volume": 1547
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:42:00+00:00",
+          "open": "116.15",
+          "high": "117.51",
+          "low": "115.82",
+          "close": "117.18",
+          "volume": 2969
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:43:00+00:00",
+          "open": "117.18",
+          "high": "117.95",
+          "low": "116.99",
+          "close": "117.48",
+          "volume": 1519
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:44:00+00:00",
+          "open": "117.48",
+          "high": "117.97",
+          "low": "117.31",
+          "close": "117.70",
+          "volume": 1599
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:45:00+00:00",
+          "open": "117.70",
+          "high": "117.92",
+          "low": "117.00",
+          "close": "117.48",
+          "volume": 1404
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:46:00+00:00",
+          "open": "117.48",
+          "high": "118.11",
+          "low": "117.09",
+          "close": "117.76",
+          "volume": 1492
+        },
+        {
+          "instrument": "AAPL",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:47:00+00:00",
+          "open": "117.76",
+          "high": "117.94",
+          "low": "117.26",
+          "close": "117.44",
+          "volume": 1484
+        }
+      ]
+    },
+    {
+      "instrument": "MSFT",
+      "bars": [
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:00:00+00:00",
+          "open": "150.0",
+          "high": "150.13",
+          "low": "149.90",
+          "close": "150.04",
+          "volume": 916
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:01:00+00:00",
+          "open": "150.04",
+          "high": "151.34",
+          "low": "149.89",
+          "close": "151.16",
+          "volume": 2188
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:02:00+00:00",
+          "open": "151.16",
+          "high": "151.83",
+          "low": "151.06",
+          "close": "151.56",
+          "volume": 872
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:03:00+00:00",
+          "open": "151.56",
+          "high": "151.72",
+          "low": "151.39",
+          "close": "151.53",
+          "volume": 1538
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:04:00+00:00",
+          "open": "151.53",
+          "high": "152.61",
+          "low": "151.32",
+          "close": "152.46",
+          "volume": 2572
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:05:00+00:00",
+          "open": "152.46",
+          "high": "152.53",
+          "low": "151.93",
+          "close": "152.18",
+          "volume": 1130
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:06:00+00:00",
+          "open": "152.18",
+          "high": "152.41",
+          "low": "151.98",
+          "close": "152.34",
+          "volume": 1343
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:07:00+00:00",
+          "open": "152.34",
+          "high": "152.81",
+          "low": "152.25",
+          "close": "152.33",
+          "volume": 1307
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:08:00+00:00",
+          "open": "152.33",
+          "high": "154.13",
+          "low": "152.27",
+          "close": "153.66",
+          "volume": 2462
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:09:00+00:00",
+          "open": "153.66",
+          "high": "153.83",
+          "low": "153.41",
+          "close": "153.63",
+          "volume": 793
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:10:00+00:00",
+          "open": "153.63",
+          "high": "153.89",
+          "low": "153.13",
+          "close": "153.75",
+          "volume": 1450
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:11:00+00:00",
+          "open": "153.75",
+          "high": "154.32",
+          "low": "153.38",
+          "close": "154.12",
+          "volume": 792
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:12:00+00:00",
+          "open": "154.12",
+          "high": "155.47",
+          "low": "153.90",
+          "close": "155.02",
+          "volume": 2895
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:13:00+00:00",
+          "open": "155.02",
+          "high": "155.36",
+          "low": "154.91",
+          "close": "155.28",
+          "volume": 1192
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:14:00+00:00",
+          "open": "155.28",
+          "high": "156.01",
+          "low": "155.00",
+          "close": "155.49",
+          "volume": 1598
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:15:00+00:00",
+          "open": "155.49",
+          "high": "156.24",
+          "low": "155.35",
+          "close": "155.76",
+          "volume": 932
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:16:00+00:00",
+          "open": "155.76",
+          "high": "156.24",
+          "low": "155.24",
+          "close": "155.72",
+          "volume": 1429
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:17:00+00:00",
+          "open": "155.72",
+          "high": "155.87",
+          "low": "155.63",
+          "close": "155.72",
+          "volume": 1224
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:18:00+00:00",
+          "open": "155.72",
+          "high": "155.96",
+          "low": "155.11",
+          "close": "155.58",
+          "volume": 773
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:19:00+00:00",
+          "open": "155.58",
+          "high": "157.71",
+          "low": "155.12",
+          "close": "157.47",
+          "volume": 2117
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:20:00+00:00",
+          "open": "157.47",
+          "high": "158.00",
+          "low": "157.05",
+          "close": "157.75",
+          "volume": 1012
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:21:00+00:00",
+          "open": "157.75",
+          "high": "157.85",
+          "low": "157.29",
+          "close": "157.73",
+          "volume": 1346
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:22:00+00:00",
+          "open": "157.73",
+          "high": "157.98",
+          "low": "156.95",
+          "close": "157.48",
+          "volume": 1431
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:23:00+00:00",
+          "open": "157.48",
+          "high": "158.84",
+          "low": "157.38",
+          "close": "158.50",
+          "volume": 2411
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:24:00+00:00",
+          "open": "158.50",
+          "high": "158.98",
+          "low": "157.72",
+          "close": "158.18",
+          "volume": 1336
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:25:00+00:00",
+          "open": "158.18",
+          "high": "158.69",
+          "low": "157.98",
+          "close": "158.33",
+          "volume": 766
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:26:00+00:00",
+          "open": "158.33",
+          "high": "158.86",
+          "low": "158.05",
+          "close": "158.13",
+          "volume": 997
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:27:00+00:00",
+          "open": "158.13",
+          "high": "160.10",
+          "low": "157.74",
+          "close": "159.59",
+          "volume": 2985
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:28:00+00:00",
+          "open": "159.59",
+          "high": "161.44",
+          "low": "159.32",
+          "close": "161.20",
+          "volume": 3119
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:29:00+00:00",
+          "open": "161.20",
+          "high": "161.77",
+          "low": "160.74",
+          "close": "161.36",
+          "volume": 956
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:30:00+00:00",
+          "open": "161.36",
+          "high": "161.77",
+          "low": "161.06",
+          "close": "161.22",
+          "volume": 1440
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:31:00+00:00",
+          "open": "161.22",
+          "high": "161.74",
+          "low": "160.70",
+          "close": "160.96",
+          "volume": 1554
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:32:00+00:00",
+          "open": "160.96",
+          "high": "161.17",
+          "low": "160.52",
+          "close": "160.95",
+          "volume": 1039
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:33:00+00:00",
+          "open": "160.95",
+          "high": "161.52",
+          "low": "160.51",
+          "close": "161.01",
+          "volume": 891
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:34:00+00:00",
+          "open": "161.01",
+          "high": "161.16",
+          "low": "160.96",
+          "close": "161.01",
+          "volume": 1386
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:35:00+00:00",
+          "open": "161.01",
+          "high": "161.47",
+          "low": "160.54",
+          "close": "161.01",
+          "volume": 832
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:36:00+00:00",
+          "open": "161.01",
+          "high": "161.14",
+          "low": "160.68",
+          "close": "160.76",
+          "volume": 890
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:37:00+00:00",
+          "open": "160.76",
+          "high": "161.21",
+          "low": "160.61",
+          "close": "160.98",
+          "volume": 706
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:38:00+00:00",
+          "open": "160.98",
+          "high": "162.75",
+          "low": "160.91",
+          "close": "162.60",
+          "volume": 1901
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:39:00+00:00",
+          "open": "162.60",
+          "high": "163.08",
+          "low": "162.38",
+          "close": "162.75",
+          "volume": 858
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:40:00+00:00",
+          "open": "162.75",
+          "high": "162.96",
+          "low": "162.45",
+          "close": "162.61",
+          "volume": 1574
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:41:00+00:00",
+          "open": "162.61",
+          "high": "163.38",
+          "low": "162.23",
+          "close": "162.97",
+          "volume": 1099
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:42:00+00:00",
+          "open": "162.97",
+          "high": "164.30",
+          "low": "162.81",
+          "close": "163.93",
+          "volume": 2724
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:43:00+00:00",
+          "open": "163.93",
+          "high": "164.38",
+          "low": "163.70",
+          "close": "164.32",
+          "volume": 1063
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:44:00+00:00",
+          "open": "164.32",
+          "high": "165.84",
+          "low": "164.16",
+          "close": "165.31",
+          "volume": 3317
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:45:00+00:00",
+          "open": "165.31",
+          "high": "165.80",
+          "low": "165.04",
+          "close": "165.18",
+          "volume": 1101
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:46:00+00:00",
+          "open": "165.18",
+          "high": "165.54",
+          "low": "164.75",
+          "close": "164.91",
+          "volume": 904
+        },
+        {
+          "instrument": "MSFT",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:47:00+00:00",
+          "open": "164.91",
+          "high": "165.36",
+          "low": "164.70",
+          "close": "164.95",
+          "volume": 1024
+        }
+      ]
+    },
+    {
+      "instrument": "GOOG",
+      "bars": [
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:00:00+00:00",
+          "open": "120.0",
+          "high": "120.47",
+          "low": "119.71",
+          "close": "120.22",
+          "volume": 1095
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:01:00+00:00",
+          "open": "120.22",
+          "high": "121.65",
+          "low": "120.16",
+          "close": "121.40",
+          "volume": 2473
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:02:00+00:00",
+          "open": "121.40",
+          "high": "121.82",
+          "low": "120.94",
+          "close": "121.42",
+          "volume": 1486
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:03:00+00:00",
+          "open": "121.42",
+          "high": "122.71",
+          "low": "121.16",
+          "close": "122.60",
+          "volume": 3038
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:04:00+00:00",
+          "open": "122.60",
+          "high": "123.13",
+          "low": "122.15",
+          "close": "122.75",
+          "volume": 938
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:05:00+00:00",
+          "open": "122.75",
+          "high": "122.87",
+          "low": "122.33",
+          "close": "122.60",
+          "volume": 1128
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:06:00+00:00",
+          "open": "122.60",
+          "high": "123.10",
+          "low": "121.99",
+          "close": "122.39",
+          "volume": 1072
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:07:00+00:00",
+          "open": "122.39",
+          "high": "122.77",
+          "low": "121.66",
+          "close": "122.11",
+          "volume": 1386
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:08:00+00:00",
+          "open": "122.11",
+          "high": "122.50",
+          "low": "122.04",
+          "close": "122.23",
+          "volume": 1551
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:09:00+00:00",
+          "open": "122.23",
+          "high": "122.59",
+          "low": "122.10",
+          "close": "122.20",
+          "volume": 1196
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:10:00+00:00",
+          "open": "122.20",
+          "high": "122.46",
+          "low": "121.78",
+          "close": "122.14",
+          "volume": 1427
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:11:00+00:00",
+          "open": "122.14",
+          "high": "123.32",
+          "low": "121.72",
+          "close": "123.10",
+          "volume": 3250
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:12:00+00:00",
+          "open": "123.10",
+          "high": "123.30",
+          "low": "122.63",
+          "close": "122.99",
+          "volume": 1519
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:13:00+00:00",
+          "open": "122.99",
+          "high": "124.24",
+          "low": "122.51",
+          "close": "123.97",
+          "volume": 2110
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:14:00+00:00",
+          "open": "123.97",
+          "high": "125.72",
+          "low": "123.62",
+          "close": "125.25",
+          "volume": 3201
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:15:00+00:00",
+          "open": "125.25",
+          "high": "125.75",
+          "low": "125.05",
+          "close": "125.51",
+          "volume": 1116
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:16:00+00:00",
+          "open": "125.51",
+          "high": "125.87",
+          "low": "125.32",
+          "close": "125.73",
+          "volume": 1586
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:17:00+00:00",
+          "open": "125.73",
+          "high": "125.99",
+          "low": "125.06",
+          "close": "125.59",
+          "volume": 864
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:18:00+00:00",
+          "open": "125.59",
+          "high": "125.72",
+          "low": "125.22",
+          "close": "125.31",
+          "volume": 1514
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:19:00+00:00",
+          "open": "125.31",
+          "high": "125.41",
+          "low": "124.85",
+          "close": "124.97",
+          "volume": 1383
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:20:00+00:00",
+          "open": "124.97",
+          "high": "125.41",
+          "low": "124.74",
+          "close": "125.09",
+          "volume": 1348
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:21:00+00:00",
+          "open": "125.09",
+          "high": "127.06",
+          "low": "124.90",
+          "close": "126.92",
+          "volume": 1983
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:22:00+00:00",
+          "open": "126.92",
+          "high": "126.99",
+          "low": "126.53",
+          "close": "126.72",
+          "volume": 757
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:23:00+00:00",
+          "open": "126.72",
+          "high": "127.14",
+          "low": "126.20",
+          "close": "126.91",
+          "volume": 745
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:24:00+00:00",
+          "open": "126.91",
+          "high": "129.35",
+          "low": "126.61",
+          "close": "128.86",
+          "volume": 3340
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:25:00+00:00",
+          "open": "128.86",
+          "high": "129.04",
+          "low": "127.98",
+          "close": "128.53",
+          "volume": 1571
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:26:00+00:00",
+          "open": "128.53",
+          "high": "129.68",
+          "low": "128.30",
+          "close": "129.54",
+          "volume": 2580
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:27:00+00:00",
+          "open": "129.54",
+          "high": "129.95",
+          "low": "129.00",
+          "close": "129.54",
+          "volume": 827
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:28:00+00:00",
+          "open": "129.54",
+          "high": "129.59",
+          "low": "129.20",
+          "close": "129.40",
+          "volume": 1292
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:29:00+00:00",
+          "open": "129.40",
+          "high": "129.61",
+          "low": "128.72",
+          "close": "129.05",
+          "volume": 888
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:30:00+00:00",
+          "open": "129.05",
+          "high": "129.75",
+          "low": "128.88",
+          "close": "129.36",
+          "volume": 1464
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:31:00+00:00",
+          "open": "129.36",
+          "high": "130.83",
+          "low": "129.05",
+          "close": "130.37",
+          "volume": 1905
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:32:00+00:00",
+          "open": "130.37",
+          "high": "130.81",
+          "low": "130.19",
+          "close": "130.60",
+          "volume": 1411
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:33:00+00:00",
+          "open": "130.60",
+          "high": "130.89",
+          "low": "130.37",
+          "close": "130.51",
+          "volume": 1444
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:34:00+00:00",
+          "open": "130.51",
+          "high": "131.01",
+          "low": "130.36",
+          "close": "130.48",
+          "volume": 1512
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:35:00+00:00",
+          "open": "130.48",
+          "high": "132.34",
+          "low": "130.36",
+          "close": "132.21",
+          "volume": 3385
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:36:00+00:00",
+          "open": "132.21",
+          "high": "132.69",
+          "low": "131.84",
+          "close": "131.93",
+          "volume": 1405
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:37:00+00:00",
+          "open": "131.93",
+          "high": "132.48",
+          "low": "131.47",
+          "close": "131.73",
+          "volume": 1380
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:38:00+00:00",
+          "open": "131.73",
+          "high": "133.22",
+          "low": "131.62",
+          "close": "132.78",
+          "volume": 2193
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:39:00+00:00",
+          "open": "132.78",
+          "high": "133.12",
+          "low": "132.55",
+          "close": "132.92",
+          "volume": 859
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:40:00+00:00",
+          "open": "132.92",
+          "high": "133.00",
+          "low": "132.56",
+          "close": "132.88",
+          "volume": 754
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:41:00+00:00",
+          "open": "132.88",
+          "high": "133.49",
+          "low": "132.37",
+          "close": "133.22",
+          "volume": 752
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:42:00+00:00",
+          "open": "133.22",
+          "high": "134.53",
+          "low": "132.93",
+          "close": "134.44",
+          "volume": 2036
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:43:00+00:00",
+          "open": "134.44",
+          "high": "135.34",
+          "low": "133.93",
+          "close": "134.79",
+          "volume": 1438
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:44:00+00:00",
+          "open": "134.79",
+          "high": "135.15",
+          "low": "134.56",
+          "close": "135.06",
+          "volume": 1363
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:45:00+00:00",
+          "open": "135.06",
+          "high": "135.34",
+          "low": "134.62",
+          "close": "135.08",
+          "volume": 1335
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:46:00+00:00",
+          "open": "135.08",
+          "high": "137.06",
+          "low": "134.90",
+          "close": "136.55",
+          "volume": 2510
+        },
+        {
+          "instrument": "GOOG",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:47:00+00:00",
+          "open": "136.55",
+          "high": "136.83",
+          "low": "136.00",
+          "close": "136.22",
+          "volume": 980
+        }
+      ]
+    },
+    {
+      "instrument": "AMZN",
+      "bars": [
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:00:00+00:00",
+          "open": "90.0",
+          "high": "90.34",
+          "low": "89.88",
+          "close": "90.23",
+          "volume": 1394
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:01:00+00:00",
+          "open": "90.23",
+          "high": "91.89",
+          "low": "90.14",
+          "close": "91.41",
+          "volume": 2051
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:02:00+00:00",
+          "open": "91.41",
+          "high": "91.71",
+          "low": "91.36",
+          "close": "91.56",
+          "volume": 1178
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:03:00+00:00",
+          "open": "91.56",
+          "high": "93.55",
+          "low": "91.47",
+          "close": "93.00",
+          "volume": 2185
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:04:00+00:00",
+          "open": "93.00",
+          "high": "93.36",
+          "low": "92.60",
+          "close": "92.94",
+          "volume": 1220
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:05:00+00:00",
+          "open": "92.94",
+          "high": "93.50",
+          "low": "92.41",
+          "close": "93.04",
+          "volume": 1310
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:06:00+00:00",
+          "open": "93.04",
+          "high": "93.69",
+          "low": "92.54",
+          "close": "93.20",
+          "volume": 1547
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:07:00+00:00",
+          "open": "93.20",
+          "high": "95.52",
+          "low": "93.08",
+          "close": "95.19",
+          "volume": 1912
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:08:00+00:00",
+          "open": "95.19",
+          "high": "95.50",
+          "low": "94.88",
+          "close": "95.14",
+          "volume": 1143
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:09:00+00:00",
+          "open": "95.14",
+          "high": "96.83",
+          "low": "94.97",
+          "close": "96.60",
+          "volume": 2209
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:10:00+00:00",
+          "open": "96.60",
+          "high": "97.34",
+          "low": "96.25",
+          "close": "96.99",
+          "volume": 836
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:11:00+00:00",
+          "open": "96.99",
+          "high": "97.42",
+          "low": "96.43",
+          "close": "96.67",
+          "volume": 825
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:12:00+00:00",
+          "open": "96.67",
+          "high": "97.00",
+          "low": "96.51",
+          "close": "96.59",
+          "volume": 1412
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:13:00+00:00",
+          "open": "96.59",
+          "high": "96.82",
+          "low": "96.22",
+          "close": "96.74",
+          "volume": 948
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:14:00+00:00",
+          "open": "96.74",
+          "high": "97.01",
+          "low": "96.51",
+          "close": "96.86",
+          "volume": 1147
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:15:00+00:00",
+          "open": "96.86",
+          "high": "97.43",
+          "low": "96.54",
+          "close": "97.08",
+          "volume": 1331
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:16:00+00:00",
+          "open": "97.08",
+          "high": "97.23",
+          "low": "96.59",
+          "close": "96.93",
+          "volume": 924
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:17:00+00:00",
+          "open": "96.93",
+          "high": "97.41",
+          "low": "96.41",
+          "close": "97.10",
+          "volume": 1486
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:18:00+00:00",
+          "open": "97.10",
+          "high": "98.80",
+          "low": "96.99",
+          "close": "98.29",
+          "volume": 3225
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:19:00+00:00",
+          "open": "98.29",
+          "high": "98.97",
+          "low": "98.17",
+          "close": "98.69",
+          "volume": 729
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:20:00+00:00",
+          "open": "98.69",
+          "high": "99.16",
+          "low": "98.34",
+          "close": "99.07",
+          "volume": 1519
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:21:00+00:00",
+          "open": "99.07",
+          "high": "99.67",
+          "low": "98.58",
+          "close": "99.16",
+          "volume": 1009
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:22:00+00:00",
+          "open": "99.16",
+          "high": "99.62",
+          "low": "98.84",
+          "close": "99.13",
+          "volume": 838
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:23:00+00:00",
+          "open": "99.13",
+          "high": "101.53",
+          "low": "98.80",
+          "close": "101.03",
+          "volume": 2360
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:24:00+00:00",
+          "open": "101.03",
+          "high": "101.43",
+          "low": "100.80",
+          "close": "100.98",
+          "volume": 838
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:25:00+00:00",
+          "open": "100.98",
+          "high": "101.82",
+          "low": "100.62",
+          "close": "101.30",
+          "volume": 1286
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:26:00+00:00",
+          "open": "101.30",
+          "high": "101.44",
+          "low": "100.77",
+          "close": "101.13",
+          "volume": 1325
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:27:00+00:00",
+          "open": "101.13",
+          "high": "101.58",
+          "low": "100.84",
+          "close": "100.97",
+          "volume": 768
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:28:00+00:00",
+          "open": "100.97",
+          "high": "101.12",
+          "low": "100.31",
+          "close": "100.83",
+          "volume": 1324
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:29:00+00:00",
+          "open": "100.83",
+          "high": "101.26",
+          "low": "100.69",
+          "close": "100.80",
+          "volume": 861
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:30:00+00:00",
+          "open": "100.80",
+          "high": "101.29",
+          "low": "100.29",
+          "close": "101.18",
+          "volume": 1045
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:31:00+00:00",
+          "open": "101.18",
+          "high": "103.06",
+          "low": "100.98",
+          "close": "102.94",
+          "volume": 2260
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:32:00+00:00",
+          "open": "102.94",
+          "high": "103.18",
+          "low": "102.43",
+          "close": "102.95",
+          "volume": 1006
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:33:00+00:00",
+          "open": "102.95",
+          "high": "103.80",
+          "low": "102.53",
+          "close": "103.31",
+          "volume": 1399
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:34:00+00:00",
+          "open": "103.31",
+          "high": "103.64",
+          "low": "102.72",
+          "close": "103.02",
+          "volume": 1182
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:35:00+00:00",
+          "open": "103.02",
+          "high": "103.36",
+          "low": "102.80",
+          "close": "103.16",
+          "volume": 1473
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:36:00+00:00",
+          "open": "103.16",
+          "high": "103.68",
+          "low": "103.08",
+          "close": "103.16",
+          "volume": 1383
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:37:00+00:00",
+          "open": "103.16",
+          "high": "103.61",
+          "low": "102.88",
+          "close": "103.54",
+          "volume": 1134
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:38:00+00:00",
+          "open": "103.54",
+          "high": "103.96",
+          "low": "103.00",
+          "close": "103.42",
+          "volume": 1313
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:39:00+00:00",
+          "open": "103.42",
+          "high": "105.60",
+          "low": "102.91",
+          "close": "105.05",
+          "volume": 2367
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:40:00+00:00",
+          "open": "105.05",
+          "high": "105.44",
+          "low": "104.44",
+          "close": "104.95",
+          "volume": 1333
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:41:00+00:00",
+          "open": "104.95",
+          "high": "105.68",
+          "low": "104.75",
+          "close": "105.33",
+          "volume": 819
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:42:00+00:00",
+          "open": "105.33",
+          "high": "105.94",
+          "low": "105.04",
+          "close": "105.60",
+          "volume": 1486
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:43:00+00:00",
+          "open": "105.60",
+          "high": "105.97",
+          "low": "104.94",
+          "close": "105.30",
+          "volume": 1354
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:44:00+00:00",
+          "open": "105.30",
+          "high": "105.89",
+          "low": "104.91",
+          "close": "105.64",
+          "volume": 1416
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:45:00+00:00",
+          "open": "105.64",
+          "high": "106.49",
+          "low": "105.38",
+          "close": "105.96",
+          "volume": 1264
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:46:00+00:00",
+          "open": "105.96",
+          "high": "106.44",
+          "low": "105.17",
+          "close": "105.68",
+          "volume": 783
+        },
+        {
+          "instrument": "AMZN",
+          "interval": "ONE_MINUTE",
+          "timestamp": "2026-08-10T13:47:00+00:00",
+          "open": "105.68",
+          "high": "106.23",
+          "low": "105.10",
+          "close": "105.39",
+          "volume": 1540
+        }
+      ]
+    }
+  ]
+}
