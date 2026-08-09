@@ -3,6 +3,7 @@
 from empirical_platform.identifiers.pairs import DomainIdentity, pair_identity
 from empirical_platform.identifiers.types import (
     AuditId,
+    BacktestRunId,
     CampaignId,
     DatasetId,
     DecisionCandidateId,
@@ -16,6 +17,7 @@ from empirical_platform.identifiers.types import (
 
 __all__ = [
     "AuditId",
+    "BacktestRunId",
     "CampaignId",
     "DatasetId",
     "DecisionCandidateId",

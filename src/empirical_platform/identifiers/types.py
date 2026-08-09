@@ -41,6 +41,12 @@ class DatasetId(Identifier):
     prefix = "DATASET"
 
 
+class BacktestRunId(Identifier):
+    """Historical backtest run identifier."""
+
+    prefix = "BTRUN"
+
+
 class EvidencePackageId(Identifier):
     """Evidence package identifier."""
 

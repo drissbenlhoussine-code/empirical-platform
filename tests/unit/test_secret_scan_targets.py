@@ -195,6 +195,34 @@ def test_benign_migration_revision_findings_are_filtered(tmp_path: Path) -> None
     assert _filter_benign_secret_findings(tmp_path, findings) == {}
 
 
+def test_benign_migration_revision_findings_inside_complete_diff_are_filtered(
+    tmp_path: Path,
+) -> None:
+    complete_diff = tmp_path / "external-review" / "MILESTONE-060" / "complete.diff"
+    revision = "".join(["73f4", "a1d8", "9b22"])
+    down_revision = "".join(["2565", "58a3", "3013"])
+    _write(
+        complete_diff,
+        "\n".join(
+            [
+                "@@ -1,3 +1,8 @@",
+                "+# revision identifiers, used by Alembic.",
+                f'+revision: str = "{revision}"',
+                f'+down_revision: str | None = "{down_revision}"',
+            ]
+        )
+        + "\n",
+    )
+    findings = {
+        "external-review/MILESTONE-060/complete.diff": [
+            {"type": "Hex High Entropy String", "line_number": 3},
+            {"type": "Hex High Entropy String", "line_number": 4},
+        ]
+    }
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == {}
+
+
 def test_benign_scope_document_migration_reference_is_filtered(tmp_path: Path) -> None:
     document = tmp_path / "MILESTONE_059_SCOPE.md"
     revision = "".join(["2565", "58a3", "3013"])

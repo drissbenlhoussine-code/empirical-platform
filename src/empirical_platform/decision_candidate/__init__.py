@@ -10,15 +10,48 @@ policy that can approve or reject a ranked LONG_CANDIDATE. MILESTONE-060
 adds deterministic position sizing and a capital-exposure gate on top of
 the unmodified M059 output: an explicit, versioned sizing policy that can
 approve or reject a concrete position quantity for an already-approved
-trade plan. See
+trade plan. MILESTONE-061 adds deterministic historical validation and
+backtesting on top of the unmodified M057-M060 decision logic: a fixed
+dataset, explicit execution/outcome assumptions, and immutable per-trade /
+aggregate replay evidence. See
 MILESTONE_057_TRADING_EVALUATION_SCOPE_AND_DESIGN.md,
 MILESTONE_058_TRADING_OPPORTUNITY_SCANNER_SCOPE_AND_DESIGN.md, and
 MILESTONE_059_RISK_GATED_TRADE_PLAN_SCOPE_AND_DESIGN.md,
-MILESTONE_060_POSITION_SIZING_CAPITAL_EXPOSURE_GATE_SCOPE_AND_DESIGN.md
+MILESTONE_060_POSITION_SIZING_CAPITAL_EXPOSURE_GATE_SCOPE_AND_DESIGN.md,
+MILESTONE_061_HISTORICAL_STRATEGY_VALIDATION_BACKTESTING_V1_SCOPE_AND_DESIGN.md
 for the full scope, contracts, and explicit non-profitability disclaimer.
 """
 
 from empirical_platform.decision_candidate.candidate import DecisionCandidate
+from empirical_platform.decision_candidate.historical_backtest import (
+    COST_MODEL_ID,
+    COST_MODEL_VERSION,
+    DECISION_CADENCE,
+    DEFAULT_COST_MODEL,
+    DEFAULT_EXECUTION_ASSUMPTION,
+    DEFAULT_OUTCOME_MODEL,
+    EXECUTION_ASSUMPTION_ID,
+    EXECUTION_ASSUMPTION_VERSION,
+    FIXED_TEST_UNIVERSE,
+    OUTCOME_MODEL_ID,
+    OUTCOME_MODEL_VERSION,
+    HistoricalBacktestRun,
+    HistoricalBacktestRunStatus,
+    HistoricalCostModel,
+    HistoricalDataset,
+    HistoricalDatasetAuthority,
+    HistoricalExecutionAssumption,
+    HistoricalInstrumentSeries,
+    HistoricalOutcomeModel,
+    HistoricalTradeOutcome,
+    HistoricalValidationClassification,
+    SameBarAmbiguityPolicy,
+    build_historical_backtest_run,
+    dataset_sha256,
+)
+from empirical_platform.decision_candidate.historical_backtest_repository import (
+    HistoricalBacktestRunRepository,
+)
 from empirical_platform.decision_candidate.market_data import (
     Bar,
     BarInterval,
@@ -77,6 +110,17 @@ from empirical_platform.decision_candidate.trade_plan_repository import TradePla
 __all__ = [
     "DEFAULT_RISK_POLICY",
     "DEFAULT_SIZING_POLICY",
+    "COST_MODEL_ID",
+    "COST_MODEL_VERSION",
+    "DECISION_CADENCE",
+    "DEFAULT_COST_MODEL",
+    "DEFAULT_EXECUTION_ASSUMPTION",
+    "DEFAULT_OUTCOME_MODEL",
+    "EXECUTION_ASSUMPTION_ID",
+    "EXECUTION_ASSUMPTION_VERSION",
+    "FIXED_TEST_UNIVERSE",
+    "OUTCOME_MODEL_ID",
+    "OUTCOME_MODEL_VERSION",
     "RANKING_MODEL_ID",
     "RANKING_MODEL_VERSION",
     "RISK_POLICY_ID",
@@ -92,6 +136,17 @@ __all__ = [
     "EvaluationMeasurements",
     "EvaluationOutcome",
     "EvaluationReasonCode",
+    "HistoricalBacktestRun",
+    "HistoricalBacktestRunRepository",
+    "HistoricalBacktestRunStatus",
+    "HistoricalCostModel",
+    "HistoricalDataset",
+    "HistoricalDatasetAuthority",
+    "HistoricalExecutionAssumption",
+    "HistoricalInstrumentSeries",
+    "HistoricalOutcomeModel",
+    "HistoricalTradeOutcome",
+    "HistoricalValidationClassification",
     "Instrument",
     "ObservationWindow",
     "PositionPlan",
@@ -101,6 +156,7 @@ __all__ = [
     "PositionSizing",
     "PositionSizingContext",
     "RiskPolicy",
+    "SameBarAmbiguityPolicy",
     "ScanEvaluationEntry",
     "SizingPolicy",
     "StrategyParameters",
@@ -112,10 +168,12 @@ __all__ = [
     "TradingDecision",
     "TradingOpportunityScan",
     "TradingOpportunityScanRepository",
+    "build_historical_backtest_run",
     "build_position_plan",
     "build_scan",
     "build_trade_plan",
     "compute_ranking_score",
+    "dataset_sha256",
     "evaluate",
     "validate_scan_universe",
 ]

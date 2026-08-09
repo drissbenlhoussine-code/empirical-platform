@@ -19,6 +19,9 @@ from empirical_platform.shared.persistence.postgres_repositories.decision_candid
 from empirical_platform.shared.persistence.postgres_repositories.evidence_package_repository import (  # noqa: E501
     PostgresEvidencePackageRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.historical_backtest_repository import (  # noqa: E501
+    PostgresHistoricalBacktestRunRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.position_plan_repository import (
     PostgresPositionPlanRepository,
 )
@@ -60,6 +63,7 @@ class PostgresRepositoryRuntime:
         "_trading_opportunity_scans",
         "_trade_plans",
         "_position_plans",
+        "_historical_backtests",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -76,6 +80,7 @@ class PostgresRepositoryRuntime:
         self._trading_opportunity_scans = PostgresTradingOpportunityScanRepository(service)
         self._trade_plans = PostgresTradePlanRepository(service)
         self._position_plans = PostgresPositionPlanRepository(service)
+        self._historical_backtests = PostgresHistoricalBacktestRunRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -108,6 +113,10 @@ class PostgresRepositoryRuntime:
     @property
     def position_plans(self) -> PostgresPositionPlanRepository:
         return self._position_plans
+
+    @property
+    def historical_backtests(self) -> PostgresHistoricalBacktestRunRepository:
+        return self._historical_backtests
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""
