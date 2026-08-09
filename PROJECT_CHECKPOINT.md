@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-057
+LATEST_FROZEN_MILESTONE=MILESTONE-058
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -469,8 +469,19 @@ M057_OWNER_FREEZE_COMMIT=e602e0c7374232e098d8dfafddecc7dd4ca1c685
 M057_STATUS=APPROVED_AND_FROZEN
 M057_PROFITABILITY_CLAIM=NONE_MADE
 
-M058_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-058 -- not yet selected or started; see M057 final report for a non-binding recommended direction
+M058_SCOPE=Trading Opportunity Scanner and Ranking (multi-instrument scan over the unmodified M057 strategy, deterministic ranking model)
+M058_SCOPE_STATUS=APPROVED_AND_FROZEN
+M058_DESIGN_STATUS=APPROVED_AND_FROZEN
+M058_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M058_IMPLEMENTATION_COMMIT=858045c7f027038352f214bf253db48395e01a91
+M058_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M058_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M058_OWNER_FREEZE_COMMIT=PENDING
+M058_STATUS=APPROVED_AND_FROZEN
+M058_PROFITABILITY_CLAIM=NONE_MADE
+
+M059_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-059 -- not yet selected or started; see M058 final report for a non-binding recommended direction
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1937,3 +1948,39 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-058 — not yet selected or started. See M057 final report for a non-binding recommended direction.
+
+## 76. MILESTONE-058 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_058_TRADING_OPPORTUNITY_SCANNER_SCOPE_AND_DESIGN.md` (fresh M057 implementation inventory, scan domain model, ranking-model comparison and formula, core-integration decision) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, scan-level look-ahead audit, hostile review, independent second review, owner approval).
+
+**Fresh M057 inventory.** `Bar`/`BarInterval`/`Instrument`/`ObservationWindow`/`evaluate()`/`DecisionCandidate`/`DecisionCandidateRepository` all reused entirely unchanged; `evaluate()` is called verbatim once per instrument in the scan universe. No M057 source file was modified.
+
+**Selected scope:** a bounded multi-instrument scan (`TradingOpportunityScan`, mirroring `DecisionCandidate`'s non-lifecycle shape) that evaluates every instrument through the unmodified M057 strategy, excludes `NO_TRADE` from ranking while keeping it fully persisted and auditable, and deterministically ranks the `LONG_CANDIDATE` subset via one explicit, versioned ranking model (`BREAKOUT_VOLUME_STRENGTH_SUM` v1 -- an equal-weighted sum of breakout strength and volume strength, the same two signals the M057 strategy's own conditions already measure). Linked to its target `EvidencePackage` via one `ArtifactReference` per scan (not one per instrument), since the scan's own child rows already encode per-instrument detail relationally.
+
+**Genuine bug found and fixed during implementation:** the initial migration's two `UniqueConstraint`s on `trading_opportunity_scan_evaluation` both defaulted to the same auto-generated constraint name (sharing `scan_runtime_id` as their first column), causing `DuplicateTable` on `upgrade head`. Fixed by naming both constraints explicitly; the corrected migration's upgrade/downgrade/upgrade round-trip was re-verified against a real disposable container.
+
+**Tests:** 26 new pure-domain unit tests (ranking, scan domain, look-ahead audit) plus 3 independently-authored ranking-verification tests plus one PostgreSQL acceptance suite (3 tests: full persistence/ranking/evidence-linkage with raw-SQL cross-check, deterministic replay, hand-verified score-precision cross-check). Full regression: 1195 non-integration tests passed, 243 PostgreSQL integration tests passed (6 pre-existing, unrelated skips), zero regressions across M020-M057.
+
+**Scan-level look-ahead audit:** `validate_scan_universe()`'s cutoff-matching check is a complete defense against one instrument running ahead of its peers (a window's evaluation bar is structurally its own last bar), proven by constructing a universe with one instrument carrying an extreme, would-be rank-winning bar dated after the common cutoff and confirming the whole universe is rejected before any evaluation is attempted.
+
+**Hostile review:** all 26 mission-specified questions attacked; two genuine gaps found and closed inline (ranking-order independence from universe input order; explicit ranking-model identity preservation). Zero findings remaining.
+
+**Independent second review:** a completely fresh, disposable PostgreSQL container, driven entirely through real subprocess CLI invocations -- seed chain, six-instrument scan (exact match to hand-verified expected ranking including the NVDA/TSLA tie), independent retrieval, EvidencePackage artifact-reference linkage -- cross-checked via raw `psql`. Zero CRITICAL, MAJOR, or MINOR findings.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_058_TRADING_OPPORTUNITY_SCANNER_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim is made that the ranking model identifies profitable opportunities** — it orders already-legitimate candidates by the strength of the same two signals the frozen M057 strategy already uses to decide `LONG_CANDIDATE`.
+
+**Next permitted action:** see Section 77.
+
+## 77. MILESTONE-058 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_058_TRADING_OPPORTUNITY_SCANNER_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-058 scope, design, implementation, scan-level look-ahead audit, hostile review, and independent second review as one consolidated unit.
+
+**Delivered capability, frozen:** the first deterministic trading opportunity scanner and ranker — a bounded multi-instrument universe evaluated through the unmodified M057 strategy, illegitimate candidates excluded from ranking while remaining fully auditable, and legitimate candidates deterministically ranked and persisted, composed into two real CLI entrypoints against real PostgreSQL and linked into the existing evidence/governance core.
+
+**Freeze declaration:** `M058 MACRO MILESTONE APPROVED_AND_FROZEN`. `M058 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-059 — not yet selected or started. See M058 final report for a non-binding recommended direction.
