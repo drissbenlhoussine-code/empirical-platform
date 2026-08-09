@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-062
+LATEST_FROZEN_MILESTONE=MILESTONE-063
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -524,8 +524,19 @@ M062_OWNER_FREEZE_COMMIT=5b8281e2efa7a49403004c691d902c680e6c91a9
 M062_STATUS=APPROVED_AND_FROZEN
 M062_PROFITABILITY_CLAIM=NONE_MADE
 
-M063_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-063 -- recommendation only; not started as part of M062
+M063_SCOPE=Broad Historical Robustness (10 deterministic walk-forward windows, fixed universe authority, post-hoc regime grouping, broader sample breadth, zero tuning)
+M063_SCOPE_STATUS=APPROVED_AND_FROZEN
+M063_DESIGN_STATUS=APPROVED_AND_FROZEN
+M063_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M063_IMPLEMENTATION_COMMIT=1937594b528627807e060769f9dbefb2c4590f7f
+M063_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M063_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M063_OWNER_FREEZE_COMMIT=PENDING
+M063_STATUS=APPROVED_AND_FROZEN
+M063_PROFITABILITY_CLAIM=NONE_MADE
+
+M064_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-064 -- recommendation only; not started as part of M063
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2140,3 +2151,43 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-063 — recommendation only; not started as part of M062.
+
+## 84. MILESTONE-063 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_063_BROAD_HISTORICAL_ROBUSTNESS_WALK_FORWARD_SEQUENCING_REGIME_ANALYSIS_AND_SAMPLE_EXPANSION_SCOPE_AND_DESIGN.md` (fresh validation inventory, M057-M062 reuse confirmation, dataset/universe authority, walk-forward window model, temporal-firewall design, regime policy, robustness-metric vocabulary, concentration/sensitivity model) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second review, owner approval).
+
+**Why M063 exists.** M062 proved strict holdout isolation and honest multi-period evidence recording but explicitly did not implement broader walk-forward robustness analysis. A fresh inventory confirmed zero pre-existing robustness-study or regime-analysis code anywhere in the repository. M063 answers the next honest question: can the frozen M057-M062 stack be exercised across materially broader evidence, using deterministic window authority and descriptive regime grouping, without tuning, cherry-picking, or predictive claims?
+
+**Selected design.** One fixed, checksummed six-instrument dataset bundle plus one fixed universe declaration, 10 deterministic non-overlapping windows (`warmup=5`, `scoring=8`, `buffer=3`) over 160 bars per instrument, sequence authority independent of caller order, and one descriptive regime policy (`POST_HOC_REALIZED_VOLATILITY_TERTILE` v1). No new strategy, ranking, risk, sizing, or execution engine was introduced; M063 reuses the real, unmodified M061 backtest run builder inside each window and layers transparent cross-window reporting above it.
+
+**Actual results, un-massaged.** 10 windows, 80 scored cutoffs, 59 simulated/executed trades, classification `ROBUSTNESS_EVIDENCE_MIXED`. Positive windows: 7; negative windows: 3. Best net-PnL window `W08 = 1245.30999130`; worst net-PnL window `W07 = -293.055420`; best total-R window `W05 = 18.24646990892242838850180340`; worst total-R window `W06 = -7.737888034172596900624932265`. All-window totals: net PnL `3159.55176410`, total R `33.84096575766330478385285292`. Excluding-best-window totals: net PnL `1914.24177280`, total R `15.59449584874087639535104952`.
+
+**Breadth delta, concrete.** M062 used 4 instruments, 48 bars per instrument, 3 segments, 24 scored cutoffs, and 12 executed trades. M063 increases this to 6 instruments, 160 bars per instrument, 10 windows, 80 scored cutoffs, and 59 executed trades. This is genuine evidence expansion, not row duplication.
+
+**Temporal-firewall evidence, proven twice.** Automated tests and the independent second pass both mutated only the late `W10` block and confirmed `W01`..`W09` stayed semantically identical (net PnL, total R, executed-trade count unchanged). Caller-provided window order was also attacked and shown irrelevant because `sequence_index` governs canonical ordering.
+
+**Regime evidence, non-interfering.** Windows are grouped descriptively as `HIGH_VOLATILITY`, `NORMAL_VOLATILITY`, and `LOW_VOLATILITY` only after frozen execution completes. The strongest regime by total R was `HIGH_VOLATILITY`; the weakest was `LOW_VOLATILITY`. No regime label influences decisions, rankings, plans, fills, or trade outcomes.
+
+**Tests:** focused unit, independent-verification, application, and PostgreSQL lifecycle coverage added for dataset tamper detection, universe validation, window validation, order invariance, temporal firewall, regime labeling, regime non-interference, concentration, excluding-best sensitivity, deterministic replay, persistence, and CLI behavior. Canonical validation from the repository `.venv` passed with PostgreSQL enabled: `1599 passed`, `6 skipped`, `91.33%` coverage, `mypy` clean across `204` source files, architecture checker clean, build clean, `pip-audit` clean, secret scan clean.
+
+**Hostile review:** all 50 mission-specified attacks were executed and disposed. Real inline corrections were completed where needed (helper/test identity validity, deterministic runtime-ID pool, one fake-runtime test path, scanner false-positive filtering for published fixture SHA constants). No CRITICAL or MAJOR finding remains.
+
+**Independent second review:** a genuinely separate pass using a different PostgreSQL container and real CLI subprocess only independently re-verified dataset/universe authority, re-derived window membership, repeated the late-window mutation, recomputed robustness metrics independently, re-queried raw SQL, re-checked no-tuning/no-broker/no-network/no-LLM claims, and failed to disprove the central M063 claim.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_063_BROAD_HISTORICAL_ROBUSTNESS_WALK_FORWARD_SEQUENCING_REGIME_ANALYSIS_AND_SAMPLE_EXPANSION_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or resolved survivorship bias is made anywhere in this milestone** — M063 records broader robustness evidence, it does not certify performance.
+
+**Next permitted action:** see Section 85.
+
+## 85. MILESTONE-063 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_063_BROAD_HISTORICAL_ROBUSTNESS_WALK_FORWARD_SEQUENCING_REGIME_ANALYSIS_AND_SAMPLE_EXPANSION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-063 scope, design, implementation, hostile review, independent second review, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** the first broad historical robustness study over the frozen M057-M062 execution stack — fixed dataset authority, fixed universe authority, deterministic walk-forward windows, descriptive post-hoc regime grouping, transparent cross-window robustness metrics, persisted to PostgreSQL and exposed through real run/get CLI entrypoints.
+
+**Freeze declaration:** `M063 MACRO MILESTONE APPROVED_AND_FROZEN`. `M063 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-064 — recommendation only; not started as part of M063.
