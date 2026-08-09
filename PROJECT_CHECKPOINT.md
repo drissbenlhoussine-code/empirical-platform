@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-058
+LATEST_FROZEN_MILESTONE=MILESTONE-059
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=fc5e8659d5a35b609c96a689b8b250f7f869d73d
@@ -480,8 +480,19 @@ M058_OWNER_FREEZE_COMMIT=051e438fcfc4d0e10920ed5f3c39d1d0f1c2901b
 M058_STATUS=APPROVED_AND_FROZEN
 M058_PROFITABILITY_CLAIM=NONE_MADE
 
-M059_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-059 -- not yet selected or started; see M058 final report for a non-binding recommended direction
+M059_SCOPE=Risk-Gated Trade Plan (deterministic risk policy over an already-ranked M058 opportunity, APPROVED_PLAN/REJECTED_PLAN)
+M059_SCOPE_STATUS=APPROVED_AND_FROZEN
+M059_DESIGN_STATUS=APPROVED_AND_FROZEN
+M059_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M059_IMPLEMENTATION_COMMIT=8a18999260c978e30f0dc7fc0c436d2d8fdc9a6e
+M059_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M059_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M059_OWNER_FREEZE_COMMIT=PENDING
+M059_STATUS=APPROVED_AND_FROZEN
+M059_PROFITABILITY_CLAIM=NONE_MADE
+
+M060_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-060 -- not yet selected or started; see M059 final report for a non-binding recommended direction
 ```
 
 ## 3. Frozen Milestone Summary
@@ -1982,5 +1993,43 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Freeze declaration:** `M058 MACRO MILESTONE APPROVED_AND_FROZEN`. `M058 APPROVED_AND_FROZEN`.
 
 **Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-059 — not yet selected or started. See M058 final report for a non-binding recommended direction.
+
+## 78. MILESTONE-059 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_059_RISK_GATED_TRADE_PLAN_SCOPE_AND_DESIGN.md` (risk-domain inventory and policy-authority finding, stop/target-model comparisons, risk-policy definition, provenance model, evidence-integration decision) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, look-ahead audit, hostile review, independent second review, owner approval).
+
+**Fresh M057/M058 inventory.** `DecisionCandidate`/`EvaluationOutcome`/`TradingOpportunityScan`/`build_scan()` all reused entirely unchanged; `build_trade_plan()` reads only `outcome.decision` and `outcome.measurements` from an already-persisted candidate, never raw bars. No M057 or M058 source file was modified. An exhaustive fresh risk-domain search confirmed no prior frozen risk-policy authority exists; M059 originates a minimal, explicit, versioned policy, stated plainly as a first product contract rather than historical authority.
+
+**Selected scope:** a deterministic risk gate (`TradePlan`, mirroring `DecisionCandidate`/`TradingOpportunityScan`'s own non-lifecycle shape) that computes trade geometry from an already-ranked M058 opportunity -- stop at the breakout reference high (the same value M057's own strategy already used to decide `LONG_CANDIDATE`), target a 2% projection above it (deliberately *not* a fixed multiple of risk, to avoid making the reward/risk ratio a tautological constant) -- and gates the result against one explicit, versioned policy (`REFERENCE_HIGH_BREAKOUT_RISK_GATE` v1, minimum reward/risk 2.0), producing a structured `APPROVED_PLAN` or `REJECTED_PLAN` with machine-readable reason codes. Position sizing was deliberately deferred (Option A: trade geometry only) rather than introducing account/portfolio abstractions with no consuming capability. Linked to its target `EvidencePackage` via one `ArtifactReference` per plan (not per scan, in deliberate contrast to M058), since each build is its own independent audit event.
+
+**The milestone's own thesis, proven concretely:** in the M058 six-instrument universe, the highest-ranked candidate (AMZN, #1) is rejected (`INVALID_TARGET_GEOMETRY` -- an already-extended breakout), while a lower-ranked candidate (AAPL, #4) is approved. A high ranking score does not mean an approved trade.
+
+**Tests:** 36 new pure-domain unit tests (risk policy/geometry/domain invariants, independent math verification, look-ahead audit) plus one PostgreSQL acceptance suite (7 tests: full approved/rejected lifecycle with raw-SQL cross-check, boundary-exact/just-below reward-risk cases, hostile provenance-mismatch rejection, duplicate-identity and missing-source error propagation, ratio-precision storage round-trip). Full regression: 1231 non-integration tests passed, 250 PostgreSQL integration tests passed (6 pre-existing, unrelated skips), zero regressions across M020-M058.
+
+**Look-ahead/data-time audit:** `build_trade_plan()`'s own signature carries no raw-data or wall-clock parameter; both stop and target derive solely from an already-computed, already-audited M057 measurement. Proven empirically via a cross-milestone regression trap reusing M057's own look-ahead probe fixture -- a broken M057 defense would flip the resulting rejection reason to a different, diagnostically distinguishable code, not silently pass.
+
+**Hostile review:** all 28 mission-specified questions attacked; two genuine gaps found and closed inline (missing-source-scan/candidate `AggregateNotFound` propagation; reward/risk-ratio storage-precision survival for a genuinely repeating decimal). Zero findings remaining.
+
+**Independent second review:** a completely fresh, disposable PostgreSQL container, driven entirely through real subprocess CLI invocations -- three seed chains, the M058 six-instrument scan (exact ranking match), four trade plans (exact approve/reject match including the AMZN/AAPL result above), independent retrieval, boundary-fixture scan, hostile provenance-mismatch rejection, EvidencePackage artifact-reference linkage for all four plans -- cross-checked via raw SQL and a separately-authored independent math reimplementation. Zero CRITICAL, MAJOR, or MINOR findings.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_059_RISK_GATED_TRADE_PLAN_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim is made that an approved plan is profitable** — M059 proves only that a specific, explicit, versioned risk policy's geometry conditions are satisfied.
+
+**Next permitted action:** see Section 79.
+
+## 79. MILESTONE-059 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_059_RISK_GATED_TRADE_PLAN_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-059 scope, design, implementation, look-ahead/data-time audit, hostile risk review, and independent second review as one consolidated unit.
+
+**Delivered capability, frozen:** the first deterministic risk-gated trade plan — an already-ranked M058 opportunity's trade geometry evaluated against one explicit, versioned risk policy, producing a structured, persisted, explainable `APPROVED_PLAN` or `REJECTED_PLAN`, composed into two real CLI entrypoints against real PostgreSQL and linked into the existing evidence/governance core.
+
+**Freeze declaration:** `M059 MACRO MILESTONE APPROVED_AND_FROZEN`. `M059 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-060 — not yet selected or started. **Not started or built as part of this mission.** See M059 final report for a non-binding recommended direction.
 
 **Next permitted action:** MILESTONE-059 — not yet selected or started. See M058 final report for a non-binding recommended direction.
