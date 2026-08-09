@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-063
+LATEST_FROZEN_MILESTONE=MILESTONE-064
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -535,8 +535,20 @@ M063_OWNER_FREEZE_COMMIT=a4f3a60e2f4570fd20d5ed7f7dc28af886483341
 M063_STATUS=APPROVED_AND_FROZEN
 M063_PROFITABILITY_CLAIM=NONE_MADE
 
-M064_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-064 -- recommendation only; not started as part of M063
+M064_SCOPE=Historical Dataset Authority + Time-Varying Universe Membership + Survivorship-Aware Validation (stable InstrumentId, effective-dated MembershipManifest with SHA-256 hash/tamper detection, deterministic universe_at(cutoff), per-window universe snapshots, CURRENT_UNIVERSE_BIAS_STRESS diagnostic reusing the unmodified M063 build_robustness_study())
+M064_SCOPE_STATUS=APPROVED_AND_FROZEN
+M064_DESIGN_STATUS=APPROVED_AND_FROZEN
+M064_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M064_IMPLEMENTATION_COMMIT=12a77a2
+M064_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M064_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M064_OWNER_FREEZE_COMMIT=PENDING
+M064_STATUS=APPROVED_AND_FROZEN
+M064_PROFITABILITY_CLAIM=NONE_MADE
+M064_SURVIVORSHIP_BIAS_ELIMINATION_CLAIM=NONE_MADE
+
+M065_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-065 -- recommendation only; not started as part of M064
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2191,3 +2203,39 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-064 — recommendation only; not started as part of M063.
+
+## 86. MILESTONE-064 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_064_HISTORICAL_DATASET_AUTHORITY_AND_SURVIVORSHIP_AWARE_VALIDATION_SCOPE_AND_DESIGN.md` (independently re-verified fresh inventory, MiniMax candidate-design disposition, all ten deferred design questions resolved, module placement, persistence shape, classification vocabulary) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second review, owner approval).
+
+**Why M064 exists.** M063's own freeze document persisted `SURVIVORSHIP_BIAS_NOT_ADDRESSED` because its robustness study evaluated the same six canonical constituents at every historical cutoff, regardless of whether a real market would have delisted, added, or suspended any of them during that period. A candidate design document, produced by another assisting agent (MiniMax) and left untracked in the working tree, proposed making historical universe membership first-class. M064 independently re-verified that candidate against live source (confirming instrument-master/membership-record/`universe_at()`/membership-hash/bias-stress code was genuinely absent, and correcting two claims: M063 already ships `RobustnessUniverseAuthority` as first-class output, and a separate `dataset_authority.py` module would have duplicated it), refined it, and implemented it in one end-to-end mission.
+
+**Selected design.** A stable `InstrumentId` identity layer keyed by membership records; an effective-dated `MembershipManifest` with `[effective_from, effective_to)` half-open interval semantics and a canonical SHA-256 manifest hash; a deterministic `universe_at(manifest, cutoff)` eligibility derivation; a `SurvivorshipAwareRobustnessStudy` that gates each window's evaluated instruments by historical membership instead of the final universe; and a `CURRENT_UNIVERSE_BIAS_STRESS` diagnostic that is literally a second, unmodified call to the real M063 `build_robustness_study()` against the identical dataset bundle — no second "stress engine" was written. Five new PostgreSQL tables, purely additive (zero deletions across every frozen M020-M063 file, verified via `git diff --stat` against the M063 freeze baseline).
+
+**Actual results, un-massaged.** The canonical fixture reuses the M063 fixture's own bar data byte-for-byte, with a designed membership timeline (later entrant, early exit, middle-period member, always-present survivor, inactive-like historical member) layered on top. Eligible-instrument count per window: `4, 5, 6, 6, 5, 4, 4, 3, 3, 3`. Classification `SURVIVORSHIP_AWARE_MEMBERSHIP_MECHANICS_PROVEN`, `total_executed_trade_count = 35` (vs. M063's own `59` when the fixed full universe is forced onto every window via the stress diagnostic — `CURRENT_UNIVERSE_BIAS_STRESS_DIFFERS`, a genuine, unforced divergence).
+
+**Future-membership firewall, proven twice with different instruments.** The formal test suite mutated `AAPL`'s own membership boundary and confirmed windows W01-W09 stayed byte-identical while W10 changed as expected; the independent second pass repeated the identical attack using `NVDA` instead, via a genuinely different, freshly-provisioned PostgreSQL container and the real installed CLI executable (not `python -m`), with the same result.
+
+**Tests:** 66 new pure-domain unit tests (instrument-master, membership boundary/hash/order-independence, `universe_at()` cutoff boundaries plus a separately-authored independent derivation, and the large `survivorship_study` integration test class covering the canonical fixture, bias-stress diagnostic, window-order independence, the future-membership firewall, zero-eligible-window handling, missing-data exclusion, deterministic replay, multi-universe coexistence, and the dataset/membership-universe-mismatch gap found during hostile review), plus a 4-test PostgreSQL acceptance suite (full lifecycle with raw-SQL cross-check, real CLI subprocess, membership tamper rejection, future-membership-edit firewall). Full regression: 1396 non-integration tests passed (81.86% coverage), 278 PostgreSQL integration tests passed (6 pre-existing, unrelated skips), zero regressions across M020-M063.
+
+**Hostile review:** one genuine gap found and fixed inline — `build_survivorship_aware_robustness_study()` did not validate that the membership manifest's own universe identity matched the dataset bundle's declared universe authority, allowing a caller to silently persist a study whose reported universe did not match the data it was built from; an explicit `ValueError` check was added and covered by a dedicated test. A second, test-only defect (a bare-string comparison against `InstrumentId` value objects that could never be `True`) was caught and corrected during formal PostgreSQL acceptance. No CRITICAL or MAJOR finding remains open.
+
+**Independent second review:** a genuinely different, freshly-created PostgreSQL container, driven entirely through the real installed CLI executable, independently recomputed the membership-manifest hash and dataset-bundle hash from raw file bytes (matching production exactly), independently re-derived eligible sets for all 10 windows plus an exact join-instant boundary check, repeated the future-membership firewall attack with a different instrument than the formal test used, inspected raw SQL for both a baseline and a mutated study coexisting in the same container, and repeated the no-optimization/no-cherry-picking/no-broker/no-network/no-LLM grep audit across the entire delta. Zero blocking findings beyond the one already fixed before this pass began.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_064_HISTORICAL_DATASET_AUTHORITY_AND_SURVIVORSHIP_AWARE_VALIDATION_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or eliminated survivorship bias is made anywhere in this milestone** — M064 makes historical universe membership explicit and proves the mechanics honestly; it does not certify performance or claim the synthetic fixture represents a real market.
+
+**Next permitted action:** see Section 87.
+
+## 87. MILESTONE-064 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_064_HISTORICAL_DATASET_AUTHORITY_AND_SURVIVORSHIP_AWARE_VALIDATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-064 scope, design, implementation, hostile review, independent second review, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** at every historical scoring cutoff, the platform now derives the eligible instrument set from immutable, effective-dated, hash-verified membership authority instead of assuming the final surviving universe always applied — later entrants cannot appear early, exited/inactive historical members remain historically queryable, future membership changes cannot alter earlier windows, and a diagnostic honestly measures how much the membership-gating changed the result versus forcing the current universe backward, all built on the unmodified M057-M063 execution stack.
+
+**Freeze declaration:** `M064 MACRO MILESTONE APPROVED_AND_FROZEN`. `M064 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-065 — recommendation only; not started as part of M064.
