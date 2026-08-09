@@ -90,6 +90,8 @@ empirical-platform-run-trading-opportunity-scan = "empirical_platform.entrypoint
 empirical-platform-get-trading-opportunity-scan = "empirical_platform.entrypoints.get_trading_opportunity_scan:main"
 empirical-platform-build-trade-plan = "empirical_platform.entrypoints.build_trade_plan:main"
 empirical-platform-get-trade-plan = "empirical_platform.entrypoints.get_trade_plan:main"
+empirical-platform-build-position-plan = "empirical_platform.entrypoints.build_position_plan:main"
+empirical-platform-get-position-plan = "empirical_platform.entrypoints.get_position_plan:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -30,9 +30,9 @@ function Get-SecretScanTargets {
 Invoke-Checked python @("-m", "pip_audit")
 $SecretScanTargets = Get-SecretScanTargets
 Write-Host "Secret scan target count: $($SecretScanTargets.Count)"
-$SecretScanOutput = & python -m detect_secrets scan @SecretScanTargets
+$SecretScanOutput = & python tools/secret_scan_targets.py --scan-json
 if ($LASTEXITCODE -ne 0) {
-    throw "Command failed with exit code ${LASTEXITCODE}: python -m detect_secrets scan <source targets>"
+    throw "Command failed with exit code ${LASTEXITCODE}: python tools/secret_scan_targets.py --scan-json"
 }
 $SecretScanJson = $SecretScanOutput | ConvertFrom-Json
 $SecretFindings = @($SecretScanJson.results.PSObject.Properties | Where-Object { $_.MemberType -eq "NoteProperty" })

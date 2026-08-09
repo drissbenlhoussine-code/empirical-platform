@@ -23,6 +23,10 @@ from empirical_platform.usecases.authorize_run import (
     AuthorizeRunCommand,
     AuthorizeRunHandler,
 )
+from empirical_platform.usecases.build_position_plan import (
+    BuildPositionPlanCommand,
+    BuildPositionPlanHandler,
+)
 from empirical_platform.usecases.cancel_campaign import (
     CancelCampaignCommand,
     CancelCampaignHandler,
@@ -65,6 +69,10 @@ from empirical_platform.usecases.get_evidence_package import (
     GetEvidencePackageHandler,
     GetEvidencePackageQuery,
 )
+from empirical_platform.usecases.get_position_plan import (
+    GetPositionPlanHandler,
+    GetPositionPlanQuery,
+)
 from empirical_platform.usecases.get_review import (
     GetReviewHandler,
     GetReviewQuery,
@@ -105,6 +113,8 @@ __all__ = [
     "AddReviewFindingHandler",
     "AuthorizeRunCommand",
     "AuthorizeRunHandler",
+    "BuildPositionPlanCommand",
+    "BuildPositionPlanHandler",
     "CampaignSnapshot",
     "CancelCampaignCommand",
     "CancelCampaignHandler",
@@ -127,6 +137,8 @@ __all__ = [
     "GetCampaignQuery",
     "GetEvidencePackageHandler",
     "GetEvidencePackageQuery",
+    "GetPositionPlanHandler",
+    "GetPositionPlanQuery",
     "GetReviewHandler",
     "GetReviewQuery",
     "GetRunHandler",

@@ -8,8 +8,10 @@ from empirical_platform.identifiers.types import (
     DecisionCandidateId,
     EvidencePackageId,
     Identifier,
+    PositionPlanId,
     ReviewId,
     RunId,
+    TradePlanId,
 )
 
 __all__ = [
@@ -20,7 +22,9 @@ __all__ = [
     "DomainIdentity",
     "EvidencePackageId",
     "Identifier",
+    "PositionPlanId",
     "ReviewId",
     "RunId",
+    "TradePlanId",
     "pair_identity",
 ]

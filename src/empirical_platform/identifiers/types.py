@@ -75,3 +75,9 @@ class TradePlanId(Identifier):
     """Risk-gated trade plan identifier."""
 
     prefix = "PLAN"
+
+
+class PositionPlanId(Identifier):
+    """Position-sizing and capital-risk-gated plan identifier."""
+
+    prefix = "POS"
