@@ -34,6 +34,11 @@ from empirical_platform.shared.persistence.postgres_repositories.robustness_stud
 from empirical_platform.shared.persistence.postgres_repositories.run_repository import (
     PostgresRunRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.survivorship_study_repository import (  # noqa: E501
+    PostgresInstrumentMasterRepository,
+    PostgresSurvivorshipAwareRobustnessStudyRepository,
+    PostgresUniverseMembershipRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.trade_plan_repository import (
     PostgresTradePlanRepository,
 )
@@ -72,6 +77,9 @@ class PostgresRepositoryRuntime:
         "_historical_backtests",
         "_validation_studies",
         "_robustness_studies",
+        "_survivorship_studies",
+        "_instrument_masters",
+        "_universe_memberships",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -91,6 +99,9 @@ class PostgresRepositoryRuntime:
         self._historical_backtests = PostgresHistoricalBacktestRunRepository(service)
         self._validation_studies = PostgresHistoricalValidationStudyRepository(service)
         self._robustness_studies = PostgresHistoricalRobustnessStudyRepository(service)
+        self._survivorship_studies = PostgresSurvivorshipAwareRobustnessStudyRepository(service)
+        self._instrument_masters = PostgresInstrumentMasterRepository(service)
+        self._universe_memberships = PostgresUniverseMembershipRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -135,6 +146,18 @@ class PostgresRepositoryRuntime:
     @property
     def robustness_studies(self) -> PostgresHistoricalRobustnessStudyRepository:
         return self._robustness_studies
+
+    @property
+    def survivorship_studies(self) -> PostgresSurvivorshipAwareRobustnessStudyRepository:
+        return self._survivorship_studies
+
+    @property
+    def instrument_masters(self) -> PostgresInstrumentMasterRepository:
+        return self._instrument_masters
+
+    @property
+    def universe_memberships(self) -> PostgresUniverseMembershipRepository:
+        return self._universe_memberships
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""

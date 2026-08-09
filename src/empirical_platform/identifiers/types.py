@@ -99,3 +99,10 @@ class RobustnessStudyId(Identifier):
     """Broad historical robustness study identifier."""
 
     prefix = "ROBUST"
+
+
+class SurvivorshipStudyId(Identifier):
+    """Survivorship-aware (time-varying universe membership) robustness
+    study identifier."""
+
+    prefix = "SURV"

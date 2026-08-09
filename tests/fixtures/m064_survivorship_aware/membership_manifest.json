@@ -1,0 +1,55 @@
+{
+  "records": [
+    {
+      "effective_from": "2020-01-01T00:00:00+00:00",
+      "effective_to": null,
+      "instrument_id": "INSTR-AAPL-001",
+      "membership_status": "ACTIVE",
+      "source_kind": "SURVIVORSHIP_AWARE_MECHANICS_FIXTURE"
+    },
+    {
+      "effective_from": "2020-01-01T00:00:00+00:00",
+      "effective_to": null,
+      "instrument_id": "INSTR-NVDA-001",
+      "membership_status": "ACTIVE",
+      "source_kind": "SURVIVORSHIP_AWARE_MECHANICS_FIXTURE"
+    },
+    {
+      "effective_from": "2026-08-10T13:37:00+00:00",
+      "effective_to": null,
+      "instrument_id": "INSTR-AMZN-001",
+      "membership_status": "ACTIVE",
+      "source_kind": "SURVIVORSHIP_AWARE_MECHANICS_FIXTURE"
+    },
+    {
+      "effective_from": "2020-01-01T00:00:00+00:00",
+      "effective_to": "2026-08-10T14:25:00+00:00",
+      "instrument_id": "INSTR-GOOG-001",
+      "membership_status": "ACTIVE",
+      "source_kind": "SURVIVORSHIP_AWARE_MECHANICS_FIXTURE"
+    },
+    {
+      "effective_from": "2026-08-10T13:21:00+00:00",
+      "effective_to": "2026-08-10T14:57:00+00:00",
+      "instrument_id": "INSTR-MSFT-001",
+      "membership_status": "ACTIVE",
+      "source_kind": "SURVIVORSHIP_AWARE_MECHANICS_FIXTURE"
+    },
+    {
+      "effective_from": "2020-01-01T00:00:00+00:00",
+      "effective_to": "2026-08-10T14:09:00+00:00",
+      "instrument_id": "INSTR-TSLA-001",
+      "membership_status": "ACTIVE",
+      "source_kind": "SURVIVORSHIP_AWARE_MECHANICS_FIXTURE"
+    },
+    {
+      "effective_from": "2026-08-10T14:09:00+00:00",
+      "effective_to": null,
+      "instrument_id": "INSTR-TSLA-001",
+      "membership_status": "INACTIVE_LIKE",
+      "source_kind": "SURVIVORSHIP_AWARE_MECHANICS_FIXTURE"
+    }
+  ],
+  "universe_id": "UNIVERSE-6401",
+  "universe_version": "1"
+}

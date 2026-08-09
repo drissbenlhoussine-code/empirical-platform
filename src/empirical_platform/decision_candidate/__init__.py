@@ -52,11 +52,25 @@ from empirical_platform.decision_candidate.historical_backtest import (
 from empirical_platform.decision_candidate.historical_backtest_repository import (
     HistoricalBacktestRunRepository,
 )
+from empirical_platform.decision_candidate.historical_universe import universe_at
+from empirical_platform.decision_candidate.instrument_master import (
+    InstrumentId,
+    InstrumentMaster,
+    InstrumentMasterEntry,
+    InstrumentType,
+)
 from empirical_platform.decision_candidate.market_data import (
     Bar,
     BarInterval,
     Instrument,
     ObservationWindow,
+)
+from empirical_platform.decision_candidate.membership import (
+    MembershipManifest,
+    MembershipRecord,
+    MembershipStatus,
+    canonical_membership_payload,
+    membership_manifest_hash,
 )
 from empirical_platform.decision_candidate.position_plan import (
     DEFAULT_SIZING_POLICY,
@@ -115,6 +129,22 @@ from empirical_platform.decision_candidate.strategy import (
     TradingDecision,
     evaluate,
 )
+from empirical_platform.decision_candidate.survivorship_study import (
+    CORPORATE_ACTION_HANDLING_NOT_EXERCISED,
+    HISTORICAL_MEMBERSHIP_MODEL,
+    BiasStressComparison,
+    CurrentUniverseBiasStressResult,
+    StressWindowComparison,
+    SurvivorshipAwareRobustnessStudy,
+    SurvivorshipClassification,
+    SurvivorshipStudyStatus,
+    SurvivorshipWindowResult,
+    WindowUniverseSnapshot,
+    build_survivorship_aware_robustness_study,
+)
+from empirical_platform.decision_candidate.survivorship_study_repository import (
+    SurvivorshipAwareRobustnessStudyRepository,
+)
 from empirical_platform.decision_candidate.trade_plan import (
     DEFAULT_RISK_POLICY,
     RISK_POLICY_ID,
@@ -127,6 +157,7 @@ from empirical_platform.decision_candidate.trade_plan import (
     build_trade_plan,
 )
 from empirical_platform.decision_candidate.trade_plan_repository import TradePlanRepository
+from empirical_platform.decision_candidate.universe_authority import UniverseAuthority
 from empirical_platform.decision_candidate.validation_study import (
     SURVIVORSHIP_BIAS_DISCLOSURE,
     HistoricalValidationStudy,
@@ -242,4 +273,27 @@ __all__ = [
     "evaluate",
     "regime_breakdown",
     "validate_scan_universe",
+    "InstrumentId",
+    "InstrumentMaster",
+    "InstrumentMasterEntry",
+    "InstrumentType",
+    "MembershipManifest",
+    "MembershipRecord",
+    "MembershipStatus",
+    "UniverseAuthority",
+    "CORPORATE_ACTION_HANDLING_NOT_EXERCISED",
+    "HISTORICAL_MEMBERSHIP_MODEL",
+    "BiasStressComparison",
+    "CurrentUniverseBiasStressResult",
+    "StressWindowComparison",
+    "SurvivorshipAwareRobustnessStudy",
+    "SurvivorshipAwareRobustnessStudyRepository",
+    "SurvivorshipClassification",
+    "SurvivorshipStudyStatus",
+    "SurvivorshipWindowResult",
+    "WindowUniverseSnapshot",
+    "build_survivorship_aware_robustness_study",
+    "canonical_membership_payload",
+    "membership_manifest_hash",
+    "universe_at",
 ]

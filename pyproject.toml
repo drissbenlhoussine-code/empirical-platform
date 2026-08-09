@@ -98,6 +98,8 @@ empirical-platform-run-historical-validation-study = "empirical_platform.entrypo
 empirical-platform-get-historical-validation-study = "empirical_platform.entrypoints.get_historical_validation_study:main"
 empirical-platform-run-historical-robustness-study = "empirical_platform.entrypoints.run_historical_robustness_study:main"
 empirical-platform-get-historical-robustness-study = "empirical_platform.entrypoints.get_historical_robustness_study:main"
+empirical-platform-run-survivorship-aware-robustness-study = "empirical_platform.entrypoints.run_survivorship_aware_robustness_study:main"
+empirical-platform-get-survivorship-aware-robustness-study = "empirical_platform.entrypoints.get_survivorship_aware_robustness_study:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
