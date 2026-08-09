@@ -3,11 +3,14 @@
 MILESTONE-057 gave this boundary its first real behavior: a deterministic,
 versioned trading-strategy evaluation over real-shaped market bar data,
 producing an immutable, persisted, auditable `DecisionCandidate`. MILESTONE-058
-adds a multi-instrument opportunity scan and deterministic ranking on top of
-the unmodified M057 evaluation. See
-MILESTONE_057_TRADING_EVALUATION_SCOPE_AND_DESIGN.md and
-MILESTONE_058_TRADING_OPPORTUNITY_SCANNER_SCOPE_AND_DESIGN.md for the full
-scope, contracts, and explicit non-profitability disclaimer.
+added a multi-instrument opportunity scan and deterministic ranking on top of
+the unmodified M057 evaluation. MILESTONE-059 adds a risk-gated trade plan
+on top of the unmodified M057/M058 outputs: an explicit, versioned risk
+policy that can approve or reject a ranked LONG_CANDIDATE. See
+MILESTONE_057_TRADING_EVALUATION_SCOPE_AND_DESIGN.md,
+MILESTONE_058_TRADING_OPPORTUNITY_SCANNER_SCOPE_AND_DESIGN.md, and
+MILESTONE_059_RISK_GATED_TRADE_PLAN_SCOPE_AND_DESIGN.md for the full scope,
+contracts, and explicit non-profitability disclaimer.
 """
 
 from empirical_platform.decision_candidate.candidate import DecisionCandidate
@@ -40,10 +43,25 @@ from empirical_platform.decision_candidate.strategy import (
     TradingDecision,
     evaluate,
 )
+from empirical_platform.decision_candidate.trade_plan import (
+    DEFAULT_RISK_POLICY,
+    RISK_POLICY_ID,
+    RISK_POLICY_VERSION,
+    RiskPolicy,
+    TradePlan,
+    TradePlanGeometry,
+    TradePlanRejectionReason,
+    TradePlanStatus,
+    build_trade_plan,
+)
+from empirical_platform.decision_candidate.trade_plan_repository import TradePlanRepository
 
 __all__ = [
+    "DEFAULT_RISK_POLICY",
     "RANKING_MODEL_ID",
     "RANKING_MODEL_VERSION",
+    "RISK_POLICY_ID",
+    "RISK_POLICY_VERSION",
     "STRATEGY_ID",
     "STRATEGY_VERSION",
     "Bar",
@@ -55,12 +73,19 @@ __all__ = [
     "EvaluationReasonCode",
     "Instrument",
     "ObservationWindow",
+    "RiskPolicy",
     "ScanEvaluationEntry",
     "StrategyParameters",
+    "TradePlan",
+    "TradePlanGeometry",
+    "TradePlanRejectionReason",
+    "TradePlanRepository",
+    "TradePlanStatus",
     "TradingDecision",
     "TradingOpportunityScan",
     "TradingOpportunityScanRepository",
     "build_scan",
+    "build_trade_plan",
     "compute_ranking_score",
     "evaluate",
     "validate_scan_universe",

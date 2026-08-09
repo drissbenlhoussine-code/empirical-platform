@@ -69,3 +69,9 @@ class TradingOpportunityScanId(Identifier):
     """Trading opportunity scan identifier."""
 
     prefix = "SCAN"
+
+
+class TradePlanId(Identifier):
+    """Risk-gated trade plan identifier."""
+
+    prefix = "PLAN"

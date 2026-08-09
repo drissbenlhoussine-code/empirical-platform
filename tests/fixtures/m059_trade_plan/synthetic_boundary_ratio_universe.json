@@ -1,0 +1,26 @@
+{
+  "instruments": [
+    {
+      "decision_candidate_governance_id": "DCAND-9301",
+      "bars": [
+        {"instrument": "BNDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "BNDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "BNDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "BNDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "BNDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "BNDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.40", "high": "101.50", "low": "100.30", "close": "101.17", "volume": "1100"}
+      ]
+    },
+    {
+      "decision_candidate_governance_id": "DCAND-9302",
+      "bars": [
+        {"instrument": "BNDB", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "BNDB", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "BNDB", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "BNDB", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "BNDB", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "BNDB", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.40", "high": "101.50", "low": "100.30", "close": "101.18", "volume": "1100"}
+      ]
+    }
+  ]
+}

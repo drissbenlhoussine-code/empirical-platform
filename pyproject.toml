@@ -88,6 +88,8 @@ empirical-platform-evaluate-trading-observation = "empirical_platform.entrypoint
 empirical-platform-get-decision-candidate = "empirical_platform.entrypoints.get_decision_candidate:main"
 empirical-platform-run-trading-opportunity-scan = "empirical_platform.entrypoints.run_trading_opportunity_scan:main"
 empirical-platform-get-trading-opportunity-scan = "empirical_platform.entrypoints.get_trading_opportunity_scan:main"
+empirical-platform-build-trade-plan = "empirical_platform.entrypoints.build_trade_plan:main"
+empirical-platform-get-trade-plan = "empirical_platform.entrypoints.get_trade_plan:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
