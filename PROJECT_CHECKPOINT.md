@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-061
+LATEST_FROZEN_MILESTONE=MILESTONE-062
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -513,8 +513,19 @@ M061_OWNER_FREEZE_COMMIT=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
 M061_STATUS=APPROVED_AND_FROZEN
 M061_PROFITABILITY_CLAIM=NONE_MADE
 
-M062_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-062 -- recommendation only; not started as part of M061
+M062_SCOPE=Broader Historical Validation (multi-period study, one DEVELOPMENT_REFERENCE + two independent HOLDOUT segments, strict data isolation, zero parameter tuning)
+M062_SCOPE_STATUS=APPROVED_AND_FROZEN
+M062_DESIGN_STATUS=APPROVED_AND_FROZEN
+M062_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M062_IMPLEMENTATION_COMMIT=0fbf53a9b08d68af9338f63c7bc80be8ef6f31a2
+M062_MACRO_REVIEW_STATUS=APPROVED_ZERO_FINDINGS
+M062_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M062_OWNER_FREEZE_COMMIT=PENDING
+M062_STATUS=APPROVED_AND_FROZEN
+M062_PROFITABILITY_CLAIM=NONE_MADE
+
+M063_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-063 -- recommendation only; not started as part of M062
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2093,3 +2104,39 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-061 — recommendation only; not started as part of M060.
+
+## 82. MILESTONE-062 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_062_BROADER_HISTORICAL_VALIDATION_SCOPE_AND_DESIGN.md` (fresh validation inventory, M061 reuse confirmation, dataset-bundle authority, segment model, warmup/lookback boundary, holdout-firewall design, classification vocabulary, survivorship/sample-size disclosure) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, holdout-firewall/tamper/replay evidence, hostile review, independent second review, owner approval).
+
+**Why M062 exists.** M061's own freeze document explicitly disclaimed "the strategy is robust out-of-sample" and "survivorship bias is absent" as claims it does not make, and explicitly noted it does not implement walk-forward analysis. A fresh inventory confirmed zero pre-existing multi-period-validation code anywhere in the repository. M062 answers the narrower, honest question M061 left open: can the frozen M057-M061 stack be evaluated across a development-reference period and two independent holdout periods, with strict temporal/data isolation, without allowing holdout results to influence anything upstream?
+
+**Selected design.** One `DEVELOPMENT_REFERENCE` segment plus exactly two `HOLDOUT` segments, each a private, non-overlapping, contiguous 16-bar block (`warmup=5` matching `reference_window_size`, `scoring=8` scored decision cutoffs, `buffer=3` matching `holding_horizon_bars`) over one continuous, deterministically-generated four-instrument fixture. No segment's `HistoricalDataset` slice, fed to the real, unmodified M061 `build_historical_backtest_run()`, ever includes a bar belonging to another segment — the complete holdout/data-isolation firewall, achieved through dataset slicing alone rather than any new engine logic. Zero parameter tuning: the identical frozen M057-M061 policy stack runs across all three segments, verified byte-identical via raw SQL. Dataset tamper detection (`parse_validation_dataset_bundle_file`) rejects a mismatched SHA-256 before any parsing or persistence.
+
+**Actual results, un-massaged.** DEVELOPMENT_REFERENCE: 4/4 executed trades won, net PnL 933.85, total R 14.31. HOLDOUT_1: 1/3 won, net PnL 64.58, total R -0.59. HOLDOUT_2: 3/5 won, net PnL 383.23, total R 5.45. Both holdouts underperform the development reference — the fixture's generation parameters were fixed once, before any result was inspected, and never adjusted afterward.
+
+**Tests:** 30 new pure-domain unit tests (segment/bundle validation including hostile boundary cases, zero-trade-segment handling, instrument-order independence, cross-segment policy-identity preservation), 3 independently-authored verification tests (own SHA-256 computation, own segment-range derivation, and a full from-scratch reimplementation of the HOLDOUT_1 trade simulation matching production exactly), and one 8-test PostgreSQL acceptance suite (full lifecycle with raw-SQL cross-check, dataset-tamper rejection, two independent holdout-firewall mutation attacks, deterministic replay, duplicate-identity rejection, multi-study coexistence, real subprocess CLI evidence). Full regression: 1302 non-integration tests passed (81.71% coverage), 266 PostgreSQL integration tests passed (6 pre-existing, unrelated skips), zero regressions across M020-M061.
+
+**Holdout-firewall evidence, proven three times:** mutating `HOLDOUT_2`'s entire private block leaves `DEVELOPMENT_REFERENCE`/`HOLDOUT_1` unchanged; mutating `DEVELOPMENT_REFERENCE`'s own scoring range leaves both holdouts unchanged; the independent second pass repeated the attack against `HOLDOUT_1` itself (the segment adjacent to both neighbors) and confirmed neither neighbor was affected in either direction.
+
+**Hostile review:** all 38 mission-specified questions attacked; every one covered by a real test or a direct source/grep-audit disposition. Zero findings — no corrections were required beyond what was already built into the implementation from the start.
+
+**Independent second review:** a genuinely different, freshly-provisioned PostgreSQL container, driven entirely through real subprocess CLI invocations — full study run matching hand-verified results exactly, raw-SQL policy-identity cross-check, independent tamper-attack repetition, independent holdout-mutation attack against a different segment, independent deterministic-replay repetition, a repeated tuning/broker/network/LLM grep audit, and a deliberate attempt to disprove the central product claim that failed to find any defect. Zero CRITICAL, MAJOR, or MINOR findings.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_062_BROADER_HISTORICAL_VALIDATION_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or resolved survivorship bias is made anywhere in this milestone** — M062 records evidence, it does not certify performance.
+
+**Next permitted action:** see Section 83.
+
+## 83. MILESTONE-062 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_062_BROADER_HISTORICAL_VALIDATION_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-062 scope, design, implementation, hostile review, and independent second review as one consolidated unit.
+
+**Delivered capability, frozen:** the first controlled multi-period historical validation study with strict holdout separation — one development-reference segment plus two independently-isolated holdout segments, each executed through the unmodified M061 backtesting engine with zero parameter tuning, composed into two real CLI entrypoints against real PostgreSQL and linked to the unmodified M061 per-trade evidence.
+
+**Freeze declaration:** `M062 MACRO MILESTONE APPROVED_AND_FROZEN`. `M062 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-063 — recommendation only; not started as part of M062.
