@@ -25,6 +25,9 @@ from empirical_platform.shared.persistence.postgres_repositories.review_reposito
 from empirical_platform.shared.persistence.postgres_repositories.run_repository import (
     PostgresRunRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.trading_opportunity_scan_repository import (  # noqa: E501
+    PostgresTradingOpportunityScanRepository,
+)
 
 
 class PostgresRepositoryRuntime:
@@ -48,6 +51,7 @@ class PostgresRepositoryRuntime:
         "_evidence_packages",
         "_reviews",
         "_decision_candidates",
+        "_trading_opportunity_scans",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -61,6 +65,7 @@ class PostgresRepositoryRuntime:
         self._evidence_packages = PostgresEvidencePackageRepository(service)
         self._reviews = PostgresReviewRepository(service)
         self._decision_candidates = PostgresDecisionCandidateRepository(service)
+        self._trading_opportunity_scans = PostgresTradingOpportunityScanRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -81,6 +86,10 @@ class PostgresRepositoryRuntime:
     @property
     def decision_candidates(self) -> PostgresDecisionCandidateRepository:
         return self._decision_candidates
+
+    @property
+    def trading_opportunity_scans(self) -> PostgresTradingOpportunityScanRepository:
+        return self._trading_opportunity_scans
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""

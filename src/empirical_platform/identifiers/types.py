@@ -63,3 +63,9 @@ class DecisionCandidateId(Identifier):
     """Decision candidate identifier."""
 
     prefix = "DCAND"
+
+
+class TradingOpportunityScanId(Identifier):
+    """Trading opportunity scan identifier."""
+
+    prefix = "SCAN"

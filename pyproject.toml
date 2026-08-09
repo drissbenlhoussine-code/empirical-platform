@@ -86,6 +86,8 @@ empirical-platform-resume-campaign = "empirical_platform.entrypoints.resume_camp
 empirical-platform-complete-campaign = "empirical_platform.entrypoints.complete_campaign:main"
 empirical-platform-evaluate-trading-observation = "empirical_platform.entrypoints.evaluate_trading_observation:main"
 empirical-platform-get-decision-candidate = "empirical_platform.entrypoints.get_decision_candidate:main"
+empirical-platform-run-trading-opportunity-scan = "empirical_platform.entrypoints.run_trading_opportunity_scan:main"
+empirical-platform-get-trading-opportunity-scan = "empirical_platform.entrypoints.get_trading_opportunity_scan:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

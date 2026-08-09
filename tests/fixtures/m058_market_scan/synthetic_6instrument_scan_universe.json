@@ -1,0 +1,70 @@
+{
+  "instruments": [
+    {
+      "decision_candidate_governance_id": "DCAND-8101",
+      "bars": [
+        {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "AAPL", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.35", "high": "101.20", "low": "100.30", "close": "101.10", "volume": "1600"}
+      ]
+    },
+    {
+      "decision_candidate_governance_id": "DCAND-8102",
+      "bars": [
+        {"instrument": "MSFT", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "MSFT", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "MSFT", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "MSFT", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "MSFT", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "MSFT", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.35", "high": "100.45", "low": "100.30", "close": "100.40", "volume": "900"}
+      ]
+    },
+    {
+      "decision_candidate_governance_id": "DCAND-8103",
+      "bars": [
+        {"instrument": "GOOG", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "GOOG", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "GOOG", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "GOOG", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "GOOG", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "GOOG", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.20", "high": "100.35", "low": "100.15", "close": "100.30", "volume": "800"}
+      ]
+    },
+    {
+      "decision_candidate_governance_id": "DCAND-8104",
+      "bars": [
+        {"instrument": "AMZN", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "AMZN", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "AMZN", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "AMZN", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "AMZN", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "AMZN", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.50", "high": "103.10", "low": "100.40", "close": "103.00", "volume": "3000"}
+      ]
+    },
+    {
+      "decision_candidate_governance_id": "DCAND-8105",
+      "bars": [
+        {"instrument": "NVDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "NVDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "NVDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "NVDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "NVDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "NVDA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.40", "high": "102.10", "low": "100.30", "close": "102.00", "volume": "2000"}
+      ]
+    },
+    {
+      "decision_candidate_governance_id": "DCAND-8106",
+      "bars": [
+        {"instrument": "TSLA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:40:00+00:00", "open": "100.00", "high": "100.20", "low": "99.90", "close": "100.10", "volume": "1000"},
+        {"instrument": "TSLA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:41:00+00:00", "open": "100.10", "high": "100.30", "low": "100.00", "close": "100.15", "volume": "1050"},
+        {"instrument": "TSLA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:42:00+00:00", "open": "100.15", "high": "100.40", "low": "100.05", "close": "100.25", "volume": "980"},
+        {"instrument": "TSLA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:43:00+00:00", "open": "100.25", "high": "100.45", "low": "100.15", "close": "100.30", "volume": "1020"},
+        {"instrument": "TSLA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:44:00+00:00", "open": "100.30", "high": "100.50", "low": "100.20", "close": "100.35", "volume": "1010"},
+        {"instrument": "TSLA", "interval": "ONE_MINUTE", "timestamp": "2026-08-10T13:45:00+00:00", "open": "100.40", "high": "102.10", "low": "100.30", "close": "102.00", "volume": "2000"}
+      ]
+    }
+  ]
+}
