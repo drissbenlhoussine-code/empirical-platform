@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-064
+LATEST_FROZEN_MILESTONE=MILESTONE-065
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -547,8 +547,20 @@ M064_STATUS=APPROVED_AND_FROZEN
 M064_PROFITABILITY_CLAIM=NONE_MADE
 M064_SURVIVORSHIP_BIAS_ELIMINATION_CLAIM=NONE_MADE
 
-M065_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-065 -- recommendation only; not started as part of M064
+M065_SCOPE=Real Historical Market Data Authority + Corporate-Action-Safe Price Semantics + Historical Import/Validation Pipeline (immutable versioned DatasetSnapshotAuthority with raw bundle_sha256/canonical normalized_sha256 tracked separately, explicit price-semantics vocabulary, deterministic SPLIT/REVERSE_SPLIT/SYMBOL_CHANGE corporate-action model, CORPORATE_ACTION_SEMANTICS_STRESS diagnostic reusing the unmodified M061 build_historical_backtest_run())
+M065_SCOPE_STATUS=APPROVED_AND_FROZEN
+M065_DESIGN_STATUS=APPROVED_AND_FROZEN
+M065_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M065_IMPLEMENTATION_COMMIT=58d9296
+M065_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M065_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M065_OWNER_FREEZE_COMMIT=PENDING
+M065_STATUS=APPROVED_AND_FROZEN
+M065_PROFITABILITY_CLAIM=NONE_MADE
+M065_REAL_DATA_CLAIM=NONE_MADE
+
+M066_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-066 -- recommendation only; not started as part of M065
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2239,3 +2251,37 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-065 — recommendation only; not started as part of M064.
+
+## 88. MILESTONE-065 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_065_REAL_HISTORICAL_MARKET_DATA_AUTHORITY_AND_CORPORATE_ACTION_SAFE_PRICE_SEMANTICS_SCOPE_AND_DESIGN.md` (local data discovery disposition, frozen-stack reuse inventory, dataset-snapshot-authority model, price-semantics vocabulary, corporate-action domain design, import pipeline design) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second review, owner approval).
+
+**Why M065 exists.** M061 already ran deterministic historical backtests, but against a single opaque, already-canonical dataset file with no first-class provenance record, no explicit raw-vs-adjusted price declaration, and no corporate-action model at all — a stock split or symbol change anywhere in a real dataset would silently corrupt price continuity with no detection mechanism. A dedicated local data discovery pass confirmed no genuine real historical market data exists anywhere in the repository; every existing fixture self-declares synthetic provenance. Per the mission's own explicit instruction, M065 does not fabricate real provenance — it builds a production-grade dataset-snapshot authority and corporate-action pipeline against an honestly-labeled `CORPORATE_ACTION_MECHANICS_FIXTURE`, ready to accept a real vendor snapshot the moment one is licensed.
+
+**Selected design.** An immutable `DatasetSnapshotAuthority` keyed by `(dataset_id, dataset_version)`, tracking raw-source `bundle_sha256` and canonical-content `normalized_sha256` separately; an explicit, single-valued `price_semantics` field per snapshot (never mixed); a deterministic corporate-action domain (`SplitAction`/`SymbolChangeAction`, ratio-direction-validated, canonically-ordered, hash-verified `CorporateActionManifest`); an import pipeline that reuses the frozen M061 `Bar`/`HistoricalInstrumentSeries`/`HistoricalDataset` invariants verbatim rather than reimplementing OHLC/chronology validation; and, critically, no second backtesting engine — the import pipeline instead produces a byte-identical M061-compatible dataset artifact, letting the real, unmodified, frozen M061 `run-historical-backtest` CLI run directly against M065-imported data. `CORPORATE_ACTION_SEMANTICS_STRESS` is literally a second, unmodified call to the real M061 `build_historical_backtest_run()` against the raw-naive interpretation — directly mirroring M064's own `CURRENT_UNIVERSE_BIAS_STRESS` pattern. Four new PostgreSQL tables, purely additive (zero deletions across every frozen M020-M064 file, verified via `git diff --stat`).
+
+**Actual results, un-massaged.** The canonical fixture (4 instruments, 120 bars total, one shared corporate-action boundary) produced a raw snapshot and a derived `SPLIT_ADJUSTED` snapshot sharing the same `bundle_sha256` but different `normalized_sha256`. BETA's 2-for-1 split correctly halves the pre-boundary raw close (`203.6577` -> `101.8288`); GAMA's 1-for-5 reverse split correctly multiplies by 5 (`19.0970` -> `95.4850`); both are byte-identical to their raw values at/after the boundary. The real M061 backtest CLI, run directly against the M065-produced adjusted artifact, reported `dataset_sha256` exactly equal to `DatasetSnapshotAuthority.normalized_sha256`. `CORPORATE_ACTION_SEMANTICS_STRESS` reported `CORPORATE_ACTION_SEMANTICS_STRESS_IDENTICAL` on this specific fixture (no trade decision happened to straddle the split boundary) — accepted honestly rather than regenerated to force `DIFFERS`, and directly proven not to be a symptom of a broken comparator by feeding it a deliberately mismatched dataset pair, which correctly produced `CORPORATE_ACTION_SEMANTICS_STRESS_DIFFERS` (2 vs. 4 trades, clearly different PnL).
+
+**Tests:** 83 new pure-domain unit tests (corporate-action ratio/boundary/hash validation, dataset-snapshot-authority validation, import-pipeline parsing/order-independence/tamper-detection, a separately-authored independent corporate-action verifier that recomputes split factors and symbol boundaries from raw CSV/JSON bytes without calling any production adjustment helper) plus 4 application-layer handler tests (in-memory fakes, covering the manifest-identity cross-check found during hostile review) and a 5-test PostgreSQL acceptance suite (full import->M061-reuse->stress lifecycle with raw-SQL cross-check including CHECK-constraint payload coherence, real 6-CLI subprocess pipeline, artifact-tamper rejection after persistence, duplicate-dataset-version rejection, dataset-version coexistence). Full regression: 1766 passed / 6 skipped with real PostgreSQL (91.60% coverage), zero regressions across M020-M064 beyond one pre-existing, unrelated M026 credential-repr false positive caused by this session's own test password coincidentally matching a substring of `PostgreSQLConfigSnapshot`.
+
+**Hostile review:** two genuine gaps found and fixed inline — a corporate action could silently reference an instrument entirely absent from its own dataset's raw import with no error or effect (now rejected); and a corporate-action manifest's self-declared `(dataset_id, dataset_version)` was never cross-checked against the dataset actually being imported, with no foreign key enforcing it at the database level (now validated at the application layer, fails before any persistence, plus a new FK on `corporate_action -> dataset_snapshot`). Both fixes were independently re-attacked via the real installed CLI on a genuinely fresh PostgreSQL container during the second pass and confirmed to still hold. No CRITICAL or MAJOR finding remains open.
+
+**Independent second review:** a genuinely different, freshly created PostgreSQL container (`m065-second-pass-pg`, port 55480, built from empty and torn down after use), Git truth re-established from scratch, driven entirely through the real installed CLI executables. A standalone, stdlib-only script (zero imports from any M065 production module) independently recomputed every raw source-file SHA-256, the `bundle_sha256` formula, and the split/symbol boundary math, matching production exactly byte-for-byte. Both hostile-review-fixed defects were independently re-attacked from scratch and confirmed still rejected. A source-file tamper attack confirmed the resulting hash correctly diverges. A direct attempt to disprove the central claim (feeding the stress comparator a deliberately mismatched dataset pair) confirmed the mechanism genuinely detects divergence, ruling out the concern that the real fixture's own `IDENTICAL` result was an artifact of a non-functional diagnostic.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_065_REAL_HISTORICAL_MARKET_DATA_AUTHORITY_AND_CORPORATE_ACTION_SAFE_PRICE_SEMANTICS_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of real-data usage, survivorship-bias resolution, dividend/total-return accounting, profitability, or live-trading readiness is made anywhere in this milestone** — M065 makes historical dataset provenance and corporate-action price semantics explicit and proves the mechanics honestly; it does not certify that any real market data was used or that the platform is ready to trade.
+
+**Next permitted action:** see Section 89.
+
+## 89. MILESTONE-065 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_065_REAL_HISTORICAL_MARKET_DATA_AUTHORITY_AND_CORPORATE_ACTION_SAFE_PRICE_SEMANTICS_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-065 scope, design, implementation, hostile review, independent second review, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** every historical dataset import now produces an immutable, versioned, hash-verified snapshot authority with explicit raw-vs-adjusted price semantics; declared stock splits, reverse splits, and symbol changes are applied deterministically and independently re-derivable from raw bytes; source and manifest tampering are detected via hash mismatch; and backtests remain cryptographically linked to the exact dataset version used — all built on the unmodified M057-M064 execution stack, with zero parallel backtesting engine.
+
+**Freeze declaration:** `M065 MACRO MILESTONE APPROVED_AND_FROZEN`. `M065 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-066 — recommendation only; not started as part of M065.
