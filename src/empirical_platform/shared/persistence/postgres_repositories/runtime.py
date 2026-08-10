@@ -39,6 +39,9 @@ from empirical_platform.shared.persistence.postgres_repositories.robustness_stud
 from empirical_platform.shared.persistence.postgres_repositories.run_repository import (
     PostgresRunRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.statistical_evidence_repository import (  # noqa: E501
+    PostgresStatisticalEvidenceReportRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.survivorship_study_repository import (  # noqa: E501
     PostgresInstrumentMasterRepository,
     PostgresSurvivorshipAwareRobustnessStudyRepository,
@@ -88,6 +91,7 @@ class PostgresRepositoryRuntime:
         "_dataset_snapshots",
         "_corporate_actions",
         "_corporate_action_semantics_stresses",
+        "_statistical_evidence_reports",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -115,6 +119,7 @@ class PostgresRepositoryRuntime:
         self._corporate_action_semantics_stresses = (
             PostgresCorporateActionSemanticsStressRepository(service)
         )
+        self._statistical_evidence_reports = PostgresStatisticalEvidenceReportRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -185,6 +190,10 @@ class PostgresRepositoryRuntime:
         self,
     ) -> PostgresCorporateActionSemanticsStressRepository:
         return self._corporate_action_semantics_stresses
+
+    @property
+    def statistical_evidence_reports(self) -> PostgresStatisticalEvidenceReportRepository:
+        return self._statistical_evidence_reports
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""

@@ -112,3 +112,10 @@ class CorporateActionStressId(Identifier):
     """Corporate-action semantics stress diagnostic identifier."""
 
     prefix = "CASTR"
+
+
+class StatisticalEvidenceReportId(Identifier):
+    """Statistical evidence / false-confidence-firewall report
+    identifier."""
+
+    prefix = "STATEV"

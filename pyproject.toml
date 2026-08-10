@@ -104,6 +104,8 @@ empirical-platform-import-historical-dataset-snapshot = "empirical_platform.entr
 empirical-platform-get-historical-dataset-snapshot = "empirical_platform.entrypoints.get_historical_dataset_snapshot:main"
 empirical-platform-run-corporate-action-semantics-stress = "empirical_platform.entrypoints.run_corporate_action_semantics_stress:main"
 empirical-platform-get-corporate-action-semantics-stress = "empirical_platform.entrypoints.get_corporate_action_semantics_stress:main"
+empirical-platform-run-statistical-evidence-analysis = "empirical_platform.entrypoints.run_statistical_evidence_analysis:main"
+empirical-platform-get-statistical-evidence-report = "empirical_platform.entrypoints.get_statistical_evidence_report:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

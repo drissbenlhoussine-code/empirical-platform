@@ -155,6 +155,25 @@ from empirical_platform.decision_candidate.scan import (
     validate_scan_universe,
 )
 from empirical_platform.decision_candidate.scan_repository import TradingOpportunityScanRepository
+from empirical_platform.decision_candidate.statistical_evidence import (
+    DEFAULT_BOOTSTRAP_POLICY,
+    FALSE_CONFIDENCE_FIREWALL_LIMITATIONS,
+    MINIMUM_RESAMPLE_COUNT,
+    SUPPORTED_CONFIDENCE_LEVELS,
+    BootstrapInterval,
+    BootstrapMethod,
+    BootstrapPolicy,
+    DrawdownPathEvidence,
+    SampleUnit,
+    SensitivityLabel,
+    SensitivityView,
+    StatisticalEvidenceClassification,
+    StatisticalEvidenceReport,
+    build_statistical_evidence_report,
+)
+from empirical_platform.decision_candidate.statistical_evidence_repository import (
+    StatisticalEvidenceReportRepository,
+)
 from empirical_platform.decision_candidate.strategy import (
     STRATEGY_ID,
     STRATEGY_VERSION,
@@ -358,4 +377,19 @@ __all__ = [
     "symbol_at",
     "volume_adjustment_factor_at",
     "write_dataset_artifact",
+    "DEFAULT_BOOTSTRAP_POLICY",
+    "FALSE_CONFIDENCE_FIREWALL_LIMITATIONS",
+    "MINIMUM_RESAMPLE_COUNT",
+    "SUPPORTED_CONFIDENCE_LEVELS",
+    "BootstrapInterval",
+    "BootstrapMethod",
+    "BootstrapPolicy",
+    "DrawdownPathEvidence",
+    "SampleUnit",
+    "SensitivityLabel",
+    "SensitivityView",
+    "StatisticalEvidenceClassification",
+    "StatisticalEvidenceReport",
+    "StatisticalEvidenceReportRepository",
+    "build_statistical_evidence_report",
 ]
