@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-065
+LATEST_FROZEN_MILESTONE=MILESTONE-066
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -559,8 +559,21 @@ M065_STATUS=APPROVED_AND_FROZEN
 M065_PROFITABILITY_CLAIM=NONE_MADE
 M065_REAL_DATA_CLAIM=NONE_MADE
 
-M066_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-066 -- recommendation only; not started as part of M065
+M066_SCOPE=Out-of-Sample Strategy Evidence + Statistical Reliability + False-Confidence Firewall (post-hoc StatisticalEvidenceReport over an already-frozen M064 SurvivorshipAwareRobustnessStudy: deterministic percentile bootstrap confidence intervals, breadth-and-stability-gated evidence classification, concentration/outlier sensitivity views, permutation-based drawdown-path stress, mandatory false-confidence-firewall limitations)
+M066_SCOPE_STATUS=APPROVED_AND_FROZEN
+M066_DESIGN_STATUS=APPROVED_AND_FROZEN
+M066_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M066_IMPLEMENTATION_COMMIT=7a0b116
+M066_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M066_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M066_OWNER_FREEZE_COMMIT=PENDING
+M066_STATUS=APPROVED_AND_FROZEN
+M066_PROFITABILITY_CLAIM=NONE_MADE
+M066_STATISTICAL_SIGNIFICANCE_CLAIM=NONE_MADE
+M066_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+
+M067_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-067 -- recommendation only; not started as part of M066
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2285,3 +2298,39 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-066 — recommendation only; not started as part of M065.
+
+## 90. MILESTONE-066 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_066_OUT_OF_SAMPLE_STRATEGY_EVIDENCE_STATISTICAL_RELIABILITY_AND_FALSE_CONFIDENCE_FIREWALL_SCOPE_AND_DESIGN.md` (fresh statistics/bootstrap inventory, no-optimization boundary, sample model, bootstrap authority, classification design, false-confidence firewall) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second review, 7-question reality gate, owner approval).
+
+**Why M066 exists.** M061-M065 produce deterministic backtests, walk-forward robustness windows, survivorship-aware universes, and corporate-action-safe historical data -- but every prior milestone reports a single point value with no quantified uncertainty. A favorable-looking small sample and a genuinely broad, stable sample were indistinguishable in the platform's own output. Per the mission's own explicit instruction, M066 adds statistical reliability evaluation as a strictly post-hoc, read-only layer over already-frozen outputs -- never a second decision engine, never feeding back into any upstream parameter.
+
+**Selected design.** A `StatisticalEvidenceReport` binds to one already-persisted M064 `SurvivorshipAwareRobustnessStudy` and its M061 window `HistoricalBacktestRun`s, copying full upstream authority lineage verbatim. Two independently-thresholded sample units (`TRADE_LEVEL_SAMPLE`/`WINDOW_LEVEL_SAMPLE`) are never conflated. A deterministic, explicitly-seeded, non-parametric percentile bootstrap (fresh `random.Random(seed)` per call, never global state) produces confidence intervals for mean/median/aggregate R and window-level mean total-R. A conservative `StatisticalEvidenceClassification` is governed by the weaker of trade/window breadth, then capped by whether the mean-R interval excludes zero -- symmetric with respect to sign, so a confidently negative result reaches the same tier a confidently positive result of equal breadth would. A fixed, hard-coded 6-statement false-confidence-firewall limitations set is persisted on every report, verified at construction. Five sensitivity views expose concentration/outlier dependence without ever altering canonical results. A permutation-based (no replacement) drawdown-path stress is explicitly distinguished, in naming and implementation, from the bootstrap (with replacement). Three new PostgreSQL tables, purely additive (zero deletions across every frozen M020-M065 file).
+
+**Actual results, un-massaged.** The real M064 canonical fixture (35 executed trades pooled across 10 walk-forward windows) produced a mean-R point estimate of `0.4460` with a 90% bootstrap confidence interval of `[-0.3707, 1.3634]` -- an interval that spans zero. Because trade/window breadth alone (35 trades, 10 windows) would otherwise reach `MODERATE_SAMPLE_BREADTH`, this is the single most important honest result of the milestone: the sign-instability cap correctly downgrades the classification to `LIMITED_SAMPLE_BREADTH`, despite a positive net PnL (`1516.0222`) and profit factor (`1.6178`) that would look favorable on their own. This weak/limited-evidence outcome was accepted and reported as-is, per the mission's own Phase 23 "negative/weak evidence is a valid successful outcome" instruction -- not regenerated to look stronger.
+
+**Tests:** 55 pure unit tests (bootstrap policy validation, descriptive-statistics primitives, bootstrap determinism, drawdown-path computation, classification breadth+sign-stability gate, false-confidence-firewall invariants, 15 named statistical attack cases) + 3 acceptance-control tests (weak-sample, outlier, negative controls) + 1 independent-recomputation integration test (imports no production statistical helper) + 6 PostgreSQL lifecycle/acceptance tests (full lifecycle, real CLI subprocess, deterministic replay, seed sensitivity, upstream-not-found, tampered-runtime-id, duplicate-governance-id) -- 65 new tests total. Full regression: 1832 passed / 6 skipped with real PostgreSQL (91.76% coverage), zero regressions across M020-M065 beyond the pre-existing, unrelated M026 credential-repr false positive.
+
+**Hostile review:** 79 explicit attack/verification cases catalogued in `external-review/MILESTONE-066/hostile-review-matrix.md`. Three genuine defects found and fixed inline: a `sensitivity_views` run-vs-get ordering drift (fixed by canonicalizing order at construction, mirroring the M065 `CorporateActionManifest` precedent); an architecture-boundary violation where an entrypoint reached into `decision_candidate` directly via `__import__` (fixed via proper `__all__` re-export); and a self-inflicted test fragility where the independent-verification test depended on out-of-band manually-seeded data invalidated by a sibling test's schema-drop teardown (fixed by making the test fully self-contained). All three fixes were independently re-attacked and confirmed to hold during the second pass. No CRITICAL or MAJOR finding remains open.
+
+**Independent second review:** a genuinely different, freshly created PostgreSQL container (`m066-second-pass-pg`, port 55490, built from empty), Git truth re-established from scratch, driven entirely through the real installed CLI executables. A standalone, stdlib+psycopg-only script (zero imports from any M066 production module) independently recomputed sample sizes, mean/median R, net PnL, one sensitivity view, and the full mean-R bootstrap interval directly from raw PostgreSQL rows, matching production exactly. A direct attempt to disprove the central claim -- that the sign-instability firewall is decorative -- was tested against the real persisted result and rejected: the cap demonstrably downgraded a genuine `MODERATE_SAMPLE_BREADTH`-by-breadth-alone result to `LIMITED_SAMPLE_BREADTH` on real fixture data.
+
+**Reality gate:** does M066 prove profitability? **NO.** Does a CI above zero guarantee future returns? **NO.** Does M066 quantify uncertainty? **YES.** Are small samples exposed, not hidden? **YES.** Is concentration/outlier-dependence exposed? **YES.** Is every report linked to exact upstream historical authority? **YES.** Was any strategy parameter optimized using M066's own results? **NO.**
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_066_OUT_OF_SAMPLE_STRATEGY_EVIDENCE_STATISTICAL_RELIABILITY_AND_FALSE_CONFIDENCE_FIREWALL_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of real-data usage, statistical significance, a proven trading edge, predictive power, live-trading readiness, or market representativeness is made anywhere in this milestone** -- M066 makes statistical uncertainty and sample-breadth limitations explicit and proves the reliability-evaluation mechanics honestly; it does not certify that the evaluated strategy is profitable or ready to trade.
+
+**Next permitted action:** see Section 91.
+
+## 91. MILESTONE-066 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_066_OUT_OF_SAMPLE_STRATEGY_EVIDENCE_STATISTICAL_RELIABILITY_AND_FALSE_CONFIDENCE_FIREWALL_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-066 scope, design, implementation, hostile review, independent second review, the 7-question reality gate, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** every survivorship-aware robustness study can now be statistically evaluated post-hoc, producing a deterministic, explicitly-seeded bootstrap confidence interval around its mean/median/aggregate R, a conservative sample-breadth-and-stability classification that never overstates weak or outlier-dominated evidence, concentration/outlier sensitivity views, a drawdown-path resampling stress, and a mandatory, immutable false-confidence-firewall limitations statement -- all built on the unmodified M057-M065 execution stack, with zero parallel decision engine and zero feedback into any upstream strategy/ranking/risk/sizing parameter.
+
+**Freeze declaration:** `M066 MACRO MILESTONE APPROVED_AND_FROZEN`. `M066 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-067 — recommendation only; not started as part of M066. Per the mission's own explicit instruction, MILESTONE-067 was NOT built.
