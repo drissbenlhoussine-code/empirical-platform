@@ -1,0 +1,30 @@
+{
+  "actions": [
+    {
+      "action_type": "SPLIT",
+      "effective_timestamp": "2024-03-01T09:45:00+00:00",
+      "instrument_id": "INSTR-BETA-001",
+      "ratio_new_shares": "2",
+      "ratio_old_shares": "1",
+      "source_kind": "CORPORATE_ACTION_MECHANICS_FIXTURE"
+    },
+    {
+      "action_type": "REVERSE_SPLIT",
+      "effective_timestamp": "2024-03-01T09:45:00+00:00",
+      "instrument_id": "INSTR-GAMA-001",
+      "ratio_new_shares": "1",
+      "ratio_old_shares": "5",
+      "source_kind": "CORPORATE_ACTION_MECHANICS_FIXTURE"
+    },
+    {
+      "action_type": "SYMBOL_CHANGE",
+      "effective_timestamp": "2024-03-01T09:45:00+00:00",
+      "instrument_id": "INSTR-DELT-001",
+      "new_symbol": "DELT",
+      "old_symbol": "OLDD",
+      "source_kind": "CORPORATE_ACTION_MECHANICS_FIXTURE"
+    }
+  ],
+  "dataset_id": "DATASET-6501",
+  "dataset_version": "1"
+}

@@ -1,0 +1,32 @@
+{
+  "entries": [
+    {
+      "canonical_symbol": "ALFA",
+      "exchange_or_venue": null,
+      "external_identifier": null,
+      "instrument_id": "INSTR-ALFA-001",
+      "instrument_type": "EQUITY"
+    },
+    {
+      "canonical_symbol": "BETA",
+      "exchange_or_venue": null,
+      "external_identifier": null,
+      "instrument_id": "INSTR-BETA-001",
+      "instrument_type": "EQUITY"
+    },
+    {
+      "canonical_symbol": "GAMA",
+      "exchange_or_venue": null,
+      "external_identifier": null,
+      "instrument_id": "INSTR-GAMA-001",
+      "instrument_type": "EQUITY"
+    },
+    {
+      "canonical_symbol": "DELT",
+      "exchange_or_venue": null,
+      "external_identifier": null,
+      "instrument_id": "INSTR-DELT-001",
+      "instrument_type": "EQUITY"
+    }
+  ]
+}

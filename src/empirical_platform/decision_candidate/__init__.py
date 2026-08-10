@@ -23,6 +23,34 @@ for the full scope, contracts, and explicit non-profitability disclaimer.
 """
 
 from empirical_platform.decision_candidate.candidate import DecisionCandidate
+from empirical_platform.decision_candidate.corporate_action_stress import (
+    CorporateActionSemanticsStressResult,
+    StressComparison,
+    build_corporate_action_semantics_stress,
+)
+from empirical_platform.decision_candidate.corporate_actions import (
+    CorporateAction,
+    CorporateActionManifest,
+    CorporateActionType,
+    SplitAction,
+    SymbolChangeAction,
+    corporate_action_manifest_hash,
+    split_adjustment_factor_at,
+    symbol_at,
+    volume_adjustment_factor_at,
+)
+from empirical_platform.decision_candidate.dataset_snapshot import (
+    DIVIDEND_TOTAL_RETURN_HANDLING_NOT_EXERCISED,
+    CorporateActionSemantics,
+    DatasetSnapshotAuthority,
+    PriceSemantics,
+    SourceFileManifestEntry,
+)
+from empirical_platform.decision_candidate.dataset_snapshot_repository import (
+    CorporateActionRepository,
+    CorporateActionSemanticsStressRepository,
+    DatasetSnapshotRepository,
+)
 from empirical_platform.decision_candidate.historical_backtest import (
     COST_MODEL_ID,
     COST_MODEL_VERSION,
@@ -51,6 +79,14 @@ from empirical_platform.decision_candidate.historical_backtest import (
 )
 from empirical_platform.decision_candidate.historical_backtest_repository import (
     HistoricalBacktestRunRepository,
+)
+from empirical_platform.decision_candidate.historical_import import (
+    RawSourceFile,
+    dataset_snapshot_to_historical_dataset,
+    derive_split_adjusted_snapshot,
+    import_raw_historical_dataset_snapshot,
+    parse_source_csv,
+    write_dataset_artifact,
 )
 from empirical_platform.decision_candidate.historical_universe import universe_at
 from empirical_platform.decision_candidate.instrument_master import (
@@ -296,4 +332,30 @@ __all__ = [
     "canonical_membership_payload",
     "membership_manifest_hash",
     "universe_at",
+    "DIVIDEND_TOTAL_RETURN_HANDLING_NOT_EXERCISED",
+    "CorporateAction",
+    "CorporateActionManifest",
+    "CorporateActionRepository",
+    "CorporateActionSemantics",
+    "CorporateActionSemanticsStressRepository",
+    "CorporateActionSemanticsStressResult",
+    "CorporateActionType",
+    "DatasetSnapshotAuthority",
+    "DatasetSnapshotRepository",
+    "PriceSemantics",
+    "RawSourceFile",
+    "SourceFileManifestEntry",
+    "SplitAction",
+    "StressComparison",
+    "SymbolChangeAction",
+    "build_corporate_action_semantics_stress",
+    "corporate_action_manifest_hash",
+    "dataset_snapshot_to_historical_dataset",
+    "derive_split_adjusted_snapshot",
+    "import_raw_historical_dataset_snapshot",
+    "parse_source_csv",
+    "split_adjustment_factor_at",
+    "symbol_at",
+    "volume_adjustment_factor_at",
+    "write_dataset_artifact",
 ]

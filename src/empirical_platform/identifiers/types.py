@@ -106,3 +106,9 @@ class SurvivorshipStudyId(Identifier):
     study identifier."""
 
     prefix = "SURV"
+
+
+class CorporateActionStressId(Identifier):
+    """Corporate-action semantics stress diagnostic identifier."""
+
+    prefix = "CASTR"

@@ -13,6 +13,11 @@ from empirical_platform.shared.persistence.postgres import PostgresPersistenceSe
 from empirical_platform.shared.persistence.postgres_repositories.campaign_repository import (
     PostgresCampaignRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.dataset_snapshot_repository import (  # noqa: E501
+    PostgresCorporateActionRepository,
+    PostgresCorporateActionSemanticsStressRepository,
+    PostgresDatasetSnapshotRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.decision_candidate_repository import (  # noqa: E501
     PostgresDecisionCandidateRepository,
 )
@@ -80,6 +85,9 @@ class PostgresRepositoryRuntime:
         "_survivorship_studies",
         "_instrument_masters",
         "_universe_memberships",
+        "_dataset_snapshots",
+        "_corporate_actions",
+        "_corporate_action_semantics_stresses",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -102,6 +110,11 @@ class PostgresRepositoryRuntime:
         self._survivorship_studies = PostgresSurvivorshipAwareRobustnessStudyRepository(service)
         self._instrument_masters = PostgresInstrumentMasterRepository(service)
         self._universe_memberships = PostgresUniverseMembershipRepository(service)
+        self._dataset_snapshots = PostgresDatasetSnapshotRepository(service)
+        self._corporate_actions = PostgresCorporateActionRepository(service)
+        self._corporate_action_semantics_stresses = (
+            PostgresCorporateActionSemanticsStressRepository(service)
+        )
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -158,6 +171,20 @@ class PostgresRepositoryRuntime:
     @property
     def universe_memberships(self) -> PostgresUniverseMembershipRepository:
         return self._universe_memberships
+
+    @property
+    def dataset_snapshots(self) -> PostgresDatasetSnapshotRepository:
+        return self._dataset_snapshots
+
+    @property
+    def corporate_actions(self) -> PostgresCorporateActionRepository:
+        return self._corporate_actions
+
+    @property
+    def corporate_action_semantics_stresses(
+        self,
+    ) -> PostgresCorporateActionSemanticsStressRepository:
+        return self._corporate_action_semantics_stresses
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""
