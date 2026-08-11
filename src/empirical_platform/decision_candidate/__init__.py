@@ -108,6 +108,23 @@ from empirical_platform.decision_candidate.membership import (
     canonical_membership_payload,
     membership_manifest_hash,
 )
+from empirical_platform.decision_candidate.portfolio_dependence import (
+    DEFAULT_DEPENDENCE_ESTIMATION_POLICY,
+    FALSE_DIVERSIFICATION_FIREWALL_LIMITATIONS,
+    ConcentrationStressResult,
+    ConcurrentExposureState,
+    DependenceEstimationPolicy,
+    DependenceEvidenceClassification,
+    PairDependenceStatus,
+    PairwiseDependenceEvidence,
+    PortfolioDependenceReport,
+    build_concurrent_exposure_states,
+    build_pairwise_dependence,
+    build_portfolio_dependence_report,
+)
+from empirical_platform.decision_candidate.portfolio_dependence_repository import (
+    PortfolioDependenceReportRepository,
+)
 from empirical_platform.decision_candidate.portfolio_study import (
     DEFAULT_PORTFOLIO_CAPITAL_POLICY,
     CapitalSensitivityLabel,
@@ -420,4 +437,17 @@ __all__ = [
     "PortfolioRejectionReason",
     "PortfolioStudyRepository",
     "build_portfolio_evidence_report",
+    "DEFAULT_DEPENDENCE_ESTIMATION_POLICY",
+    "FALSE_DIVERSIFICATION_FIREWALL_LIMITATIONS",
+    "ConcentrationStressResult",
+    "ConcurrentExposureState",
+    "DependenceEstimationPolicy",
+    "DependenceEvidenceClassification",
+    "PairDependenceStatus",
+    "PairwiseDependenceEvidence",
+    "PortfolioDependenceReport",
+    "PortfolioDependenceReportRepository",
+    "build_pairwise_dependence",
+    "build_concurrent_exposure_states",
+    "build_portfolio_dependence_report",
 ]

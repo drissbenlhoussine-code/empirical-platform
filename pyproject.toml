@@ -108,6 +108,8 @@ empirical-platform-run-statistical-evidence-analysis = "empirical_platform.entry
 empirical-platform-get-statistical-evidence-report = "empirical_platform.entrypoints.get_statistical_evidence_report:main"
 empirical-platform-run-portfolio-historical-evidence = "empirical_platform.entrypoints.run_portfolio_historical_evidence:main"
 empirical-platform-get-portfolio-historical-evidence = "empirical_platform.entrypoints.get_portfolio_historical_evidence:main"
+empirical-platform-run-portfolio-dependence-evidence = "empirical_platform.entrypoints.run_portfolio_dependence_evidence:main"
+empirical-platform-get-portfolio-dependence-evidence = "empirical_platform.entrypoints.get_portfolio_dependence_evidence:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

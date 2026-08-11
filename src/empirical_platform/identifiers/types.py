@@ -126,3 +126,10 @@ class PortfolioStudyId(Identifier):
     identifier."""
 
     prefix = "PORT"
+
+
+class PortfolioDependenceReportId(Identifier):
+    """Cross-instrument dependence / correlation-aware portfolio risk
+    report identifier."""
+
+    prefix = "DEPEND"
