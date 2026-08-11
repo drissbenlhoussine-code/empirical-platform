@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-067
+LATEST_FROZEN_MILESTONE=MILESTONE-068
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -585,8 +585,21 @@ M067_PROFITABILITY_CLAIM=NONE_MADE
 M067_OPTIMAL_CAPITAL_ALLOCATION_CLAIM=NONE_MADE
 M067_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 
-M068_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-068 -- recommendation only; not started as part of M067
+M068_SCOPE=Cross-Instrument Dependence + Correlation-Aware Portfolio Risk Evidence + Concentrated-Exposure Firewall (post-hoc PortfolioDependenceReport over an already-frozen M067 PortfolioEvidenceReport: canonically-ordered pairwise Pearson correlation under a temporal-firewalled estimation policy, concurrent-exposure-linked dependence-weighted concentration, correlation-instability and concentration-stress diagnostics, mandatory false-diversification-firewall limitations)
+M068_SCOPE_STATUS=APPROVED_AND_FROZEN
+M068_DESIGN_STATUS=APPROVED_AND_FROZEN
+M068_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M068_IMPLEMENTATION_COMMIT=8bd66fe
+M068_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M068_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M068_OWNER_FREEZE_COMMIT=PENDING
+M068_STATUS=APPROVED_AND_FROZEN
+M068_DIVERSIFICATION_CLAIM=NONE_MADE
+M068_FUTURE_CORRELATION_PREDICTION_CLAIM=NONE_MADE
+M068_LIVE_RISK_MANAGEMENT_CLAIM=NONE_MADE
+
+M069_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-069 -- recommendation only; not started as part of M068
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2381,3 +2394,37 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-068 — recommendation only; not started as part of M067. Per the mission's own explicit instruction, MILESTONE-068 was NOT built.
+
+## 94. MILESTONE-068 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_068_CROSS_INSTRUMENT_DEPENDENCE_CORRELATION_AWARE_PORTFOLIO_RISK_EVIDENCE_AND_CONCENTRATED_EXPOSURE_FIREWALL_SCOPE_AND_DESIGN.md` (fresh inventory confirming correlation/dependence/concentration concepts were entirely absent from M057-M067, core boundary, data authority, return-series semantics, temporal firewall, pairwise dependence/matrix semantics, the concurrent-exposure link, dependence-weighted concentration math) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second review, reality gate, owner approval).
+
+**Why M068 exists.** M067 proved deterministic shared-capital accounting but never asked whether concurrently-held positions actually move together historically -- several positions each consuming an acceptable slice of capital can look diversified by weight alone while responding near-identically to the same market movement. No prior milestone modeled cross-instrument dependence -- confirmed explicitly by a fresh repository search: correlation/covariance/dependence/concentration/diversification concepts were entirely absent from the `decision_candidate` domain. M068 adds the first honest, historical, concurrent-position-linked dependence evidence layer, strictly post-hoc and read-only over already-frozen M064/M065/M067 outputs.
+
+**Selected design.** Simple arithmetic returns (`(close_t - close_{t-1}) / close_{t-1}`) over the source dataset bundle's own bar grid -- deliberately the smallest, most transparent convention, avoiding log returns. Pairwise Pearson correlation computed only over bars strictly at/before each estimation cutoff, restricted to a frozen `DependenceEstimationPolicy` lookback -- never a lookahead, never a search over lookback lengths. Canonically-ordered pairs (`instrument_a <= instrument_b`, including the diagonal) make symmetry and no-duplicate-pair structural guarantees rather than runtime checks. Dependence is evaluated only among instruments M067's own real event timeline shows genuinely open at the same historical instant -- the same instrument appearing twice in one concurrent state is correct and intentional, not deduplicated away. Dependence-weighted concentration (`w'Cw`) conservatively treats an undefined pair as correlation = 1 within that weighting only, documented explicitly as the risk-conservative choice. A conservative, explicit 4-value classification (never SAFE/DIVERSIFIED/OPTIMAL vocabulary) and a mandatory, immutable `FALSE_DIVERSIFICATION_FIREWALL_LIMITATIONS` statement mirror the M066 false-confidence-firewall precedent. Three new PostgreSQL tables, purely additive (zero deletions across every frozen M020-M067 file).
+
+**Actual results, un-massaged.** The real M064/M067 canonical fixture (6 instruments, 35 allocated positions, 26 real concurrent-exposure states) produced `HIGH_OBSERVED_DEPENDENCE` under the default estimation policy -- `peak_nominal_concentration=0.8589` vs. `peak_dependence_aware_concentration=1.0000`, `highest_pair=(AAPL,GOOG) 0.6433`, `lowest_pair=(AAPL,AMZN) -0.3667`, genuine correlation instability observed (`max_window_instability_delta=0.5575`). This honest result was reported as-is, per the mission's own "not required to be high or low" instruction; notably, the real data organically reproduced the mission's own false-diversification thesis without any special-casing -- 3 concurrent-exposure states with repeated same-instrument positions (NVDA/TSLA) drove dependence-aware concentration to `1.0000` while nominal concentration sat as low as `0.3384`.
+
+**Tests:** 35 pure unit tests (policy/pair/state validation, return-series derivation including the temporal firewall, Pearson correlation edge cases, matrix canonicalization/symmetry/diagonal, dependence-weighted concentration math, concurrent-state derivation, classification thresholds) + 6 named acceptance-control tests (perfect-correlation, low-dependence, negative-correlation, constant-series, false-diversification-attack, future-mutation-attack) + 8 PostgreSQL lifecycle/acceptance tests (full lifecycle, real CLI subprocess, deterministic replay, estimation-policy sensitivity, upstream authority-mismatch attacks, duplicate governance ID, tampered dataset hash) + 3 independent recomputation integration tests, 52 new tests total. Full regression: 1939 passed / 6 skipped with real PostgreSQL (91.75% coverage), zero regressions across M020-M067 beyond the pre-existing, unrelated M026 credential-repr false positive.
+
+**Hostile review:** 81 explicit attack/verification cases catalogued in `external-review/MILESTONE-068/hostile-review-matrix.md`. One genuine defect found and fixed inline: the first draft of every correlation-based acceptance control opened every synthetic position at the exact same instant as each series' own first bar, leaving zero prior return history at the canonical estimation cutoff -- a test-construction flaw (the production temporal firewall itself was working exactly as specified). Fixed by shifting every control's synthetic entry/exit timestamps to occur after the return sequence had already accumulated; the future-mutation-attack control was additionally strengthened from a vacuously-passing case into a genuine, non-vacuous proof. Independently re-attacked via the real installed CLI on a genuinely fresh PostgreSQL container during the second pass and confirmed to still hold. No CRITICAL or MAJOR finding remains open.
+
+**Independent second review:** a genuinely different, freshly created PostgreSQL container (`m068-second-pass-pg`, port 32776, built from empty), Git truth re-established from scratch, driven entirely through the real installed CLI executables. A standalone, stdlib+psycopg-only script (zero imports from any M068 production module) independently derived returns, aligned timestamps, and recomputed all 21 pairwise correlations plus the highest/lowest pair directly from raw persisted rows and the fixture's own raw JSON bars, matching production exactly (0 mismatches). The hostile-review-fixed defect was independently re-attacked (24-test M067+M068 integration suite rerun against the fresh container) and confirmed still fixed. The central claim -- that M068 exposes false nominal diversification honestly, without fabricating values or leaking future data -- was directly, aggressively attacked from four independent angles against raw persisted data, including a from-scratch temporal-firewall falsification (independently recomputing the earliest concurrent-exposure instant's own returns with and without later bars present) -- and held in every case.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_068_CROSS_INSTRUMENT_DEPENDENCE_CORRELATION_AWARE_PORTFOLIO_RISK_EVIDENCE_AND_CONCENTRATED_EXPOSURE_FIREWALL_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of diversification, future-correlation prediction, optimal allocation, hedging effectiveness, profitability, or live-trading readiness is made anywhere in this milestone** -- M068 makes historical cross-instrument dependence among genuinely concurrent M067 positions explicit and proves the correlation/concentration mechanics honestly; it does not certify that the evaluated portfolio is diversified, that its correlations will hold in the future, or that the platform is ready to manage live risk.
+
+**Next permitted action:** see Section 95.
+
+## 95. MILESTONE-068 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_068_CROSS_INSTRUMENT_DEPENDENCE_CORRELATION_AWARE_PORTFOLIO_RISK_EVIDENCE_AND_CONCENTRATED_EXPOSURE_FIREWALL_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-068 scope, design, implementation, hostile review, independent second review, the reality gate, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** every already-frozen M067 portfolio evidence report's own real concurrent-exposure timeline can now be evaluated for historical cross-instrument dependence under one explicit, versioned, temporal-firewalled estimation policy, producing canonically-ordered pairwise correlations, a dependence-weighted concentration figure alongside the nominal capital-only figure, correlation-instability and concentration-stress diagnostics, and a conservative, honest classification -- all built on the unmodified M057-M067 execution stack, with zero parallel decision engine and zero feedback into any upstream strategy/ranking/risk/sizing/capital-allocation parameter.
+
+**Freeze declaration:** `M068 MACRO MILESTONE APPROVED_AND_FROZEN`. `M068 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-069 — recommendation only; not started as part of M068. Per the mission's own explicit instruction, MILESTONE-069 was NOT built.
