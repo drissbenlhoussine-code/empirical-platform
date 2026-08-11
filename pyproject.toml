@@ -110,6 +110,7 @@ empirical-platform-run-portfolio-historical-evidence = "empirical_platform.entry
 empirical-platform-get-portfolio-historical-evidence = "empirical_platform.entrypoints.get_portfolio_historical_evidence:main"
 empirical-platform-run-portfolio-dependence-evidence = "empirical_platform.entrypoints.run_portfolio_dependence_evidence:main"
 empirical-platform-get-portfolio-dependence-evidence = "empirical_platform.entrypoints.get_portfolio_dependence_evidence:main"
+empirical-platform-acquire-market-data-snapshot = "empirical_platform.entrypoints.acquire_market_data_snapshot:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

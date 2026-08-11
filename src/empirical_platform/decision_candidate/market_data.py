@@ -39,10 +39,13 @@ class Instrument:
 
 
 class BarInterval(StrEnum):
-    """Supported intraday bar intervals (see scope Section 3)."""
+    """Supported bar intervals (see scope Section 3). `ONE_DAY` was added
+    in MILESTONE-069 for real end-of-day market-data acquisition -- a
+    purely additive extension, no existing member changed or removed."""
 
     ONE_MINUTE = "ONE_MINUTE"
     FIVE_MINUTE = "FIVE_MINUTE"
+    ONE_DAY = "ONE_DAY"
 
 
 @dataclass(frozen=True, slots=True)
