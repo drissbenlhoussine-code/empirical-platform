@@ -106,6 +106,8 @@ empirical-platform-run-corporate-action-semantics-stress = "empirical_platform.e
 empirical-platform-get-corporate-action-semantics-stress = "empirical_platform.entrypoints.get_corporate_action_semantics_stress:main"
 empirical-platform-run-statistical-evidence-analysis = "empirical_platform.entrypoints.run_statistical_evidence_analysis:main"
 empirical-platform-get-statistical-evidence-report = "empirical_platform.entrypoints.get_statistical_evidence_report:main"
+empirical-platform-run-portfolio-historical-evidence = "empirical_platform.entrypoints.run_portfolio_historical_evidence:main"
+empirical-platform-get-portfolio-historical-evidence = "empirical_platform.entrypoints.get_portfolio_historical_evidence:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

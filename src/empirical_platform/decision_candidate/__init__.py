@@ -108,6 +108,22 @@ from empirical_platform.decision_candidate.membership import (
     canonical_membership_payload,
     membership_manifest_hash,
 )
+from empirical_platform.decision_candidate.portfolio_study import (
+    DEFAULT_PORTFOLIO_CAPITAL_POLICY,
+    CapitalSensitivityLabel,
+    CapitalSensitivityView,
+    PortfolioAllocationDecision,
+    PortfolioAllocationOutcome,
+    PortfolioCapitalPolicy,
+    PortfolioEquityObservation,
+    PortfolioEventKind,
+    PortfolioEvidenceReport,
+    PortfolioRejectionReason,
+    build_portfolio_evidence_report,
+)
+from empirical_platform.decision_candidate.portfolio_study_repository import (
+    PortfolioStudyRepository,
+)
 from empirical_platform.decision_candidate.position_plan import (
     DEFAULT_SIZING_POLICY,
     SIZING_POLICY_ID,
@@ -392,4 +408,16 @@ __all__ = [
     "StatisticalEvidenceReport",
     "StatisticalEvidenceReportRepository",
     "build_statistical_evidence_report",
+    "DEFAULT_PORTFOLIO_CAPITAL_POLICY",
+    "CapitalSensitivityLabel",
+    "CapitalSensitivityView",
+    "PortfolioAllocationDecision",
+    "PortfolioAllocationOutcome",
+    "PortfolioCapitalPolicy",
+    "PortfolioEquityObservation",
+    "PortfolioEventKind",
+    "PortfolioEvidenceReport",
+    "PortfolioRejectionReason",
+    "PortfolioStudyRepository",
+    "build_portfolio_evidence_report",
 ]

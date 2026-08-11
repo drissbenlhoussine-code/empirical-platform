@@ -119,3 +119,10 @@ class StatisticalEvidenceReportId(Identifier):
     identifier."""
 
     prefix = "STATEV"
+
+
+class PortfolioStudyId(Identifier):
+    """Portfolio capital-allocation historical evidence report
+    identifier."""
+
+    prefix = "PORT"
