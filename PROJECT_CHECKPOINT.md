@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-068
+LATEST_FROZEN_MILESTONE=MILESTONE-069
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -598,8 +598,22 @@ M068_DIVERSIFICATION_CLAIM=NONE_MADE
 M068_FUTURE_CORRELATION_PREDICTION_CLAIM=NONE_MADE
 M068_LIVE_RISK_MANAGEMENT_CLAIM=NONE_MADE
 
-M069_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-069 -- recommendation only; not started as part of M068
+M069_SCOPE=Real Market-Data Acquisition Pipeline (a MarketDataSource adapter Protocol with a deterministic Fake adapter for tests and a real, network-capable Yahoo Finance unofficial-chart-JSON adapter, feeding real historical daily bars through the unmodified, frozen M065/M061 import-normalization-backtest pipeline; zero new PostgreSQL schema; real network dependency fully opt-in, never required for canonical CI)
+M069_SCOPE_STATUS=APPROVED_AND_FROZEN
+M069_DESIGN_STATUS=APPROVED_AND_FROZEN
+M069_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M069_IMPLEMENTATION_COMMIT=7b2b280
+M069_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M069_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M069_OWNER_FREEZE_COMMIT=PENDING
+M069_STATUS=APPROVED_AND_FROZEN
+M069_LICENSED_DATA_CLAIM=NONE_MADE
+M069_ENDPOINT_AVAILABILITY_GUARANTEE_CLAIM=NONE_MADE
+M069_PROFITABILITY_CLAIM=NONE_MADE
+M069_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+
+M070_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-070 -- recommendation only; not started as part of M069
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2428,3 +2442,37 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-069 — recommendation only; not started as part of M068. Per the mission's own explicit instruction, MILESTONE-069 was NOT built.
+
+## 96. MILESTONE-069 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_069_REAL_MARKET_DATA_ACQUISITION_PIPELINE_SCOPE_AND_DESIGN.md` (the mandatory fresh Phase 1 product-readiness gap analysis across 25 system areas, the "biggest blocker" finding, an explicit 5+-candidate ranking, adapter-boundary design, the no-new-schema decision) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second review, reality gate, owner approval).
+
+**Why M069 exists.** M057-M068 built twelve consecutive, genuinely rigorous decision-evidence capabilities -- strategy, ranking, risk, sizing, backtesting, holdout validation, walk-forward robustness, statistical uncertainty, portfolio capital accounting, concurrent-position risk, cross-instrument dependence -- but every one of them has only ever been exercised against synthetic or hand-authored fixture files, confirmed explicitly by a fresh inventory: `historical_import.py`'s own docstring states "No network fetch. No hidden vendor call."; `README.md` still lists "Market-data acquisition" under "Not Implemented," unchanged since the original scaffold. A fresh 25-area gap analysis, an explicit "single biggest blocker" question, and a 5+-candidate ranking (scored on product value, architectural leverage, evidence value, dependency unlock, implementation cost, and risk of premature complexity) all converged on the same answer: real market-data acquisition is the one gap that, once closed, makes every other frozen capability usable on real data for the first time -- unlike the tempting alternative, correlation-aware position sizing, which was explicitly rejected as the mission's own named trap and as a boundary-reversal risk no prior milestone's governance docs authorize.
+
+**Selected design.** A `MarketDataSource` Protocol separating "how bytes are obtained" from "how bytes are validated." `FakeMarketDataSource` (deterministic, offline) is used throughout canonical/CI-required testing; `YahooFinanceChartMarketDataSource` (a real, no-authentication adapter over Yahoo Finance's unofficial chart JSON endpoint -- the same endpoint the widely-used open-source `yfinance` library relies on) is the one genuine real-data path, exercised only in a test explicitly gated behind `EMPIRICAL_PLATFORM_RUN_NETWORK_TESTS=1`, mirroring the established PostgreSQL opt-in pattern so canonical CI stays fully offline and deterministic. A different, unrelated vendor endpoint (Stooq) was tried first and abandoned specifically because it returned a JavaScript bot-verification challenge -- never worked around. Real fetched bytes are translated into the exact CSV shape the frozen M065 `parse_source_csv` already requires, then handed to the unmodified, frozen M065 `import_raw_historical_dataset_snapshot()`/`write_dataset_artifact()` pipeline verbatim -- zero new PostgreSQL schema, reusing the frozen `DatasetSnapshotRepository` and its own existing free-text provenance columns (`source_kind='MARKET_DATA_ACQUISITION'`, `source_name` explicitly containing "UNOFFICIAL"). One purely-additive `BarInterval.ONE_DAY` extension to the frozen `market_data.py` enum (real EOD data is daily-granularity; claiming `ONE_MINUTE` would misrepresent it).
+
+**Actual results, un-massaged.** Real historical daily bars for AAPL, MSFT, GOOG were fetched live from Yahoo Finance over a genuine ~120-day window and fed, completely unmodified, through the exact frozen M061 `run-historical-backtest` CLI: `instrument_count=3`, `total_row_count=249` (83 real trading days each), `evaluated_opportunity_count=225`, `executed_trade_count=5`, `win_count=3`, `loss_count=2`, `net_pnl=$183.8168940000` -- the first genuine numbers this platform has ever produced from real market data, reported honestly, not a profitability claim.
+
+**Tests:** 16 pure unit tests (adapter Protocol, `FakeMarketDataSource`, Yahoo-JSON translation including null-row skipping and error-payload rejection, format dispatch) + 6 application-layer tests (handler-level acquisition, deterministic replay, offline JSON-payload serialization) + 4 independent-verification tests (separately-authored JSON extraction compared against production translation) + 5 PostgreSQL lifecycle/acceptance tests (full lifecycle, real network+Postgres CLI subprocess, duplicate/coexistence semantics) + 2 real-network tests (genuinely run against the live endpoint), 33 new tests total. Full regression: 1969 passed / 9 skipped with real PostgreSQL (network off, 91.53% coverage), zero regressions across M020-M068 beyond the pre-existing, unrelated M026 credential-repr false positive.
+
+**Hostile review:** 66 explicit attack/verification cases catalogued in `external-review/MILESTONE-069/hostile-review-matrix.md`. One genuine finding: the first full-regression run (network off, matching canonical CI's own default) showed the new JSON-payload serializer at 0% coverage, only ever exercised via the network-gated CLI test -- fixed by adding a direct, offline unit test, confirmed 100% coverage in isolation, full suite re-run clean. Independently re-attacked via the real installed CLI on a genuinely fresh PostgreSQL container during the second pass and confirmed to still hold. No CRITICAL or MAJOR finding remains open.
+
+**Independent second review:** a genuinely different, freshly created PostgreSQL container (`m069-second-pass-pg`, port 32777, built from empty; migration head independently confirmed to stop at M068's own revision, proving no M069 schema exists), Git truth re-established from scratch, driven entirely through the real installed CLI executables against the real live network a second, independent time (AAPL/TSLA, a different window, a different fetch time). A standalone, stdlib+psycopg+hashlib-only script (zero imports from any M069 production module) independently recomputed the on-disk artifact's own SHA-256, an OHLC-consistency sweep across all 80 real bars, referential integrity between acquired symbols and `instrument_master`, and the bundle hash-of-hashes -- all four matched production exactly. One suspicious-looking signal (a single whole-dollar close) was investigated directly rather than dismissed and confirmed genuine. The central "genuine real acquisition, hash-verified, unmodified downstream" claim was directly, aggressively attacked from five independent angles and held in every case.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_069_REAL_MARKET_DATA_ACQUISITION_PIPELINE_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of licensed data, guaranteed endpoint availability, profitability, or live-trading readiness is made anywhere in this milestone** -- M069 makes real-data acquisition genuinely possible for the first time and proves the acquisition/translation/persistence mechanics honestly; it does not certify the data source is officially sanctioned or that the platform is ready to trade.
+
+**Next permitted action:** see Section 97.
+
+## 97. MILESTONE-069 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_069_REAL_MARKET_DATA_ACQUISITION_PIPELINE_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-069 scope, design, implementation, hostile review, independent second review, the reality gate, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** the platform can now acquire real, live-fetched, hash-verified historical market data for the first time in its history, flowing that data -- completely unmodified -- through the exact same frozen M057-M061 strategy/ranking/risk/sizing/execution/backtesting stack every prior milestone already proved on synthetic fixtures alone, with zero new PostgreSQL schema and the real network dependency fully opt-in, never required for canonical CI.
+
+**Freeze declaration:** `M069 MACRO MILESTONE APPROVED_AND_FROZEN`. `M069 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-070 — recommendation only; not started as part of M069. Per the mission's own explicit instruction, MILESTONE-070 was NOT built.
