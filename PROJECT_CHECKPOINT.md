@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-066
+LATEST_FROZEN_MILESTONE=MILESTONE-067
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -572,8 +572,21 @@ M066_PROFITABILITY_CLAIM=NONE_MADE
 M066_STATISTICAL_SIGNIFICANCE_CLAIM=NONE_MADE
 M066_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 
-M067_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-067 -- recommendation only; not started as part of M066
+M067_SCOPE=Portfolio Capital Allocation + Concurrent Position Risk + Portfolio-Level Historical Evidence (deterministic event-driven capital-allocation replay over pooled M064/M061 trade opportunities, explicit PortfolioCapitalPolicy, no-double-spending capital accounting, closed-vocabulary rejection reasons, peak-to-trough portfolio drawdown, predeclared capital-sensitivity scenarios)
+M067_SCOPE_STATUS=APPROVED_AND_FROZEN
+M067_DESIGN_STATUS=APPROVED_AND_FROZEN
+M067_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M067_IMPLEMENTATION_COMMIT=6ebe5f1
+M067_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M067_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M067_OWNER_FREEZE_COMMIT=PENDING
+M067_STATUS=APPROVED_AND_FROZEN
+M067_PROFITABILITY_CLAIM=NONE_MADE
+M067_OPTIMAL_CAPITAL_ALLOCATION_CLAIM=NONE_MADE
+M067_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+
+M068_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-068 -- recommendation only; not started as part of M067
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2334,3 +2347,37 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-067 — recommendation only; not started as part of M066. Per the mission's own explicit instruction, MILESTONE-067 was NOT built.
+
+## 92. MILESTONE-067 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_067_PORTFOLIO_CAPITAL_ALLOCATION_CONCURRENT_POSITION_RISK_AND_PORTFOLIO_LEVEL_HISTORICAL_EVIDENCE_SCOPE_AND_DESIGN.md` (fresh inventory confirming portfolio/capital-allocation concepts were entirely absent from M057-M066, core boundary, capital authority, deterministic event-ordering rule, concurrent-position/capital-competition/release semantics, evidence design) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second review, reality gate, owner approval).
+
+**Why M067 exists.** M057-M066 evaluate one strategy/study in isolation; real capital is shared, and several valid trade opportunities can exist simultaneously, overlap in time, and compete for one finite pool. No prior milestone modeled this -- confirmed explicitly by M060's own `position_plan.py` module docstring ("Deliberately not an Account or Portfolio aggregate... No account, portfolio, cash-ledger, margin, or leverage concept is introduced"). M067 adds the first honest portfolio-level historical capital-allocation evidence layer, strictly post-hoc and read-only over already-frozen M061/M064 outputs.
+
+**Selected design.** An explicit, versioned `PortfolioCapitalPolicy` (initial capital, currency, max concurrent positions, max capital utilization). Every executed trade across every window of an already-frozen M064 `SurvivorshipAwareRobustnessStudy` is pooled into one flat set of candidate opportunities, each contributing one OPEN and one CLOSE event to a single global, deterministic timeline (closes before opens at the same instant for different opportunities; opens ordered by ascending frozen `scan_rank`; a zero-duration opportunity's own self-close follows its own open). A single sequential replay pass tracks genuinely concurrent open positions, occupied/available capital, and realized equity; every candidate -- allocated or rejected -- is persisted, with exactly one closed-vocabulary rejection reason when funding is denied. Portfolio drawdown is computed as a true peak-to-trough figure over the realized equity sequence. `PortfolioAllocationDecision` deliberately doubles as the position record for allocated opportunities, avoiding a second near-duplicate structure. Four new PostgreSQL tables, purely additive (zero deletions across every frozen M020-M066 file).
+
+**Actual results, un-massaged.** The real M064 canonical fixture (35 executed trades, 10 windows) produced, under the generous default $100,000 capital policy, a genuinely zero-rejection result (`allocated_count=35`, `rejected_count=0`) -- the real fixture's own risk amounts (roughly $3-$165 per position) never strain a $100,000 pool. `ending_capital=101516.022218`, `realized_pnl=1516.022218`, `max_drawdown=630.243170`, `max_concurrent_positions_observed=4`, `peak_occupied_capital=342.780000`. This honest, unremarkable canonical result was reported as-is, per the mission's own "do NOT require portfolio results to improve" instruction; capital competition and real rejections were instead proven separately and explicitly via a deliberately tight capital policy (both in the capital-bottleneck acceptance control and, independently, during the second pass).
+
+**Tests:** 42 pure unit tests (capital-policy validation, allocation-decision validation, the event-driven replay engine's tie-breaks/concurrency/release semantics/accounting invariants, drawdown computation, order-independence, the future-data firewall, capital sensitivity) + 12 PostgreSQL lifecycle/acceptance tests (full lifecycle, real CLI subprocess, deterministic replay, capital-policy sensitivity, upstream-authority-mismatch attacks, duplicate governance ID, and the mission's own 5 named acceptance controls -- capital bottleneck, capital release, overlap drawdown, input-order shuffle, future-data mutation -- all built from real M064 fixture data, never fabricated upstream objects) + 1 independent recomputation integration test, 55 new tests total. Full regression: 1887 passed / 6 skipped with real PostgreSQL (91.80% coverage), zero regressions across M020-M066 beyond the pre-existing, unrelated M026 credential-repr false positive.
+
+**Hostile review:** 75 explicit attack/verification cases catalogued in `external-review/MILESTONE-067/hostile-review-matrix.md`. Two genuine defects found and fixed inline: the first capital-allocation replay implementation opened-then-immediately-closed each opportunity sequentially inside one loop iteration, so positions never actually coexisted despite obviously overlapping real timestamps -- caught during real-data sanity testing before any test was written, fixed by rebuilding the replay around a true global two-phase event timeline (a related available-capital accounting bug, crediting back only the reserved amount on close rather than the realized P&L delta, was caught immediately afterward by an accounting-reconciliation unit test and fixed in the same pass); and opportunity pooling paired upstream windows with their own backtest runs positionally via `zip()`, silently mispairing them under any reordering of the caller-supplied `window_runs` tuple -- caught by a real-data input-shuffle acceptance control, fixed by matching windows to runs by `runtime_id` identity instead of tuple position. Both fixes were independently re-attacked via the real installed CLI on a genuinely fresh PostgreSQL container during the second pass and confirmed to still hold. No CRITICAL or MAJOR finding remains open.
+
+**Independent second review:** a genuinely different, freshly created PostgreSQL container (`m067-second-pass-pg`, port 55495, built from empty), Git truth re-established from scratch, driven entirely through the real installed CLI executables. A standalone, stdlib+psycopg-only script (zero imports from any M067 production module) independently replayed the deterministic capital-allocation event ordering directly from raw persisted rows and matched production exactly. Both hostile-review-fixed defects were independently re-attacked (the full 13-test M067 integration suite re-run against the fresh container) and confirmed still fixed. The central "no double-spending or future leakage" claim was directly, aggressively attacked from three independent angles against raw persisted data -- including a from-scratch sweep-line reconstruction of maximum simultaneous committed capital, run under both the generous canonical policy and a deliberately capital-stressed real CLI run (15/35 real rejections) -- and held in every case.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_067_PORTFOLIO_CAPITAL_ALLOCATION_CONCURRENT_POSITION_RISK_AND_PORTFOLIO_LEVEL_HISTORICAL_EVIDENCE_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of real-data usage, profitability, optimal capital allocation, predictive power, live-trading readiness, or market representativeness is made anywhere in this milestone** -- M067 makes shared-capital competition, its resulting rejections, and portfolio-level drawdown explicit and proves the accounting mechanics honestly; it does not certify that the evaluated strategy is profitable, that its capital policy is optimal, or that the platform is ready to trade.
+
+**Next permitted action:** see Section 93.
+
+## 93. MILESTONE-067 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_067_PORTFOLIO_CAPITAL_ALLOCATION_CONCURRENT_POSITION_RISK_AND_PORTFOLIO_LEVEL_HISTORICAL_EVIDENCE_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-067 scope, design, implementation, hostile review, independent second review, the reality gate, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** every survivorship-aware robustness study's own pooled trade opportunities can now be evaluated for shared-capital competition under one explicit, versioned capital policy, producing a deterministic allocation/rejection decision for every opportunity, a genuine concurrent-position and capital-occupancy timeline, and true portfolio-level equity/drawdown evidence -- all built on the unmodified M057-M066 execution stack, with zero parallel decision engine and zero feedback into any upstream strategy/ranking/risk/sizing parameter.
+
+**Freeze declaration:** `M067 MACRO MILESTONE APPROVED_AND_FROZEN`. `M067 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-068 — recommendation only; not started as part of M067. Per the mission's own explicit instruction, MILESTONE-068 was NOT built.
