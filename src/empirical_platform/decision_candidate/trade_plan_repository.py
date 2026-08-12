@@ -31,6 +31,16 @@ class TradePlanRepository(Protocol):
         """
         ...
 
+    def get_by_governance_id(self, governance_id: TradePlanId) -> TradePlan:
+        """MILESTONE-072. Load a TradePlan by governance id alone (unique
+        constraint makes this unambiguous), mirroring
+        `DecisionCandidateRepository.get_by_governance_id`.
+
+        Raises `AggregateNotFound` when no persisted plan exists for the
+        governance id.
+        """
+        ...
+
     def add(self, plan: TradePlan) -> None:
         """Persist a new TradePlan that must not already exist.
 

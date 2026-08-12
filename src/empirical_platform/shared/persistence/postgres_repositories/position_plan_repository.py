@@ -83,6 +83,18 @@ class PostgresPositionPlanRepository:
             plan = _row_to_plan(rows[0])
         return plan
 
+    def get_by_governance_id(self, governance_id: PositionPlanId) -> PositionPlan:
+        """MILESTONE-072. Load a PositionPlan by governance id alone."""
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                "SELECT * FROM position_plan WHERE governance_id = :governance_id",
+                {"governance_id": str(governance_id)},
+            )
+            if not rows:
+                raise AggregateNotFound(aggregate_kind=_AGGREGATE_KIND, identity=governance_id)
+            plan = _row_to_plan(rows[0])
+        return plan
+
     def add(self, plan: PositionPlan) -> None:
         identity = plan.identity
         sizing = plan.sizing

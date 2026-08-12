@@ -16,6 +16,12 @@ class PositionPlanRepository(Protocol):
         """Load a PositionPlan by canonical identity."""
         ...
 
+    def get_by_governance_id(self, governance_id: PositionPlanId) -> PositionPlan:
+        """MILESTONE-072. Load a PositionPlan by governance id alone
+        (unique constraint makes this unambiguous), mirroring
+        `DecisionCandidateRepository.get_by_governance_id`."""
+        ...
+
     def add(self, plan: PositionPlan) -> None:
         """Persist a new PositionPlan that must not already exist."""
         ...

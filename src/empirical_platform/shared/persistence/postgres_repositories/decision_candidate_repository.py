@@ -89,6 +89,18 @@ class PostgresDecisionCandidateRepository:
             candidate = _row_to_candidate(rows[0])
         return candidate
 
+    def get_by_governance_id(self, governance_id: DecisionCandidateId) -> DecisionCandidate:
+        """MILESTONE-072. Load a DecisionCandidate by governance id alone."""
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                "SELECT * FROM decision_candidate WHERE governance_id = :governance_id",
+                {"governance_id": str(governance_id)},
+            )
+            if not rows:
+                raise AggregateNotFound(aggregate_kind=_AGGREGATE_KIND, identity=governance_id)
+            candidate = _row_to_candidate(rows[0])
+        return candidate
+
     def add(self, candidate: DecisionCandidate) -> None:
         """Persist a new DecisionCandidate that must not already exist."""
         identity = candidate.identity

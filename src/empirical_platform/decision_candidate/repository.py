@@ -28,6 +28,21 @@ class DecisionCandidateRepository(Protocol):
         """
         ...
 
+    def get_by_governance_id(self, governance_id: DecisionCandidateId) -> DecisionCandidate:
+        """MILESTONE-072. Load a DecisionCandidate by governance id alone.
+
+        `governance_id` already carries a unique constraint, so this is
+        unambiguous without a runtime_id. Added so a caller holding only
+        a referenced governance id (e.g. `ResearchDecisionEntry
+        .decision_candidate_governance_id`) can retrieve the full
+        record -- including its rejection-reason codes -- without
+        recomputing anything.
+
+        Raises `AggregateNotFound` when no persisted DecisionCandidate
+        exists for the governance id.
+        """
+        ...
+
     def add(self, candidate: DecisionCandidate) -> None:
         """Persist a new DecisionCandidate that must not already exist.
 
