@@ -13,7 +13,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Protocol, cast
 
-__all__ = ["research_session_report_payload"]
+from empirical_platform.decision_candidate.research_session import (
+    RESEARCH_SESSION_CLAIM_HONESTY_LIMITATIONS,
+    ResearchSessionSummary,
+    SessionComparisonEntry,
+)
+from empirical_platform.usecases.compare_daily_research_sessions import SessionComparisonResult
+
+__all__ = [
+    "daily_research_session_comparison_payload",
+    "daily_research_session_list_payload",
+    "research_session_report_payload",
+]
 
 
 class _StageView(Protocol):
@@ -176,4 +187,91 @@ def research_session_report_payload(session: object) -> dict[str, object]:
         "HISTORICAL_EVIDENCE": historical_evidence,
         "DIAGNOSTIC": diagnostic,
         "LIMITATION": list(typed.limitations),
+    }
+
+
+def _session_summary_payload(summary: ResearchSessionSummary) -> dict[str, object]:
+    return {
+        "session_governance_id": str(summary.identity.governance_id),
+        "session_runtime_id": str(summary.identity.runtime_id),
+        "as_of": summary.as_of.isoformat(),
+        "requested_universe": list(summary.requested_universe),
+        "completion_status": summary.status.value,
+        "created_at": summary.created_at.isoformat(),
+        "completed_at": summary.completed_at.isoformat() if summary.completed_at else None,
+        "candidate_count": summary.candidate_count,
+        "failed_stage": (summary.failed_stage.value if summary.failed_stage is not None else None),
+    }
+
+
+def daily_research_session_list_payload(
+    summaries: tuple[ResearchSessionSummary, ...],
+) -> dict[str, object]:
+    """MILESTONE-071. Sectioned the same way as every other M070/M071
+    daily-research payload: FACT only, since a session listing carries
+    no historical-evidence or diagnostic content of its own."""
+    return {"FACT": {"sessions": [_session_summary_payload(s) for s in summaries]}}
+
+
+def _comparison_entry_payload(entry: SessionComparisonEntry) -> dict[str, object]:
+    return {
+        "instrument_symbol": entry.instrument_symbol,
+        "outcome": entry.outcome.value,
+        "target_scan_decision": entry.target_scan_decision,
+        "target_trade_plan_decision": entry.target_trade_plan_decision,
+        "baseline_scan_decision": entry.baseline_scan_decision,
+        "baseline_trade_plan_decision": entry.baseline_trade_plan_decision,
+    }
+
+
+def daily_research_session_comparison_payload(
+    result: SessionComparisonResult,
+) -> dict[str, object]:
+    """MILESTONE-071. Sectioned FACT (the target session's own identity)
+    / CONTINUITY (the baseline session, or an explicit "no prior
+    session" note, plus the per-instrument NEW/DROPPED/CHANGED/UNCHANGED
+    diff) / LIMITATION (the same fixed claim-honesty tuple every M070/
+    M071 payload carries -- a day-over-day comparison is still research
+    evidence, never a trading instruction)."""
+    target = result.target
+    baseline = result.baseline
+
+    fact = {
+        "session_governance_id": str(target.identity.governance_id),
+        "session_runtime_id": str(target.identity.runtime_id),
+        "as_of": target.as_of.isoformat(),
+        "requested_universe": list(target.requested_universe),
+        "completion_status": target.status.value,
+    }
+
+    continuity: dict[str, object] = {
+        "baseline_session_governance_id": (
+            str(baseline.identity.governance_id) if baseline is not None else None
+        ),
+        "baseline_session_runtime_id": (
+            str(baseline.identity.runtime_id) if baseline is not None else None
+        ),
+        "baseline_as_of": baseline.as_of.isoformat() if baseline is not None else None,
+        "baseline_completion_status": (baseline.status.value if baseline is not None else None),
+        "note": (
+            None
+            if baseline is not None
+            else "no prior session found for this universe -- this is the first session"
+        ),
+        "new": [_comparison_entry_payload(e) for e in result.entries if e.outcome.value == "NEW"],
+        "dropped": [
+            _comparison_entry_payload(e) for e in result.entries if e.outcome.value == "DROPPED"
+        ],
+        "changed": [
+            _comparison_entry_payload(e) for e in result.entries if e.outcome.value == "CHANGED"
+        ],
+        "unchanged": [
+            _comparison_entry_payload(e) for e in result.entries if e.outcome.value == "UNCHANGED"
+        ],
+    }
+
+    return {
+        "FACT": fact,
+        "CONTINUITY": continuity,
+        "LIMITATION": list(RESEARCH_SESSION_CLAIM_HONESTY_LIMITATIONS),
     }

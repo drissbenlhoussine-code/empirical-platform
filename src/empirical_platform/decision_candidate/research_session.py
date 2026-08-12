@@ -289,6 +289,153 @@ class ResearchSession:
         return tuple(ranked)
 
 
+@dataclass(frozen=True, slots=True)
+class ResearchSessionSummary:
+    """MILESTONE-071. A lightweight projection of one `ResearchSession`
+    -- identity, as_of, universe, status, and counts, without the full
+    stage manifest or decision trail -- so listing many sessions never
+    requires hydrating each one's own full evidence trail (mission's own
+    "session history/navigation" gap: an operator must be able to find a
+    session without already knowing its exact runtime id)."""
+
+    identity: DomainIdentity[ResearchSessionId]
+    as_of: datetime
+    requested_universe: tuple[str, ...]
+    status: ResearchSessionStatus
+    created_at: datetime
+    completed_at: datetime | None
+    candidate_count: int
+    failed_stage: StageName | None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.identity, DomainIdentity):
+            raise TypeError("identity must be a DomainIdentity[ResearchSessionId]")
+        if not isinstance(self.identity.governance_id, ResearchSessionId):
+            raise TypeError("identity governance_id must be a ResearchSessionId")
+        if self.as_of.tzinfo is None:
+            raise ValueError("as_of must be timezone-aware")
+        if self.created_at.tzinfo is None:
+            raise ValueError("created_at must be timezone-aware")
+        if self.completed_at is not None and self.completed_at.tzinfo is None:
+            raise ValueError("completed_at must be timezone-aware")
+        if not self.requested_universe:
+            raise ValueError("requested_universe must contain at least 1 instrument")
+        if self.candidate_count < 0:
+            raise ValueError("candidate_count must be non-negative")
+        if self.status is ResearchSessionStatus.FAILED and self.failed_stage is None:
+            raise ValueError("a FAILED summary must carry failed_stage")
+        if self.status is ResearchSessionStatus.COMPLETED and self.failed_stage is not None:
+            raise ValueError("a COMPLETED summary must carry no failed_stage")
+
+
+class SessionComparisonOutcome(StrEnum):
+    """Closed vocabulary for one instrument's own day-over-day change
+    classification between a target session and its most recent prior
+    session sharing the same universe."""
+
+    NEW = "NEW"
+    DROPPED = "DROPPED"
+    CHANGED = "CHANGED"
+    UNCHANGED = "UNCHANGED"
+
+
+@dataclass(frozen=True, slots=True)
+class SessionComparisonEntry:
+    """One immutable, per-instrument day-over-day comparison result."""
+
+    instrument_symbol: str
+    outcome: SessionComparisonOutcome
+    target_scan_decision: str | None
+    target_trade_plan_decision: str | None
+    baseline_scan_decision: str | None
+    baseline_trade_plan_decision: str | None
+
+    def __post_init__(self) -> None:
+        if not self.instrument_symbol.strip():
+            raise ValueError("instrument_symbol must be non-empty")
+        if self.outcome is SessionComparisonOutcome.NEW:
+            if self.target_scan_decision is None:
+                raise ValueError("NEW entries must carry a target_scan_decision")
+            if self.baseline_scan_decision is not None:
+                raise ValueError("NEW entries must carry no baseline_scan_decision")
+        elif self.outcome is SessionComparisonOutcome.DROPPED:
+            if self.baseline_scan_decision is None:
+                raise ValueError("DROPPED entries must carry a baseline_scan_decision")
+            if self.target_scan_decision is not None:
+                raise ValueError("DROPPED entries must carry no target_scan_decision")
+        else:
+            if self.target_scan_decision is None or self.baseline_scan_decision is None:
+                raise ValueError(
+                    "CHANGED/UNCHANGED entries must carry both target and baseline scan_decision"
+                )
+
+
+def compare_session_decisions(
+    *,
+    target_decisions: tuple[ResearchDecisionEntry, ...],
+    baseline_decisions: tuple[ResearchDecisionEntry, ...] | None,
+) -> tuple[SessionComparisonEntry, ...]:
+    """MILESTONE-071's own pure, deterministic day-over-day diff: pure
+    structural comparison over already-computed, already-persisted
+    decisions -- never new strategy/ranking/risk math. `baseline_decisions`
+    is `None` when no prior session exists (day-1 usage; every target
+    instrument is honestly reported NEW, never an error)."""
+    target_by_symbol = {d.instrument_symbol: d for d in target_decisions}
+    baseline_by_symbol = (
+        {d.instrument_symbol: d for d in baseline_decisions}
+        if baseline_decisions is not None
+        else {}
+    )
+    symbols = sorted(set(target_by_symbol) | set(baseline_by_symbol))
+
+    entries: list[SessionComparisonEntry] = []
+    for symbol in symbols:
+        target = target_by_symbol.get(symbol)
+        baseline = baseline_by_symbol.get(symbol)
+        if target is not None and baseline is None:
+            entries.append(
+                SessionComparisonEntry(
+                    instrument_symbol=symbol,
+                    outcome=SessionComparisonOutcome.NEW,
+                    target_scan_decision=target.scan_decision,
+                    target_trade_plan_decision=target.trade_plan_decision,
+                    baseline_scan_decision=None,
+                    baseline_trade_plan_decision=None,
+                )
+            )
+        elif target is None and baseline is not None:
+            entries.append(
+                SessionComparisonEntry(
+                    instrument_symbol=symbol,
+                    outcome=SessionComparisonOutcome.DROPPED,
+                    target_scan_decision=None,
+                    target_trade_plan_decision=None,
+                    baseline_scan_decision=baseline.scan_decision,
+                    baseline_trade_plan_decision=baseline.trade_plan_decision,
+                )
+            )
+        elif target is not None and baseline is not None:
+            changed = (
+                target.scan_decision != baseline.scan_decision
+                or target.trade_plan_decision != baseline.trade_plan_decision
+            )
+            entries.append(
+                SessionComparisonEntry(
+                    instrument_symbol=symbol,
+                    outcome=(
+                        SessionComparisonOutcome.CHANGED
+                        if changed
+                        else SessionComparisonOutcome.UNCHANGED
+                    ),
+                    target_scan_decision=target.scan_decision,
+                    target_trade_plan_decision=target.trade_plan_decision,
+                    baseline_scan_decision=baseline.scan_decision,
+                    baseline_trade_plan_decision=baseline.trade_plan_decision,
+                )
+            )
+    return tuple(entries)
+
+
 def derive_shared_evaluation_timestamp(
     series_by_instrument: dict[str, HistoricalInstrumentSeries],
     *,

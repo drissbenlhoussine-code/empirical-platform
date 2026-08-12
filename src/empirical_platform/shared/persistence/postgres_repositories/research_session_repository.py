@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any, cast
 
 from empirical_platform.decision_candidate.research_session import (
     ResearchDecisionEntry,
     ResearchSession,
     ResearchSessionStatus,
+    ResearchSessionSummary,
     StageName,
     StageRecord,
     StageStatus,
@@ -22,6 +24,8 @@ from empirical_platform.shared.persistence.postgres import PostgresPersistenceSe
 from empirical_platform.shared.persistence.postgres_repositories._errors import (
     unique_violation_constraint_name,
 )
+
+_SORTED_UNIVERSE_EXPR = "(SELECT array_agg(x ORDER BY x) FROM unnest({column}) x)"
 
 _SESSION_KIND = "ResearchSession"
 _SESSION_UNIQUE_CONSTRAINTS = {
@@ -193,6 +197,80 @@ class PostgresResearchSessionRepository:
                         aggregate_kind=_SESSION_KIND, identity=session.identity
                     ) from exc
                 raise
+
+    def list_recent(
+        self, *, universe: tuple[str, ...] | None, limit: int
+    ) -> tuple[ResearchSessionSummary, ...]:
+        sql = (
+            "SELECT runtime_id, governance_id, as_of, requested_universe, status, "
+            "created_at, completed_at, candidate_count, failed_stage FROM research_session"
+        )
+        params: dict[str, Any] = {"limit": limit}
+        if universe is not None:
+            sorted_column = _SORTED_UNIVERSE_EXPR.format(column="requested_universe")
+            sorted_param = _SORTED_UNIVERSE_EXPR.format(column="CAST(:universe AS text[])")
+            sql += f" WHERE {sorted_column} = {sorted_param}"
+            params["universe"] = list(universe)
+        sql += " ORDER BY as_of DESC, created_at DESC, runtime_id DESC LIMIT :limit"
+        with self._service.unit_of_work() as work:
+            rows = work.execute(sql, params)
+        return tuple(_row_to_summary(row) for row in rows)
+
+    def find_most_recent_prior(
+        self,
+        *,
+        universe: tuple[str, ...],
+        before_as_of: datetime,
+        exclude_runtime_id: RuntimeIdentifier,
+    ) -> ResearchSession | None:
+        sorted_column = _SORTED_UNIVERSE_EXPR.format(column="requested_universe")
+        sorted_param = _SORTED_UNIVERSE_EXPR.format(column="CAST(:universe AS text[])")
+        find_prior_sql = (
+            "SELECT * FROM research_session "  # noqa: S608
+            f"WHERE {sorted_column} = {sorted_param} "
+            "AND as_of < :before_as_of AND runtime_id != :exclude_runtime_id "
+            "ORDER BY as_of DESC, created_at DESC, runtime_id DESC LIMIT 1"
+        )
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                find_prior_sql,
+                {
+                    "universe": list(universe),
+                    "before_as_of": before_as_of,
+                    "exclude_runtime_id": str(exclude_runtime_id),
+                },
+            )
+            if not rows:
+                return None
+            runtime_id = str(rows[0]["runtime_id"])
+            stage_rows = work.execute(
+                "SELECT * FROM research_session_stage "
+                "WHERE session_runtime_id = :runtime_id ORDER BY stage_sequence",
+                {"runtime_id": runtime_id},
+            )
+            decision_rows = work.execute(
+                "SELECT * FROM research_session_decision "
+                "WHERE session_runtime_id = :runtime_id ORDER BY decision_sequence",
+                {"runtime_id": runtime_id},
+            )
+        return _row_to_session(rows[0], stage_rows, decision_rows)
+
+
+def _row_to_summary(row: Mapping[str, Any]) -> ResearchSessionSummary:
+    failed_stage = row["failed_stage"]
+    return ResearchSessionSummary(
+        identity=DomainIdentity(
+            governance_id=ResearchSessionId(str(row["governance_id"])),
+            runtime_id=RuntimeIdentifier(str(row["runtime_id"])),
+        ),
+        as_of=row["as_of"],
+        requested_universe=tuple(row["requested_universe"]),
+        status=ResearchSessionStatus(str(row["status"])),
+        created_at=row["created_at"],
+        completed_at=row["completed_at"],
+        candidate_count=int(row["candidate_count"]),
+        failed_stage=StageName(str(failed_stage)) if failed_stage is not None else None,
+    )
 
 
 def _row_to_stage(row: Mapping[str, Any]) -> StageRecord:

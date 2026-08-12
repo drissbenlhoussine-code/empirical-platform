@@ -113,6 +113,8 @@ empirical-platform-get-portfolio-dependence-evidence = "empirical_platform.entry
 empirical-platform-acquire-market-data-snapshot = "empirical_platform.entrypoints.acquire_market_data_snapshot:main"
 empirical-platform-run-daily-research = "empirical_platform.entrypoints.run_daily_research_session:main"
 empirical-platform-get-daily-research = "empirical_platform.entrypoints.get_daily_research_session:main"
+empirical-platform-list-daily-research = "empirical_platform.entrypoints.list_daily_research_sessions:main"
+empirical-platform-compare-daily-research = "empirical_platform.entrypoints.compare_daily_research_sessions:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
