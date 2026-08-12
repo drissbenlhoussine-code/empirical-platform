@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-071
+LATEST_FROZEN_MILESTONE=MILESTONE-072
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -638,8 +638,21 @@ M071_PROFITABILITY_CLAIM=NONE_MADE
 M071_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M071_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M072_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-072 -- recommendation only; not started as part of M071
+M072_SCOPE=Operator Daily Research Brief (a pure DailyResearchBrief domain model with a small, closed, deterministic AttentionLevel vocabulary; three purely additive get_by_governance_id repository read methods surfacing genuine M057/M059/M060 rejection reasons and risk evidence; deterministic text/JSON renderers from one authoritative model; one real installed CLI command, empirical-platform-daily-brief; zero new PostgreSQL schema; zero new business logic)
+M072_SCOPE_STATUS=APPROVED_AND_FROZEN
+M072_DESIGN_STATUS=APPROVED_AND_FROZEN
+M072_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M072_IMPLEMENTATION_COMMIT=4863912
+M072_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M072_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M072_OWNER_FREEZE_COMMIT=PENDING
+M072_STATUS=APPROVED_AND_FROZEN
+M072_PROFITABILITY_CLAIM=NONE_MADE
+M072_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M072_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M073_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-073 -- recommendation only; not started as part of M072
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2566,6 +2579,38 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Delivered capability, frozen:** an operator can now find a daily research session without already knowing its exact runtime id, and see exactly what changed since the last research session for the same instruments -- via two real installed CLI commands, zero new business logic, and zero new PostgreSQL tables beyond one additive index.
 
 **Freeze declaration:** `M071 MACRO MILESTONE APPROVED_AND_FROZEN`. `M071 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+## 102. MILESTONE-072 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_072_OPERATOR_DAILY_RESEARCH_BRIEF_SCOPE_AND_DESIGN.md` (the mandatory fresh 20-area product-readiness inventory, the 8-candidate ranking against all 6 required criteria, explicit rejection rationale for each losing candidate) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second pass, reality gate, owner approval).
+
+**Why M072 exists.** M071 made session history and day-over-day comparison possible, but the only output an operator could actually read was raw, unsectioned-for-humans JSON via `get-daily-research`/`compare-daily-research` -- no attention ordering existed anywhere, and no narrative rejection reasons, despite genuine structured reason data (`EvaluationReasonCode`, `TradePlanRejectionReason`, `PositionPlanRejectionReason`) already existing one layer down in the frozen M057/M059/M060 domain models, unreachable from the M070 session payload because `ResearchDecisionEntry` stores only a bare governance-id string, not the full identity a `get()` call requires. A fresh 20-area inventory answered the mission's own gate question -- "can an operator understand within roughly a minute what deserves attention, what changed, why, and what the limitations are" -- honestly: **NO**. An 8-candidate ranking against product value, daily operator value, dependency unlock, architectural leverage, implementation cost, and premature-complexity risk selected the Operator Daily Research Brief (subsuming attention prioritization, richer day-over-day explanation, and data-quality visibility as facets of one coherent capability) over M067/M068 portfolio/dependence integration (rejected: freshly re-confirmed zero genuine session-level lineage exists -- fabricating one would violate the mission's own no-fabrication boundary), session navigation/history UX (rejected: already `PRODUCTION_USABLE` via M071, rebuilding it would be pure ceremony), and report export/artifact usability (rejected: premature -- nothing exists yet to export until the brief itself exists).
+
+**Selected design.** A pure `DailyResearchBrief` domain model composing already-computed M057/M059/M060/M070/M071 evidence -- zero new evaluation, ranking, risk, sizing, backtest, statistical, portfolio, or dependence math anywhere. The only genuinely new logic is `classify_attention_level()`, a small, closed, deterministic classification (`ACTION_CANDIDATE`/`REVIEW`/`ROUTINE`/`DROPPED`, no opaque score, no ML, no LLM) of already-computed decision fields; a session-level `WARNING` always renders above every instrument's own attention level. Three repositories (`DecisionCandidate`/`TradePlan`/`PositionPlan`) gain one new, purely additive `get_by_governance_id()` read method each -- zero new PostgreSQL schema, since each table already carries a `governance_id` unique constraint. Day-over-day comparison reuses M071's own `compare_session_decisions()` completely unchanged. Two deterministic renderers (plain text, JSON) consume the same authoritative model so they can never semantically diverge. One real installed CLI command, `empirical-platform-daily-brief`, defaults to the single most recent session or accepts explicit selection.
+
+**Actual results, un-massaged.** Two real sessions run against real PostgreSQL, using the same flat-then-genuine-breakout `FakeMarketDataSource` fixture design established in M070/M071, produced a real, unforced `NO_TRADE -> LONG_CANDIDATE` transition with both trade plans and position plans genuinely `APPROVED` under the real, unmodified M059/M060 risk/sizing gates -- proven twice, independently, the second time with a different instrument pair (TSLA/GOOG) and calendar month. The brief's own risk evidence (`entry_price`, `reward_risk_ratio`, `quantity`, `position_notional`) was independently cross-verified against raw SQL on both environments and matched exactly. An initial fixture draft (a 10% breakout) genuinely failed the frozen M059 2:1 reward:risk gate with `INVALID_TARGET_GEOMETRY` -- root-caused directly against `compute_target_price`'s own fixed 2% projection math (not tuned to force a pass) and corrected to a geometrically-necessary 0.4%/0.5% breakout.
+
+**Tests:** 33 new pure domain-level unit tests (attention classification, all 15 real reason-code explanations, entry/brief validation invariants, sorting, DROPPED synthesis, end-to-end pure composition) + 16 new usecase/renderer/CLI unit tests (full-approval risk evidence, rejected-trade-plan reasons, NO_TRADE reasons, the honest-unavailable position-sizing-reason case, the FAILED-session non-fabrication guard, rendering determinism/parity/claim-honesty, CLI argv handling) + 5 PostgreSQL integration tests (full lifecycle with raw-SQL risk-evidence cross-verification, day-1 semantics, FAILED-session warning, real CLI default/explicit/`--json` selection, clean failure with zero sessions ever run). Full regression: 1816 passed / 347 skipped, zero failures, 80.17% coverage met without any threshold adjustment.
+
+**Hostile review:** 72 explicit attack/verification cases catalogued in `external-review/MILESTONE-072/hostile-review-matrix.md`. One genuine design risk was caught and guarded during construction: the temptation to infer a rejected position plan's own reason codes on a FAILED session, where M070's own attempted-for-every-approved-trade-plan invariant does not reliably hold -- the usecase explicitly gates that inference on `session_is_completed`, with a dedicated regression test.
+
+**Independent second pass:** a genuinely fresh PostgreSQL container (`m072-second-pass-pg`, port 32782, removed after use), Git truth re-established independently, all 16 migrations applied cleanly from empty, the real installed CLI driven with a deliberately different instrument pair (TSLA/GOOG) and calendar month than every prior run this session, every risk-evidence value independently cross-checked via raw `psql` queries, text/JSON parity re-confirmed, a claim-honesty grep run against the real rendered CLI output, and the full M072 test suite re-run against this second, independent container. The central claim -- an operator can open one output and understand what matters within about a minute, without any recomputed or fabricated evidence -- was directly attacked from five angles and held in every case.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_072_OPERATOR_DAILY_RESEARCH_BRIEF_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or investment advice is made anywhere in this milestone** -- M072 makes the existing daily research and continuity products usable as one coherent, legible operator artifact for the first time; it does not certify any strategy as profitable or ready for real capital.
+
+**Next permitted action:** see Section 103.
+
+## 103. MILESTONE-072 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_072_OPERATOR_DAILY_RESEARCH_BRIEF_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-072 scope, design, implementation, hostile review, independent second pass, the reality gate, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** an operator can now run one real installed command, `empirical-platform-daily-brief`, and see a deterministic, attention-prioritized, plain-English (or `--json`) brief of what matters today, what changed since the prior session, why every rejection happened, and the real risk numbers for anything actionable -- zero new business logic, zero new PostgreSQL schema beyond three additive read methods.
+
+**Freeze declaration:** `M072 MACRO MILESTONE APPROVED_AND_FROZEN`. `M072 APPROVED_AND_FROZEN`.
 
 **Status:** `APPROVED_AND_FROZEN`.
 
