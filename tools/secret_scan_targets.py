@@ -20,6 +20,10 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     re.compile(r'^[+-]?down_revision: str \| None = "[0-9a-f]{12}"$'),
     re.compile(r'^New migration `[0-9a-f]{12}` \(`down_revision = "[0-9a-f]{12}"`\):'),
     re.compile(r'^[+-]?_EXPECTED_SHA256 = "[0-9a-f]{64}"$'),
+    re.compile(r'^[+-]?_EXPECTED_DATASET_SHA256 = "[0-9a-f]{64}"$'),
+    re.compile(r'^[+-]?_EXPECTED_MANIFEST_HASH = "[0-9a-f]{64}"$'),
+    re.compile(r'^[+-]?\s*"dataset_bundle_sha256": "[0-9a-f]{64}",?$'),
+    re.compile(r'^[+-]?\s*"membership_manifest_hash": "[0-9a-f]{64}"$'),
 )
 
 

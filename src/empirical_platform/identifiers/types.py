@@ -133,3 +133,9 @@ class PortfolioDependenceReportId(Identifier):
     report identifier."""
 
     prefix = "DEPEND"
+
+
+class ResearchSessionId(Identifier):
+    """One-command daily research session identifier."""
+
+    prefix = "RESEARCH"

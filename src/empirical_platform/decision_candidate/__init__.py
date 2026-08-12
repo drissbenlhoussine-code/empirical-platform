@@ -172,6 +172,20 @@ from empirical_platform.decision_candidate.ranking import (
     compute_ranking_score,
 )
 from empirical_platform.decision_candidate.repository import DecisionCandidateRepository
+from empirical_platform.decision_candidate.research_session import (
+    RESEARCH_SESSION_CLAIM_HONESTY_LIMITATIONS,
+    ResearchDecisionEntry,
+    ResearchSession,
+    ResearchSessionStatus,
+    StageName,
+    StageRecord,
+    StageStatus,
+    derive_observation_window,
+    derive_shared_evaluation_timestamp,
+)
+from empirical_platform.decision_candidate.research_session_repository import (
+    ResearchSessionRepository,
+)
 from empirical_platform.decision_candidate.robustness_study import (
     REGIME_POLICY_ID,
     REGIME_POLICY_VERSION,
@@ -304,6 +318,16 @@ __all__ = [
     "BarInterval",
     "DecisionCandidate",
     "DecisionCandidateRepository",
+    "RESEARCH_SESSION_CLAIM_HONESTY_LIMITATIONS",
+    "ResearchDecisionEntry",
+    "ResearchSession",
+    "ResearchSessionRepository",
+    "ResearchSessionStatus",
+    "StageName",
+    "StageRecord",
+    "StageStatus",
+    "derive_observation_window",
+    "derive_shared_evaluation_timestamp",
     "EvaluationMeasurements",
     "EvaluationOutcome",
     "EvaluationReasonCode",
