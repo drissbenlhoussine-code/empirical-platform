@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-070
+LATEST_FROZEN_MILESTONE=MILESTONE-071
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -625,8 +625,21 @@ M070_PROFITABILITY_CLAIM=NONE_MADE
 M070_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M070_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M071_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-071 -- recommendation only; not started as part of M070
+M071_SCOPE=Daily Research Continuity (session-history listing via `list_recent()`, day-over-day comparison via `find_most_recent_prior()` + the pure `compare_session_decisions()` NEW/DROPPED/CHANGED/UNCHANGED diff, two real installed CLI commands; zero new PostgreSQL tables beyond one additive `as_of` index; zero new business logic)
+M071_SCOPE_STATUS=APPROVED_AND_FROZEN
+M071_DESIGN_STATUS=APPROVED_AND_FROZEN
+M071_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M071_IMPLEMENTATION_COMMIT=e34c46b
+M071_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M071_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M071_OWNER_FREEZE_COMMIT=PENDING
+M071_STATUS=APPROVED_AND_FROZEN
+M071_PROFITABILITY_CLAIM=NONE_MADE
+M071_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M071_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M072_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-072 -- recommendation only; not started as part of M071
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2523,3 +2536,37 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-071 — recommendation only; not started as part of M070. Per the mission's own explicit instruction, MILESTONE-071 was NOT built.
+
+## 100. MILESTONE-071 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_071_DAILY_RESEARCH_CONTINUITY_SCOPE_AND_DESIGN.md` (the mandatory fresh 15-area product-readiness gap analysis, the 5-candidate ranking against all 6 required criteria, explicit rejection rationale for each losing candidate) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second pass, reality gate, owner approval).
+
+**Why M071 exists.** M070 made one command produce one complete daily research session, but an operator retrieving a past session had to already know its exact runtime UUID -- confirmed directly: `get-daily-research` took exactly 2 required positional arguments, both exact identifiers, with no lookup-by-criteria path anywhere. A fresh 15-area gap analysis found this the single sharpest, most concrete, most repeatedly-confirmed gap: every other continuity-oriented improvement (day-over-day change detection, research-session comparison, alerting) either depends on being able to find the prior session at all, or is a deliberate, already-disclosed M070 boundary (portfolio/dependence integration, data-source fallback). A 5-candidate ranking against product value, daily operator value, dependency unlock, architectural leverage, implementation cost, and premature-complexity risk selected session history + day-over-day comparison over a human-readable renderer (lower leverage -- prettifying a JSON blob an operator still cannot find solves the wrong problem first), M067/M068 portfolio/dependence wiring (already rejected once in M070's own design doc for the same reason: those operate on trade/window collections across time, not a single day's snapshot), data-source fallback/retry (would require a second real vendor adapter, explicitly out of M070's boundary), and a persisted candidate watchlist (overlaps with the selected capability's own decision-level diff at higher implementation cost).
+
+**Selected design.** Two new, purely additive `ResearchSessionRepository` methods: `list_recent()` (lightweight `ResearchSessionSummary` projections, optionally filtered to an exact universe via order-independent set-equality) and `find_most_recent_prior()` (the full hydrated baseline session for day-over-day comparison, bounded strictly by `as_of <` and excluding the target session itself). A new, pure `compare_session_decisions()` function classifies each instrument NEW/DROPPED/CHANGED/UNCHANGED between a target and its own baseline -- a structural diff over already-computed `scan_decision`/`trade_plan_decision` fields, never new strategy/ranking/risk/sizing/backtest math. Comparisons are computed on demand from two already-persisted sessions and are never themselves persisted, avoiding both new schema and any "comparison result going stale" question. Two new real installed CLI commands (`empirical-platform-list-daily-research`, `empirical-platform-compare-daily-research`) expose both capabilities with a deliberately simple argv shape. Zero new PostgreSQL tables; one purely additive index on `research_session(as_of)`.
+
+**Actual results, un-massaged.** The same `FakeMarketDataSource` fixture bytes, evaluated at two different `as_of` dates (day 5, flat; day 10, the first genuine breakout bar), produced a real, unforced day-over-day state transition: `NO_TRADE -> LONG_CANDIDATE` for both AAPL and MSFT -- proven twice, independently, the second time with a different instrument pair (NVDA/AMD) and calendar month, which additionally surfaced that the comparison correctly threads trade-plan-level state (`REJECTED_PLAN`, from the frozen M059 risk gate independently rejecting both breakout candidates), not just scan-level state.
+
+**Tests:** 45 new pure unit tests (29 domain-level: `ResearchSessionSummary`/`SessionComparisonEntry` validation and 12 cases of the `compare_session_decisions` diff function covering NEW/DROPPED/CHANGED/UNCHANGED/empty-both-sides/no-baseline; 16 usecase-level: handlers against a fake repository, both payload serializers, both CLI entrypoints' argv handling) + 6 PostgreSQL integration tests (full lifecycle with genuine day-over-day list+compare+raw-SQL verification, universe-filter correctness, day-1 no-prior-session semantics, cross-universe non-comparison, comparison against a FAILED baseline, real installed CLI subprocess). Full regression: 1767 passed / 342 skipped, zero failures, 80.05% coverage met on the first attempt (no threshold adjustment needed, unlike M070).
+
+**Hostile review:** 63 explicit attack/verification cases catalogued in `external-review/MILESTONE-071/hostile-review-matrix.md`. Five genuine findings, all fixed inline: a PostgreSQL `unnest(unknown)` type-ambiguity error; a SQLAlchemy `text()` tokenizer conflict between a named bind parameter and the `::` cast operator that silently failed to bind the parameter at all rather than erroring immediately; a non-deterministic `ORDER BY` under a tied `(as_of, created_at)`, fixed with a `runtime_id DESC` final tiebreaker; an entrypoint importing `decision_candidate` directly, violating the established architecture boundary; and a test-fixture design flaw where the intended breakout date's own reference window had silently absorbed the prior day's elevated statistics, masking the signal -- root-caused by reading the frozen M057 `evaluate()` function directly rather than guessing.
+
+**Independent second pass:** a genuinely fresh PostgreSQL container (`m071-second-pass-pg`, port 32781, removed after use), Git truth re-established independently, all 16 migrations applied cleanly from empty, the real installed CLIs driven with a deliberately different instrument pair (NVDA/AMD) and calendar month than every prior run this session, every persisted value independently cross-checked via raw `psql` queries, and the full test suite re-run against this second, independent container. The central claim -- an operator can find and compare sessions without already knowing a runtime id, and comparisons reflect genuine state changes -- was directly attacked from four angles and held in every case.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_071_DAILY_RESEARCH_CONTINUITY_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or investment advice is made anywhere in this milestone** -- M071 makes the existing daily research product usable across multiple days for the first time; it does not certify any strategy as profitable or ready for real capital.
+
+**Next permitted action:** see Section 101.
+
+## 101. MILESTONE-071 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_071_DAILY_RESEARCH_CONTINUITY_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-071 scope, design, implementation, hostile review, independent second pass, the reality gate, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** an operator can now find a daily research session without already knowing its exact runtime id, and see exactly what changed since the last research session for the same instruments -- via two real installed CLI commands, zero new business logic, and zero new PostgreSQL tables beyond one additive index.
+
+**Freeze declaration:** `M071 MACRO MILESTONE APPROVED_AND_FROZEN`. `M071 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-072 — recommendation only; not started as part of M071. Per the mission's own explicit instruction, MILESTONE-072 was NOT built.
