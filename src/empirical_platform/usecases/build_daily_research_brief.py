@@ -20,6 +20,12 @@ from empirical_platform.decision_candidate.daily_research_brief import (
     FetchedInstrumentEvidence,
     build_daily_research_brief,
 )
+from empirical_platform.decision_candidate.historical_portfolio_evidence import (
+    HistoricalPortfolioEvidence,
+)
+from empirical_platform.decision_candidate.historical_portfolio_evidence_query_repository import (
+    HistoricalPortfolioEvidenceQueryRepository,
+)
 from empirical_platform.decision_candidate.position_plan import PositionPlan
 from empirical_platform.decision_candidate.position_plan_repository import PositionPlanRepository
 from empirical_platform.decision_candidate.repository import DecisionCandidateRepository
@@ -40,6 +46,10 @@ from empirical_platform.identifiers.types import (
     PositionPlanId,
     ResearchSessionId,
     TradePlanId,
+)
+from empirical_platform.usecases.discover_historical_portfolio_evidence import (
+    DiscoverHistoricalPortfolioEvidenceHandler,
+    DiscoverHistoricalPortfolioEvidenceQuery,
 )
 
 __all__ = [
@@ -82,13 +92,17 @@ def _risk_evidence_from(
 
 
 class BuildDailyResearchBriefHandler:
-    """Build one operator-facing daily research brief."""
+    """Build one operator-facing daily research brief. MILESTONE-074
+    adds a read-only historical-evidence discovery step that surfaces
+    compatible persisted M064 + M067 historical research evidence
+    under a strict honesty banner."""
 
     __slots__ = (
         "_research_sessions",
         "_decision_candidates",
         "_trade_plans",
         "_position_plans",
+        "_historical_evidence_discovery",
     )
 
     def __init__(
@@ -98,11 +112,19 @@ class BuildDailyResearchBriefHandler:
         decision_candidate_repository: DecisionCandidateRepository,
         trade_plan_repository: TradePlanRepository,
         position_plan_repository: PositionPlanRepository,
+        historical_evidence_query_repository: HistoricalPortfolioEvidenceQueryRepository | None = None,
     ) -> None:
         self._research_sessions = research_session_repository
         self._decision_candidates = decision_candidate_repository
         self._trade_plans = trade_plan_repository
         self._position_plans = position_plan_repository
+        self._historical_evidence_discovery = (
+            DiscoverHistoricalPortfolioEvidenceHandler(
+                query_repository=historical_evidence_query_repository
+            )
+            if historical_evidence_query_repository is not None
+            else None
+        )
 
     def handle(self, query: BuildDailyResearchBriefQuery) -> DailyResearchBrief:
         target = self._research_sessions.get(query.identity)
@@ -143,6 +165,26 @@ class BuildDailyResearchBriefHandler:
             failed_stage=target.failed_stage,
         )
 
+        historical_evidence: tuple[HistoricalPortfolioEvidence, ...] = ()
+        if self._historical_evidence_discovery is not None and is_completed:
+            try:
+                historical_evidence = self._historical_evidence_discovery.handle(
+                    DiscoverHistoricalPortfolioEvidenceQuery(
+                        strategy_id=target.strategy_id,
+                        strategy_version=target.strategy_version,
+                        ranking_model_id=target.ranking_model_id,
+                        ranking_model_version=target.ranking_model_version,
+                        risk_policy_id=target.risk_policy_id,
+                        risk_policy_version=target.risk_policy_version,
+                        sizing_policy_id=target.sizing_policy_id,
+                        sizing_policy_version=target.sizing_policy_version,
+                        requested_universe=target.requested_universe,
+                        as_of=target.as_of,
+                    )
+                )
+            except Exception:  # noqa: BLE001 - discovery failure is non-fatal
+                historical_evidence = ()
+
         return build_daily_research_brief(
             session=summary,
             session_status=target.status.value,
@@ -173,6 +215,7 @@ class BuildDailyResearchBriefHandler:
             stage_manifest_summary=tuple(
                 f"{stage.stage_name.value}: {stage.status.value}" for stage in target.stage_manifest
             ),
+            historical_portfolio_evidence=historical_evidence,
         )
 
     def _fetch_evidence(

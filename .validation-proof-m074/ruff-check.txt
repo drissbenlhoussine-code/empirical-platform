@@ -1,0 +1,85 @@
+﻿I001 [*] Import block is un-sorted or un-formatted
+  --> src\empirical_platform\shared\persistence\postgres_repositories\runtime.py:8:1
+   |
+ 6 |   """
+ 7 |
+ 8 | / from __future__ import annotations
+ 9 | |
+10 | | from collections.abc import Callable, Sequence
+11 | |
+12 | | from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+13 | | from empirical_platform.shared.persistence.postgres_repositories.campaign_repository import (
+14 | |     PostgresCampaignRepository,
+15 | | )
+16 | | from empirical_platform.shared.persistence.postgres_repositories.dataset_snapshot_repository import (  # noqa: E501
+17 | |     PostgresCorporateActionRepository,
+18 | |     PostgresCorporateActionSemanticsStressRepository,
+19 | |     PostgresDatasetSnapshotRepository,
+20 | | )
+21 | | from empirical_platform.shared.persistence.postgres_repositories.decision_candidate_repository import (  # noqa: E501
+22 | |     PostgresDecisionCandidateRepository,
+23 | | )
+24 | | from empirical_platform.shared.persistence.postgres_repositories.evidence_package_repository import (  # noqa: E501
+25 | |     PostgresEvidencePackageRepository,
+26 | | )
+27 | | from empirical_platform.shared.persistence.postgres_repositories.historical_backtest_repository import (  # noqa: E501
+28 | |     PostgresHistoricalBacktestRunRepository,
+29 | | )
+30 | | from empirical_platform.shared.persistence.postgres_repositories.portfolio_dependence_repository import (  # noqa: E501
+31 | |     PostgresPortfolioDependenceReportRepository,
+32 | | )
+33 | | from empirical_platform.shared.persistence.postgres_repositories.portfolio_study_repository import (  # noqa: E501
+34 | |     PostgresPortfolioStudyRepository,
+35 | | )
+36 | | from empirical_platform.shared.persistence.postgres_repositories.position_plan_repository import (
+37 | |     PostgresPositionPlanRepository,
+38 | | )
+39 | | from empirical_platform.shared.persistence.postgres_repositories.research_session_repository import (  # noqa: E501
+40 | |     PostgresResearchSessionRepository,
+41 | | )
+42 | | from empirical_platform.shared.persistence.postgres_repositories.review_repository import (
+43 | |     PostgresReviewRepository,
+44 | | )
+45 | | from empirical_platform.shared.persistence.postgres_repositories.robustness_study_repository import (  # noqa: E501
+46 | |     PostgresHistoricalRobustnessStudyRepository,
+47 | | )
+48 | | from empirical_platform.shared.persistence.postgres_repositories.run_repository import (
+49 | |     PostgresRunRepository,
+50 | | )
+51 | | from empirical_platform.shared.persistence.postgres_repositories.statistical_evidence_repository import (  # noqa: E501
+52 | |     PostgresStatisticalEvidenceReportRepository,
+53 | | )
+54 | | from empirical_platform.shared.persistence.postgres_repositories.survivorship_study_repository import (  # noqa: E501
+55 | |     PostgresInstrumentMasterRepository,
+56 | |     PostgresSurvivorshipAwareRobustnessStudyRepository,
+57 | |     PostgresUniverseMembershipRepository,
+58 | | )
+59 | | from empirical_platform.shared.persistence.postgres_repositories.historical_portfolio_evidence_query_repository import (  # noqa: E501
+60 | |     PostgresHistoricalPortfolioEvidenceQueryRepository,
+61 | | )
+62 | | from empirical_platform.shared.persistence.postgres_repositories.trade_plan_repository import (
+63 | |     PostgresTradePlanRepository,
+64 | | )
+65 | | from empirical_platform.shared.persistence.postgres_repositories.trading_opportunity_scan_repository import (  # noqa: E501
+66 | |     PostgresTradingOpportunityScanRepository,
+67 | | )
+68 | | from empirical_platform.shared.persistence.postgres_repositories.validation_study_repository import (  # noqa: E501
+69 | |     PostgresHistoricalValidationStudyRepository,
+70 | | )
+   | |_^
+   |
+help: Organize imports
+
+E501 Line too long (103 > 100)
+   --> src\empirical_platform\usecases\build_daily_research_brief.py:115:101
+    |
+113 |         trade_plan_repository: TradePlanRepository,
+114 |         position_plan_repository: PositionPlanRepository,
+115 |         historical_evidence_query_repository: HistoricalPortfolioEvidenceQueryRepository | None = None,
+    |                                                                                                     ^^^
+116 |     ) -> None:
+117 |         self._research_sessions = research_session_repository
+    |
+
+Found 2 errors.
+[*] 1 fixable with the `--fix` option.

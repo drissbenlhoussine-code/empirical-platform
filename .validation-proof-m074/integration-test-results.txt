@@ -1,0 +1,37 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\LuxSy\Documents\trading\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Users\LuxSy\Documents\trading
+configfile: pyproject.toml
+plugins: hypothesis-6.156.6, cov-6.3.0, xdist-3.8.0
+collecting ... collected 26 items
+
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_full_offline_lifecycle_and_raw_sql_verification PASSED [  3%]
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_multi_instrument_session_exercises_several_instruments PASSED [  7%]
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_future_data_attack_as_of_firewall PASSED [ 11%]
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_partial_failure_attack_preserves_completed_stage_evidence PASSED [ 15%]
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_source_tamper_attack_rejected_before_downstream_stages PASSED [ 19%]
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_duplicate_session_governance_id_is_rejected PASSED [ 23%]
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_replay_semantics_same_inputs_produce_semantically_equivalent_evidence PASSED [ 26%]
+tests/integration/test_m070_daily_research_session_lifecycle.py::test_real_cli_subprocess_run_and_get_with_real_network SKIPPED [ 30%]
+tests/integration/test_m071_daily_research_continuity_lifecycle.py::test_full_lifecycle_list_and_compare_with_raw_sql_verification PASSED [ 34%]
+tests/integration/test_m071_daily_research_continuity_lifecycle.py::test_list_filters_by_universe PASSED [ 38%]
+tests/integration/test_m071_daily_research_continuity_lifecycle.py::test_compare_no_prior_session_is_day_one PASSED [ 42%]
+tests/integration/test_m071_daily_research_continuity_lifecycle.py::test_compare_different_universe_sessions_are_never_compared PASSED [ 46%]
+tests/integration/test_m071_daily_research_continuity_lifecycle.py::test_compare_against_failed_baseline_surfaces_diagnostic_info PASSED [ 50%]
+tests/integration/test_m071_daily_research_continuity_lifecycle.py::test_real_cli_subprocess_list_and_compare PASSED [ 53%]
+tests/integration/test_m072_daily_research_brief_lifecycle.py::test_full_lifecycle_brief_reflects_real_evidence_with_raw_sql_verification PASSED [ 57%]
+tests/integration/test_m072_daily_research_brief_lifecycle.py::test_brief_no_prior_session_is_day_one PASSED [ 61%]
+tests/integration/test_m072_daily_research_brief_lifecycle.py::test_brief_failed_session_surfaces_warning_and_still_renders PASSED [ 65%]
+tests/integration/test_m072_daily_research_brief_lifecycle.py::test_real_cli_daily_brief_default_selects_latest_and_json_matches_text PASSED [ 69%]
+tests/integration/test_m072_daily_research_brief_lifecycle.py::test_real_cli_daily_brief_no_session_ever_run_fails_cleanly PASSED [ 73%]
+tests/integration/test_m073_daily_research_workflow_lifecycle.py::test_one_command_produces_a_complete_brief_for_the_session_it_just_created SKIPPED [ 76%]
+tests/integration/test_m073_daily_research_workflow_lifecycle.py::test_second_invocation_compares_against_the_first SKIPPED [ 80%]
+tests/integration/test_m073_daily_research_workflow_lifecycle.py::test_invalid_symbol_produces_an_honest_failed_session_with_warning SKIPPED [ 84%]
+tests/integration/test_m073_daily_research_workflow_lifecycle.py::test_real_cli_subprocess_default_settings SKIPPED [ 88%]
+tests/integration/test_m074_historical_portfolio_evidence_lifecycle.py::test_m074_daily_brief_surfaces_compatible_historical_evidence PASSED [ 92%]
+tests/integration/test_m074_historical_portfolio_evidence_lifecycle.py::test_m074_no_compatible_evidence_when_universe_does_not_overlap PASSED [ 96%]
+tests/integration/test_m074_historical_portfolio_evidence_lifecycle.py::test_m074_cli_subprocess_with_no_historical_evidence_flag PASSED [100%]
+
+================== 21 passed, 5 skipped in 92.70s (0:01:32) ===================

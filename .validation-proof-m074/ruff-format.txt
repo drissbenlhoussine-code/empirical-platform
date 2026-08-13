@@ -1,0 +1,9 @@
+﻿Would reformat: migrations\versions\a3f7c81e4b96_create_m067_portfolio_schema.py
+Would reformat: src\empirical_platform\entrypoints\build_daily_research_brief.py
+Would reformat: src\empirical_platform\entrypoints\run_daily_research_workflow.py
+Would reformat: src\empirical_platform\usecases\build_daily_research_brief.py
+Would reformat: src\empirical_platform\usecases\daily_research_brief_io.py
+Would reformat: src\empirical_platform\usecases\portfolio_dependence_io.py
+Would reformat: src\empirical_platform\usecases\run_portfolio_dependence_evidence.py
+Would reformat: tests\integration\test_m067_portfolio_study_lifecycle.py
+8 files would be reformatted, 548 files already formatted

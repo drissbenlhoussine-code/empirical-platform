@@ -782,6 +782,7 @@ def test_main_json_flag_produces_valid_json(
         "REJECTIONS",
         "RISK_AND_EVIDENCE",
         "DATA_QUALITY",
+        "HISTORICAL_PORTFOLIO_EVIDENCE",
         "LIMITATIONS",
         "AUDIT",
     }

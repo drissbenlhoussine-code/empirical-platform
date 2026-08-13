@@ -26,6 +26,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
+from empirical_platform.decision_candidate.historical_portfolio_evidence import (
+    HistoricalPortfolioEvidence,
+)
 from empirical_platform.decision_candidate.research_session import (
     ResearchDecisionEntry,
     ResearchSessionSummary,
@@ -39,6 +42,7 @@ __all__ = [
     "BriefRiskEvidence",
     "DailyResearchBrief",
     "FetchedInstrumentEvidence",
+    "HistoricalPortfolioEvidence",
     "build_daily_research_brief",
     "classify_attention_level",
     "explain_reason_code",
@@ -334,6 +338,8 @@ class DailyResearchBrief:
     scan_governance_id: str | None
     stage_manifest_summary: tuple[str, ...]
 
+    historical_portfolio_evidence: tuple[HistoricalPortfolioEvidence, ...] = ()
+
     def __post_init__(self) -> None:
         if not self.session_governance_id.strip():
             raise ValueError("session_governance_id must be non-empty")
@@ -373,6 +379,7 @@ def build_daily_research_brief(
     evidence_package_governance_id: str,
     scan_governance_id: str | None,
     stage_manifest_summary: tuple[str, ...],
+    historical_portfolio_evidence: tuple[HistoricalPortfolioEvidence, ...] = (),
 ) -> DailyResearchBrief:
     """Compose the authoritative brief model. Pure: every argument is
     already-fetched/already-computed data; this function performs no
@@ -405,4 +412,5 @@ def build_daily_research_brief(
         evidence_package_governance_id=evidence_package_governance_id,
         scan_governance_id=scan_governance_id,
         stage_manifest_summary=stage_manifest_summary,
+        historical_portfolio_evidence=historical_portfolio_evidence,
     )
