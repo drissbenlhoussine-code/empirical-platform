@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-072
+LATEST_FROZEN_MILESTONE=MILESTONE-073
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -651,8 +651,21 @@ M072_PROFITABILITY_CLAIM=NONE_MADE
 M072_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M072_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M073_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-073 -- recommendation only; not started as part of M072
+M073_SCOPE=One-Command Daily Research Workflow (a single new entrypoint composing the frozen M070 RunDailyResearchSessionHandler and the frozen M072 BuildDailyResearchBriefHandler over one shared PostgreSQL runtime; auto-generated session identity; sensible overridable CLI defaults; zero new domain model, zero new PostgreSQL schema, zero new business logic)
+M073_SCOPE_STATUS=APPROVED_AND_FROZEN
+M073_DESIGN_STATUS=APPROVED_AND_FROZEN
+M073_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M073_IMPLEMENTATION_COMMIT=c4501e9
+M073_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M073_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M073_OWNER_FREEZE_COMMIT=PENDING
+M073_STATUS=APPROVED_AND_FROZEN
+M073_PROFITABILITY_CLAIM=NONE_MADE
+M073_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M073_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M074_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-074 -- recommendation only; not started as part of M073
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2611,6 +2624,38 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Delivered capability, frozen:** an operator can now run one real installed command, `empirical-platform-daily-brief`, and see a deterministic, attention-prioritized, plain-English (or `--json`) brief of what matters today, what changed since the prior session, why every rejection happened, and the real risk numbers for anything actionable -- zero new business logic, zero new PostgreSQL schema beyond three additive read methods.
 
 **Freeze declaration:** `M072 MACRO MILESTONE APPROVED_AND_FROZEN`. `M072 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+## 104. MILESTONE-073 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_073_ONE_COMMAND_DAILY_WORKFLOW_SCOPE_AND_DESIGN.md` (the mandatory fresh 40-area product-reality inventory, a real live daily-use simulation executed before any implementation decision, the resulting friction map, and the 9-candidate ranking against all 8 required criteria) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second pass, the 12-question product reality gate, owner approval).
+
+**Why M073 exists.** M072 made the daily research product legible for the first time, but a fresh 40-area product-reality audit -- backed by an actual, live, two-command-then-brief workflow run against real PostgreSQL and real Yahoo Finance data, not just code inspection -- found that the operator's real morning routine still required two separate commands (`run-daily-research` then `daily-brief`), a hand-invented session identifier, and fully retyped universe/equity/risk-percent inputs every single day, with no persisted defaults anywhere. A 9-candidate ranking against product value, daily operator value, dependency unlock, architectural leverage, evidence value, implementation cost, operational risk, and premature-complexity risk selected the one-command workflow over M067/M068 daily integration (both correctly gated on a missing "concurrent-position handling" prerequisite that does not yet exist, not merely deferred by habit), persistent operator configuration (its most valuable slice absorbed into the selected candidate's own CLI defaults at far lower cost), data-source fallback, automatic universe selection, alerting (redundant with M072's own existing attention surface), session-trend summaries, report export, and paper trading (explicitly rejected per the mission's own precondition: portfolio/risk evidence is not yet integrated into daily research).
+
+**Selected design.** One new entrypoint, `run_daily_research_workflow.py`, composing the frozen M070 `RunDailyResearchSessionHandler` and the frozen M072 `BuildDailyResearchBriefHandler` directly over one shared PostgreSQL runtime -- pure composition-root orchestration, zero new domain model, zero new usecase module, zero new PostgreSQL schema. A session governance id is now auto-generated (mirroring the established `_derived_governance_id` collision-handling precedent) rather than hand-invented; sensible, documented, overridable defaults remove the need to retype anything not genuinely operator-necessary. Console script `empirical-platform-daily-workflow`, text by default or `--json`, from the same authoritative brief model M072 already built.
+
+**Actual results, un-massaged.** A live, real, two-day daily-use simulation -- executed on a genuinely fresh PostgreSQL environment with real Yahoo Finance data, before any implementation decision was made -- established the friction this milestone closes. After implementation, the same scenario collapsed to one command per day, confirmed twice more: once during hostile review (which additionally found and fixed a genuine, pre-existing M070 defect -- a duplicate symbol in the requested universe previously produced an uncaught traceback, reproduced identically via the unmodified `run-daily-research` entrypoint, fixed at the new entrypoint's own boundary without reopening M070) and once independently on a second, fresh container with a different instrument pair (TSLA/NVDA) and different dates.
+
+**Tests:** 17 new pure unit tests (session-id generation and format, default artifact-path derivation, full argv parsing including every default/override/error path, `main()` argv handling with the real network/DB function monkeypatched out, and the duplicate-symbol regression) + 4 real PostgreSQL/network/CLI integration tests (one-command session-to-brief lifecycle with raw-SQL cross-verification, day-over-day comparison across two real invocations, an honest FAILED-session/WARNING path via a genuine invalid real ticker, and the real installed CLI subprocess with `--json`). Full regression: 1833 passed / 351 skipped, zero failures, 80.24% coverage met without any threshold adjustment.
+
+**Hostile review:** 82 explicit attack/verification cases catalogued in `external-review/MILESTONE-073/hostile-review-matrix.md`. One genuine defect found and fixed inline (the duplicate-symbol traceback, above, with two dedicated regression tests). One genuine, non-obvious finding documented rather than silently accepted: two back-to-back real-network invocations with identical inputs produce identical semantic research decisions (genuine deterministic replay) but a different `dataset_sha256`, because the underlying, unmodified M065/M069 dataset artifact embeds acquisition-time provenance metadata in the hashed bytes -- the mission's own "if external data changed, the hash must make the difference explicit" requirement working exactly as intended, not a defect.
+
+**Independent second pass:** a genuinely fresh PostgreSQL container (`m073-second-pass-pg`, port 32783, removed after use), Git truth re-established independently, all 16 migrations applied cleanly from empty, the real installed CLI driven with a deliberately different instrument pair (TSLA/NVDA) and dates than every prior run this session, every persisted value independently cross-checked via raw `psql` queries, the duplicate-symbol fix re-attacked and re-confirmed fixed, a claim-honesty grep run against real rendered CLI output, and the full M073 test suite re-run against this second, independent container. The central claim was directly attacked from five angles and held in every case.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_073_ONE_COMMAND_DAILY_WORKFLOW_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or investment advice is made anywhere in this milestone** -- M073 makes the existing daily research product runnable as one coherent, low-friction habit for the first time; it does not certify any strategy as profitable or ready for real capital. Portfolio/risk evidence integration into daily research remains the single biggest blocker after this milestone, gating both richer daily risk evidence and any legitimate future paper-trading milestone.
+
+**Next permitted action:** see Section 105.
+
+## 105. MILESTONE-073 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_073_ONE_COMMAND_DAILY_WORKFLOW_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-073 scope, design, implementation, hostile review, independent second pass, the reality gate, and product-honesty gate as one consolidated unit.
+
+**Delivered capability, frozen:** an operator can now run one real installed command, `empirical-platform-daily-workflow`, and go from nothing to a complete, real-data, legible daily research brief in a single step -- no hand-invented session identifier, no retyped defaults, no separate second command -- zero new business logic, zero new PostgreSQL schema.
+
+**Freeze declaration:** `M073 MACRO MILESTONE APPROVED_AND_FROZEN`. `M073 APPROVED_AND_FROZEN`.
 
 **Status:** `APPROVED_AND_FROZEN`.
 
