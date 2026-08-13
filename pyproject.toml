@@ -116,6 +116,7 @@ empirical-platform-get-daily-research = "empirical_platform.entrypoints.get_dail
 empirical-platform-list-daily-research = "empirical_platform.entrypoints.list_daily_research_sessions:main"
 empirical-platform-compare-daily-research = "empirical_platform.entrypoints.compare_daily_research_sessions:main"
 empirical-platform-daily-brief = "empirical_platform.entrypoints.build_daily_research_brief:main"
+empirical-platform-daily-workflow = "empirical_platform.entrypoints.run_daily_research_workflow:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
