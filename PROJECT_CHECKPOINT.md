@@ -2659,4 +2659,4 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-072 — recommendation only; not started as part of M071. Per the mission's own explicit instruction, MILESTONE-072 was NOT built.
+**Next permitted action:** MILESTONE-074 — recommendation only; not started as part of M073. Per the mission's own explicit instruction, MILESTONE-074 was NOT built.
