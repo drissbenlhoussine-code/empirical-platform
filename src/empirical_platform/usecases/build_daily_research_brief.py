@@ -112,7 +112,8 @@ class BuildDailyResearchBriefHandler:
         decision_candidate_repository: DecisionCandidateRepository,
         trade_plan_repository: TradePlanRepository,
         position_plan_repository: PositionPlanRepository,
-        historical_evidence_query_repository: HistoricalPortfolioEvidenceQueryRepository | None = None,
+        historical_evidence_query_repository: HistoricalPortfolioEvidenceQueryRepository
+        | None = None,
     ) -> None:
         self._research_sessions = research_session_repository
         self._decision_candidates = decision_candidate_repository

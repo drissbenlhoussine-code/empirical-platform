@@ -395,12 +395,29 @@ class PostgresHistoricalPortfolioEvidenceQueryRepository:
     frozen `PostgresSurvivorshipAwareRobustnessStudyRepository`,
     `PostgresPortfolioStudyRepository`, or
     `PostgresInstrumentMasterRepository` classes or their migrations.
+
+    Discovery scope (KNOWN LIMITATION):
+        `list_survivorship_candidates` issues an EXHAUSTIVE
+        `SELECT * FROM survivorship_study ORDER BY governance_id`
+        with no explicit database LIMIT. M074 scans every persisted
+        survivorship study currently available through this query
+        boundary. As the persisted-study set grows, M074's per-daily-
+        brief scan cost scales linearly with that set. No architecture-
+        supported bound is enforced here; if/when M075+ needs a true
+        bound (e.g. an `as_of`-anchored index, a top-N ranking, or a
+        partition-pruning predicate), that will be a separate design
+        change with its own migration -- not a silent LIMIT injected
+        into this adapter.
     """
 
     def __init__(self, service: PostgresPersistenceService) -> None:
         self._service = service
 
     def list_survivorship_candidates(self) -> tuple[SurvivorshipAwareRobustnessStudy, ...]:
+        # Honest, exhaustive persisted-study scan. See KNOWN LIMITATION
+        # in the class docstring. No LIMIT is applied here; this is
+        # deliberate (a LIMIT would silently truncate historical
+        # evidence and falsely claim boundness).
         with self._service.unit_of_work() as work:
             study_rows = work.execute("SELECT * FROM survivorship_study ORDER BY governance_id")
             studies: list[SurvivorshipAwareRobustnessStudy] = []

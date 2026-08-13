@@ -153,8 +153,8 @@ implementation, each with a disposition (PASS / FIXED / N/A_WITH_REASON).
 
 ### T. Performance Bounds (2 checks)
 
-- T1. list_survivorship_candidates is bounded (study table size; no unbounded scan) — PASS (SQL `SELECT * FROM survivorship_study`)
-- T2. PostgreSQL integration test runs in <2min — PASS (~16s)
+- T1. list_survivorship_candidates executes `SELECT * FROM survivorship_study ORDER BY governance_id` with NO explicit LIMIT — TRUE (deliberate exhaustive scan; the M074 query adapter scans every persisted survivorship study currently available through the query boundary. This is honestly documented as a known limitation in the adapter's class docstring; a true bound, if ever needed, would be a separate design change with its own migration, not a silent LIMIT injected here.)
+- T2. PostgreSQL integration test runs in <2min — PASS (~16s first pass, ~14s second pass)
 
 ### U. SQL Correctness (3 checks)
 

@@ -85,6 +85,7 @@ def _build_window(
     data_end: datetime,
     evaluated_iids: tuple[InstrumentId, ...] = (),
     eligible_iids: tuple[InstrumentId, ...] = (),
+    missing_iids: tuple[InstrumentId, ...] = (),
 ) -> SurvivorshipWindowResult:
     snapshot = WindowUniverseSnapshot(
         window_id=window_id,
@@ -94,7 +95,7 @@ def _build_window(
         membership_manifest_hash="mhash",
         eligible_instrument_ids=eligible_iids,
         evaluated_instrument_ids=evaluated_iids,
-        missing_data_excluded_instrument_ids=(),
+        missing_data_excluded_instrument_ids=missing_iids,
     )
     return SurvivorshipWindowResult(
         snapshot=snapshot,
@@ -137,6 +138,7 @@ def _build_study(
     window_count: int | None = None,
     eligible_iids_per_window: tuple[tuple[InstrumentId, ...], ...] = (),
     evaluated_iids_per_window: tuple[tuple[InstrumentId, ...], ...] = (),
+    missing_iids_per_window: tuple[tuple[InstrumentId, ...], ...] = (),
 ) -> SurvivorshipAwareRobustnessStudy:
     if window_count is None:
         window_count = len(coverage_ends)
@@ -147,6 +149,13 @@ def _build_study(
         )
     if not evaluated_iids_per_window:
         evaluated_iids_per_window = eligible_iids_per_window
+    # Default: any eligible not in evaluated is treated as
+    # missing-data-excluded. Callers can override explicitly.
+    if not missing_iids_per_window:
+        missing_iids_per_window = tuple(
+            tuple(set(eligible_iids_per_window[idx]) - set(evaluated_iids_per_window[idx]))
+            for idx in range(window_count)
+        )
     windows = tuple(
         _build_window(
             window_id=f"W{idx + 1:02d}",
@@ -154,6 +163,7 @@ def _build_study(
             data_end=coverage_ends[idx],
             eligible_iids=eligible_iids_per_window[idx],
             evaluated_iids=evaluated_iids_per_window[idx],
+            missing_iids=missing_iids_per_window[idx],
         )
         for idx in range(window_count)
     )
@@ -823,3 +833,211 @@ def test_universe_id_version_mismatch_in_persisted_data_does_not_block() -> None
         portfolio_lookup={},
     )
     assert out[0].compatibility_status is HistoricalEvidenceCompatibilityStatus.COMPATIBLE
+
+
+# ---------------------------------------------------------------------------
+# M074 OWNER CORRECTION PASS -- REGRESSION ATTACKS
+# ---------------------------------------------------------------------------
+#
+# The two tests below are direct, focused regression attacks against
+# the two BLOCKING findings identified during owner review:
+#
+#   FINDING 1: U1 / U2 were using `evaluated_instrument_ids` for BOTH
+#              rules. The corrected implementation must resolve
+#              `eligible_instrument_ids` for U2 (and for the
+#              `matched_window_resolved_eligible_symbols` field)
+#              SEPARATELY from `evaluated_instrument_ids` (which is
+#              only for the U1 union).
+#
+#   FINDING 2: The M067 lineage rule (L) was a no-op -- the if/elif
+#              branched on `governance_id` but neither branch
+#              actually dropped the report. The corrected
+#              implementation must explicitly drop an M067 report
+#              whose `source_study_runtime_id` does not match the
+#              M064 candidate's runtime_id, regardless of how
+#              `portfolio_lookup` is keyed.
+# ---------------------------------------------------------------------------
+
+
+def test_u2_regression_eligible_superset_evaluated_subset_still_compatible() -> None:
+    """FINDING 1 regression attack.
+
+    Construct a study where:
+      - one window's ELIGIBLE set = {AAPL, MSFT} (a superset of M070
+        requested_universe).
+      - that same window's EVALUATED set = {AAPL} only (subset).
+      - another window's EVALUATED set = {MSFT}.
+
+    So:
+      - U1: union of EVALUATED across the whole study = {AAPL, MSFT}
+        which contains every M070 requested symbol -> U1 PASSES.
+      - U2: at least one window's ELIGIBLE set is a superset of the
+        full M070 requested_universe = {AAPL, MSFT} -> U2 PASSES.
+
+    Expected: COMPATIBLE.
+
+    On the pre-correction code (which used EVALUATED for both U1 and
+    U2), this test would have FAILED because no single window's
+    EVALUATED set was a superset of the full M070 requested_universe.
+    """
+    study_runtime = _id_generator().generate()
+    # Two windows, earliest coverage first.
+    coverage_ends = (
+        _AS_OF - timedelta(days=12),
+        _AS_OF - timedelta(days=8),
+    )
+    # Window 1: eligible={AAPL,MSFT} (superset), evaluated={AAPL} only.
+    # Window 2: eligible={AAPL,MSFT} (superset), evaluated={MSFT} only.
+    # The union of evaluated across BOTH windows is {AAPL, MSFT},
+    # so U1 (union of evaluated) PASSES, even though neither
+    # individual window's evaluated set covers both.
+    study = _build_study(
+        study_runtime=study_runtime,
+        coverage_ends=coverage_ends,
+        eligible_iids_per_window=(
+            (InstrumentId("INSTR-AAPL-001"), InstrumentId("INSTR-MSFT-001")),
+            (InstrumentId("INSTR-AAPL-001"), InstrumentId("INSTR-MSFT-001")),
+        ),
+        evaluated_iids_per_window=(
+            (InstrumentId("INSTR-AAPL-001"),),
+            (InstrumentId("INSTR-MSFT-001"),),
+        ),
+    )
+    out = find_compatible_historical_evidence(
+        **_base_kwargs(),
+        survivorship_candidates=(study,),
+        portfolio_lookup={},
+    )
+    assert out[0].compatibility_status is HistoricalEvidenceCompatibilityStatus.COMPATIBLE, (
+        f"expected COMPATIBLE, got {out[0].compatibility_status.value!r} "
+        f"with reasons={list(out[0].compatibility_reasons)}"
+    )
+    # The matched_window_resolved_eligible_symbols field is populated
+    # from the ELIGIBLE set (not evaluated) -- it must contain
+    # BOTH AAPL and MSFT, in sorted order.
+    assert set(out[0].matched_window_resolved_eligible_symbols) == {"AAPL", "MSFT"}
+
+
+def test_u2_evaluated_subset_only_fails_u2_pass_u1() -> None:
+    """FINDING 1 negative companion: when NO window's eligible set is
+    a superset, U2 must reject even if U1 passes via union."""
+    study_runtime = _id_generator().generate()
+    coverage_ends = (
+        _AS_OF - timedelta(days=12),
+        _AS_OF - timedelta(days=8),
+    )
+    # Both windows have ELIGIBLE = {AAPL, MSFT} but neither
+    # window's eligible set is the strict full superset we'd
+    # want. We construct two windows where the evaluated set is
+    # the full AAPL+MSFT (so U1 passes via single-window
+    # coverage) but no window's eligible set is the full
+    # {AAPL, MSFT} superset because the membership gating at
+    # the time narrowed each window to {AAPL} only.
+    # In Window 1: eligible={AAPL}, evaluated={AAPL}, missing=()
+    # In Window 2: eligible={AAPL, MSFT}, evaluated={AAPL, MSFT}
+    # Then U1: union of evaluated = {AAPL, MSFT} covers M070.
+    # U2: only Window 2's eligible is a superset, so U2 should
+    # pass -- we need a setup where no window's eligible is a
+    # superset. Use a 3-window setup:
+    #   Window 1: eligible={AAPL}, evaluated={AAPL}
+    #   Window 2: eligible={MSFT}, evaluated={MSFT}
+    # Then union of evaluated = {AAPL, MSFT} covers M070
+    # (U1 passes), but no single window's eligible set contains
+    # BOTH {AAPL, MSFT} (U2 fails).
+    study = _build_study(
+        study_runtime=study_runtime,
+        coverage_ends=coverage_ends,
+        eligible_iids_per_window=(
+            (InstrumentId("INSTR-AAPL-001"),),
+            (InstrumentId("INSTR-MSFT-001"),),
+        ),
+        evaluated_iids_per_window=(
+            (InstrumentId("INSTR-AAPL-001"),),
+            (InstrumentId("INSTR-MSFT-001"),),
+        ),
+        missing_iids_per_window=((), ()),
+    )
+    out = find_compatible_historical_evidence(
+        **_base_kwargs(),
+        survivorship_candidates=(study,),
+        portfolio_lookup={},
+    )
+    assert out[0].compatibility_status is HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE
+    assert any("eligible" in r for r in out[0].compatibility_reasons)
+
+
+def test_m067_malicious_portfolio_lookup_under_wrong_key_is_dropped() -> None:
+    """FINDING 2 regression attack.
+
+    Construct a valid M064 study A, a valid M067 report that
+    BELONGS TO A DIFFERENT M064 study B (its source_study_runtime_id
+    points to study B's runtime), and DELIBERATELY insert that
+    report into `portfolio_lookup` keyed under study A's runtime.
+
+    Expected: study A is still surfaced as COMPATIBLE, but the M067
+    portfolio fields on the resulting HistoricalPortfolioEvidence
+    must all be None -- the report is silently dropped because
+    its `source_study_runtime_id` doesn't match the M064 candidate.
+
+    This test does NOT depend on the PostgreSQL adapter. It is a
+    pure-domain regression attack on the lineage-integrity rule.
+    """
+    study_a_runtime = _id_generator().generate()
+    study_b_runtime = _id_generator().generate()
+    study_a = _build_study(
+        study_runtime=study_a_runtime,
+        coverage_ends=_COVERAGE_DATES,
+    )
+    # Build the M067 report with source_study_runtime_id pointing
+    # to study B, NOT study A. We use the same _build_portfolio_report
+    # helper but pass study_b_runtime as its source.
+    bad_report = _build_portfolio_report(
+        study_runtime=study_b_runtime,
+    )
+    # Sanity: the bad report does in fact reference study B.
+    assert str(bad_report.source_study_runtime_id) == str(study_b_runtime)
+
+    # DELIBERATELY insert the bad report under study A's runtime_id
+    # key in the lookup. A buggy implementation that trusts the
+    # key alone (or branches on governance_id like the pre-fix code
+    # did) would surface this M067 report as if it belonged to
+    # study A.
+    malicious_lookup: dict[str, PortfolioEvidenceReport] = {
+        str(study_a_runtime): bad_report,
+    }
+
+    out = find_compatible_historical_evidence(
+        **_base_kwargs(),
+        survivorship_candidates=(study_a,),
+        portfolio_lookup=malicious_lookup,
+    )
+    assert len(out) == 1
+    assert out[0].compatibility_status is HistoricalEvidenceCompatibilityStatus.COMPATIBLE
+    # The M064 evidence itself is fine. The M067 attachment must
+    # have been silently dropped.
+    assert out[0].portfolio_study_identity_governance is None
+    assert out[0].portfolio_study_allocated_count is None
+    assert out[0].portfolio_study_realized_pnl is None
+    assert out[0].portfolio_study_initial_capital is None
+    assert out[0].portfolio_study_currency is None
+    assert out[0].portfolio_study_max_concurrent_positions is None
+    assert out[0].portfolio_study_max_capital_utilization_percent is None
+
+
+def test_m067_correct_lineage_is_attached() -> None:
+    """Companion to the malicious-lookup attack: prove the corrected
+    rule still attaches an M067 report whose source_study_runtime_id
+    DOES match."""
+    study_runtime = _id_generator().generate()
+    study = _build_study(
+        study_runtime=study_runtime,
+        coverage_ends=_COVERAGE_DATES,
+    )
+    good_report = _build_portfolio_report(study_runtime=study_runtime)
+    out = find_compatible_historical_evidence(
+        **_base_kwargs(),
+        survivorship_candidates=(study,),
+        portfolio_lookup={str(study_runtime): good_report},
+    )
+    assert out[0].compatibility_status is HistoricalEvidenceCompatibilityStatus.COMPATIBLE
+    assert out[0].portfolio_study_identity_governance == str(good_report.identity.governance_id)

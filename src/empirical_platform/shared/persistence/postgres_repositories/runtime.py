@@ -27,6 +27,9 @@ from empirical_platform.shared.persistence.postgres_repositories.evidence_packag
 from empirical_platform.shared.persistence.postgres_repositories.historical_backtest_repository import (  # noqa: E501
     PostgresHistoricalBacktestRunRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.historical_portfolio_evidence_query_repository import (  # noqa: E501
+    PostgresHistoricalPortfolioEvidenceQueryRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.portfolio_dependence_repository import (  # noqa: E501
     PostgresPortfolioDependenceReportRepository,
 )
@@ -55,9 +58,6 @@ from empirical_platform.shared.persistence.postgres_repositories.survivorship_st
     PostgresInstrumentMasterRepository,
     PostgresSurvivorshipAwareRobustnessStudyRepository,
     PostgresUniverseMembershipRepository,
-)
-from empirical_platform.shared.persistence.postgres_repositories.historical_portfolio_evidence_query_repository import (  # noqa: E501
-    PostgresHistoricalPortfolioEvidenceQueryRepository,
 )
 from empirical_platform.shared.persistence.postgres_repositories.trade_plan_repository import (
     PostgresTradePlanRepository,

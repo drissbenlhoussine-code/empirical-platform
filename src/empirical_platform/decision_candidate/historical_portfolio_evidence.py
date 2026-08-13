@@ -28,7 +28,10 @@ C  M064 classification must be
    SURVIVORSHIP_AWARE_MEMBERSHIP_MECHANICS_PROVEN
    (INSUFFICIENT_SAMPLE rejected as below M074's evidence threshold).
 L  M067 source_study_runtime_id must equal the selected M064
-   runtime_id (lineage integrity).
+   runtime_id (lineage integrity). Enforced by the pure rule: an
+   M067 report whose source_study_runtime_id does not match the
+   M064 candidate's runtime_id is silently dropped, regardless of
+   how `portfolio_lookup` was keyed.
 
 Coverage / staleness:
 
@@ -278,7 +281,26 @@ def _evaluate_compatibility(
         )
         return HistoricalEvidenceCompatibilityStatus.STALE, tuple(reasons), coverage_end, ()
 
-    # U1 / U2: universe compatibility
+    # U1 / U2: universe compatibility.
+    #
+    # U1: every M070 requested symbol must be represented in the UNION
+    #     of M064 *evaluated* instruments across the whole study. The
+    #     evaluated set is what the M064 study actually exercised for
+    #     that window; if no window ever evaluated a symbol, the M064
+    #     study has no real evidence about that symbol's behaviour.
+    #
+    # U2: at least one M064 window's *eligible* set must be a superset
+    #     of the complete M070 requested universe. The eligible set is
+    #     the membership-gated scope the M064 study was *allowed* to
+    #     consider. Using the evaluated set for U2 would be wrong: a
+    #     window can evaluate a strict subset of its eligible universe
+    #     (e.g. only the names that cleared a momentum gate), yet
+    #     still legitimately prove that the study was *authorised* to
+    #     consider the full M070 requested_universe.
+    #
+    # These are therefore resolved separately:
+    #   evaluated_symbols -> U1 only
+    #   eligible_symbols   -> U2 + matched_window_resolved_eligible_symbols
     requested = set(m070_requested_universe)
     if not requested:
         reasons.append("M070 requested_universe is empty")
@@ -287,10 +309,17 @@ def _evaluate_compatibility(
     union_evaluated_symbols: set[str] = set()
     matched_window_resolved: tuple[str, ...] = ()
     for window in survivorship_study.window_results:
-        resolved = _resolve_symbols(window.snapshot.evaluated_instrument_ids, instrument_master)
-        if not matched_window_resolved and set(resolved).issuperset(requested):
-            matched_window_resolved = resolved
-        union_evaluated_symbols.update(resolved)
+        evaluated_symbols = _resolve_symbols(
+            window.snapshot.evaluated_instrument_ids, instrument_master
+        )
+        eligible_symbols = _resolve_symbols(
+            window.snapshot.eligible_instrument_ids, instrument_master
+        )
+        # U1: feed the union from EVALUATED only.
+        union_evaluated_symbols.update(evaluated_symbols)
+        # U2: pick the first window whose ELIGIBLE set is a superset.
+        if not matched_window_resolved and set(eligible_symbols).issuperset(requested):
+            matched_window_resolved = eligible_symbols
     missing_union = requested - union_evaluated_symbols
     if missing_union:
         reasons.append(
@@ -301,7 +330,7 @@ def _evaluate_compatibility(
 
     if not matched_window_resolved:
         reasons.append(
-            f"no M064 window's eligible/evaluated symbol set is a superset of M070 "
+            f"no M064 window's eligible symbol set is a superset of M070 "
             f"requested_universe={sorted(requested)}"
         )
         return HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE, tuple(reasons), coverage_end, ()
@@ -407,7 +436,11 @@ def find_compatible_historical_evidence(
     M067 lookup is via `portfolio_lookup` keyed by M064
     `runtime_id`. If a portfolio report's source_study_runtime_id
     does not match the M064 candidate's runtime_id, it is
-    silently dropped (lineage integrity, rule L).
+    silently dropped (lineage integrity, rule L). The M074 query
+    adapter is responsible for keying the lookup correctly; the
+    pure compatibility rule still validates lineage here, because
+    a malicious or buggy caller (or a miskeyed adapter) must not
+    cause an M067 report from study B to be attributed to study A.
     """
     summaries: list[HistoricalPortfolioEvidence] = []
     for study in survivorship_candidates:
@@ -425,23 +458,21 @@ def find_compatible_historical_evidence(
             m070_as_of=m070_as_of,
             instrument_master=instrument_master,
         )
-        report = portfolio_lookup.get(str(study.identity.runtime_id))
-        # Lineage integrity (rule L): silently drop a portfolio report
-        # whose source_study_runtime_id does not match the M064 candidate.
-        if report is not None and str(report.identity.governance_id) == str(
-            study.identity.governance_id
+        raw_report = portfolio_lookup.get(str(study.identity.runtime_id))
+        # Rule L (lineage integrity). The M067 portfolio report carries
+        # its own `source_study_runtime_id` field, which is the M074-
+        # recognized FK back to the originating M064 study. Even if
+        # `portfolio_lookup` keys a report under this study's runtime_id,
+        # the report's own source_study_runtime_id is the truth. If it
+        # doesn't match this study's runtime_id, the report belongs to a
+        # different M064 study -- it is silently dropped. The M064
+        # evidence is still surfaced; only the M067 attachment is omitted.
+        if raw_report is not None and str(raw_report.source_study_runtime_id) == str(
+            study.identity.runtime_id
         ):
-            # OK
-            pass
-        elif report is not None and str(report.identity.governance_id) != str(
-            study.identity.governance_id
-        ):
-            # The report's source_study_runtime_id is the FK in
-            # portfolio_study.source_study_runtime_id; if the caller
-            # already passed the correctly-keyed report, this is fine.
-            # We accept the caller-provided lookup as authoritative;
-            # the M074 query adapter is responsible for correctness.
-            pass
+            report = raw_report
+        else:
+            report = None
         summaries.append(
             _build_summary(
                 survivorship_study=study,

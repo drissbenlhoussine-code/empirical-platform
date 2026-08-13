@@ -166,28 +166,20 @@ def _historical_evidence_json(
                 "survivorship_study_identity_governance": (
                     item.survivorship_study_identity_governance
                 ),
-                "survivorship_study_window_count": (
-                    item.survivorship_study_window_count
-                ),
+                "survivorship_study_window_count": (item.survivorship_study_window_count),
                 "survivorship_study_total_executed_trade_count": (
                     item.survivorship_study_total_executed_trade_count
                 ),
                 "survivorship_study_all_window_net_pnl_total": (
                     item.survivorship_study_all_window_net_pnl_total
                 ),
-                "survivorship_study_classification": (
-                    item.survivorship_study_classification
-                ),
-                "survivorship_study_dataset_bundle_id": (
-                    item.survivorship_study_dataset_bundle_id
-                ),
+                "survivorship_study_classification": (item.survivorship_study_classification),
+                "survivorship_study_dataset_bundle_id": (item.survivorship_study_dataset_bundle_id),
                 "survivorship_study_dataset_bundle_sha256": (
                     item.survivorship_study_dataset_bundle_sha256
                 ),
                 "survivorship_study_universe_id": item.survivorship_study_universe_id,
-                "survivorship_study_universe_version": (
-                    item.survivorship_study_universe_version
-                ),
+                "survivorship_study_universe_version": (item.survivorship_study_universe_version),
                 "survivorship_study_universe_membership_model": (
                     item.survivorship_study_universe_membership_model
                 ),
@@ -197,16 +189,12 @@ def _historical_evidence_json(
                 "survivorship_study_supplied_risk_percent": (
                     item.survivorship_study_supplied_risk_percent
                 ),
-                "survivorship_study_stress_comparison": (
-                    item.survivorship_study_stress_comparison
-                ),
+                "survivorship_study_stress_comparison": (item.survivorship_study_stress_comparison),
                 "coverage_end": item.coverage_end.isoformat(),
                 "matched_window_resolved_eligible_symbols": list(
                     item.matched_window_resolved_eligible_symbols
                 ),
-                "portfolio_study_identity_governance": (
-                    item.portfolio_study_identity_governance
-                ),
+                "portfolio_study_identity_governance": (item.portfolio_study_identity_governance),
                 "portfolio_study_allocated_count": item.portfolio_study_allocated_count,
                 "portfolio_study_realized_pnl": item.portfolio_study_realized_pnl,
                 "portfolio_study_initial_capital": item.portfolio_study_initial_capital,
@@ -376,9 +364,7 @@ def render_daily_research_brief_text(brief: DailyResearchBrief) -> str:
                     f"max_concurrent={selected.portfolio_study_max_concurrent_positions}"
                 )
             else:
-                historical_lines.append(
-                    "  no M067 portfolio report attached for this M064 study"
-                )
+                historical_lines.append("  no M067 portfolio report attached for this M064 study")
     else:
         historical_lines.append(
             "  no compatible historical evidence available -- to produce one, run "
