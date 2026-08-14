@@ -125,13 +125,19 @@ where = ["src"]
 target-version = "py313"
 line-length = 100
 src = ["src", "tests", "tools"]
-# Markdown code-fence formatting is a ruff format target this project
-# has never opted into -- the governance/design docs under version
-# control are prose with illustrative snippets, not enforced source.
-# Newer ruff releases scan *.md by default; exclude explicitly so the
-# Format check gate keeps testing only actual source/test code instead
-# of silently expanding scope whenever ruff's own defaults change.
-extend-exclude = ["*.md"]
+# Neither of these is live source, and neither has ever been in scope:
+#
+# *.md -- the governance/design docs under version control are prose
+#   with illustrative snippets. Newer ruff releases format fenced code
+#   blocks in markdown by default; excluding them keeps this gate
+#   testing real code instead of silently expanding scope whenever
+#   ruff's own defaults change.
+#
+# external-review -- sealed, sha256-checksummed archival snapshots of
+#   the frozen MILESTONE-060/061 review packages. Reformatting or
+#   re-linting them would alter deliverables whose whole purpose is to
+#   preserve exactly what was reviewed and frozen.
+extend-exclude = ["*.md", "external-review"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "N", "ANN"]
