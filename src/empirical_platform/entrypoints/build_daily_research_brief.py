@@ -72,9 +72,7 @@ def run_build_daily_research_brief(
             trade_plan_repository=runtime.trade_plans,
             position_plan_repository=runtime.position_plans,
             historical_evidence_query_repository=(
-                runtime.historical_portfolio_evidence_query
-                if include_historical_evidence
-                else None
+                runtime.historical_portfolio_evidence_query if include_historical_evidence else None
             ),
         )
         entry_point = QueryEntryPoint(handler)
@@ -85,9 +83,7 @@ def main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     include_historical_evidence = "--no-historical-evidence" not in args
-    positional = [
-        a for a in args if a not in ("--json", "--no-historical-evidence")
-    ]
+    positional = [a for a in args if a not in ("--json", "--no-historical-evidence")]
 
     if len(positional) not in (0, 2):
         raise SystemExit(_USAGE)

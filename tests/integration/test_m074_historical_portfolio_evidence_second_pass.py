@@ -67,12 +67,8 @@ _FIXTURE_DIR = _REPO_ROOT / "tests" / "fixtures" / "m064_survivorship_aware"
 _DATASET_BUNDLE_PATH = _FIXTURE_DIR / "survivorship_aware_dataset_bundle.json"
 _INSTRUMENT_MASTER_PATH = _FIXTURE_DIR / "instrument_master.json"
 _MEMBERSHIP_MANIFEST_PATH = _FIXTURE_DIR / "membership_manifest.json"
-_EXPECTED_DATASET_SHA256 = (
-    "af996c094538abcc34356357db1ea74ad675b3bcff10a7ea759ae86a4ee073ff"
-)
-_EXPECTED_MANIFEST_HASH = (
-    "caa9fa899ea26816101a0a494c4977fed75849d4ac19b65ac6410e561f232fda"
-)
+_EXPECTED_DATASET_SHA256 = "af996c094538abcc34356357db1ea74ad675b3bcff10a7ea759ae86a4ee073ff"
+_EXPECTED_MANIFEST_HASH = "caa9fa899ea26816101a0a494c4977fed75849d4ac19b65ac6410e561f232fda"
 
 # DIFFERENT base timestamp -- 2026-10-01, ~52 days after the M064
 # fixture's 2026-08-10 coverage end (well within the 90-day staleness
@@ -122,9 +118,7 @@ def _config() -> PostgreSQLConfigSnapshot:
     return PostgreSQLConfigSnapshot(
         host=os.environ.get("EMPIRICAL_PLATFORM_POSTGRES_HOST", "localhost"),
         port=int(os.environ.get("EMPIRICAL_PLATFORM_POSTGRES_PORT", "5432")),
-        database=os.environ.get(
-            "EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "empirical_platform"
-        ),
+        database=os.environ.get("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "empirical_platform"),
         user=os.environ.get("EMPIRICAL_PLATFORM_POSTGRES_USER", "empirical"),
         password=SecretStr(os.environ["EMPIRICAL_PLATFORM_POSTGRES_PASSWORD"]),
         pool_size=2,
@@ -180,9 +174,7 @@ class _FixedClock:
         return self._now
 
 
-def _breakout_csv(
-    base_price: Decimal, breakout_pct: Decimal, breakout_vol: int
-) -> bytes:
+def _breakout_csv(base_price: Decimal, breakout_pct: Decimal, breakout_vol: int) -> bytes:
     lines = ["timestamp,open,high,low,close,volume"]
     for i in range(10):
         ts = (_T0 + timedelta(days=i)).isoformat()
@@ -207,9 +199,7 @@ _FIXTURES = {
 }
 
 
-def _seed_m064_study(
-    config: PostgreSQLConfigSnapshot, seed: int
-) -> tuple[str, str]:
+def _seed_m064_study(config: PostgreSQLConfigSnapshot, seed: int) -> tuple[str, str]:
     """Persist a real M064 study with frozen paths; returns (gov_id, runtime_id).
     Uses different governance IDs than first-pass test.
     """
@@ -293,9 +283,7 @@ def _run_session(
         )
 
 
-def _build_brief_for_session(
-    session: object, config: PostgreSQLConfigSnapshot
-) -> object:
+def _build_brief_for_session(session: object, config: PostgreSQLConfigSnapshot) -> object:
     from empirical_platform.identifiers.pairs import DomainIdentity
     from empirical_platform.identifiers.types import ResearchSessionId
 
@@ -305,9 +293,7 @@ def _build_brief_for_session(
             decision_candidate_repository=runtime.decision_candidates,
             trade_plan_repository=runtime.trade_plans,
             position_plan_repository=runtime.position_plans,
-            historical_evidence_query_repository=(
-                runtime.historical_portfolio_evidence_query
-            ),
+            historical_evidence_query_repository=(runtime.historical_portfolio_evidence_query),
         )
         query = BuildDailyResearchBriefQuery(
             identity=DomainIdentity(
@@ -365,30 +351,21 @@ def test_m074_second_pass_independent_compatible_evidence(
 
     # Independent raw SQL verification
     with clean_tables.connect() as conn:
-        surv_count = (
-            conn.execute(
-                text("SELECT count(*) FROM survivorship_study WHERE runtime_id = :rid"),
-                {"rid": surv_runtime},
-            ).scalar_one()
-        )
+        surv_count = conn.execute(
+            text("SELECT count(*) FROM survivorship_study WHERE runtime_id = :rid"),
+            {"rid": surv_runtime},
+        ).scalar_one()
         assert surv_count == 1
 
-        port_count = (
-            conn.execute(
-                text(
-                    "SELECT count(*) FROM portfolio_study WHERE "
-                    "source_study_runtime_id = :rid"
-                ),
-                {"rid": surv_runtime},
-            ).scalar_one()
-        )
+        port_count = conn.execute(
+            text("SELECT count(*) FROM portfolio_study WHERE source_study_runtime_id = :rid"),
+            {"rid": surv_runtime},
+        ).scalar_one()
         assert port_count == 1
 
     # No mutation: re-run discovery and confirm identical output
     brief2 = _build_brief_for_session(session, config)
-    assert (
-        len(brief.historical_portfolio_evidence) == len(brief2.historical_portfolio_evidence)
-    )
+    assert len(brief.historical_portfolio_evidence) == len(brief2.historical_portfolio_evidence)
     assert (
         brief.historical_portfolio_evidence[0].survivorship_study_identity_runtime
         == brief2.historical_portfolio_evidence[0].survivorship_study_identity_runtime
@@ -429,13 +406,10 @@ def test_m074_second_pass_no_unrelated_evidence_appears(
         )
     except Exception:
         pytest.skip(
-            "Universe-mismatch session could not complete; "
-            "M074 compatibility gate is the focus."
+            "Universe-mismatch session could not complete; M074 compatibility gate is the focus."
         )
     brief = _build_brief_for_session(session, config)
-    statuses = {
-        e.compatibility_status.value for e in brief.historical_portfolio_evidence
-    }
+    statuses = {e.compatibility_status.value for e in brief.historical_portfolio_evidence}
     # If any candidates are listed, NONE may be COMPATIBLE.
     if brief.historical_portfolio_evidence:
         assert "COMPATIBLE" not in statuses
@@ -481,17 +455,13 @@ def test_m074_second_pass_cli_subprocess_uses_real_postgres(
         check=False,
         timeout=180,
     )
-    assert result.returncode == 0, (
-        f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
-    )
+    assert result.returncode == 0, f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     payload = json.loads(result.stdout)
     hist = payload.get("HISTORICAL_PORTFOLIO_EVIDENCE", {})
     assert "honesty_banner" in hist
     # On the second pass with a fresh M064 study, at least one candidate
     # is expected to be COMPATIBLE.
     compat = [
-        c
-        for c in hist.get("candidates", [])
-        if c.get("compatibility_status") == "COMPATIBLE"
+        c for c in hist.get("candidates", []) if c.get("compatibility_status") == "COMPATIBLE"
     ]
     assert len(compat) >= 1

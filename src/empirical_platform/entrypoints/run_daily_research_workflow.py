@@ -167,9 +167,7 @@ def run_daily_research_workflow(
             trade_plan_repository=runtime.trade_plans,
             position_plan_repository=runtime.position_plans,
             historical_evidence_query_repository=(
-                runtime.historical_portfolio_evidence_query
-                if include_historical_evidence
-                else None
+                runtime.historical_portfolio_evidence_query if include_historical_evidence else None
             ),
         )
         entry_point = QueryEntryPoint(brief_handler)
