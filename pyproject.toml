@@ -125,6 +125,13 @@ where = ["src"]
 target-version = "py313"
 line-length = 100
 src = ["src", "tests", "tools"]
+# Markdown code-fence formatting is a ruff format target this project
+# has never opted into -- the governance/design docs under version
+# control are prose with illustrative snippets, not enforced source.
+# Newer ruff releases scan *.md by default; exclude explicitly so the
+# Format check gate keeps testing only actual source/test code instead
+# of silently expanding scope whenever ruff's own defaults change.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "N", "ANN"]
