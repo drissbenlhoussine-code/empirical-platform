@@ -147,14 +147,6 @@ class BuildDailyResearchBriefHandler:
             for decision in target.decisions
         }
 
-        session_warnings: tuple[str, ...] = ()
-        if target.status.value == "FAILED":
-            session_warnings = (
-                f"session FAILED at stage "
-                f"{target.failed_stage.value if target.failed_stage is not None else '?'}: "
-                f"{target.failure_message}",
-            )
-
         summary = ResearchSessionSummary(
             identity=target.identity,
             as_of=target.as_of,
@@ -167,6 +159,7 @@ class BuildDailyResearchBriefHandler:
         )
 
         historical_evidence: tuple[HistoricalPortfolioEvidence, ...] = ()
+        historical_evidence_discovery_failed = False
         if self._historical_evidence_discovery is not None and is_completed:
             try:
                 historical_evidence = self._historical_evidence_discovery.handle(
@@ -183,8 +176,24 @@ class BuildDailyResearchBriefHandler:
                         as_of=target.as_of,
                     )
                 )
-            except Exception:  # noqa: BLE001 - discovery failure is non-fatal
+            except Exception:  # noqa: BLE001 - discovery failure is non-fatal to the core brief
                 historical_evidence = ()
+                historical_evidence_discovery_failed = True
+
+        session_warnings: tuple[str, ...] = ()
+        if target.status.value == "FAILED":
+            session_warnings = (
+                f"session FAILED at stage "
+                f"{target.failed_stage.value if target.failed_stage is not None else '?'}: "
+                f"{target.failure_message}",
+            )
+        if historical_evidence_discovery_failed:
+            session_warnings = (
+                *session_warnings,
+                "historical portfolio evidence discovery failed -- the HISTORICAL "
+                "PORTFOLIO EVIDENCE section below reflects an unavailable lookup, "
+                "not a confirmed absence of compatible evidence",
+            )
 
         return build_daily_research_brief(
             session=summary,

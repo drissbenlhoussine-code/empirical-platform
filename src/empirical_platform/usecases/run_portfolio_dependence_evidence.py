@@ -70,16 +70,12 @@ class RunPortfolioDependenceEvidenceHandler:
         self._reports = report_repository
         self._portfolio_studies = portfolio_study_repository
 
-    def handle(
-        self, command: RunPortfolioDependenceEvidenceCommand
-    ) -> PortfolioDependenceReport:
+    def handle(self, command: RunPortfolioDependenceEvidenceCommand) -> PortfolioDependenceReport:
         portfolio = self._portfolio_studies.get(command.source_portfolio_study_identity)
         bundle = parse_robustness_dataset_bundle_file(
             command.dataset_bundle_file, expected_sha256=portfolio.dataset_bundle_sha256
         )
-        series_by_instrument = {
-            str(series.instrument.symbol): series for series in bundle.series
-        }
+        series_by_instrument = {str(series.instrument.symbol): series for series in bundle.series}
         report = build_portfolio_dependence_report(
             identity=command.identity,
             portfolio=portfolio,

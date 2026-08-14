@@ -388,18 +388,35 @@ class _FakePositionPlanRepository:
         self._by_governance_id[str(plan.identity.governance_id)] = plan
 
 
+class _FakeCrashingHistoricalEvidenceQueryRepository:
+    """MILESTONE-074 -- simulates a query boundary that raises, e.g. a
+    transient PostgreSQL error, so the handler's broad `except Exception`
+    discovery-failure branch is genuinely exercised."""
+
+    def list_survivorship_candidates(self) -> tuple[object, ...]:
+        raise RuntimeError("simulated query boundary failure")
+
+    def find_portfolio_report_for(self, source_study_runtime_id: str) -> None:
+        raise AssertionError("not exercised")
+
+    def load_instrument_master(self) -> None:
+        raise AssertionError("not exercised")
+
+
 def _handler(
     *,
     sessions: tuple[ResearchSession, ...],
     candidates: tuple[DecisionCandidate, ...] = (),
     trade_plans: tuple[TradePlan, ...] = (),
     position_plans: tuple[PositionPlan, ...] = (),
+    historical_evidence_query_repository: object | None = None,
 ) -> BuildDailyResearchBriefHandler:
     return BuildDailyResearchBriefHandler(
         research_session_repository=_FakeResearchSessionRepository(sessions),
         decision_candidate_repository=_FakeDecisionCandidateRepository(candidates),
         trade_plan_repository=_FakeTradePlanRepository(trade_plans),
         position_plan_repository=_FakePositionPlanRepository(position_plans),
+        historical_evidence_query_repository=historical_evidence_query_repository,  # type: ignore[arg-type]
     )
 
 
@@ -571,6 +588,37 @@ def test_handler_failed_session_does_not_fabricate_position_plan_status() -> Non
     assert entry.position_plan_status is None
     assert entry.rejection_reasons == ()
     assert any("FAILED" in w for w in brief.session_warnings)
+
+
+def test_handler_historical_evidence_discovery_failure_is_distinguishable_from_absence() -> None:
+    """MILESTONE-074. A discovery-boundary crash (e.g. a transient
+    PostgreSQL error) must not be silently indistinguishable from a
+    genuine 'no compatible historical evidence exists' outcome -- both
+    previously rendered as an identical empty tuple with no signal an
+    operator could use to tell them apart."""
+    decisions = (_decision("AAPL", scan_decision="NO_TRADE"),)
+    session = _session("RESEARCH-0001", "00000000-0000-4000-8000-000000000001", decisions=decisions)
+    handler = _handler(
+        sessions=(session,),
+        candidates=(
+            _candidate(
+                "AAPL",
+                decision=TradingDecision.NO_TRADE,
+                reasons=(
+                    EvaluationReasonCode.PRICE_NOT_ABOVE_REFERENCE_HIGH,
+                    EvaluationReasonCode.VOLUME_NOT_ABOVE_REFERENCE_AVERAGE,
+                ),
+            ),
+        ),
+        historical_evidence_query_repository=_FakeCrashingHistoricalEvidenceQueryRepository(),
+    )
+
+    brief = handler.handle(BuildDailyResearchBriefQuery(identity=session.identity))
+
+    assert brief.historical_portfolio_evidence == ()
+    assert any(
+        "historical portfolio evidence discovery failed" in w for w in brief.session_warnings
+    )
 
 
 def test_handler_day_one_sets_baseline_note() -> None:
