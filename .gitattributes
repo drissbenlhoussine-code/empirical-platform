@@ -1,0 +1,8 @@
+# The CI `Format check` gate runs `ruff format --check .` on windows-latest,
+# and pyproject.toml pins `[tool.ruff.format] line-ending = "lf"`. Without an
+# explicit attribute, a fresh Windows checkout materializes CRLF (git's
+# core.autocrlf default on Windows runners), so every file fails the gate --
+# a repo-wide failure independent of any milestone's content. Forcing LF in
+# the working tree on all platforms makes the checkout match both the index
+# (which is already LF) and ruff's configured line-ending.
+* text=auto eol=lf
