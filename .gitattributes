@@ -1,8 +1,13 @@
 # The CI `Format check` gate runs `ruff format --check .` on windows-latest,
 # and pyproject.toml pins `[tool.ruff.format] line-ending = "lf"`. Without an
 # explicit attribute, a fresh Windows checkout materializes CRLF (git's
-# core.autocrlf default on Windows runners), so every file fails the gate --
-# a repo-wide failure independent of any milestone's content. Forcing LF in
-# the working tree on all platforms makes the checkout match both the index
-# (which is already LF) and ruff's configured line-ending.
-* text=auto eol=lf
+# core.autocrlf default on Windows runners), so every Python file fails the
+# gate -- a repo-wide failure independent of any milestone's content.
+#
+# Scoped deliberately to the files ruff formats, and to nothing else. The
+# M063/M064/M065 dataset bundle fixtures carry sha256 tamper-detection seals
+# computed against their bytes as checked out on Windows, i.e. with CRLF. A
+# blanket `* text=auto eol=lf` rule silently changes those bytes and breaks
+# the seals, so the fixtures are left to git's existing default behaviour.
+*.py text eol=lf
+*.pyi text eol=lf
