@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-074
+LATEST_FROZEN_MILESTONE=MILESTONE-075
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -677,8 +677,21 @@ M074_PROFITABILITY_CLAIM=NONE_MADE
 M074_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M074_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M075_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-075 -- recommendation only; not started as part of M074
+M075_SCOPE=Same-Day Capital Feasibility for the Daily Research Brief (a pure, I/O-free rule assessing whether one daily session's own approved M060 position plans are collectively satisfiable under one explicit M067 capital policy, surfaced in the M072 brief in text and JSON under a strict honesty banner; zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, zero new I/O)
+M075_SCOPE_STATUS=APPROVED_AND_FROZEN
+M075_DESIGN_STATUS=APPROVED_AND_FROZEN
+M075_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M075_IMPLEMENTATION_COMMIT=6032b9b
+M075_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M075_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M075_OWNER_FREEZE_COMMIT=PENDING
+M075_STATUS=APPROVED_AND_FROZEN
+M075_PROFITABILITY_CLAIM=NONE_MADE
+M075_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M075_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M076_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-076 -- recommendation only; not started as part of M075
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2712,4 +2725,40 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-075 — recommendation only; not started as part of M074. Per the mission's own explicit instruction, MILESTONE-075 was NOT built.
+## 108. MILESTONE-075 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_075_SAME_DAY_CAPITAL_FEASIBILITY_SCOPE_AND_DESIGN.md` (repository authority, a fresh 30-dimension capability matrix built from source rather than milestone prose, the five-candidate ranking against eight criteria, architecture placement, temporal semantics, and a 24-attack pre-implementation adversarial design review) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, fresh second verification pass, frozen preservation, owner approval).
+
+**Why M075 exists.** M074 closed the read-only half of the portfolio-evidence gap and named concurrent-position handling as the remaining blocker. A fresh repository-grounded inventory then found a defect that is arithmetic rather than opinion: M060 sizes every `PositionPlan` independently against the *same, full* `supplied_account_equity`, capped at `maximum_notional_percent = 0.25`, and `build_position_plan()` takes no argument describing any other position. Five approved plans in one session therefore commit up to 125% of that equity, ten up to 250% -- and the daily brief said nothing about it, with no `sum(`, no total notional and no capital policy anywhere in the daily path. M067 already modelled concurrent capital correctly, but only for historical simulation; the platform had never applied that reasoning to the artefact a human acts on each morning. Four alternatives were ranked and rejected with specific reasons: durable position state (M075 is its precondition, since a position book sized by a policy that never checked aggregate capital would encode the same defect durably), M062/M064/M065 seal remediation (not a product capability, and provably non-blocking), scheduling (automating an infeasible recommendation amplifies the defect), and observability.
+
+**Selected design.** One new pure, I/O-free module, `decision_candidate/same_day_capital_feasibility.py`, plus an additive defaulted field on the M072 brief, rendering in both text and JSON, and `--no-capital-feasibility` on each of the two daily entrypoints. Admission is deterministic -- rank ascending, then instrument symbol -- against a capital policy that reuses M067's frozen `PortfolioCapitalPolicy` and `PortfolioRejectionReason` with `initial_capital` replaced by the equity the session actually sized against. `PortfolioAllocationOutcome` is deliberately not reused: its `ALLOCATED` member asserts capital *was allocated*, and M075 allocates nothing, so M075 owns `FITS_WITHIN_CAPITAL` / `EXCEEDS_CAPITAL` and a test enforces that `ALLOCATED` never appears in its vocabulary. Zero new aggregate, zero new PostgreSQL table, zero new migration, zero new repository, zero new I/O.
+
+**Actual results, un-massaged.** Full suite 1869 passed / 357 skipped with PostgreSQL off; 2168 passed / 14 skipped with PostgreSQL on. The regression was measured against an identical baseline on the same clone semantics and the same database: `master` `9b42759` ran 24 failed / 2138 passed / 44 errors, and the M075 branch ran 24 failed / 2168 passed / 44 errors -- identical failure and error counts, plus exactly the 30 tests M075 adds, and zero regressions. Those 24/44 are the pre-existing M062/M064/M065 CRLF seal debt, untouched here and invisible on the `windows-latest` CI runner.
+
+**Tests:** 24 pure unit tests, 2 rendering tests, and 4 real-PostgreSQL integration tests that cross-check every verdict's notional, quantity and capital base against raw SQL with no repository helper in the path.
+
+**Hostile review:** a 24-attack pre-implementation design review corrected 15 defects before any code was written. The implementation pass catalogued 89 attacks in `external-review/MILESTONE-075/hostile-review-matrix.md` and found three genuine defects, all fixed inline with regression protection: reading the capital base from `PositionSizing.account_equity`, an attribute that belongs to `PositionSizingContext` and does not exist on `PositionSizing` (caught by `mypy` before any test ran); every withheld-verdict path raising `ValueError`, because M067's policy rightly rejects a non-positive `initial_capital` and the code constructed one anyway, so "no approved plans", "zero equity" and "negative equity" all crashed instead of reporting honestly; and the brief's JSON section-inventory test, updated for the new section exactly as M074 did.
+
+**Fresh second verification pass:** a brand-new database created empty, all migrations applied from scratch, the M075 suite reproduced 4/4, and the central claim attacked from four directions -- tightening only the ceiling over genuinely persisted rows, suppression, double-build determinism, and raw-SQL cross-checking. It held in every case.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_075_SAME_DAY_CAPITAL_FEASIBILITY_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or investment advice is made anywhere in this milestone** -- M075 is a diagnostic over one recommendation set. Its rendered banner, not merely its documentation, disclaims current portfolio state, open positions, prior-day exposure, allocation or reservation of capital, execution, and profitability, and states that the capital base is the operator-supplied equity figure rather than a verified account balance. This repository still has no durable position state; M075 does not create one, and that absence remains the gate on any legitimate future paper-trading milestone.
+
+**Next permitted action:** see Section 109.
+
+## 109. MILESTONE-075 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_075_SAME_DAY_CAPITAL_FEASIBILITY_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-075 scope, design, implementation, hostile review, fresh second verification pass, and the frozen-preservation audit as one consolidated unit.
+
+**Delivered capability, frozen:** the daily research brief now reports whether the session's own approved position plans are collectively satisfiable under one explicit capital policy -- which plans fit, which do not, and why -- in both text and JSON, with `--no-capital-feasibility` available on both daily paths. Zero new aggregate, zero new PostgreSQL schema, zero new migration, zero new I/O.
+
+**Delivered via:** pull request #5, owner-approved at head `d4b41dc7fa2482f08cc3acbd4a53ff4c0e490f36` with the `foundation` workflow green on that exact SHA, merged into `master` as `2b3069749bf44237d248ac5482f39b8839ae411f`.
+
+**Preservation:** MILESTONE-074 and the M063 exceptional byte-seal reconciliation record are unchanged by this freeze. No M060/M062/M064/M065/M067/M068 source file is modified and no migration is added or changed. The M062/M064/M065 CRLF seal debt was deliberately not repaired: M075 introduces no fixture, no dataset bundle and no byte seal, so the debt provably does not block it, and it continues to warrant its own authorization.
+
+**Freeze declaration:** `M075 MACRO MILESTONE APPROVED_AND_FROZEN`. `M075 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-076 — recommendation only; not started as part of M075. Per the mission's own explicit instruction, MILESTONE-076 was NOT built.
