@@ -1,0 +1,15 @@
+# Master baseline on the same LF clean clone (pre-existing failure set)
+# head: 328e8b014541107165932ddcf19c14f7b0f56cdc
+
+     12 ERROR tests/unit/test_decision_candidate_survivorship_study.py
+      1 FAILED tests/unit/test_decision_candidate_historical_import.py
+      6 FAILED tests/unit/test_decision_candidate_robustness_study.py
+      2 FAILED tests/unit/test_decision_candidate_robustness_study_independent_verification.py
+      6 FAILED tests/unit/test_decision_candidate_validation_study.py
+      1 FAILED tests/unit/test_decision_candidate_validation_study_independent_verification.py
+      6 FAILED tests/unit/test_m063_robustness_study_application.py
+
+22 failed, 1799 passed, 351 skipped, 12 errors
+
+# The 14-test delta versus this branch is exactly the three M063 unit files
+# plus the M063 integration constant. Nothing regressed.

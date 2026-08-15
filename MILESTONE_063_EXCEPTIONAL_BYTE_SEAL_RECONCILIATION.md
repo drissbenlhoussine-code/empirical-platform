@@ -147,27 +147,64 @@ Verified by recomputing worktree digests before and after the repair:
 
 The `-text` pin is scoped to a single explicit path and cannot reach them.
 
-## 8. Known remaining defect (NOT repaired — outside authorization)
+## 8. Known remaining defects (NOT repaired — outside authorization)
 
-**M064 carries the identical latent defect.** Its seals also record Windows
-CRLF worktree digests rather than committed-blob digests:
+The M063 seal was not a one-off. The same authoring pattern — record a digest
+taken from a Windows working-tree materialization rather than from the
+committed blob — is present in **M062, M064 and M065**. On a clean LF checkout
+those milestones fail; on a `core.autocrlf=true` checkout they pass. None of it
+is repaired here: the owner's authorization covers M063 only, and this closure
+mission explicitly requires M064/M065 to remain untouched.
 
-| Fixture | Committed blob | Seal records |
-|---|---|---|
-| `survivorship_aware_dataset_bundle.json` | `15a4d263…` | `af996c09…` |
-| `membership_manifest.json` | `3c4ad211…` | `caa9fa89…` |
+Measured on a clean LF clone at this branch's head (`pytest` defaults,
+PostgreSQL off):
 
-This does not currently break CI because the affected M064 tests are
-PostgreSQL-gated and are skipped there. It **will** fail on any clean-checkout
-run with PostgreSQL enabled. M074's own integration tests inherit the same
-constants and the same exposure.
+| Milestone | Artifact | Committed blob (LF) | Recorded seal (CRLF) | Failing tests |
+|---|---|---|---|---|
+| M062 | `synthetic_multi_period_validation_dataset_bundle.json` | `1b582de9…` | `3289c380…` | 7 unit |
+| M064 | `survivorship_aware_dataset_bundle.json` | `15a4d263…` | `af996c09…` | 12 unit (errors) + 6 M074 integration |
+| M065 | `BETA.csv` (see below) | — | — | 1 unit |
 
-This was deliberately left unrepaired: the owner's authorization covers M063
-only, and the closure mission explicitly requires M064/M065 seals to remain
-unaffected. It is recorded here so the exposure is documented rather than
-discovered later, and it warrants its own authorization.
+**M065 is a different shape of the same defect.** No seal is wrong;
+`tests/unit/test_decision_candidate_historical_import.py::test_tampered_source_file_byte_changes_bundle_and_normalized_hash`
+hard-codes the byte pattern `b",2813\r\n"` and asserts that replacing it
+changes the bundle hash. On an LF checkout the pattern is absent, the
+replacement is a no-op, and the tampered and original hashes come out equal —
+so the tamper-detection assertion fails for want of a tamper.
+
+**Correction to an earlier reading of this section.** A previous revision
+listed M064's `membership_manifest.json` as carrying the same defect, on the
+grounds that its committed blob hashes to `3c4ad211…` while the seal records
+`caa9fa89…`. That comparison was wrong in kind. `caa9fa89…` is not a raw file
+digest at all: `membership_manifest_hash()` hashes a canonical payload built
+from the *parsed* records, so it is line-ending independent. Verified directly
+— parsing both byte forms through `parse_membership_manifest_file` and hashing
+each yields `caa9fa89…` from both. `membership_manifest.json` is fine on every
+platform. Only `survivorship_aware_dataset_bundle.json` carries M064's raw-digest
+exposure.
+
+**Current blast radius.** CI runs on `windows-latest` with git's default
+`core.autocrlf=true`, so none of this shows up there, and the M064-derived
+integration tests are PostgreSQL-gated and skipped in CI regardless. The
+exposure is real on any Linux/macOS checkout and on any clean-checkout run with
+PostgreSQL enabled — including M074's own integration suite, which inherits the
+M064 constant.
+
+**Not a regression from this branch.** Measured on the same clean LF clone:
+
+| Head | Result |
+|---|---|
+| `origin/master` (328e8b0) | 22 failed, 1799 passed, 351 skipped, 12 errors |
+| this branch | 8 failed, 1843 passed, 357 skipped, 12 errors |
+
+The 14-test improvement is exactly the M063 repair. Nothing regressed.
+
+Each of M062, M064 and M065 warrants its own authorization. They are recorded
+here so the exposure is documented rather than discovered later.
 
 ## 9. Verification performed
+
+Recorded at the time of the repair, on the owner's Windows workstation:
 
 - 14 previously-failing M063 unit tests now pass; 22/22 in the M063 unit set.
 - Full default suite: 1861 passed, 357 skipped, coverage 80.01% (floor 79%,
@@ -176,3 +213,46 @@ discovered later, and it warrants its own authorization.
   all pass.
 - Clean-clone reproduction with `core.autocrlf=false`.
 - GitHub Actions `foundation` workflow on the repaired head.
+
+## 10. Independent re-verification (post-interruption recovery)
+
+The closure run was interrupted mid-flight. Everything below was re-measured
+from scratch afterwards, on Linux, on fresh clones, against a freshly created
+PostgreSQL 16 instance — not carried over from the interrupted run.
+
+**The repair reproduces on both platforms, which is the whole point of it.**
+Two clones of the same commit, differing only in `core.autocrlf`:
+
+| Clone | `core.autocrlf` | M063 fixture digest | Matches repaired seal |
+|---|---|---|---|
+| LF | `false` | `765601962773a215aa483538f467632de6780c8510b4a82b823f77bd132db2dd` | yes |
+| CRLF | `true` | `765601962773a215aa483538f467632de6780c8510b4a82b823f77bd132db2dd` | yes |
+
+The `-text` pin holds the LF bytes through a `core.autocrlf=true` checkout, so
+the corrected seal is now reproducible everywhere rather than on one platform.
+Blob is still `800ecb19`; the fixture's bytes were never touched.
+
+**The pin does not reach anything else.** `git check-attr text` on the M064 and
+M065 fixtures returns `unspecified` — their behaviour is exactly git's default,
+unchanged. In the CRLF clone `survivorship_aware_dataset_bundle.json`
+materializes to `af996c09…`, its recorded M064 seal, exactly as before the
+repair. Every M064/M065 fixture blob OID is identical between `origin/master`
+and this branch, and no M064/M065 test file is touched by this branch.
+
+**The repair diff is four lines.** Across the four M063 test files the entire
+change is `_EXPECTED_SHA256 = "ca98478…"` → `"765601…"`, one line each. No other
+line of Python differs.
+
+**Test results, re-measured.**
+
+| Environment | Result |
+|---|---|
+| CRLF clone, PostgreSQL off | 1861 passed, 357 skipped, coverage 80.01% |
+| CRLF clone, PostgreSQL on | 2204 passed, 14 skipped, coverage 91.93% |
+| CRLF clone, M070–M074 integration only | 24 passed, 5 skipped |
+| LF clone, PostgreSQL off | 8 failed, 1843 passed, 357 skipped, 12 errors |
+
+The LF-clone failures are the M062/M064/M065 exposure documented in section 8,
+none of it in M063 and none of it introduced by this branch. See the master
+baseline comparison there.
+
