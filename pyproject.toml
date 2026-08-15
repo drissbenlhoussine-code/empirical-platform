@@ -120,6 +120,7 @@ empirical-platform-daily-workflow = "empirical_platform.entrypoints.run_daily_re
 empirical-platform-record-position-event = "empirical_platform.entrypoints.record_operator_position_event:main"
 empirical-platform-get-position-state = "empirical_platform.entrypoints.get_operator_position_state:main"
 empirical-platform-audit-follow-through = "empirical_platform.entrypoints.audit_research_decision_follow_through:main"
+empirical-platform-operator-evidence-snapshot = "empirical_platform.entrypoints.get_operator_evidence_snapshot:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
