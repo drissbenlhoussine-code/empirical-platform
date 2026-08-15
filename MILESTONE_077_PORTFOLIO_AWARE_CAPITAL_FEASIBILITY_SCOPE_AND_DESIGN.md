@@ -144,7 +144,8 @@ plan lineage. It never reimplements the fold.
 ### Outcome vocabulary
 
 `FITS_WITHIN_REMAINING_CAPITAL`, `EXCEEDS_REMAINING_CAPITAL`,
-`ALREADY_AT_OR_OVER_CAPITAL`, `NO_APPROVED_POSITION_PLANS`, `NOT_ASSESSABLE`.
+`ALREADY_AT_OR_OVER_CAPITAL`, `ALL_PLANS_ALREADY_ACTED_UPON`,
+`NO_APPROVED_POSITION_PLANS`, `NOT_ASSESSABLE`.
 
 Deliberately **not** `ALLOCATED`, `EXECUTED`, `FILLED`, `VERIFIED`. M077
 allocates nothing and verifies nothing.
@@ -159,6 +160,13 @@ M077 therefore builds a lineage index from the `OPENED` events of positions
 that are open at `as_of`, and any approved plan whose governance id appears in
 that index is **excluded from the proposed set and named explicitly** as
 already acted upon. It is not silently dropped and not silently double-charged.
+
+**Capital authority is a separate question, corrected after owner review.** An
+already-acted plan is still a plan this session approved and sized against this
+session's equity, so it **remains a capital-base input** while contributing
+**zero new proposed notional**. Conflating the two lists made a fully-acted
+session report a capital base of zero. Validity is checked first: a plan with a
+non-positive equity is bad data and is never a capital authority.
 
 ## 8. Temporal Semantics
 
@@ -184,7 +192,8 @@ Absence is never rendered as a pass.
 | Empty ledger | Assessed normally, held exposure `0`, explicitly stated |
 | Held exposure ≥ ceiling | `ALREADY_AT_OR_OVER_CAPITAL`; every plan excluded with a reason |
 | Held exposure exactly = ceiling | Over the line only on strict `>`; equality leaves zero headroom, so any positive plan is excluded |
-| No approved plans, positions held | `NO_APPROVED_POSITION_PLANS`, and held exposure still reported |
+| No approved plans at all, positions held | `NO_APPROVED_POSITION_PLANS`, and held exposure still reported |
+| Every approved plan already acted upon | `ALL_PLANS_ALREADY_ACTED_UPON` — the capital base is still derived from those plans, so held exposure is judged against a real ceiling |
 | Position closed before `as_of` | Not counted |
 | Reduction before `as_of` | Counted at the reduced quantity |
 | Reduction after `as_of` | Excluded; excluded-event count surfaced |

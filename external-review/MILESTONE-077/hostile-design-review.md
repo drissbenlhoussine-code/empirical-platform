@@ -38,7 +38,7 @@ Failed first designs are recorded here rather than deleted.
 | # | Attack | Verdict |
 |---|---|---|
 | C01 | A position asserted from today's own plan is counted as both held and proposed | **FIXED** — lineage index over `OPENED` events of positions open at `as_of`; matching plans excluded exactly once and named |
-| C02 | The lineage exclusion silently drops a plan | **FIXED** — excluded plans are reported with an explicit reason, never omitted |
+| C02 | The lineage exclusion silently drops a plan | ~~**FIXED**~~ **RETRACTED — see `owner-correction-pass.md`.** True of the limitations text, false of the arithmetic: the plan was also dropped from capital-base derivation, which no limitation disclosed. This attack checked the reporting and never checked the capital base |
 | C03 | A plan cited by a position that is **closed** at `as_of` is wrongly excluded | **FIXED** — only positions **open at `as_of`** drive exclusion. A closed position released its exposure, so re-entering is legitimate. Recorded as a deliberate decision, not an oversight |
 | C04 | Two positions cite the same plan | **FIXED** — the index is a set membership test, so the plan is excluded once regardless of how many positions cite it |
 | C05 | Same instrument held and proposed without lineage | ACCEPTED — legitimately a *new* position (M076 forbids re-opening a closed key and requires a new key for a new entry). Named as an observation, not excluded |

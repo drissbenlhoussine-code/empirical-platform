@@ -86,6 +86,10 @@ class PortfolioAwareOutcome(StrEnum):
     """
 
     FITS_WITHIN_REMAINING_CAPITAL = "FITS_WITHIN_REMAINING_CAPITAL"
+    #: The session approved plans and the operator has already acted on every
+    #: one of them. Distinct from NO_APPROVED_POSITION_PLANS, which would be a
+    #: false statement about a session that did approve plans.
+    ALL_PLANS_ALREADY_ACTED_UPON = "ALL_PLANS_ALREADY_ACTED_UPON"
     EXCEEDS_REMAINING_CAPITAL = "EXCEEDS_REMAINING_CAPITAL"
     ALREADY_AT_OR_OVER_CAPITAL = "ALREADY_AT_OR_OVER_CAPITAL"
     NO_APPROVED_POSITION_PLANS = "NO_APPROVED_POSITION_PLANS"
@@ -353,20 +357,26 @@ def assess_portfolio_aware_capital_feasibility(
     """
     limitations: list[str] = []
 
-    usable: list[SameDayPositionRequest] = []
+    # OWNER CORRECTION. Capital-base authority and the new-proposal set are two
+    # different questions, and conflating them was wrong.
+    #
+    # An already-acted plan is still a plan this session approved and sized
+    # against this session's equity, so it remains a CAPITAL-AUTHORITY input.
+    # It merely contributes ZERO new proposed notional, because the exposure it
+    # produced is already counted in the held snapshot.
+    #
+    # Filtering it out before deriving the capital base made a session whose
+    # plans had all been acted upon report a capital base of zero -- and with
+    # it a zero ceiling -- which is not what the session recorded.
+    capital_inputs: list[SameDayPositionRequest] = []
+    proposed: list[SameDayPositionRequest] = []
     already_acted: list[str] = []
     bad_data_excluded = 0
     # Filter in the SAME deterministic order the verdicts use, so `limitations`
     # and `plans_already_acted_upon` cannot depend on the caller's input order.
     for request in sorted(requests, key=_ordering_key):
-        if request.position_plan_governance_id in held_plan_lineage:
-            already_acted.append(request.position_plan_governance_id)
-            limitations.append(
-                f"{request.instrument_symbol}: excluded, an open operator-asserted "
-                f"position already cites plan {request.position_plan_governance_id}; "
-                "counting it again would charge one decision twice"
-            )
-            continue
+        # Validity is checked FIRST: a plan with a non-positive equity is not a
+        # credible capital authority, whether or not it was acted upon.
         if request.position_notional <= 0:
             bad_data_excluded += 1
             limitations.append(
@@ -381,14 +391,24 @@ def assess_portfolio_aware_capital_feasibility(
                 f"equity {request.supplied_account_equity}"
             )
             continue
-        usable.append(request)
+        capital_inputs.append(request)
+        if request.position_plan_governance_id in held_plan_lineage:
+            already_acted.append(request.position_plan_governance_id)
+            limitations.append(
+                f"{request.instrument_symbol}: contributes no NEW proposed notional, an "
+                f"open operator-asserted position already cites plan "
+                f"{request.position_plan_governance_id}; counting it again would charge "
+                "one decision twice. It still informs the session's capital base"
+            )
+            continue
+        proposed.append(request)
 
-    excluded_count = len(requests) - len(usable)
+    excluded_count = len(requests) - len(proposed)
 
     # Capital base: identical rule to M075 -- the equity the plans were sized
     # against, minimum when they disagree. Conservative, deterministic, never
-    # an average.
-    equities = {request.supplied_account_equity for request in usable}
+    # an average. Derived over EVERY valid approved plan, acted upon or not.
+    equities = {request.supplied_account_equity for request in capital_inputs}
     capital_base = min(equities) if equities else Decimal("0")
     if len(equities) > 1:
         limitations.append(
@@ -459,9 +479,9 @@ def assess_portfolio_aware_capital_feasibility(
             "revalued and is not a market valuation"
         )
 
-    # A usable plan always carries positive equity, so a non-positive capital
-    # base can only mean every plan was excluded as bad data. The ceiling is
-    # then zero and no admission is possible -- but held exposure is still a
+    # Every capital-authority input carries positive equity, so a non-positive
+    # capital base can only mean every plan was excluded as bad data. The ceiling
+    # is then zero and no admission is possible -- but held exposure is still a
     # real observation and is still reported below.
     # NOT quantized. M075 uses the exact product, and rounding here would make
     # the two artifacts disagree about whether a boundary-value plan fits.
@@ -489,8 +509,8 @@ def assess_portfolio_aware_capital_feasibility(
     # withheld verdict; if there were simply none to propose (or all were
     # already acted upon) that is a real, reportable state -- and held exposure
     # is reported either way rather than hidden behind the absence of plans.
-    if not usable:
-        if bad_data_excluded:
+    if not proposed:
+        if not capital_inputs and bad_data_excluded:
             return _unassessable(
                 reason=PortfolioAwareUnassessableReason.NON_POSITIVE_CAPITAL_BASE,
                 policy=policy,
@@ -498,9 +518,23 @@ def assess_portfolio_aware_capital_feasibility(
                 requested_plan_count=len(requests),
                 limitations=tuple(limitations),
             )
+        # "No approved position plans" would be FALSE here when the session did
+        # approve plans and the operator has simply already acted on all of
+        # them. That is a different, and much more useful, fact.
+        empty_outcome = (
+            PortfolioAwareOutcome.ALL_PLANS_ALREADY_ACTED_UPON
+            if already_acted
+            else PortfolioAwareOutcome.NO_APPROVED_POSITION_PLANS
+        )
+        if already_acted:
+            limitations.append(
+                "every approved plan in this session is already cited by an open "
+                "operator-asserted position; there is no NEW proposed exposure to assess, "
+                "and the held figures below are the session's current standing"
+            )
         return _assessment(
             context=context,
-            outcome=PortfolioAwareOutcome.NO_APPROVED_POSITION_PLANS,
+            outcome=empty_outcome,
             admitted_plan_count=0,
             excluded_plan_count=excluded_count,
             total_admitted_notional=Decimal("0"),
@@ -521,7 +555,7 @@ def assess_portfolio_aware_capital_feasibility(
             context=context,
             outcome=PortfolioAwareOutcome.ALREADY_AT_OR_OVER_CAPITAL,
             admitted_plan_count=0,
-            excluded_plan_count=excluded_count + len(usable),
+            excluded_plan_count=excluded_count + len(proposed),
             total_admitted_notional=Decimal("0"),
             projected_committed_notional=held_notional,
             verdicts=tuple(
@@ -535,7 +569,7 @@ def assess_portfolio_aware_capital_feasibility(
                     rejection_reason=(PortfolioRejectionReason.MAX_CAPITAL_UTILIZATION_EXCEEDED),
                     cumulative_committed_notional=str(held_notional),
                 )
-                for request in sorted(usable, key=_ordering_key)
+                for request in proposed
             ),
             limitations=tuple(limitations),
         )
@@ -545,7 +579,7 @@ def assess_portfolio_aware_capital_feasibility(
     verdicts: list[PortfolioAwarePlanVerdict] = []
     admitted = 0
 
-    for request in sorted(usable, key=_ordering_key):
+    for request in proposed:
         reason: PortfolioRejectionReason | None = None
         if admitted_positions >= policy.max_concurrent_positions:
             reason = PortfolioRejectionReason.MAX_CONCURRENT_POSITIONS
@@ -570,14 +604,14 @@ def assess_portfolio_aware_capital_feasibility(
 
     outcome = (
         PortfolioAwareOutcome.FITS_WITHIN_REMAINING_CAPITAL
-        if admitted == len(usable)
+        if admitted == len(proposed)
         else PortfolioAwareOutcome.EXCEEDS_REMAINING_CAPITAL
     )
     return _assessment(
         context=context,
         outcome=outcome,
         admitted_plan_count=admitted,
-        excluded_plan_count=excluded_count + (len(usable) - admitted),
+        excluded_plan_count=excluded_count + (len(proposed) - admitted),
         total_admitted_notional=committed - held_notional,
         projected_committed_notional=committed,
         verdicts=tuple(verdicts),

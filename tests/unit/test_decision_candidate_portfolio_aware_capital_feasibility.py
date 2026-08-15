@@ -533,3 +533,126 @@ def test_blank_persisted_plan_citation_is_not_treated_as_an_identifier() -> None
 def test_whitespace_only_plan_citation_is_also_ignored() -> None:
     held = (event(gid="E1", pos="P1", plan="   ", price="10", quantity=1),)
     assert assess(requests=(request(plan="PLAN-1"),), events=held).admitted_plan_count == 1
+
+
+# --------------------------------------------------------------------------
+# Owner correction: capital-base authority is derived BEFORE already-acted
+# plans are removed from the new-proposal set
+# --------------------------------------------------------------------------
+
+
+def test_all_plans_already_acted_keeps_the_session_capital_base() -> None:
+    """Owner finding. Removing already-acted plans before deriving the capital
+    base made a fully-acted session report a capital base of zero, and with it
+    a zero ceiling -- which is not what the session recorded."""
+    held = (event(gid="E1", pos="P1", plan="PLAN-1", price="700", quantity=100),)
+    result = assess(requests=(request(plan="PLAN-1"),), events=held)
+
+    assert Decimal(result.capital_base) == EQUITY
+    assert Decimal(result.capital_ceiling) == EQUITY
+    assert Decimal(result.held_asserted_notional) == Decimal("70000")
+    assert Decimal(result.remaining_capital_under_policy) == Decimal("30000")
+    assert result.plans_already_acted_upon == ("PLAN-1",)
+    assert result.admitted_plan_count == 0
+
+
+def test_all_plans_already_acted_is_not_reported_as_no_approved_plans() -> None:
+    """Honesty of the wording: the session DID approve plans. Saying it had
+    none would be a false statement about the session."""
+    held = (event(gid="E1", pos="P1", plan="PLAN-1", price="700", quantity=100),)
+    result = assess(requests=(request(plan="PLAN-1"),), events=held)
+
+    assert result.outcome is PortfolioAwareOutcome.ALL_PLANS_ALREADY_ACTED_UPON
+    assert result.outcome is not PortfolioAwareOutcome.NO_APPROVED_POSITION_PLANS
+    assert any("already cited by an open" in line for line in result.limitations)
+
+
+def test_genuinely_no_plans_still_reports_no_approved_position_plans() -> None:
+    """The distinction must cut both ways."""
+    result = assess(requests=(), events=(event(gid="E1", pos="P1", price="700"),))
+    assert result.outcome is PortfolioAwareOutcome.NO_APPROVED_POSITION_PLANS
+    assert result.plans_already_acted_upon == ()
+
+
+def test_an_acted_plan_with_the_smaller_equity_still_sets_the_capital_base() -> None:
+    """M075 minimum-equity semantics preserved: the minimum is taken over every
+    valid approved plan, acted upon or not."""
+    held = (event(gid="E1", pos="P1", plan="PLAN-LOW", price="10", quantity=1),)
+    result = assess(
+        requests=(
+            request(symbol="AAA", plan="PLAN-LOW", rank=1, equity=Decimal("40000")),
+            request(symbol="BBB", plan="PLAN-NEW", rank=2, equity=Decimal("100000")),
+        ),
+        events=held,
+    )
+    assert Decimal(result.capital_base) == Decimal("40000")
+    assert result.plans_already_acted_upon == ("PLAN-LOW",)
+    assert [v.position_plan_governance_id for v in result.verdicts] == ["PLAN-NEW"]
+
+
+def test_a_new_plan_with_the_smaller_equity_still_sets_the_capital_base() -> None:
+    held = (event(gid="E1", pos="P1", plan="PLAN-HIGH", price="10", quantity=1),)
+    result = assess(
+        requests=(
+            request(symbol="AAA", plan="PLAN-HIGH", rank=1, equity=Decimal("100000")),
+            request(symbol="BBB", plan="PLAN-NEW", rank=2, equity=Decimal("40000")),
+        ),
+        events=held,
+    )
+    assert Decimal(result.capital_base) == Decimal("40000")
+    assert any("different account equity" in line for line in result.limitations)
+
+
+def test_an_acted_plan_with_invalid_equity_is_not_a_capital_authority() -> None:
+    """A plan with a non-positive equity is not a credible capital base,
+    whether or not it was acted upon."""
+    held = (event(gid="E1", pos="P1", plan="PLAN-BAD", price="10", quantity=1),)
+    result = assess(
+        requests=(
+            request(symbol="AAA", plan="PLAN-BAD", rank=1, equity=Decimal("0")),
+            request(symbol="BBB", plan="PLAN-NEW", rank=2, equity=Decimal("80000")),
+        ),
+        events=held,
+    )
+    assert Decimal(result.capital_base) == Decimal("80000")
+    assert "PLAN-BAD" not in result.plans_already_acted_upon
+    assert any("non-positive supplied account equity" in line for line in result.limitations)
+
+
+def test_every_plan_invalid_remains_not_assessable() -> None:
+    result = assess(requests=(request(equity=Decimal("0")),))
+    assert result.outcome is PortfolioAwareOutcome.NOT_ASSESSABLE
+    assert result.unassessable_reason is PortfolioAwareUnassessableReason.NON_POSITIVE_CAPITAL_BASE
+
+
+def test_acted_plans_contribute_zero_new_proposed_notional() -> None:
+    """The acted plan informs capital authority but must not consume headroom
+    a second time -- the held snapshot already accounts for it."""
+    held = (event(gid="E1", pos="P1", plan="PLAN-ACTED", price="700", quantity=100),)
+    result = assess(
+        requests=(
+            request(symbol="AAA", plan="PLAN-ACTED", rank=1, notional="70000"),
+            request(symbol="BBB", plan="PLAN-NEW", rank=2, notional="30000"),
+        ),
+        events=held,
+    )
+    # 70,000 held + 30,000 proposed lands exactly on the 100,000 ceiling. Had
+    # the acted plan been charged again, this would have been infeasible.
+    assert result.outcome is PortfolioAwareOutcome.FITS_WITHIN_REMAINING_CAPITAL
+    assert Decimal(result.total_admitted_notional) == Decimal("30000")
+    assert Decimal(result.projected_committed_notional) == Decimal("100000")
+
+
+def test_capital_base_derivation_is_deterministic_regardless_of_input_order() -> None:
+    held = (
+        event(gid="E1", pos="P1", plan="PLAN-B", price="10", quantity=1),
+        event(gid="E2", pos="P2", plan="PLAN-A", price="10", quantity=1),
+    )
+    a = request(symbol="AAA", plan="PLAN-A", rank=1, equity=Decimal("55000"))
+    b = request(symbol="BBB", plan="PLAN-B", rank=2, equity=Decimal("45000"))
+    c = request(symbol="CCC", plan="PLAN-C", rank=3, equity=Decimal("65000"))
+    forward = assess(requests=(a, b, c), events=held)
+    reverse = assess(requests=(c, b, a), events=held)
+    assert Decimal(forward.capital_base) == Decimal("45000")
+    assert forward.plans_already_acted_upon == ("PLAN-A", "PLAN-B")
+    assert forward == reverse

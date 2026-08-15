@@ -734,3 +734,81 @@ def test_m077_exact_decimal_round_trip_through_postgresql(
             )
         ).scalar_one()
     assert stored == Decimal("123.456789")
+
+
+# ---------------------------------------------------------------------------
+# Owner correction: capital-base authority over genuinely persisted rows
+# ---------------------------------------------------------------------------
+
+
+def test_m077_all_plans_acted_keeps_capital_base_over_real_rows(
+    clean_tables: Engine, tmp_path: Path
+) -> None:
+    """Owner finding, against real persisted rows: when the operator has acted
+    on every approved plan, the session's capital base must survive."""
+    config = _config()
+    result = _seed_session(tmp_path, config, "RESEARCH-7720")
+    before = _portfolio_of(_build_portfolio_brief(config, result.identity))  # type: ignore[attr-defined]
+    assert before.verdicts, "the session must produce approved plans"
+    plans = [v.position_plan_governance_id for v in before.verdicts]
+    expected_base = Decimal(before.capital_base)
+    assert expected_base > 0
+
+    for index, (verdict, plan) in enumerate(zip(before.verdicts, plans, strict=True)):
+        _record(
+            config,
+            gid=f"OPEV-79{index:02d}",
+            pos=f"POS-79{index:02d}",
+            symbol=verdict.instrument_symbol,
+            kind=OperatorPositionEventKind.OPENED,
+            quantity=1,
+            price="10",
+            at=_AS_OF_BREAKOUT - timedelta(days=1),
+            plan=plan,
+        )
+
+    after = _portfolio_of(_build_portfolio_brief(config, result.identity))  # type: ignore[attr-defined]
+
+    assert after.outcome is PortfolioAwareOutcome.ALL_PLANS_ALREADY_ACTED_UPON
+    assert Decimal(after.capital_base) == expected_base
+    assert Decimal(after.capital_ceiling) == Decimal(before.capital_ceiling)
+    assert sorted(after.plans_already_acted_upon) == sorted(plans)
+    assert after.admitted_plan_count == 0
+    assert after.verdicts == ()
+    # Headroom is real, not zero-by-accident.
+    assert Decimal(after.remaining_capital_under_policy) == (
+        Decimal(after.capital_ceiling) - Decimal(after.held_asserted_notional)
+    )
+
+
+def test_m077_all_plans_acted_text_and_json_agree(clean_tables: Engine, tmp_path: Path) -> None:
+    config = _config()
+    result = _seed_session(tmp_path, config, "RESEARCH-7721")
+    before = _portfolio_of(_build_portfolio_brief(config, result.identity))  # type: ignore[attr-defined]
+    for index, verdict in enumerate(before.verdicts):
+        _record(
+            config,
+            gid=f"OPEV-78{index:02d}",
+            pos=f"POS-78{index:02d}",
+            symbol=verdict.instrument_symbol,
+            kind=OperatorPositionEventKind.OPENED,
+            quantity=1,
+            price="10",
+            at=_AS_OF_BREAKOUT - timedelta(days=1),
+            plan=verdict.position_plan_governance_id,
+        )
+
+    brief = _build_portfolio_brief(config, result.identity)  # type: ignore[attr-defined]
+    portfolio = _portfolio_of(brief)
+    payload = render_daily_research_brief_json(brief)[  # type: ignore[arg-type]
+        "PORTFOLIO_AWARE_CAPITAL_FEASIBILITY"
+    ]
+    text_output = render_daily_research_brief_text(brief)  # type: ignore[arg-type]
+
+    assert payload["outcome"] == "ALL_PLANS_ALREADY_ACTED_UPON"
+    assert payload["capital_base"] == portfolio.capital_base
+    assert sorted(payload["plans_already_acted_upon"]) == sorted(portfolio.plans_already_acted_upon)
+    # The honest wording must reach the human rendering, not only the JSON.
+    assert "ALL_PLANS_ALREADY_ACTED_UPON" in text_output
+    assert "NO_APPROVED_POSITION_PLANS" not in text_output
+    assert portfolio.capital_base in text_output
