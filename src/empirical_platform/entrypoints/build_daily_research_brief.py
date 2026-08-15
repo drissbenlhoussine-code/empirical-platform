@@ -34,7 +34,8 @@ from empirical_platform.usecases.list_daily_research_sessions import (
 
 _USAGE = (
     "usage: empirical-platform-daily-brief [--json] [--no-historical-evidence] "
-    "[--no-capital-feasibility] [<session_governance_id> <session_runtime_id>]"
+    "[--no-capital-feasibility] [--no-portfolio-aware-feasibility] "
+    "[<session_governance_id> <session_runtime_id>]"
 )
 
 
@@ -45,6 +46,7 @@ def run_build_daily_research_brief(
     config: PostgreSQLConfigSnapshot | None = None,
     include_historical_evidence: bool = True,
     include_capital_feasibility: bool = True,
+    include_portfolio_aware_feasibility: bool = True,
 ) -> DailyResearchBrief:
     """Build one daily research brief end-to-end against real
     PostgreSQL. With no explicit session, defaults to the single most
@@ -76,6 +78,10 @@ def run_build_daily_research_brief(
                 runtime.historical_portfolio_evidence_query if include_historical_evidence else None
             ),
             include_capital_feasibility=include_capital_feasibility,
+            operator_position_ledger_repository=(
+                runtime.operator_position_ledger if include_portfolio_aware_feasibility else None
+            ),
+            include_portfolio_aware_feasibility=include_portfolio_aware_feasibility,
         )
         entry_point = QueryEntryPoint(handler)
         return entry_point(BuildDailyResearchBriefQuery(identity=identity))
@@ -86,10 +92,17 @@ def main() -> None:
     as_json = "--json" in args
     include_historical_evidence = "--no-historical-evidence" not in args
     include_capital_feasibility = "--no-capital-feasibility" not in args
+    include_portfolio_aware = "--no-portfolio-aware-feasibility" not in args
     positional = [
         a
         for a in args
-        if a not in ("--json", "--no-historical-evidence", "--no-capital-feasibility")
+        if a
+        not in (
+            "--json",
+            "--no-historical-evidence",
+            "--no-capital-feasibility",
+            "--no-portfolio-aware-feasibility",
+        )
     ]
 
     if len(positional) not in (0, 2):
@@ -103,6 +116,7 @@ def main() -> None:
         session_runtime_id=session_runtime_id,
         include_historical_evidence=include_historical_evidence,
         include_capital_feasibility=include_capital_feasibility,
+        include_portfolio_aware_feasibility=include_portfolio_aware,
     )
     if as_json:
         print(json.dumps(render_daily_research_brief_json(brief), sort_keys=True))

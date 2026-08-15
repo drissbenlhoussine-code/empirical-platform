@@ -29,6 +29,9 @@ from enum import StrEnum
 from empirical_platform.decision_candidate.historical_portfolio_evidence import (
     HistoricalPortfolioEvidence,
 )
+from empirical_platform.decision_candidate.portfolio_aware_capital_feasibility import (
+    PortfolioAwareCapitalAssessment,
+)
 from empirical_platform.decision_candidate.research_session import (
     ResearchDecisionEntry,
     ResearchSessionSummary,
@@ -346,6 +349,10 @@ class DailyResearchBrief:
     # (suppressed by flag), which is distinct from an assessment whose own
     # outcome says it could not be assessed.
     same_day_capital_assessment: SameDayCapitalAssessment | None = None
+    #: MILESTONE-077. `None` means the assessment was not computed at all
+    # (suppressed by flag or no ledger wired), which is distinct from an
+    # assessment whose own outcome says it could not be assessed.
+    portfolio_aware_capital_assessment: PortfolioAwareCapitalAssessment | None = None
 
     def __post_init__(self) -> None:
         if not self.session_governance_id.strip():
@@ -388,6 +395,7 @@ def build_daily_research_brief(
     stage_manifest_summary: tuple[str, ...],
     historical_portfolio_evidence: tuple[HistoricalPortfolioEvidence, ...] = (),
     same_day_capital_assessment: SameDayCapitalAssessment | None = None,
+    portfolio_aware_capital_assessment: PortfolioAwareCapitalAssessment | None = None,
 ) -> DailyResearchBrief:
     """Compose the authoritative brief model. Pure: every argument is
     already-fetched/already-computed data; this function performs no
@@ -422,4 +430,5 @@ def build_daily_research_brief(
         stage_manifest_summary=stage_manifest_summary,
         historical_portfolio_evidence=historical_portfolio_evidence,
         same_day_capital_assessment=same_day_capital_assessment,
+        portfolio_aware_capital_assessment=portfolio_aware_capital_assessment,
     )
