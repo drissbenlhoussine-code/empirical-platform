@@ -114,6 +114,13 @@ class FollowThroughUnassessableReason(StrEnum):
     LEDGER_UNAVAILABLE = "LEDGER_UNAVAILABLE"
     #: Persisted events do not fold into a coherent sequence.
     LEDGER_INCOHERENT = "LEDGER_INCOHERENT"
+    #: The session's own approved plan references cannot serve as a join
+    #: authority: an id is blank, or one id carries conflicting authoritative
+    #: identity. Owner review of 2c14d0a established that picking a "first"
+    #: plan in that case is deterministic but NOT semantically safe -- a ledger
+    #: citation of an ambiguous id cannot honestly be attributed to either
+    #: candidate, so no audit is performed at all.
+    SESSION_PLAN_REFERENCES_INCOHERENT = "SESSION_PLAN_REFERENCES_INCOHERENT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +211,49 @@ def cited_plan_by_position(
     return cited
 
 
+def _plan_reference_incoherence(
+    approved_plans: tuple[ApprovedPlanReference, ...],
+) -> str | None:
+    """Why these references cannot serve as a join authority, or `None`.
+
+    Two conditions disqualify them, and neither can be resolved by choosing a
+    winner:
+
+    * a blank or whitespace-only governance id is not an identifier at all;
+    * one non-blank id carrying conflicting authoritative identity -- currently
+      a differing `instrument_symbol` -- because a citation of that id refers to
+      no single plan.
+
+    `rank` is deliberately NOT part of this test. It is the session's
+    presentation priority for a decision, not part of what a citation refers to,
+    so a rank divergence is reported as a limitation rather than withheld.
+    """
+    blank = sorted(
+        plan.instrument_symbol
+        for plan in approved_plans
+        if not plan.position_plan_governance_id.strip()
+    )
+    if blank:
+        return (
+            f"{len(blank)} approved plan reference(s) carry a blank position plan "
+            f"governance id (instrument(s) {', '.join(blank)}); a blank id is not an "
+            "identifier and cannot be joined to a ledger citation"
+        )
+
+    by_id: dict[str, str] = {}
+    for plan in sorted(approved_plans, key=_plan_order):
+        key = plan.position_plan_governance_id.strip()
+        seen = by_id.setdefault(key, plan.instrument_symbol)
+        if seen != plan.instrument_symbol:
+            return (
+                f"plan id {key} names more than one instrument ({seen}, "
+                f"{plan.instrument_symbol}); a ledger citation of {key} refers to neither "
+                "in particular, and choosing one by sort order would invent an answer the "
+                "session data does not contain"
+            )
+    return None
+
+
 def _plan_order(plan: ApprovedPlanReference) -> tuple[int, int, str]:
     """Deterministic priority, identical to M075/M077 so the artifacts cannot
     disagree about order: ranked plans first in rank order, then unranked, then
@@ -259,18 +309,58 @@ def audit_research_decision_follow_through(
 
     # Deduplicate by plan id, keeping the first in deterministic order, so one
     # plan is one entry however many times the session names it.
+    # OWNER CORRECTION (review of 2c14d0a). The plan governance id is the JOIN
+    # AUTHORITY between the session and the ledger, so it must be validated as
+    # an identity BEFORE any lineage is read. The previous behaviour -- keep the
+    # first in deterministic order and emit a limitation -- was deterministic
+    # but not semantically safe: when PLAN-X names both AAPL and TSLA, a ledger
+    # event citing PLAN-X refers to neither in particular, and choosing AAPL
+    # because it sorts first invents an answer the data does not contain.
+    incoherence = _plan_reference_incoherence(approved_plans)
+    if incoherence is not None:
+        limitations.append(incoherence)
+        limitations.append(
+            f"{len(approved_plans)} raw approved plan reference(s) were present; no plan "
+            "count, status, or unlinked classification is reported, because every one of "
+            "them would depend on the ambiguous join"
+        )
+        return _unassessable(
+            reason=FollowThroughUnassessableReason.SESSION_PLAN_REFERENCES_INCOHERENT,
+            session_governance_id=session_governance_id,
+            as_of=as_of,
+            approved_plan_count=0,
+            limitations=tuple(limitations),
+        )
+
     unique: dict[str, ApprovedPlanReference] = {}
+    exact_duplicates = 0
+    rank_divergences: list[str] = []
     for plan in sorted(approved_plans, key=_plan_order):
         existing = unique.setdefault(plan.position_plan_governance_id, plan)
-        if existing is not plan and existing.instrument_symbol != plan.instrument_symbol:
-            # One plan id naming two instruments is malformed session data.
-            # Deduplicating silently would hide it, so it is named.
-            limitations.append(
-                f"plan id {plan.position_plan_governance_id} appears against more than "
-                f"one instrument ({existing.instrument_symbol}, "
-                f"{plan.instrument_symbol}); the first in deterministic order "
-                f"({existing.instrument_symbol}) was audited"
+        if existing is plan:
+            continue
+        if existing.rank != plan.rank:
+            # Identity is unambiguous here: same id, same instrument. `rank` is
+            # the session's operator-facing PRESENTATION priority, not part of
+            # what a citation refers to, so a divergence does not make the join
+            # ambiguous. It is reported rather than treated as incoherence.
+            rank_divergences.append(
+                f"plan {plan.position_plan_governance_id} appears with more than one rank "
+                f"({existing.rank}, {plan.rank}); rank is presentation priority and not "
+                f"part of plan identity, so the deterministically first ({existing.rank}) "
+                "orders the report and the join is unaffected"
             )
+        else:
+            exact_duplicates += 1
+    if exact_duplicates:
+        # Harmless to the join -- identical id AND identical authoritative
+        # identity -- but never hidden.
+        limitations.append(
+            f"{exact_duplicates} exact duplicate approved plan reference(s) were "
+            "deduplicated; each names the same plan with the same instrument and rank, so "
+            "the join is unaffected"
+        )
+    limitations.extend(rank_divergences)
     ordered_plans = tuple(sorted(unique.values(), key=_plan_order))
     plan_ids = frozenset(unique)
 

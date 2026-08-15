@@ -5,9 +5,9 @@
 | Head | PostgreSQL off | PostgreSQL on |
 |---|---|---|
 | `master` `183401e` | 8 failed, **1975** passed, 12 errors | 24 failed, **2311** passed, 44 errors |
-| M078 branch | 8 failed, **2017** passed, 12 errors | 24 failed, **2368** passed, 44 errors |
+| M078 branch | 8 failed, **2029** passed, 12 errors | 24 failed, **2383** passed, 44 errors |
 
-**+42 and +57 passing tests. Zero regressions**, and the claim does not rest on
+**+54 and +72 passing tests. Zero regressions**, and the claim does not rest on
 the counts: the sorted failing-test-id lists were **diffed and are identical**,
 with no M075, M076, M077 or M078 test in the failing set.
 
@@ -18,10 +18,10 @@ seal debt, untouched here and invisible on the `windows-latest` CI runner.
 
 | Suite | Result |
 |---|---|
-| M078 unit | **42 passed** |
-| M078 PostgreSQL integration | **12 passed** |
+| M078 unit | **54 passed** |
+| M078 PostgreSQL integration | **15 passed** |
 | M078 fresh second pass, database created empty | **3 passed** |
-| M070–M078 focused integration | 74 passed, 5 skipped, 6 pre-existing M074 seal-debt failures |
+| M070–M078 focused integration | 77 passed, 5 skipped, 6 pre-existing M074 seal-debt failures |
 
 ## Gates
 
@@ -45,7 +45,7 @@ rather than by silencing the checker.
 
 ## PostgreSQL evidence
 
-- Pass 1, `empirical_platform`: 12 passed, including a barrier-synchronised
+- Pass 1, `empirical_platform`: 15 passed, including a barrier-synchronised
   writer/reader race and an M077-compatibility cross-check
 - **Pass 2, `m078_second_pass`** — database created empty, full migration chain
   applied from scratch, deliberately different inputs throughout: different

@@ -666,3 +666,130 @@ def test_m078_m077_compatibility_both_artifacts_agree_on_the_same_ledger(
         if e.position_plan_governance_id == target.position_plan_governance_id
     )
     assert entry.status is FollowThroughStatus.ASSERTED_POSITION_OPEN
+
+
+# ---------------------------------------------------------------------------
+# Owner correction: what the persistence layer itself permits, and the
+# defensive read boundary either way
+# ---------------------------------------------------------------------------
+
+
+def test_m078_postgresql_rejects_a_blank_plan_reference_at_the_foreign_key(
+    clean_tables: Engine, tmp_path: Path
+) -> None:
+    """Attack H, first half. The frozen M070 schema declares
+    `position_plan_governance_id` as a FOREIGN KEY to `position_plan`, so a
+    blank id cannot be persisted at all. That is proven here rather than
+    assumed -- and M078's domain guard is retained anyway, because the read
+    boundary must not depend on a constraint in another milestone's table.
+    """
+    config = _config()
+    result = _seed(tmp_path, config, "RESEARCH-7813")
+    with clean_tables.begin() as conn:
+        decision = conn.execute(
+            text(
+                "SELECT session_runtime_id, instrument_symbol FROM "
+                "research_session_decision WHERE position_plan_governance_id IS NOT NULL "
+                "LIMIT 1"
+            )
+        ).one()
+        with pytest.raises(Exception) as excinfo:  # noqa: PT011 - driver-specific type
+            conn.execute(
+                text(
+                    "UPDATE research_session_decision SET position_plan_governance_id = '' "
+                    "WHERE session_runtime_id = :sid AND instrument_symbol = :sym"
+                ),
+                {"sid": decision.session_runtime_id, "sym": decision.instrument_symbol},
+            )
+    assert "foreign key" in str(excinfo.value).lower()
+    assert result is not None
+
+
+def test_m078_postgresql_permits_one_plan_id_across_two_instruments(
+    clean_tables: Engine, tmp_path: Path
+) -> None:
+    """Attack H, second half. The foreign key does NOT prevent two decisions
+    citing one plan id with different instruments, so the malformed form M078
+    must defend against is genuinely persistable -- and the usecase withholds
+    over real rows rather than fabricating a join.
+    """
+    config = _config()
+    result = _seed(tmp_path, config, "RESEARCH-7814")
+    before = _audit(config, result.identity)  # type: ignore[attr-defined]
+    assert len(before.entries) >= 2, "the session must approve at least two plans"
+    keep, overwrite = before.entries[0], before.entries[1]
+
+    # Point the second decision at the first decision's plan id. Both rows keep
+    # their own instrument, so one plan id now names two instruments.
+    with clean_tables.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE research_session_decision "
+                "SET position_plan_governance_id = :keep "
+                "WHERE session_runtime_id = :sid AND instrument_symbol = :sym"
+            ),
+            {
+                "keep": keep.position_plan_governance_id,
+                "sid": str(result.identity.runtime_id),  # type: ignore[attr-defined]
+                "sym": overwrite.instrument_symbol,
+            },
+        )
+        rows = conn.execute(
+            text(
+                "SELECT instrument_symbol FROM research_session_decision "
+                "WHERE position_plan_governance_id = :keep ORDER BY instrument_symbol"
+            ),
+            {"keep": keep.position_plan_governance_id},
+        ).fetchall()
+    assert len(rows) == 2, "PostgreSQL must permit the malformed form for this attack"
+
+    after = _audit(config, result.identity)  # type: ignore[attr-defined]
+    assert after.outcome is FollowThroughOutcome.NOT_ASSESSABLE
+    assert (
+        after.unassessable_reason
+        is FollowThroughUnassessableReason.SESSION_PLAN_REFERENCES_INCOHERENT
+    )
+    assert after.entries == ()
+    assert after.unlinked_open_positions == ()
+    assert after.approved_plan_count == 0
+
+
+def test_m078_ambiguous_session_withholds_in_both_renderings(
+    clean_tables: Engine, tmp_path: Path
+) -> None:
+    """Attack I. Text and JSON must carry the same withholding reason, with no
+    monetary data and no claim about the operator's conduct."""
+    config = _config()
+    result = _seed(tmp_path, config, "RESEARCH-7815")
+    before = _audit(config, result.identity)  # type: ignore[attr-defined]
+    keep, overwrite = before.entries[0], before.entries[1]
+    with clean_tables.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE research_session_decision "
+                "SET position_plan_governance_id = :keep "
+                "WHERE session_runtime_id = :sid AND instrument_symbol = :sym"
+            ),
+            {
+                "keep": keep.position_plan_governance_id,
+                "sid": str(result.identity.runtime_id),  # type: ignore[attr-defined]
+                "sym": overwrite.instrument_symbol,
+            },
+        )
+
+    audit = _audit(config, result.identity)  # type: ignore[attr-defined]
+    payload = render_follow_through_json(audit)
+    rendered = render_follow_through_text(audit)
+
+    assert payload["outcome"] == "NOT_ASSESSABLE"
+    assert payload["unassessable_reason"] == "SESSION_PLAN_REFERENCES_INCOHERENT"
+    assert "SESSION_PLAN_REFERENCES_INCOHERENT" in rendered
+    assert payload["entries"] == []
+    assert payload["unlinked_open_positions"] == []
+    # Conduct words must be absent. "profit" is NOT checked as a bare
+    # substring: the banner legitimately contains "NOT a profitability claim",
+    # so the meaningful assertion is that the DENIAL is present.
+    for forbidden in ("ignored", "failed to", "did not act"):
+        assert forbidden not in rendered.lower()
+    assert "NOT a profitability claim" in rendered
+    assert "no monetary value of any kind" in rendered

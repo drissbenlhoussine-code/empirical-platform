@@ -265,9 +265,11 @@ def test_session_with_no_approved_plans_still_reports_unlinked_positions() -> No
     assert len(result.unlinked_open_positions) == 1
 
 
-def test_blank_citation_is_not_an_identifier() -> None:
-    """Carried forward from the M077 R04 defect."""
-    result = audit(plans=(plan(pid=""),), events=(event(gid="E1", pos="P1", cites=""),))
+def test_blank_ledger_citation_is_not_an_identifier() -> None:
+    """Carried forward from the M077 R04 defect. Uses a VALID plan id: a blank
+    PLAN id is a separate condition that withholds the whole audit, and
+    conflating the two would test neither properly."""
+    result = audit(plans=(plan(),), events=(event(gid="E1", pos="P1", cites=""),))
     assert result.unlinked_open_positions[0].reason is UnlinkedPositionReason.CITES_NO_PLAN
 
 
@@ -415,20 +417,171 @@ def test_matching_instrument_produces_no_mismatch_flag() -> None:
     assert not any("different instrument" in line for line in result.limitations)
 
 
-def test_one_plan_id_naming_two_instruments_is_named_not_silently_dropped() -> None:
-    """Implementation review R02. Deduplication silently discarded the second
-    entry, hiding malformed session data."""
+def test_one_plan_id_naming_two_instruments_withholds_the_whole_audit() -> None:
+    """Implementation review R02, SUPERSEDED by owner review of 2c14d0a.
+
+    R02's fix -- deduplicate deterministically and emit a limitation -- was
+    deterministic but not semantically safe. This test previously asserted that
+    weaker behaviour (`approved_plan_count == 1` plus a warning). It is
+    corrected in place rather than deleted, because the earlier assertion is
+    itself part of the record.
+    """
     result = audit(
         plans=(
             plan(pid="DUP", symbol="AAA", rank=1),
             plan(pid="DUP", symbol="BBB", rank=2),
         )
     )
-    assert result.approved_plan_count == 1
-    assert any("appears against more than one instrument" in line for line in result.limitations)
+    assert result.outcome is FollowThroughOutcome.NOT_ASSESSABLE
+    assert (
+        result.unassessable_reason
+        is FollowThroughUnassessableReason.SESSION_PLAN_REFERENCES_INCOHERENT
+    )
+    # No arbitrary "first" plan is audited, and nothing is fabricated.
+    assert result.approved_plan_count == 0
+    assert result.entries == ()
+    assert result.unlinked_open_positions == ()
+    assert any("names more than one instrument" in line for line in result.limitations)
+    assert any("would invent an answer" in line for line in result.limitations)
 
 
 def test_duplicate_identical_plan_entries_produce_no_spurious_limitation() -> None:
     result = audit(plans=(plan(), plan()))
     assert result.approved_plan_count == 1
     assert not any("more than one instrument" in line for line in result.limitations)
+
+
+# --------------------------------------------------------------------------
+# Owner correction: the plan governance id is the JOIN AUTHORITY and must be
+# validated as an identity before any lineage is read
+# --------------------------------------------------------------------------
+
+
+def test_attack_a_blank_plan_id_withholds_the_audit() -> None:
+    result = audit(plans=(plan(pid=""),))
+    assert result.outcome is FollowThroughOutcome.NOT_ASSESSABLE
+    assert (
+        result.unassessable_reason
+        is FollowThroughUnassessableReason.SESSION_PLAN_REFERENCES_INCOHERENT
+    )
+    assert any("blank position plan governance id" in line for line in result.limitations)
+
+
+def test_attack_b_whitespace_only_plan_id_withholds_the_audit() -> None:
+    result = audit(plans=(plan(pid="   "),))
+    assert (
+        result.unassessable_reason
+        is FollowThroughUnassessableReason.SESSION_PLAN_REFERENCES_INCOHERENT
+    )
+
+
+def test_attack_b_one_blank_among_valid_plans_still_withholds() -> None:
+    """A single unusable identity poisons the join for the whole session --
+    partial auditing would silently report an incomplete picture as complete."""
+    result = audit(plans=(plan(pid="PLAN-1", symbol="AAA"), plan(pid="", symbol="BBB", rank=2)))
+    assert result.outcome is FollowThroughOutcome.NOT_ASSESSABLE
+    assert result.entries == ()
+
+
+def test_attack_c_conflicting_instruments_never_audit_an_arbitrary_first_plan() -> None:
+    result = audit(
+        plans=(plan(pid="PLAN-X", symbol="AAPL", rank=1), plan(pid="PLAN-X", symbol="TSLA", rank=2))
+    )
+    assert result.outcome is FollowThroughOutcome.NOT_ASSESSABLE
+    assert result.entries == ()
+    assert result.approved_plan_count == 0
+    assert result.with_open_asserted_position == 0
+    assert result.with_closed_asserted_position == 0
+    assert result.with_no_asserted_position_recorded == 0
+    # The rejected report must not name a winner anywhere.
+    assert not any("AAPL was audited" in line for line in result.limitations)
+
+
+def test_attack_c_conflict_is_detected_regardless_of_reference_order() -> None:
+    forward = audit(
+        plans=(plan(pid="PLAN-X", symbol="AAPL", rank=1), plan(pid="PLAN-X", symbol="TSLA", rank=2))
+    )
+    reverse = audit(
+        plans=(plan(pid="PLAN-X", symbol="TSLA", rank=2), plan(pid="PLAN-X", symbol="AAPL", rank=1))
+    )
+    assert forward.outcome is reverse.outcome is FollowThroughOutcome.NOT_ASSESSABLE
+    assert forward == reverse
+
+
+def test_attack_d_rank_divergence_is_presentation_metadata_not_incoherence() -> None:
+    """Explicit decision: `rank` is the session's operator-facing presentation
+    priority, not part of what a ledger citation refers to. Same id and same
+    instrument means the join is unambiguous, so a rank divergence is reported
+    rather than withheld."""
+    result = audit(
+        plans=(plan(pid="PLAN-1", symbol="AAPL", rank=1), plan(pid="PLAN-1", symbol="AAPL", rank=3))
+    )
+    assert result.outcome is FollowThroughOutcome.AUDITED
+    assert result.approved_plan_count == 1
+    assert any("more than one rank" in line for line in result.limitations)
+    assert any("not part of plan identity" in line for line in result.limitations)
+
+
+def test_attack_e_exact_duplicate_reference_is_deduplicated_and_reported() -> None:
+    result = audit(plans=(plan(), plan()))
+    assert result.outcome is FollowThroughOutcome.AUDITED
+    assert result.approved_plan_count == 1
+    assert any("exact duplicate approved plan reference" in line for line in result.limitations)
+
+
+def test_attack_e_unique_plans_produce_no_duplicate_limitation() -> None:
+    result = audit(
+        plans=(plan(pid="PLAN-A", symbol="AAA"), plan(pid="PLAN-B", symbol="BBB", rank=2))
+    )
+    assert not any("exact duplicate" in line for line in result.limitations)
+
+
+def test_attack_f_a_ledger_citation_cannot_resolve_an_ambiguous_plan_id() -> None:
+    """The citation is evidence of what the operator referenced, not evidence
+    of which of two conflicting plans it meant."""
+    result = audit(
+        plans=(
+            plan(pid="PLAN-X", symbol="AAPL", rank=1),
+            plan(pid="PLAN-X", symbol="TSLA", rank=2),
+        ),
+        events=(event(gid="E1", pos="P1", symbol="AAPL", cites="PLAN-X"),),
+    )
+    assert result.outcome is FollowThroughOutcome.NOT_ASSESSABLE
+    assert result.entries == ()
+    # Nor may the position leak out through the unlinked classification.
+    assert result.unlinked_open_positions == ()
+
+
+def test_attack_g_normal_unique_plans_are_unchanged() -> None:
+    result = audit(
+        plans=(plan(pid="PLAN-A", symbol="AAA"), plan(pid="PLAN-B", symbol="BBB", rank=2)),
+        events=(event(gid="E1", pos="P1", symbol="AAA", cites="PLAN-A"),),
+    )
+    assert result.outcome is FollowThroughOutcome.AUDITED
+    assert result.approved_plan_count == 2
+    assert result.with_open_asserted_position == 1
+    assert result.with_no_asserted_position_recorded == 1
+
+
+def test_withholding_precedes_the_ledger_checks() -> None:
+    """An incoherent session reports the same reason whatever the ledger is
+    doing, so the diagnosis never depends on unrelated state."""
+    ambiguous = (
+        plan(pid="PLAN-X", symbol="AAPL", rank=1),
+        plan(pid="PLAN-X", symbol="TSLA", rank=2),
+    )
+    for kwargs in ({"ledger_available": False}, {"incoherent": True}, {}):
+        result = audit(plans=ambiguous, **kwargs)  # type: ignore[arg-type]
+        assert (
+            result.unassessable_reason
+            is FollowThroughUnassessableReason.SESSION_PLAN_REFERENCES_INCOHERENT
+        )
+
+
+def test_the_withheld_result_carries_no_money_and_no_conduct_claim() -> None:
+    result = audit(
+        plans=(plan(pid="PLAN-X", symbol="AAPL", rank=1), plan(pid="PLAN-X", symbol="TSLA", rank=2))
+    )
+    rendered = " ".join(result.limitations)
+    for forbidden in ("ignored", "failed to", "did not act on", "profit", "P&L"):
+        assert forbidden.lower() not in rendered.lower()

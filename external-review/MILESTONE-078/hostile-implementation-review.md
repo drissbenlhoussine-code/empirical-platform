@@ -59,8 +59,26 @@ a data problem the operator should see.
 **Fix.** The collision is named in `limitations`, stating which entry was
 audited. Deduplication still happens — one plan is still one entry.
 
-**Regression tests.** `test_one_plan_id_naming_two_instruments_is_named_not_silently_dropped`,
-`test_duplicate_identical_plan_entries_produce_no_spurious_limitation`.
+**Regression tests.** `test_duplicate_identical_plan_entries_produce_no_spurious_limitation`.
+
+> ### ~~R02 disposition~~ — **RETRACTED by owner review of `2c14d0a`**
+>
+> The fix above — deduplicate deterministically and emit a limitation — is
+> **superseded**. It is deterministic but **not semantically safe**: when
+> `PLAN-X` names both `AAPL` and `TSLA`, a citation of `PLAN-X` refers to
+> neither in particular, and keeping `AAPL` because it sorts first invents an
+> answer the session data does not contain. A warning beside a fabricated join
+> does not make the join honest.
+>
+> The correct behaviour is to withhold the entire audit as
+> `NOT_ASSESSABLE / SESSION_PLAN_REFERENCES_INCOHERENT`. See
+> `owner-correction-pass.md`. The original finding and its insufficient fix are
+> left here in place, because what this review got wrong is itself part of the
+> record.
+>
+> The test that asserted the weaker behaviour is corrected in place, with the
+> old assertion recorded in its docstring, and is now
+> `test_one_plan_id_naming_two_instruments_withholds_the_whole_audit`.
 
 ### R03 — a naive `as_of` was reported as corrupt persisted data
 

@@ -217,6 +217,16 @@ Absence is never rendered as a pass, and no state is silently coerced.
 | Naive `as_of` | rejected at the boundary by M076's own guard |
 | `as_of` before the session's `as_of` | computed, with an explicit limitation |
 | Session not found | the repository's own error propagates; not disguised |
+| Blank or whitespace-only approved plan id | `NOT_ASSESSABLE` / `SESSION_PLAN_REFERENCES_INCOHERENT` |
+| One plan id naming two instruments | `NOT_ASSESSABLE` / `SESSION_PLAN_REFERENCES_INCOHERENT` — no arbitrary first plan is audited |
+| One plan id with diverging `rank` | **audited**; `rank` is presentation priority, not identity, and the divergence is reported |
+| Exact duplicate plan reference | deduplicated deterministically, count reported |
+
+**The plan governance id is the join authority** (owner correction to
+`2c14d0a`). It is validated as an identity *before* any lineage is read, and
+before the ledger checks, so an incoherent session reports the same reason
+whatever the ledger is doing. A withheld audit fabricates nothing: entries and
+unlinked positions are empty and every count is zero.
 
 A database-level failure propagates rather than being converted into a soft
 verdict — the M077 A1 precedent.
