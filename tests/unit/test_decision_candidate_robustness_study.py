@@ -47,7 +47,7 @@ _FIXTURE_PATH = (
     / "m063_robustness_study"
     / "synthetic_broad_robustness_dataset_bundle.json"
 )
-_EXPECTED_SHA256 = "ca98478ce6156f41c4535eaa040fd3e161229a71acd771a477ee9648ac3dd506"
+_EXPECTED_SHA256 = "765601962773a215aa483538f467632de6780c8510b4a82b823f77bd132db2dd"
 _MINUTE_ZERO = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
 _WINDOW_TOTAL_BARS = 16
 _REFERENCE_WINDOW = 5

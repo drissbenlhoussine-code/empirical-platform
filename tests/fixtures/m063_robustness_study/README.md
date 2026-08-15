@@ -23,8 +23,25 @@ The fixture is fixed local evidence only:
 SHA-256 of the exact committed file:
 
 ```text
-ca98478ce6156f41c4535eaa040fd3e161229a71acd771a477ee9648ac3dd506
+765601962773a215aa483538f467632de6780c8510b4a82b823f77bd132db2dd
 ```
+
+### Byte-seal reconciliation (owner-authorized, M074 closure)
+
+This value was previously recorded as
+`ca98478ce6156f41c4535eaa040fd3e161229a71acd771a477ee9648ac3dd506`. That
+digest was taken from a Windows working-tree materialization of this file
+(CRLF), not from the committed blob (LF, git object `800ecb19`), so it
+validated only on a checkout with `core.autocrlf=true` and failed on every
+clean LF checkout, including CI.
+
+The file's bytes were **not** changed: the committed blob is byte-for-byte
+what M063 originally froze. Only the recorded digest was corrected, and
+`.gitattributes` now pins this path with `-text` so every platform
+materializes those exact bytes. The two byte forms were proven to differ
+only in line endings and to yield identical M063 results across every
+metric, window, and derived backtest run. See
+`MILESTONE_063_EXCEPTIONAL_BYTE_SEAL_RECONCILIATION.md`.
 
 ## Intended scope
 

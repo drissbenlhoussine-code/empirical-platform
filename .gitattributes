@@ -5,9 +5,26 @@
 # gate -- a repo-wide failure independent of any milestone's content.
 #
 # Scoped deliberately to the files ruff formats, and to nothing else. The
-# M063/M064/M065 dataset bundle fixtures carry sha256 tamper-detection seals
-# computed against their bytes as checked out on Windows, i.e. with CRLF. A
-# blanket `* text=auto eol=lf` rule silently changes those bytes and breaks
-# the seals, so the fixtures are left to git's existing default behaviour.
+# M063/M064/M065 dataset bundle fixtures carry sha256 tamper-detection seals,
+# and a blanket `* text=auto eol=lf` rule would silently change their bytes
+# and break those seals, so the fixtures are NOT covered by the rules below.
 *.py text eol=lf
 *.pyi text eol=lf
+
+# MILESTONE-063 exceptional byte-seal reconciliation (owner-authorized).
+#
+# This fixture is committed as LF (blob 800ecb19, sha256 765601...) and has
+# never changed since M063 was implemented. Its tamper-detection seal was
+# nevertheless recorded from a Windows working-tree materialization (CRLF,
+# sha256 ca98478...), a byte form that has never existed in the object
+# database. The seal therefore validated only on a checkout with
+# core.autocrlf=true, and failed on every clean LF checkout -- including CI.
+#
+# `-text` disables EOL conversion in BOTH directions for this path, so every
+# platform materializes the committed LF bytes verbatim and the seal is
+# reproducible everywhere. Correcting the seal value alone would not achieve
+# this: it would merely move the failure from Linux/CI onto Windows.
+#
+# The fixture's own bytes are unchanged by this rule; only the guarantee that
+# a checkout reproduces them exactly is added.
+tests/fixtures/m063_robustness_study/synthetic_broad_robustness_dataset_bundle.json -text
