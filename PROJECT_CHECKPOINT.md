@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-075
+LATEST_FROZEN_MILESTONE=MILESTONE-076
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -690,8 +690,21 @@ M075_PROFITABILITY_CLAIM=NONE_MADE
 M075_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M075_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M076_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-076 -- recommendation only; not started as part of M075
+M076_SCOPE=Operator-Asserted Position Ledger (an append-only, event-sourced record of positions the operator explicitly asserts they took, plus a pure deterministic fold deriving held quantity, asserted entry price and asserted open notional as of any inclusive timestamp; one additive PostgreSQL table with a reversible migration, one pure domain module, one repository adapter enforcing validation and insertion atomically under a per-position advisory lock, one usecase and two CLI entrypoints; nothing is ever inferred from a recommendation, and no M057-M075 semantics change)
+M076_SCOPE_STATUS=APPROVED_AND_FROZEN
+M076_DESIGN_STATUS=APPROVED_AND_FROZEN
+M076_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M076_IMPLEMENTATION_COMMIT=14e8bd2 (corrected by f1b4340 and f41c35e)
+M076_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M076_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M076_OWNER_FREEZE_COMMIT=PENDING
+M076_STATUS=APPROVED_AND_FROZEN
+M076_PROFITABILITY_CLAIM=NONE_MADE
+M076_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M076_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M077_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-077 -- recommendation only; not started as part of M076
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2761,4 +2774,46 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-076 — recommendation only; not started as part of M075. Per the mission's own explicit instruction, MILESTONE-076 was NOT built.
+## 110. MILESTONE-076 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_076_OPERATOR_ASSERTED_POSITION_LEDGER_SCOPE_AND_DESIGN.md` (repository truth, evidence-backed gap analysis, the seven questions of the special gate answered from code, an eight-candidate ranking, architecture, domain and persistence semantics, determinism, temporal semantics, lineage, error and absence semantics, testing strategy, acceptance criteria, explicit non-goals, honesty constraints, and a 23-attack pre-implementation adversarial design review) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, the owner correction passes, canonical results, adversarial review, fresh second verification pass, frozen preservation, owner approval).
+
+**Why M076 exists.** The mission required attacking rather than assuming the claim that durable cross-day position state was the highest-leverage missing primitive. It was attacked and it survived on evidence. Forty-three tables existed and not one modelled an operational position: `position_plan` is a terminal sizing verdict with no lifecycle and no open/closed state, M071 carries decisions but never exposure, and the only `OPEN`/`CLOSED` vocabulary in the repository belonged to M067/M068 historical simulation, which replays a hypothetical portfolio and holds nothing. All seven questions of the special gate -- what is held now, at what size, entered when, at what asserted price, what was closed and when, what changed since yesterday, and what is the current exposure -- were unanswerable from the repository rather than merely unanswered. The primitive's absence is named in M073's, M074's and M075's own frozen text, and M075's docstring states it plainly: "this repository has no durable position state." Eight candidates were ranked against six weighted criteria; durable position state scored 25 against 19 for portfolio-aware daily capital, 21 for explainability, 18 for data-quality fallback, 17 for scheduling, 16 each for alerting and P&L state, and 12 for paper trading and execution simulation. The ranking is not merely arithmetic: portfolio-aware daily capital cannot be built without durable state, since it is M075 plus prior exposure and prior exposure is exactly what did not exist, while P&L, paper trading and execution simulation sit downstream of it and score badly on honesty risk precisely because, absent a recorded operator action, any fill or P&L claim would be fabricated.
+
+**The central boundary.** An approved `PositionPlan` is a recommendation, not an action. Deriving positions from plans would fabricate holdings the operator never took. Only an explicit operator assertion creates a position; a cited plan is informational, optional, and never changes the fold.
+
+**Selected design.** An operator-asserted, event-sourced position ledger: `OPENED`, `REDUCED` and `CLOSED` events append to one additive table, `operator_position_event`, and `derive_position_state(as_of)` folds the events whose `event_timestamp` falls at or before an inclusive `as_of`, ordered totally by `(event_timestamp, governance_id)`. A `CLOSED` event's quantity is derived from the open quantity and never supplied, so it cannot disagree with the ledger. `recorded_at` is audit metadata and never enters the fold, so when an event was typed cannot change what was held. Migration `b7e1c4a95d38` sits on the verified head `31365632c016`, `downgrade()` is real, and up -> down -> up is a named test. The adapter issues only `INSERT` and `SELECT`.
+
+**Actual results, un-massaged.** Re-measured at freeze time in one environment, with the baseline re-run from `92ff472` in the same working tree: `master` `92ff472` ran 8 failed / 1869 passed / 12 errors with PostgreSQL off and 24 failed / 2168 passed / 44 errors with PostgreSQL on; M076 ran 8 failed / 1922 passed / 12 errors and 24 failed / 2237 passed / 44 errors. The zero-regression claim does not rest on counts matching: the sorted failing-test-id lists were diffed and are identical, and no M075 or M076 test appears in the failing set. Those failures and errors are the pre-existing M062/M064/M065 CRLF seal debt, invisible on the `windows-latest` runner; the six M074 failures inside the M070-M076 focused set belong to that same debt, since M074's fixtures depend on the M064 seals, and each is present identically on the baseline.
+
+**Tests:** 53 pure unit tests and 16 real-PostgreSQL integration tests, including four genuine concurrency attacks, each with its own runtime and connection and a `threading.Barrier` so the writes genuinely collide.
+
+**Owner review correction passes.** Two owner review passes returned four blocking correctness findings and all four were real. **Finding 1, a validation/append concurrency race, had been found by this milestone's own hostile review and then argued away by it** -- design item D11 and implementation attack 48 both dispositioned it `ACCEPTED AND DOCUMENTED` on the reasoning that this is a single-operator CLI primitive. That reasoning was wrong: a ledger whose invariant two ordinary writers can break does not have that invariant, and documenting a race is not a fix for a durable ledger. It was corrected architecturally -- the repository contract no longer exposes an unvalidated `append`, and `append_validated` performs advisory-lock, re-read, validate and insert in one transaction, keyed per position so writers to different positions never contend. Finding 2 required `event_timestamp`, `recorded_at` and `as_of` to be timezone-aware. Finding 3 rejected asserted prices beyond six decimal places rather than silently rounding them. **Finding 4 exposed that Finding 3 had bounded the scale but never the total precision** -- `NUMERIC(20, 6)` admits at most fourteen integer digits, so `Decimal("100000000000000")` passed every domain check and was refused by PostgreSQL, breaking M076's own round-trip claim. The earlier "maximum precision" test used only eleven integer digits and so never probed the real ceiling: the test was weaker than the claim it defended, which is why the gap survived a 49-attack review. Nothing is clamped and nothing is rounded; out-of-range values are refused.
+
+**Hostile review:** a 23-attack pre-implementation design review corrected five defects before a line of code was written, including the sharpest -- a back-dated event inserted after later events would corrupt history -- which is why validation re-folds the entire resulting sequence for a position key rather than checking state at the new event's timestamp. The implementation pass catalogued 49 attacks in `external-review/MILESTONE-076/hostile-implementation-review.md`. That review's verdict on attack 48 was wrong and is retracted in place in the matrix rather than quietly edited away, so the record shows both the mistaken disposition and its retraction. Four further defects were found during construction, two of them instructive: appending an identifier class between `ResearchSessionId`'s docstring and its `prefix` silently broke 74 passing tests, caught by full regression against a measured baseline; and `LedgerRejectionError` was unraisable because `@dataclass(slots=True)` over `Exception` breaks `super()` resolution -- missed by the unit tests and exposed by the integration tests.
+
+**Fresh second verification pass:** a brand-new database created empty, the full migration chain applied from scratch, and the M076 integration suite reproduced 16/16.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_076_OPERATOR_ASSERTED_POSITION_LEDGER_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, broker readiness, order execution, fills, or investment advice is made anywhere in this milestone.** Every value in the ledger is what the operator said, not what a broker confirmed: there is no broker, no confirmation and no reconciliation. The vocabulary is deliberately operator-asserted, never executed, filled or live, and a forbidden-vocabulary test enforces that over both the module and the rendered output. `asserted_open_notional` is quantity times the asserted entry price and nothing revalues it; it is explicitly neither a market value nor a P&L.
+
+**Next permitted action:** see Section 111.
+
+## 111. MILESTONE-076 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_076_OPERATOR_ASSERTED_POSITION_LEDGER_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-076 scope, design, implementation, the two owner review correction passes, hostile review, fresh second verification pass, and the frozen-preservation audit as one consolidated unit.
+
+**Delivered capability, frozen:** the platform can now record what the operator asserts they did and derive what is held as of any timestamp by folding an append-only event ledger, with validation and insertion atomic under a per-position advisory lock. Nothing is ever inferred from a recommendation. One additive PostgreSQL table with a reversible migration; no M057-M075 semantics change.
+
+**Delivered via:** pull request #6, owner-approved at head `f41c35efd41cfc16a5b923898154f82b725bf588` with the `foundation` workflow green on that exact SHA, merged into `master` as `635a2f6219ec685e6a4e1c2b1d86dc2917ac84e7`.
+
+**Correction history preserved.** The pull request was merged with a true merge commit and nothing was squashed. All three commits remain reachable on `master`: the initial implementation `14e8bd29132b73d4e2db6de477c0c48307d0741b`, owner correction pass 1 `f1b4340b907237bee16e7877066d943e29ab0ab3`, and owner correction pass 2 `f41c35efd41cfc16a5b923898154f82b725bf588`. The four owner findings and their corrections are part of the frozen record rather than tidied out of it.
+
+**Preservation:** MILESTONE-075 is entirely unchanged by this freeze -- neither read nor modified -- and MILESTONE-074 and the M063 exceptional byte-seal reconciliation record are untouched. No M057-M075 source file's semantics change; the two pre-existing files touched are provably additive with zero deleted lines, and `PositionPlan` is untouched and never read. Wiring the ledger into M075's same-day capital feasibility is a deliberate non-goal, because it would change M075's frozen meaning; that is M077's job. The M062/M064/M065 CRLF seal debt was deliberately not repaired: M076 introduces no fixture, no dataset bundle and no byte seal, so the debt provably does not block it, and it continues to warrant its own authorization.
+
+**Freeze declaration:** `M076 MACRO MILESTONE APPROVED_AND_FROZEN`. `M076 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-077 — recommendation only; not started as part of M076. Per the mission's own explicit instruction, MILESTONE-077 was NOT built.

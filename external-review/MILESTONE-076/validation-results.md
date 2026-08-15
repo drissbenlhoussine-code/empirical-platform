@@ -5,12 +5,17 @@
 | Head | PostgreSQL off | PostgreSQL on |
 |---|---|---|
 | `master` `92ff472` | 8 failed, **1869** passed, 12 errors | 24 failed, **2168** passed, 44 errors |
-| this branch | 8 failed, **1898** passed, 12 errors | 24 failed, **2204** passed, 44 errors |
+| this branch | 8 failed, **1922** passed, 12 errors | 24 failed, **2237** passed, 44 errors |
 
-Identical failure and error counts. **+29 and +36 passing tests** — exactly the tests M076
-adds. **Zero regressions.** The 8/24 failures and 12/44 errors are the pre-existing
+Identical failure and error counts. **+53 and +69 passing tests** — exactly the tests M076
+adds, including the owner correction passes. **Zero regressions**, and the claim does not
+rest on the counts: the sorted failing-test-id lists were diffed and are identical, with no
+M075 or M076 test in the failing set. The 8/24 failures and 12/44 errors are the pre-existing
 M062/M064/M065 CRLF seal debt, untouched here and invisible on the `windows-latest` CI
 runner.
+
+Re-measured at freeze time against the merge commit `635a2f6`, with the baseline re-run from
+`92ff472` in the same working tree and the same PostgreSQL instance.
 
 ## Gates
 
@@ -25,13 +30,13 @@ runner.
 | secret scan | 0 findings |
 | `python -m build` | sdist + wheel |
 | installed-wheel smoke import | OK |
-| M070–M076 focused integration | 29 passed, 5 skipped |
+| M070–M076 focused integration | 38 passed, 5 skipped, 6 pre-existing M074 seal-debt failures |
 
 ## PostgreSQL
 
-- Pass 1, `empirical_platform`: 7 passed
-- **Pass 2, `m076_second_pass`** — database created empty, full migration chain applied
-  from scratch: **7 passed**
+- Pass 1, `empirical_platform`: **16 passed**
+- **Pass 2, `m076_freeze_pass`** — database created empty, full migration chain applied
+  from scratch: **16 passed**
 - Raw SQL inspection inside the tests, independent of the repository helpers
 - Migration up → down → up verified with `to_regclass`
 
