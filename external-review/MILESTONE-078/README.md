@@ -8,7 +8,8 @@
 |---|---|
 | `scope-and-design-snapshot.md` | Repository truth, a documented contradiction in the frozen record, the proved gap, five ranked candidates, semantics, non-goals |
 | `hostile-design-review.md` | 79 pre-implementation attacks; 22 defects fixed before any code |
-| `hostile-implementation-review.md` | 104 attacks against the real code; **3 defects found by execution** |
+| `hostile-implementation-review.md` | 104 attacks against the real code; **3 defects found by execution**, with R02's disposition retracted in place |
+| `owner-correction-pass.md` | The owner finding on join-authority identity, why the first correction was insufficient, and what PostgreSQL actually permits |
 | `validation-results.md` | Regression against a measured baseline, gates, PostgreSQL evidence |
 | `known-limitations.md` | What this milestone cannot tell you |
 | `reality-gate.md` | What it proves, what it does not, and how misreadings are prevented structurally |
@@ -28,3 +29,13 @@ M078 answers that, and nothing more. It emits **no monetary value of any
 kind**, so it cannot accidentally become a P&L, a valuation or a profitability
 claim. Its most important word is `NO_ASSERTED_POSITION_RECORDED` — which means
 nothing was written down, and explicitly **not** that the operator did nothing.
+
+Two boundaries are worth reading before the rest:
+
+- **The join authority is validated as an identity.** A blank plan id, or one
+  id naming two instruments, withholds the entire audit as
+  `SESSION_PLAN_REFERENCES_INCOHERENT`. No arbitrary winner is ever audited.
+- **This is an EFFECTIVE-TIME audit, not a point-in-time one.** A later
+  backfilled assertion can change the answer for an earlier `as_of`, so M078
+  must not be used as calibration or forward-evaluation evidence without a
+  `recorded_at` firewall. See `known-limitations.md` item 11.

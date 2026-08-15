@@ -53,7 +53,7 @@ reasons.**
 |---|---|---|
 | D01 | Entry order depends on input order | PASS — `(rank, symbol)` total order, ranked before unranked |
 | D02 | Unlinked-position order depends on set iteration | **FIXED** — first draft built them from a set; now ordered `(symbol, position id)` |
-| D03 | Duplicate plan ids in one session | PASS — deduplicated by id; a plan is one entry |
+| D03 | Duplicate plan ids in one session | ~~PASS~~ **RETRACTED by owner review of `2c14d0a`.** This attack asked only whether duplicates produce duplicate entries, and answered yes-they-are-deduplicated. It never asked whether the id is a usable IDENTITY, so it missed that one id naming two instruments makes the join ambiguous. Conflicting duplicates now withhold the audit as `SESSION_PLAN_REFERENCES_INCOHERENT`; only exact identical duplicates are deduplicated, with the count reported. See `owner-correction-pass.md` |
 | D04 | The same plan cited by two positions | **FIXED** — first draft overwrote status; now counts are retained per plan |
 | D05 | **A plan cited by both an open and a closed position** | **FIXED** — precedence defined: `ASSERTED_POSITION_OPEN` wins as the currently-true fact, and both counts are retained so the closed one is not lost |
 | D06 | Blank or whitespace citation treated as an identifier | **FIXED** — carried forward from M077's R04 defect; blank is not an id |

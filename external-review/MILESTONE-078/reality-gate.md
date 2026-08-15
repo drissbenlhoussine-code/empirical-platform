@@ -20,6 +20,16 @@ only about what they wrote down.
 
 **It especially does not prove that a plan with no record was ignored.**
 
+**And it does not prove what was known at time `t`.** M078 folds on M076's
+`event_timestamp` — when the operator says something happened — never on
+`recorded_at`, when they wrote it down. A later backfilled assertion can
+therefore change the answer for an earlier `as_of`. M078 reports what the
+ledger *now* says about `t`, which is not the same as what was available at
+`t`. Using it as point-in-time calibration or forward-evaluation evidence,
+without a `recorded_at` / evidence-availability firewall, would be a look-ahead
+leak: it would credit the system with knowledge it did not have. See
+`known-limitations.md` item 11.
+
 ## Could a reasonable user misread the output?
 
 | Misreading | Prevented by |

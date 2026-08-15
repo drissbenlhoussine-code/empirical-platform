@@ -186,6 +186,14 @@ plans, the ledger folded at `t`).
   no follow-through was possible in that window — it is not silently reported
   as "nothing recorded".
 
+**Effective time, not point-in-time.** The fold is driven by M076's
+`event_timestamp` and never by `recorded_at`, so a later backfilled assertion
+can change the answer for an earlier `as_of`. M078 therefore reports what the
+ledger *now* says about `t` — **not** what was available at `t` — and must not
+be used as calibration or forward-evaluation evidence without a `recorded_at` /
+evidence-availability firewall. This is existing frozen M076 semantics,
+documented rather than changed.
+
 Distinct from `STATE_AT(t)`, `EVENT_AFTER(t)`,
 `HISTORICAL_EVIDENCE_AVAILABLE_AT(t)` (M074),
 `RECOMMENDATION_SET_FEASIBILITY_AT(t)` (M075),
