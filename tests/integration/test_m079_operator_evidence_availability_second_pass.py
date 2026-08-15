@@ -386,9 +386,9 @@ def test_m079_second_pass_reversed_insertion_order_same_answer(
     )
 
     at_s2 = _snapshot(config, effective=_S_NOW, knowledge=_S2)
-    assert at_s2.entries[0].status is KnownPositionStatus.INCOMPLETE_KNOWLEDGE_SEQUENCE
+    assert at_s2.entries[0].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
     assert at_s2.entries[0].position is None
-    assert at_s2.excluded_by_knowledge_cutoff == 1
+    assert at_s2.known_event_count == 1
 
     at_s3 = _snapshot(config, effective=_S_NOW, knowledge=_S3)
     entry = at_s3.entries[0]
@@ -460,3 +460,60 @@ def test_m079_second_pass_is_deterministic_on_a_fresh_database(
     a = _snapshot(config, effective=_S_NOW, knowledge=_S_NOW)
     b = _snapshot(config, effective=_S_NOW, knowledge=_S_NOW)
     assert a == b
+
+
+def test_m079_second_pass_post_cutoff_rows_do_not_change_the_answer(
+    clean_tables: Engine,
+) -> None:
+    """Owner review correction, re-attacked on the fresh database.
+
+    Take a snapshot at S2, then append MORE assertions recorded after S2, then
+    take the same snapshot again. The ledger has genuinely grown between the two
+    reads, and the answer must not have moved by so much as a limitation string.
+    """
+    config = _config()
+    _record(
+        config,
+        gid="OPEV-9950",
+        pos="POS-9950",
+        symbol="ARM",
+        kind=OperatorPositionEventKind.OPENED,
+        quantity=8,
+        price="0.000001",
+        effective=_S1,
+        recorded=_S1,
+    )
+    before = _snapshot(config, effective=_S_NOW, knowledge=_S2)
+    assert before.entries[0].status is KnownPositionStatus.KNOWN_OPEN
+
+    _record(
+        config,
+        gid="OPEV-9951",
+        pos="POS-9950",
+        symbol="ARM",
+        kind=OperatorPositionEventKind.REDUCED,
+        quantity=3,
+        price="99999999999999.999999",
+        effective=_S2,
+        recorded=_S3,  # after the cutoff below
+    )
+    _record(
+        config,
+        gid="OPEV-9952",
+        pos="POS-9960",
+        symbol="COIN",
+        kind=OperatorPositionEventKind.OPENED,
+        quantity=1,
+        price="120.5",
+        effective=_S1,
+        recorded=_S3,  # an entire position, recorded after the cutoff
+    )
+
+    after = _snapshot(config, effective=_S_NOW, knowledge=_S2)
+    assert after == before, "assertions recorded after the cutoff moved the answer at the cutoff"
+    assert render_evidence_snapshot_text(after) == render_evidence_snapshot_text(before)
+
+    # ...and they ARE visible once the cutoff advances, so the ledger really did grow.
+    advanced = _snapshot(config, effective=_S_NOW, knowledge=_S3)
+    assert advanced.known_event_count == 3
+    assert advanced.entries[0].position is not None

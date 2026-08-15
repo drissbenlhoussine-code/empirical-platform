@@ -1,3 +1,18 @@
+> ## ⚠ This package now covers TWO passes
+>
+> The first M079 candidate (`21ed5ad`) was found by **Owner review** to contain
+> a temporal leak: when a knowledge-filtered sequence failed to fold, the code
+> re-folded the key against the **unfiltered** event set to classify the
+> failure, letting evidence recorded after the cutoff decide the status emitted
+> at the cutoff. Two count fields leaked the same way.
+>
+> Every document here has been updated. **Superseded conclusions are marked
+> RETRACTED in place, not deleted** — including my own claim that the
+> discriminator was a load-bearing safeguard, which was exactly backwards.
+>
+> Read `hostile-implementation-review.md` §"Owner review correction" first; it
+> is the authoritative account of what changed and why.
+
 # MILESTONE-079 — Operator Evidence Availability Snapshot — External Review Package
 
 `M079 IMPLEMENTED_AND_REVIEWED_CANDIDATE_PENDING_OWNER_REVIEW`

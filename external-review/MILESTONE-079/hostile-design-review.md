@@ -4,9 +4,29 @@ My own attack on my own design. **Not an independent review.** Every **FIXED**
 item was corrected in the design document before a line of code was written.
 
 **81 attacks. 25 genuine defects found and fixed; 7 accepted with stated
-reasons.** Two of the fixes are load-bearing: T07 (incompleteness masking real
-corruption) and C05 (a single exclusion count hiding *why* evidence is
-missing).
+reasons.** Two of the fixes were called load-bearing at the time: T07
+(incompleteness masking real corruption) and C05 (a single exclusion count
+hiding *why* evidence is missing).
+
+> ### ⚠ RETRACTED / SUPERSEDED BY OWNER REVIEW
+>
+> **Both of those "fixes" were wrong, and wrong in the same way.**
+>
+> Owner review of the first M079 candidate found that T07's discriminator
+> re-folds the failing key against the **unfiltered** event set — which can
+> contain assertions with `recorded_at > K`. No position quantity was copied
+> from that second fold, but the **classification itself** was decided by
+> future knowledge. At `K` the system cannot know whether a sequence is merely
+> truncated or genuinely incoherent, and claiming to know it violates M079's
+> central claim that evidence recorded after `K` influences **nothing**.
+>
+> C05's second count, `excluded_by_knowledge_cutoff`, leaks for exactly the
+> same reason: it is a function of rows recorded after the cutoff. So is
+> `total_event_count`, which this review never questioned at all.
+>
+> The original entries are preserved verbatim below. See
+> `hostile-implementation-review.md` §"Owner review correction" for what
+> replaced them.
 
 ## A. Effective time versus knowledge time — the central distinction
 
@@ -46,7 +66,7 @@ missing).
 | C02 | Knowledge boundary exclusive | PASS — inclusive `<=`, symmetric with C01 |
 | C03 | The two boundaries use different inclusivity | **FIXED** — an early draft had `<` on knowledge; made symmetric and stated |
 | C04 | Exact-instant event at either cutoff | PASS — included on both; named tests |
-| C05 | **A single "excluded" count hides *why* evidence is missing** | **FIXED** — M076's own count only sees exclusions among knowledge-survivors. M079 reports **two** counts: excluded by effective cutoff and excluded by knowledge cutoff. Without this an operator cannot tell "hadn't happened yet" from "hadn't been recorded yet" |
+| C05 | **A single "excluded" count hides *why* evidence is missing** | **⚠ PARTIALLY RETRACTED — the effective-cutoff count survives; the knowledge-cutoff count was a leak and has been removed.** Original verdict, preserved: **FIXED** — M076's own count only sees exclusions among knowledge-survivors. M079 reports **two** counts: excluded by effective cutoff and excluded by knowledge cutoff. Without this an operator cannot tell "hadn't happened yet" from "hadn't been recorded yet" |
 | C06 | Same instant, different UTC offsets, disagree | PASS — aware datetimes compared as instants |
 | C07 | Naive `effective_as_of` | **FIXED** — rejected at the query boundary as a request error, not a data claim |
 | C08 | Naive `knowledge_as_of` | **FIXED** — same; it would never reach M076, so M079 must reject it itself |
@@ -59,7 +79,7 @@ missing).
 
 | # | Attack | Verdict |
 |---|---|---|
-| T07 | **`INCOMPLETE_KNOWLEDGE_SEQUENCE` masks genuinely corrupt data** | **FIXED — the most important finding of this review.** The fold raises the *same* exception type for a knowledge-truncated prefix and for real corruption (say two `OPENED` events on one key). Labelling every per-key failure "incomplete knowledge" would hide corruption behind an innocent-sounding status. **Discriminator:** re-fold the key against the *unfiltered* event set. Fails at `K` but succeeds unfiltered → the failure is *caused by* knowledge filtering → `INCOMPLETE_KNOWLEDGE_SEQUENCE`. Fails both ways → the underlying data is genuinely incoherent → reported as such |
+| T07 | **`INCOMPLETE_KNOWLEDGE_SEQUENCE` masks genuinely corrupt data** | **⚠ RETRACTED — see the banner at the top of this file. The discriminator described here is itself a temporal leak and has been removed.** Original verdict, preserved: **FIXED — the most important finding of this review.** The fold raises the *same* exception type for a knowledge-truncated prefix and for real corruption (say two `OPENED` events on one key). Labelling every per-key failure "incomplete knowledge" would hide corruption behind an innocent-sounding status. **Discriminator:** re-fold the key against the *unfiltered* event set. Fails at `K` but succeeds unfiltered → the failure is *caused by* knowledge filtering → `INCOMPLETE_KNOWLEDGE_SEQUENCE`. Fails both ways → the underlying data is genuinely incoherent → reported as such |
 | D02 | The discriminator itself leaks future knowledge into the answer | PASS — it decides only *how to label a refusal*; no state from the unfiltered fold is ever reported |
 | D03 | The discriminator doubles the work | ACCEPTED — it runs only on the failure path, which is rare |
 | D04 | A key corrupt only *after* `K` is called corrupt at `K` | PASS — the unfiltered fold covers all events, so a key coherent at `K` is reported from its `K`-view regardless of later corruption |
@@ -139,7 +159,7 @@ missing).
 |---|---|---|
 | K01 | Tests mirror the implementation instead of the claims | PASS — §15 derives the suite from the acceptance scenarios |
 | K02 | The look-ahead case M078 documented is never actually tested | **FIXED** — a named test asserts that a backfilled assertion is invisible at the earlier knowledge cutoff and visible at the later one, same `E` |
-| K03 | Incompleteness and corruption are never tested apart | **FIXED** — both branches of the T07 discriminator are named test cases |
+| K03 | Incompleteness and corruption are never tested apart | **⚠ RETRACTED with T07** — the distinction is not knowable at `K` and is no longer drawn. Both cases now report `UNRESOLVED_KNOWLEDGE_SEQUENCE`, and the tests assert that they are indistinguishable as verdicts while keeping M076's distinct rejection reasons. Original verdict, preserved: **FIXED** — both branches of the T07 discriminator are named test cases |
 | K04 | The two exclusion counts are never distinguished in a test | **FIXED** — a test asserts each count independently |
 | K05 | PostgreSQL evidence uses a timeline where the defect cannot appear | **FIXED** — the adversarial timeline `T1 < T2 < T3` with `OPENED` recorded last is mandated in §15 |
 | K06 | Boundary tests use only one side of each cutoff | **FIXED** — exact instant plus one microsecond either side, on both dimensions |

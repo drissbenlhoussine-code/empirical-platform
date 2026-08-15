@@ -25,14 +25,12 @@ def render_evidence_snapshot_json(
         ),
         "effective_as_of": snapshot.effective_as_of.isoformat(),
         "knowledge_as_of": snapshot.knowledge_as_of.isoformat(),
-        "total_event_count": snapshot.total_event_count,
+        "known_event_count": snapshot.known_event_count,
         "visible_event_count": snapshot.visible_event_count,
         "excluded_by_effective_cutoff": snapshot.excluded_by_effective_cutoff,
-        "excluded_by_knowledge_cutoff": snapshot.excluded_by_knowledge_cutoff,
         "known_open_count": snapshot.known_open_count,
         "known_closed_count": snapshot.known_closed_count,
-        "incomplete_knowledge_count": snapshot.incomplete_knowledge_count,
-        "incoherent_position_count": snapshot.incoherent_position_count,
+        "unresolved_position_count": snapshot.unresolved_position_count,
         "entries": [
             {
                 "position_governance_id": entry.position_governance_id,
@@ -69,16 +67,16 @@ def render_evidence_snapshot_text(snapshot: OperatorEvidenceSnapshot) -> str:
 
     if snapshot.outcome is not EvidenceSnapshotOutcome.NOT_ASSESSABLE:
         lines.append(
-            f"  {snapshot.visible_event_count} of {snapshot.total_event_count} assertion(s) "
-            f"visible; {snapshot.excluded_by_knowledge_cutoff} excluded as recorded after "
-            f"the knowledge cutoff, {snapshot.excluded_by_effective_cutoff} as effective "
-            "after the effective cutoff"
+            f"  {snapshot.visible_event_count} of {snapshot.known_event_count} assertion(s) "
+            f"recorded by the knowledge cutoff are visible; "
+            f"{snapshot.excluded_by_effective_cutoff} excluded as effective after the "
+            "effective cutoff. Assertions recorded after the knowledge cutoff are excluded "
+            "and are deliberately not counted"
         )
         lines.append(
             f"  {snapshot.known_open_count} known open, "
             f"{snapshot.known_closed_count} known closed, "
-            f"{snapshot.incomplete_knowledge_count} with incomplete knowledge, "
-            f"{snapshot.incoherent_position_count} incoherent"
+            f"{snapshot.unresolved_position_count} unresolved at this knowledge cutoff"
         )
         for entry in snapshot.entries:
             if entry.position is None:

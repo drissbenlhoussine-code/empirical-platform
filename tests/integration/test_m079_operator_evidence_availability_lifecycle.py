@@ -376,7 +376,7 @@ def test_m079_backfilled_assertion_is_invisible_at_the_earlier_knowledge_cutoff(
 
     assert at_t2.outcome is EvidenceSnapshotOutcome.NO_EVIDENCE_RECORDED_BY_KNOWLEDGE_CUTOFF
     assert at_t2.known_open_count == 0
-    assert at_t2.excluded_by_knowledge_cutoff == 1
+    assert at_t2.known_event_count == 0
     assert at_now.known_open_count == 1
     assert at_t2.effective_as_of == at_now.effective_as_of
 
@@ -411,16 +411,22 @@ def test_m079_raw_sql_confirms_both_timestamps_and_eligibility(
     assert snapshot.visible_event_count == eligible_at_t2
 
 
-def test_m079_close_without_its_opening_is_incomplete_not_corrupt_over_real_rows(
+def test_m079_close_without_its_opening_is_unresolved_over_real_rows(
     clean_tables: Engine,
 ) -> None:
+    """Owner review attacks 1 and 3, over genuinely persisted rows.
+
+    The status must NOT claim to know whether the sequence is merely truncated
+    or genuinely incoherent -- the backfilled OPENED that would settle it is
+    recorded after this cutoff.
+    """
     config = _config()
     _seed_backfilled_timeline(config)
     at_t2 = _snapshot(config, effective=_NOW, knowledge=_T2)
     entry = at_t2.entries[0]
-    assert entry.status is KnownPositionStatus.INCOMPLETE_KNOWLEDGE_SEQUENCE
+    assert entry.status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
     assert entry.position is None
-    assert at_t2.incoherent_position_count == 0
+    assert at_t2.unresolved_position_count == 1
 
     at_t3 = _snapshot(config, effective=_NOW, knowledge=_T3)
     assert at_t3.entries[0].status is KnownPositionStatus.KNOWN_CLOSED
@@ -436,7 +442,7 @@ def test_m079_three_knowledge_cutoffs_over_one_persisted_timeline(
     after = _snapshot(config, effective=_NOW, knowledge=_T3)
 
     assert before.outcome is EvidenceSnapshotOutcome.NO_EVIDENCE_RECORDED_BY_KNOWLEDGE_CUTOFF
-    assert middle.incomplete_knowledge_count == 1
+    assert middle.unresolved_position_count == 1
     assert after.known_closed_count == 1
 
 
@@ -477,7 +483,7 @@ def test_m079_effective_cutoff_still_applies_independently(clean_tables: Engine)
     result = _snapshot(config, effective=_T2, knowledge=_NOW)
     assert result.entries == ()
     assert result.excluded_by_effective_cutoff == 1
-    assert result.excluded_by_knowledge_cutoff == 0
+    assert result.known_event_count == 1
 
 
 def test_m079_missing_ledger_is_withheld(clean_tables: Engine) -> None:
@@ -507,9 +513,12 @@ def test_m079_text_and_json_agree_over_real_rows(clean_tables: Engine) -> None:
     rendered = render_evidence_snapshot_text(result)
 
     assert payload["outcome"] == result.outcome.value
-    assert payload["excluded_by_knowledge_cutoff"] == result.excluded_by_knowledge_cutoff
-    assert payload["entries"][0]["status"] == "INCOMPLETE_KNOWLEDGE_SEQUENCE"
-    assert "INCOMPLETE_KNOWLEDGE_SEQUENCE" in rendered
+    assert payload["known_event_count"] == result.known_event_count
+    assert payload["excluded_by_effective_cutoff"] == result.excluded_by_effective_cutoff
+    assert "excluded_by_knowledge_cutoff" not in payload
+    assert "total_event_count" not in payload
+    assert payload["entries"][0]["status"] == "UNRESOLVED_KNOWLEDGE_SEQUENCE"
+    assert "UNRESOLVED_KNOWLEDGE_SEQUENCE" in rendered
     assert "NOT known to be true" in rendered
     assert payload["entries"][0]["open_quantity"] is None
 
@@ -565,3 +574,263 @@ def test_m079_reads_a_consistent_snapshot_while_a_writer_appends(
 
     assert observed.known_open_count in {1, 2}
     assert _snapshot(config, effective=_NOW, knowledge=_NOW).known_open_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Owner review correction: post-cutoff rows may not influence ANY output.
+#
+# The unit suite proves this over in-memory tuples. These prove it over rows
+# that PostgreSQL actually stored, in two genuinely separate databases.
+# ---------------------------------------------------------------------------
+
+_PROBE_DATABASE = "m079_leak_probe"
+
+
+def _probe_config() -> PostgreSQLConfigSnapshot:
+    base = _config()
+    return PostgreSQLConfigSnapshot(
+        host=base.host,
+        port=base.port,
+        database=_PROBE_DATABASE,
+        user=base.user,
+        password=base.password,
+        pool_size=2,
+        max_overflow=0,
+        connection_timeout_seconds=5,
+        application_name="empirical-platform-m079-leak-probe",
+    )
+
+
+@pytest.fixture
+def probe_database(clean_tables: Engine) -> Iterator[PostgreSQLConfigSnapshot]:
+    """A SECOND physical database, created empty and migrated from scratch.
+
+    Owner review attack 8 asks for two persisted datasets that agree on every
+    row with `recorded_at <= K` and disagree afterwards. Doing that in one
+    database would only prove the filter; doing it in two proves the answer does
+    not depend on what the other ledger happens to contain.
+    """
+    admin = sa.create_engine(_config().sqlalchemy_url(), isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{_PROBE_DATABASE}" WITH (FORCE)'))
+            conn.execute(text(f'CREATE DATABASE "{_PROBE_DATABASE}"'))
+    finally:
+        admin.dispose()
+
+    config = _probe_config()
+    # alembic resolves its target from the environment, so the override is
+    # scoped to the migration alone. Leaving it set across the yield would point
+    # _config() at the probe database too, and the test would silently compare a
+    # database with itself.
+    previous = os.environ.get("EMPIRICAL_PLATFORM_POSTGRES_DATABASE")
+    os.environ["EMPIRICAL_PLATFORM_POSTGRES_DATABASE"] = _PROBE_DATABASE
+    try:
+        alembic_command.upgrade(_alembic_config(), "head")
+    finally:
+        if previous is None:
+            os.environ.pop("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", None)
+        else:
+            os.environ["EMPIRICAL_PLATFORM_POSTGRES_DATABASE"] = previous
+
+    assert _config().database != _PROBE_DATABASE, "the two configs must address two databases"
+    try:
+        yield config
+    finally:
+        admin = sa.create_engine(_config().sqlalchemy_url(), isolation_level="AUTOCOMMIT")
+        try:
+            with admin.connect() as conn:
+                conn.execute(text(f'DROP DATABASE IF EXISTS "{_PROBE_DATABASE}" WITH (FORCE)'))
+        finally:
+            admin.dispose()
+
+
+_MUCH_LATER = _T0 + timedelta(days=90)  # recorded far beyond _NOW
+
+
+def _seed_shared_prefix_then(
+    config: PostgreSQLConfigSnapshot,
+    *,
+    opening_gid: str,
+    opening_recorded: datetime,
+    opening_quantity: int,
+    opening_price: str,
+) -> None:
+    """Write the SAME visible prefix, then a post-cutoff tail that differs.
+
+    The M076 write path validates on append, so a CLOSED cannot be persisted
+    without its OPENED. Both ledgers therefore carry an opening -- what differs
+    is when it was RECORDED, which is precisely the dimension under test. At
+    K = _T2 only the CLOSED is recorded in either database, and that CLOSED is
+    identical in every field.
+
+    Frozen M076 DERIVES a CLOSED event's quantity from the open position rather
+    than taking it as supplied, so both openings must carry the same quantity
+    for the visible prefix to match. The post-cutoff tails still differ by
+    governance id, asserted price and recorded_at, and DB-A carries an entire
+    extra position that DB-B has never heard of.
+    """
+    _record(
+        config,
+        gid=opening_gid,
+        pos="POS-7950",
+        symbol="AAPL",
+        kind=OperatorPositionEventKind.OPENED,
+        quantity=opening_quantity,
+        price=opening_price,
+        effective=_T1,
+        recorded=opening_recorded,  # always AFTER _T2
+    )
+    _record(
+        config,
+        gid="OPEV-7950",  # identical in both databases
+        pos="POS-7950",
+        symbol="AAPL",
+        kind=OperatorPositionEventKind.CLOSED,
+        quantity=10,
+        price="110",
+        effective=_T2,
+        recorded=_T2,  # the whole of the shared visible prefix
+    )
+
+
+def test_m079_two_databases_identical_up_to_k_produce_identical_output(
+    probe_database: PostgreSQLConfigSnapshot,
+) -> None:
+    """Owner review attack 8, the strongest form of the central regression.
+
+    Both databases agree exactly on every row with `recorded_at <= _T2` and
+    disagree on everything recorded afterwards -- different governance id,
+    different quantity, different asserted price, different recorded_at, and in
+    DB-A an entire extra position. Both were written by the real M076
+    repository into real PostgreSQL and read back through the real handler.
+    """
+    db_a = _config()
+    db_b = probe_database
+
+    _seed_shared_prefix_then(
+        db_a,
+        opening_gid="OPEV-7951",
+        opening_recorded=_T3,
+        opening_quantity=10,
+        opening_price="100",
+    )
+    _record(  # an entire position that exists only in DB-A, recorded after the cutoff
+        db_a,
+        gid="OPEV-7960",
+        pos="POS-7960",
+        symbol="TSLA",
+        kind=OperatorPositionEventKind.OPENED,
+        quantity=99,
+        price="700",
+        effective=_T1,
+        recorded=_T3,
+    )
+    _seed_shared_prefix_then(
+        db_b,
+        opening_gid="OPEV-7999",  # different id
+        opening_recorded=_MUCH_LATER,  # different recorded_at
+        opening_quantity=10,  # must match: M076 derives the CLOSED quantity
+        opening_price="555",  # different asserted price
+    )
+
+    with sa.create_engine(db_a.sqlalchemy_url()).connect() as conn:
+        rows_a = conn.execute(text("SELECT count(*) FROM operator_position_event")).scalar_one()
+        prefix_a = conn.execute(
+            text(
+                "SELECT governance_id, position_governance_id, instrument_symbol, event_kind, "
+                "quantity, asserted_price, event_timestamp FROM operator_position_event "
+                "WHERE recorded_at <= :k ORDER BY governance_id"
+            ),
+            {"k": _T2},
+        ).fetchall()
+    with sa.create_engine(db_b.sqlalchemy_url()).connect() as conn:
+        rows_b = conn.execute(text("SELECT count(*) FROM operator_position_event")).scalar_one()
+        prefix_b = conn.execute(
+            text(
+                "SELECT governance_id, position_governance_id, instrument_symbol, event_kind, "
+                "quantity, asserted_price, event_timestamp FROM operator_position_event "
+                "WHERE recorded_at <= :k ORDER BY governance_id"
+            ),
+            {"k": _T2},
+        ).fetchall()
+
+    assert prefix_a == prefix_b, "the shared visible prefix must be identical in PostgreSQL"
+    assert (rows_a, rows_b) == (3, 2), "the two ledgers must genuinely differ after the cutoff"
+
+    snap_a = _snapshot(db_a, effective=_NOW, knowledge=_T2)
+    snap_b = _snapshot(db_b, effective=_NOW, knowledge=_T2)
+
+    assert snap_a == snap_b, "a row recorded after K changed the answer at K"
+    assert snap_a.entries[0].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
+    assert snap_a.known_event_count == 1
+    assert snap_a.entries[0].position is None
+
+    # Owner review attack 9: parity in BOTH renderings, not just the object.
+    assert render_evidence_snapshot_json(snap_a) == render_evidence_snapshot_json(snap_b)
+    assert render_evidence_snapshot_text(snap_a) == render_evidence_snapshot_text(snap_b)
+
+
+def test_m079_the_two_databases_diverge_once_knowledge_advances(
+    probe_database: PostgreSQLConfigSnapshot,
+) -> None:
+    """The other half of attack 8, and Owner review attack 4.
+
+    Identical answers at K would be worthless if the two ledgers were simply
+    indistinguishable. Advance the cutoff past DB-A's backfill and they must
+    part company -- DB-A resolves, DB-B legitimately stays unresolved because
+    its own opening is not recorded until later still.
+    """
+    db_a = _config()
+    db_b = probe_database
+
+    _seed_shared_prefix_then(
+        db_a,
+        opening_gid="OPEV-7952",
+        opening_recorded=_T3,
+        opening_quantity=10,
+        opening_price="100",
+    )
+    _seed_shared_prefix_then(
+        db_b,
+        opening_gid="OPEV-7998",
+        opening_recorded=_MUCH_LATER,
+        opening_quantity=10,
+        opening_price="100",
+    )
+
+    later_a = _snapshot(db_a, effective=_NOW, knowledge=_NOW)
+    later_b = _snapshot(db_b, effective=_NOW, knowledge=_NOW)
+
+    assert later_a.entries[0].status is KnownPositionStatus.KNOWN_CLOSED
+    assert later_b.entries[0].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
+    assert later_a != later_b
+
+    # Owner review: "Do not retroactively strengthen the earlier K answer."
+    assert _snapshot(db_a, effective=_NOW, knowledge=_T2) == _snapshot(
+        db_b, effective=_NOW, knowledge=_T2
+    )
+
+
+def test_m079_leaves_m076_free_to_see_every_event(clean_tables: Engine) -> None:
+    """Owner review attack 10.
+
+    M079 hides the backfill; M076 must still see it under its own effective-time
+    semantics, and must be unchanged by having been called through M079.
+    """
+    config = _config()
+    _seed_backfilled_timeline(config)
+
+    hidden_at_t2 = _snapshot(config, effective=_NOW, knowledge=_T2)
+    assert hidden_at_t2.visible_event_count == 1
+
+    with postgres_repository_runtime(config) as runtime:
+        all_events = runtime.operator_position_ledger.list_all()
+        m076 = derive_position_state(events=all_events, as_of=_NOW)
+
+    assert len(all_events) == 2, "M076 still sees the assertion M079 hid"
+    assert len(m076.closed_positions) == 1
+    assert m076.open_positions == ()
+
+    after = _snapshot(config, effective=_NOW, knowledge=_T2)
+    assert after == hidden_at_t2, "calling M076 must not perturb M079's answer"

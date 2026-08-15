@@ -100,8 +100,10 @@ def test_effective_before_cutoff_but_recorded_after_cutoff_is_invisible() -> Non
     )
     assert result.outcome is EvidenceSnapshotOutcome.NO_EVIDENCE_RECORDED_BY_KNOWLEDGE_CUTOFF
     assert result.entries == ()
-    assert result.excluded_by_knowledge_cutoff == 1
     assert result.excluded_by_effective_cutoff == 0
+    assert not hasattr(result, "excluded_by_knowledge_cutoff"), (
+        "counting the assertions the firewall hid would itself require reading them"
+    )
 
 
 def test_effective_after_cutoff_but_recorded_before_cutoff_is_invisible() -> None:
@@ -112,12 +114,17 @@ def test_effective_after_cutoff_but_recorded_before_cutoff_is_invisible() -> Non
     )
     assert result.entries == ()
     assert result.excluded_by_effective_cutoff == 1
-    assert result.excluded_by_knowledge_cutoff == 0
 
 
-def test_the_two_exclusion_counts_are_reported_separately() -> None:
-    """Design review C05: an operator must be able to tell 'had not happened
-    yet' from 'had not been recorded yet'."""
+def test_the_effective_exclusion_count_is_reported_and_the_knowledge_one_is_not() -> None:
+    """Design review C05, as CORRECTED by Owner review.
+
+    C05 originally required BOTH exclusion counts so an operator could tell
+    'had not happened yet' from 'had not been recorded yet'. The second count is
+    a temporal leak -- it varies with rows recorded after K -- so it is gone.
+    The effective-cutoff count survives because it is computed only from
+    evidence recorded by K.
+    """
     result = snapshot(
         events=(
             event(gid="E1", pos="P1", effective=LATER, recorded=T1),
@@ -127,7 +134,9 @@ def test_the_two_exclusion_counts_are_reported_separately() -> None:
         knowledge=T2,
     )
     assert result.excluded_by_effective_cutoff == 1
-    assert result.excluded_by_knowledge_cutoff == 1
+    assert result.known_event_count == 1
+    assert not hasattr(result, "excluded_by_knowledge_cutoff")
+    assert not hasattr(result, "total_event_count")
 
 
 def test_the_same_effective_cutoff_gives_different_answers_at_two_knowledge_cutoffs() -> None:
@@ -156,7 +165,7 @@ def test_one_microsecond_after_the_knowledge_boundary_is_excluded() -> None:
         knowledge=T2,
     )
     assert result.visible_event_count == 0
-    assert result.excluded_by_knowledge_cutoff == 1
+    assert result.known_event_count == 0
 
 
 def test_exact_effective_boundary_is_inclusive() -> None:
@@ -208,16 +217,22 @@ def _backfilled_open_with_earlier_close() -> tuple[OperatorAssertedPositionEvent
     )
 
 
-def test_close_visible_without_its_opening_is_incomplete_knowledge_not_corruption() -> None:
+def test_close_visible_without_its_opening_is_unresolved_not_classified() -> None:
+    """Owner review attack 1.
+
+    The snapshot must NOT claim to know whether this is temporary incompleteness
+    or real incoherence -- deciding that requires evidence recorded after K.
+    """
     result = snapshot(events=_backfilled_open_with_earlier_close(), effective=LATER, knowledge=T2)
     entry = result.entries[0]
-    assert entry.status is KnownPositionStatus.INCOMPLETE_KNOWLEDGE_SEQUENCE
+    assert entry.status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
     assert entry.position is None, "no state may be invented"
-    assert result.incomplete_knowledge_count == 1
-    assert result.incoherent_position_count == 0
+    assert result.unresolved_position_count == 1
+    assert not hasattr(result, "incoherent_position_count")
 
 
-def test_reduction_visible_without_its_opening_is_incomplete_knowledge() -> None:
+def test_reduction_visible_without_its_opening_is_unresolved() -> None:
+    """Owner review attack 3."""
     events = (
         event(gid="E1", effective=T1, recorded=T3, quantity=10),
         event(
@@ -229,14 +244,14 @@ def test_reduction_visible_without_its_opening_is_incomplete_knowledge() -> None
         ),
     )
     result = snapshot(events=events, effective=LATER, knowledge=T2)
-    assert result.entries[0].status is KnownPositionStatus.INCOMPLETE_KNOWLEDGE_SEQUENCE
+    assert result.entries[0].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
 
 
 def test_the_same_key_folds_normally_once_knowledge_advances() -> None:
     events = _backfilled_open_with_earlier_close()
     later = snapshot(events=events, effective=LATER, knowledge=LATER)
     assert later.entries[0].status is KnownPositionStatus.KNOWN_CLOSED
-    assert later.incomplete_knowledge_count == 0
+    assert later.unresolved_position_count == 0
 
 
 def test_one_incomplete_key_does_not_withhold_the_whole_snapshot() -> None:
@@ -248,26 +263,40 @@ def test_one_incomplete_key_does_not_withhold_the_whole_snapshot() -> None:
     result = snapshot(events=events, effective=LATER, knowledge=T2)
     assert result.outcome is EvidenceSnapshotOutcome.EVIDENCE_SNAPSHOT_AVAILABLE
     assert result.known_open_count == 1
-    assert result.incomplete_knowledge_count == 1
+    assert result.unresolved_position_count == 1
 
 
-def test_incompleteness_does_not_mask_genuinely_incoherent_data() -> None:
-    """Design review T07. A key that fails to fold even UNFILTERED is corrupt,
-    not merely truncated, and must not hide behind an innocent status."""
+def test_data_incoherent_within_the_visible_window_is_also_merely_unresolved() -> None:
+    """Design review T07, RETRACTED and REPLACED by Owner review.
+
+    T07 originally re-folded the key against the UNFILTERED event set to label
+    this LEDGER_INCOHERENT_FOR_POSITION rather than incomplete. That
+    classification was decided by evidence recorded after K, which is the leak
+    this milestone exists to prevent. Both cases now report the same honest
+    status; M076's own reason for the FILTERED fold is still carried, and it is
+    leak-free because it comes from the visible evidence alone.
+    """
     events = (
         event(gid="E1", effective=T1, recorded=T1, quantity=10),
         event(gid="E2", effective=T2, recorded=T2, quantity=5),  # second OPENED
     )
     result = snapshot(events=events, effective=LATER, knowledge=LATER)
     entry = result.entries[0]
-    assert entry.status is KnownPositionStatus.LEDGER_INCOHERENT_FOR_POSITION
+    assert entry.status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
     assert entry.position is None
-    assert result.incoherent_position_count == 1
-    assert result.incomplete_knowledge_count == 0
-    assert any("genuinely incoherent" in line for line in result.limitations)
+    assert entry.rejection_reason == "POSITION_ALREADY_OPEN"
+    assert result.unresolved_position_count == 1
+    assert any("cannot be known whether" in line for line in result.limitations)
 
 
-def test_the_discriminator_leaks_no_state_from_the_unfiltered_fold() -> None:
+def test_no_status_distinguishes_future_resolvable_from_truly_corrupt() -> None:
+    """Owner review. The vocabulary itself must not offer a verdict that only
+    post-cutoff evidence could support."""
+    names = {member.value for member in KnownPositionStatus}
+    assert names == {"KNOWN_OPEN", "KNOWN_CLOSED", "UNRESOLVED_KNOWLEDGE_SEQUENCE"}
+
+
+def test_the_unresolved_path_reports_no_position_state() -> None:
     result = snapshot(events=_backfilled_open_with_earlier_close(), effective=LATER, knowledge=T2)
     assert result.entries[0].position is None
     assert result.known_open_count == 0
@@ -338,10 +367,7 @@ def test_counts_agree_with_entries() -> None:
         knowledge=T2,
     )
     assert (
-        result.known_open_count
-        + result.known_closed_count
-        + result.incomplete_knowledge_count
-        + result.incoherent_position_count
+        result.known_open_count + result.known_closed_count + result.unresolved_position_count
         == len(result.entries)
     )
 
@@ -450,10 +476,13 @@ def test_corruption_invisible_at_an_earlier_knowledge_cutoff_is_reported_at_a_la
     early = snapshot(events=events, effective=LATER, knowledge=T2)
     late = snapshot(events=events, effective=LATER, knowledge=LATER)
     assert early.entries[0].status is KnownPositionStatus.KNOWN_OPEN
-    assert late.entries[0].status is KnownPositionStatus.LEDGER_INCOHERENT_FOR_POSITION
+    assert late.entries[0].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
 
 
-def test_incomplete_and_incoherent_keys_are_reported_side_by_side() -> None:
+def test_two_differently_broken_keys_share_the_status_but_keep_distinct_reasons() -> None:
+    """Owner review. At K the two are indistinguishable as VERDICTS -- one may
+    be completed later, one may not, and K cannot tell. What IS knowable at K is
+    which frozen rule the visible evidence broke, and that is still reported."""
     events = (
         event(gid="A1", pos="PA", effective=T1, recorded=T3, quantity=10),
         event(
@@ -470,8 +499,8 @@ def test_incomplete_and_incoherent_keys_are_reported_side_by_side() -> None:
     )
     result = snapshot(events=events, effective=LATER, knowledge=T2)
     by_key = {e.position_governance_id: e for e in result.entries}
-    assert by_key["PA"].status is KnownPositionStatus.INCOMPLETE_KNOWLEDGE_SEQUENCE
-    assert by_key["PB"].status is KnownPositionStatus.LEDGER_INCOHERENT_FOR_POSITION
+    assert by_key["PA"].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
+    assert by_key["PB"].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
     assert by_key["PA"].rejection_reason == "POSITION_NOT_OPEN"
     assert by_key["PB"].rejection_reason == "POSITION_ALREADY_OPEN"
 
@@ -485,4 +514,228 @@ def test_evidence_recorded_but_nothing_effective_yet_is_not_no_evidence() -> Non
     assert result.outcome is EvidenceSnapshotOutcome.EVIDENCE_SNAPSHOT_AVAILABLE
     assert result.entries == ()
     assert result.excluded_by_effective_cutoff == 1
-    assert result.excluded_by_knowledge_cutoff == 0
+    assert result.known_event_count == 1
+
+
+# --------------------------------------------------------------------------
+# Owner review correction: NO post-cutoff evidence may influence ANY output.
+#
+# Every test below is the same shape -- hold the `recorded_at <= K` prefix
+# fixed, vary only what comes after it, and demand the snapshot not move. This
+# is the regression the Owner named as most important.
+# --------------------------------------------------------------------------
+
+_VISIBLE_PREFIX = (
+    event(
+        gid="C1",
+        kind=OperatorPositionEventKind.CLOSED,
+        quantity=10,
+        price="110",
+        effective=T2,
+        recorded=T2,
+    ),
+)
+
+
+def _at_k(events: tuple[OperatorAssertedPositionEvent, ...]) -> OperatorEvidenceSnapshot:
+    return snapshot(events=events, effective=LATER, knowledge=T2)
+
+
+def test_a_future_backfilled_opening_does_not_change_the_answer_at_k() -> None:
+    """Owner review attacks 1 and 2, the central regression.
+
+    DB-A has a backfilled OPENED recorded after K; DB-B never has it. The
+    visible prefix is identical, so the snapshots must be identical -- not
+    merely similar in status, but equal in every field.
+    """
+    without_future = _at_k(_VISIBLE_PREFIX)
+    with_future = _at_k((event(gid="O1", effective=T1, recorded=T3, quantity=10), *_VISIBLE_PREFIX))
+    assert without_future == with_future
+    assert with_future.entries[0].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
+
+
+def test_a_future_event_on_a_different_instrument_does_not_change_the_answer_at_k() -> None:
+    """Owner review attack 5."""
+    baseline = _at_k(_VISIBLE_PREFIX)
+    polluted = _at_k(
+        (
+            *_VISIBLE_PREFIX,
+            event(gid="X1", pos="P9", symbol="TSLA", effective=T1, recorded=T3),
+        )
+    )
+    assert baseline == polluted
+
+
+def test_a_future_duplicate_id_event_does_not_change_the_answer_at_k() -> None:
+    """Owner review attack 6."""
+    baseline = _at_k(_VISIBLE_PREFIX)
+    polluted = _at_k(
+        (
+            *_VISIBLE_PREFIX,
+            event(
+                gid="C1",  # same governance id as the visible CLOSED
+                kind=OperatorPositionEventKind.CLOSED,
+                quantity=10,
+                price="110",
+                effective=T2,
+                recorded=T3,
+            ),
+        )
+    )
+    assert baseline == polluted
+
+
+def test_a_future_event_cannot_change_a_healthy_answer_at_k() -> None:
+    """Owner review attack 7, on the KNOWN_OPEN path rather than the failure path."""
+    prefix = (event(gid="O1", effective=T1, recorded=T1, quantity=10),)
+    baseline = _at_k(prefix)
+    polluted = _at_k(
+        (
+            *prefix,
+            event(
+                gid="R1",
+                kind=OperatorPositionEventKind.REDUCED,
+                quantity=4,
+                effective=T2,
+                recorded=T3,
+            ),
+        )
+    )
+    assert baseline == polluted
+    assert baseline.entries[0].status is KnownPositionStatus.KNOWN_OPEN
+    assert baseline.entries[0].position is not None
+    assert baseline.entries[0].position.open_quantity == 10
+
+
+@pytest.mark.parametrize(
+    "future_event",
+    [
+        pytest.param(event(gid="F1", effective=T1, recorded=T3, quantity=10), id="backfilled-open"),
+        pytest.param(
+            event(gid="F2", effective=T1, recorded=LATER, quantity=99), id="far-future-open"
+        ),
+        pytest.param(
+            event(gid="F3", pos="PZ", symbol="NVDA", effective=T1, recorded=T3), id="other-position"
+        ),
+        pytest.param(
+            event(
+                gid="F4",
+                kind=OperatorPositionEventKind.CLOSED,
+                quantity=10,
+                price="200",
+                effective=T2,
+                recorded=T3,
+            ),
+            id="duplicate-close",
+        ),
+    ],
+)
+def test_every_output_field_is_unchanged_by_any_post_cutoff_row(
+    future_event: OperatorAssertedPositionEvent,
+) -> None:
+    """Owner review attack 7, field by field rather than by object equality.
+
+    Object equality already covers this, but asserting per field means a future
+    field added to the snapshot is caught by name in the failure message rather
+    than hidden inside one opaque comparison.
+    """
+    baseline = _at_k(_VISIBLE_PREFIX)
+    polluted = _at_k((*_VISIBLE_PREFIX, future_event))
+    for slot in OperatorEvidenceSnapshot.__slots__:
+        assert getattr(baseline, slot) == getattr(polluted, slot), f"{slot} leaked post-cutoff data"
+
+
+def test_ordering_is_unchanged_by_post_cutoff_rows() -> None:
+    """Owner review: ordering is named explicitly as something that may not leak."""
+    prefix = (
+        event(gid="A1", pos="PA", symbol="AAPL", effective=T1, recorded=T1),
+        event(gid="B1", pos="PB", symbol="TSLA", effective=T1, recorded=T1),
+    )
+    baseline = _at_k(prefix)
+    polluted = _at_k((*prefix, event(gid="Z1", pos="PZ", symbol="AAAA", effective=T1, recorded=T3)))
+    assert [e.position_governance_id for e in baseline.entries] == [
+        e.position_governance_id for e in polluted.entries
+    ]
+    assert baseline == polluted
+
+
+def test_limitations_are_unchanged_by_post_cutoff_rows() -> None:
+    """Owner review: limitations are named explicitly too, which is why the
+    hidden-assertion count had to go -- it was a limitation that counted the
+    future."""
+    baseline = _at_k(_VISIBLE_PREFIX)
+    polluted = _at_k((*_VISIBLE_PREFIX, event(gid="F1", effective=T1, recorded=T3)))
+    assert baseline.limitations == polluted.limitations
+    assert not any(
+        "were recorded after the knowledge cutoff and are excluded" in line
+        for line in baseline.limitations
+    ), "a count of hidden assertions would itself be a leak"
+
+
+def test_advancing_the_knowledge_cutoff_resolves_the_sequence_legitimately() -> None:
+    """Owner review attack 4. Temporal evolution is legitimate; what is
+    forbidden is letting the LATER answer bleed into the EARLIER one."""
+    events = (event(gid="O1", effective=T1, recorded=T3, quantity=10), *_VISIBLE_PREFIX)
+    at_k = _at_k(events)
+    at_k2 = snapshot(events=events, effective=LATER, knowledge=LATER)
+    assert at_k.entries[0].status is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
+    assert at_k2.entries[0].status is KnownPositionStatus.KNOWN_CLOSED
+    assert _at_k(events) == at_k, "the earlier answer must not be retroactively strengthened"
+
+
+def test_an_unresolved_sequence_may_stay_unresolved_at_a_later_cutoff() -> None:
+    """Owner review: 'If later K2 still fails, it may remain unresolved.'"""
+    events = (
+        event(
+            gid="C1",
+            kind=OperatorPositionEventKind.CLOSED,
+            quantity=10,
+            price="110",
+            effective=T2,
+            recorded=T2,
+        ),
+    )
+    assert (
+        snapshot(events=events, effective=LATER, knowledge=LATER).entries[0].status
+        is KnownPositionStatus.UNRESOLVED_KNOWLEDGE_SEQUENCE
+    )
+
+
+def test_the_snapshot_builder_cannot_reach_post_cutoff_events_at_all() -> None:
+    """The structural guarantee, asserted directly rather than inferred.
+
+    `_snapshot_from_known_evidence` is the whole of the snapshot logic and its
+    only event input is the already-filtered tuple, so a post-cutoff row is not
+    merely unused -- it is unreachable.
+    """
+    import inspect
+
+    from empirical_platform.decision_candidate import operator_evidence_availability as module
+
+    parameters = inspect.signature(module._snapshot_from_known_evidence).parameters
+    assert set(parameters) == {"known", "effective_as_of", "knowledge_as_of"}
+    source = inspect.getsource(module._snapshot_from_known_evidence)
+    assert "events_known_by" not in source
+    assert ".recorded_at" not in source, (
+        "the knowledge filter belongs to the caller and is applied exactly once"
+    )
+
+
+def test_the_banner_claims_recording_not_actual_availability() -> None:
+    """Owner review on claim language. recorded_at is operator-supplied, so the
+    stronger claim is not ours to make."""
+    assert "RECORDS as having been recorded" in EVIDENCE_AVAILABILITY_BANNER
+    assert "operator-supplied field" in EVIDENCE_AVAILABILITY_BANNER
+    assert "not an independently attested receipt time" in EVIDENCE_AVAILABILITY_BANNER
+    assert "not proof of what was actually available" in EVIDENCE_AVAILABILITY_BANNER
+    for claim in ("what evidence was actually available", "proves what was available"):
+        assert claim not in EVIDENCE_AVAILABILITY_BANNER
+
+
+def test_the_operator_supplied_caveat_rides_on_every_snapshot() -> None:
+    for result in (
+        _at_k(_VISIBLE_PREFIX),
+        snapshot(events=(), knowledge=T2),
+        _at_k((event(gid="O1", effective=T1, recorded=T1),)),
+    ):
+        assert any("operator-supplied" in line for line in result.limitations)

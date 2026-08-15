@@ -1,5 +1,46 @@
 # MILESTONE-079 — Operator Evidence Availability Snapshot — Scope and Design
 
+
+---
+
+> ## ⚠ SUPERSEDED IN PART BY OWNER REVIEW
+>
+> Owner review of the first M079 candidate found a **temporal leak in this
+> design**. The passages marked ⚠ below are **retracted**; they are kept in
+> place so the corrected reasoning is auditable against the reasoning it
+> replaced.
+>
+> **What was wrong.** When the knowledge-filtered sequence failed to fold, the
+> design re-folded the same key against the **unfiltered** event set to choose
+> between `INCOMPLETE_KNOWLEDGE_SEQUENCE` and `LEDGER_INCOHERENT_FOR_POSITION`.
+> That set can contain assertions with `recorded_at > K`, so **future knowledge
+> decided the status emitted at historical `K`** — even though no quantity was
+> copied from it. The same rule condemns `total_event_count` and
+> `excluded_by_knowledge_cutoff`, both functions of post-cutoff rows.
+>
+> **What replaced it.**
+>
+> | Retracted | Corrected |
+> |---|---|
+> | `INCOMPLETE_KNOWLEDGE_SEQUENCE` + `LEDGER_INCOHERENT_FOR_POSITION` | one `UNRESOLVED_KNOWLEDGE_SEQUENCE` |
+> | `incomplete_knowledge_count`, `incoherent_position_count` | `unresolved_position_count` |
+> | `total_event_count` | `known_event_count` — recorded **by** `K` |
+> | `excluded_by_knowledge_cutoff` | removed; a static limitation explains why no such count can exist |
+> | `excluded_by_effective_cutoff` | kept — computed from evidence recorded by `K`, so leak-free |
+>
+> `UNRESOLVED_KNOWLEDGE_SEQUENCE` means: *the evidence recorded by this cutoff
+> does not form a coherent fold, and from that evidence alone it cannot be known
+> whether this is temporary incompleteness or underlying ledger incoherence.*
+>
+> The guarantee is now **structural**: all snapshot logic lives in
+> `_snapshot_from_known_evidence`, which is never given the unfiltered events.
+>
+> **Claim language also corrected.** `recorded_at` is operator-supplied, so M079
+> claims to report *what the ledger records as having been recorded by `K`* —
+> not *what evidence was actually available by `K`*.
+
+---
+
 ## Status: IMPLEMENTATION CANDIDATE — NOT OWNER FROZEN
 
 ## 1. Repository Authority
@@ -174,7 +215,7 @@ not corruption, it is the honest shape of partial knowledge.
 **Design decision.** Classification is **per position key**, never global:
 
 - a key whose filtered events fold → its derived state is reported;
-- a key whose filtered events do not fold → **`INCOMPLETE_KNOWLEDGE_SEQUENCE`**,
+- a key whose filtered events do not fold → ⚠ *retracted, now* **`UNRESOLVED_KNOWLEDGE_SEQUENCE`**,
   carrying M076's own rejection reason, with **no state invented**.
 
 A single incomplete key must not withhold the whole snapshot: that would
@@ -185,7 +226,10 @@ time** through M076's own function and catches per key.
 **Nothing is guessed.** No missing opening is inferred, no quantity assumed, no
 "probable" state reported.
 
-### Incompleteness must not mask corruption (design review T07)
+### ⚠ RETRACTED — Incompleteness must not mask corruption (design review T07)
+
+> **This entire subsection is retracted.** The discriminator it describes is
+> the temporal leak Owner review found. Preserved verbatim below.
 
 M076's fold raises the **same** exception type for a knowledge-truncated prefix
 and for genuinely corrupt data — two `OPENED` events on one key, an instrument
@@ -204,7 +248,10 @@ innocent-sounding status.
 The discriminator decides **only how to label a refusal**. No state from the
 unfiltered fold is ever reported, so no future knowledge leaks into the answer.
 
-### Two exclusion counts, not one (design review C05)
+### ⚠ PARTIALLY RETRACTED — Two exclusion counts, not one (design review C05)
+
+> **`excluded_by_knowledge_cutoff` is retracted**; it counts post-cutoff rows.
+> `excluded_by_effective_cutoff` survives. Preserved verbatim below.
 
 An operator must be able to tell *"it hadn't happened yet"* from *"it hadn't
 been recorded yet"*. M076's own excluded count sees only exclusions among
@@ -233,7 +280,7 @@ Absence is never rendered as a pass, and no state is coerced.
 |---|---|
 | Nothing recorded by `K` | `NO_EVIDENCE_RECORDED_BY_KNOWLEDGE_CUTOFF`, stated explicitly — distinct from "nothing happened" |
 | Ledger unreadable | `NOT_ASSESSABLE` / `LEDGER_UNAVAILABLE` |
-| A key's evidence incomplete at `K` | `INCOMPLETE_KNOWLEDGE_SEQUENCE` for that key only |
+| A key's evidence does not fold at `K` | ⚠ *retracted, now* `UNRESOLVED_KNOWLEDGE_SEQUENCE` for that key only |
 | Naive `effective_as_of` or `knowledge_as_of` | rejected at the query boundary as a **request** error, never as a data claim (the M078 R03 lesson, applied to both dimensions) |
 | `knowledge_as_of` < `effective_as_of` | permitted and meaningful — "what did we know on Aug 11 about what happened by Aug 20?" — with a limitation naming the stance |
 | Genuinely malformed persisted data | M076's own rejection surfaces per key, distinguished from incompleteness by its reason |
@@ -289,7 +336,7 @@ Vocabulary is `KNOWN_` / `ASSERTED` / `INCOMPLETE_`, never `VERIFIED`,
 `EXECUTED`, `FILLED`, `REALIZED` or `CONFIRMED`. `KNOWN_OPEN` means *known to
 the ledger by `K`*, not *known to be true*, and the banner says so.
 
-`INCOMPLETE_KNOWLEDGE_SEQUENCE` is a property of the **snapshot**, not of the
+`UNRESOLVED_KNOWLEDGE_SEQUENCE` (⚠ formerly `INCOMPLETE_KNOWLEDGE_SEQUENCE`) is a property of the **snapshot**, not of the
 operator: it says this view lacks evidence, not that anyone kept poor records.
 
 A `KNOWN_OPEN` quantity may later prove to have been reduced by an assertion
@@ -304,7 +351,7 @@ recorded after `K`. That is not an error — it is precisely what was known at
 4. Exact boundary on either dimension → inclusive.
 5. Backfilled `OPENED` invisible at `K1`, visible at `K2 > K1` — same `E`,
    different answer, which is the whole point.
-6. `CLOSED` visible without its `OPENED` → `INCOMPLETE_KNOWLEDGE_SEQUENCE`,
+6. `CLOSED` visible without its `OPENED` → ⚠ *retracted, now* `UNRESOLVED_KNOWLEDGE_SEQUENCE`,
    nothing invented.
 7. M076's present-day answer differs from M079's historical answer over the
    same ledger — proven side by side.
