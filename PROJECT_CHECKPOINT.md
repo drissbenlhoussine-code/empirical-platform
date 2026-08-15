@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-077
+LATEST_FROZEN_MILESTONE=MILESTONE-078
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -716,8 +716,21 @@ M077_PROFITABILITY_CLAIM=NONE_MADE
 M077_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M077_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M078_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-078 -- recommendation only; not started as part of M077
+M078_SCOPE=Research Decision Follow-Through Audit (a read-only, additive audit joining one research session's approved M060 position plans to the M076 operator-asserted ledger as of an explicit inclusive timestamp, reporting for each plan whether an asserted position citing it is open, is closed, or was never recorded, plus the open asserted positions this session's plans do not account for; the plan governance id is validated as a join identity before any lineage is read, and a blank id or one id naming conflicting instruments withholds the whole audit; emits NO monetary value of any kind, so P&L, valuation and profitability claims are structurally impossible; zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, and M070/M075/M076/M077 read-only and unmodified)
+M078_SCOPE_STATUS=APPROVED_AND_FROZEN
+M078_DESIGN_STATUS=APPROVED_AND_FROZEN
+M078_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M078_IMPLEMENTATION_COMMIT=2c14d0a (corrected by 110fc3b, evidence reconciled by fc7ac90)
+M078_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M078_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M078_OWNER_FREEZE_COMMIT=PENDING
+M078_STATUS=APPROVED_AND_FROZEN
+M078_PROFITABILITY_CLAIM=NONE_MADE
+M078_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M078_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M079_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-079 -- recommendation only; not started as part of M078
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2871,4 +2884,50 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-078 — recommendation only; not started as part of M077. Per the mission's own explicit instruction, MILESTONE-078 was NOT built.
+## 114. MILESTONE-078 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_078_RESEARCH_DECISION_FOLLOW_THROUGH_SCOPE_AND_DESIGN.md` (repository truth, a documented contradiction in M077's frozen record, the proved gap, five ranked candidates, domain vocabulary chosen against overclaiming, authoritative and non-authoritative inputs, temporal semantics, failure modes, explicit non-goals, test strategy) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, the owner review correction, canonical results, adversarial review, fresh second verification pass, frozen preservation, owner approval).
+
+**Why M078 exists.** M076 records what the operator asserts they hold and M077 charges that exposure against today's proposals, but neither closes the loop back to the research. Plan lineage already existed -- an `OPENED` event may cite the position plan it came from -- and a repository-wide search showed it was consumed in exactly two ways: M077's double-counting suppression, over positions open at `as_of`, for the session being briefed today only; and display of a single held position's cited plan. Nothing joined a session's approved plans to the ledger, so no one could ask what became of what the research recommended, or what is held that the research never proposed. An asserted position citing no plan is the platform's only detectable signal of an unplanned, undocumented position, and nothing surfaced it.
+
+**A contradiction in the frozen record, documented rather than reconciled.** M077's freeze record states that decision-versus-outcome evaluation was deferred because "M076 asserts neither" market revaluation nor realized proceeds. The second half is inaccurate: M076 validates and persists an `asserted_price` on every event kind including `CLOSED` and `REDUCED`, so operator-asserted exit prices already exist; what is true is that nothing reads them, because the fold uses the opening event alone. M077's frozen document is not edited and the correction is recorded in M078's own documents.
+
+**Why this capability and not the outcome one.** Round-trip outcome evaluation is therefore technically available and was still rejected, on honesty rather than feasibility: subtracting an asserted entry from an asserted exit produces a number that is substantively realized P&L, and renaming it would be the exact failure the reality gate forbids. It would also be the first profit-shaped number the platform has emitted, which is the owner's call to authorize. It remains unblocked and named as the next explicit choice.
+
+**Selected design.** One new pure, I/O-free module, `decision_candidate/research_decision_follow_through.py`, plus one usecase, one renderer and one CLI entrypoint. Zero new aggregate, zero new PostgreSQL table, zero new migration, zero new repository. M070 and M076 are read through their frozen public contracts; M076 is not modified to expose lineage, which is projected from the same event tuple already read, and M076's fold remains the sole authority on open versus closed. The M072 daily brief is untouched, because follow-through is a question about the past rather than about today.
+
+**The strongest property: M078 computes no money.** It emits no price, notional, valuation, proceeds or difference -- only statuses, counts, quantities and identifiers. Accidental P&L, valuation and profitability claims are structurally impossible rather than merely discouraged. A test walks every field of every returned dataclass and rejects any `Decimal` or money-named field, and the integration suites persist asserted prices of 110, 123.456789, 291.6375, 415.999999, 150.125 and 99.999999 and prove that none reaches any rendering.
+
+**The most important word.** `NO_ASSERTED_POSITION_RECORDED` means nothing was written down citing that plan. It does not mean the operator ignored it, rejected it or failed to act; the ledger records assertions, not conduct, and its silence is not evidence about what a human did. The first draft called it `NOT_ACTED_UPON`, which asserts conduct the data cannot support. There is deliberately no FOLLOWED / ADHERENCE / COMPLIANCE vocabulary anywhere, enforced by test.
+
+**Owner review correction.** One blocking authority/identity finding, and it was real. M078 joins on `position_plan_governance_id`, but M070's frozen `ResearchDecisionEntry` validates `instrument_symbol`, `decision_candidate_governance_id`, `scan_decision` and `rank` -- and not the plan id. Implementation review R02 had found a duplicate plan id silently discarding an entry and fixed it by deduplicating deterministically and warning; owner review established that this is deterministic but not semantically safe, because when one id names two instruments a citation of it refers to neither in particular, and keeping the first by sort order invents an answer the session data does not contain. The plan references are now validated as an identity before any lineage is read and before the ledger checks: a blank or whitespace-only id, or one id carrying conflicting instrument identity, withholds the entire audit as `NOT_ASSESSABLE` / `SESSION_PLAN_REFERENCES_INCOHERENT`, with entries, unlinked positions and every count including `approved_plan_count` left at zero. A `rank` divergence is presentation metadata rather than identity ambiguity and is reported instead of withheld; exact identical duplicates are deterministically deduplicated with the count reported. PostgreSQL was proven to reject a blank id at the frozen M070 foreign key and to permit one id across two instruments, and the domain guard is retained for both, because M078's read boundary must not depend on a constraint owned by another milestone's table.
+
+**Actual results, un-massaged.** Measured against an identical baseline in one environment: `master` `183401e` ran 8 failed / 1975 passed / 12 errors with PostgreSQL off and 24 failed / 2311 passed / 44 errors with PostgreSQL on; M078 ran 8 failed / 2029 passed / 12 errors and 24 failed / 2383 passed / 44 errors. The zero-regression claim does not rest on counts matching: the sorted failing-test-id lists were diffed and are identical, and no M075, M076, M077 or M078 test appears in the failing set. Focused: 54 unit and 15 real-PostgreSQL integration tests, plus 3 on a fresh database created empty with deliberately different inputs; M070-M078 chain 77 passed. No gate was suppressed -- the module carries zero `type: ignore` and zero `noqa`, and two drafts that needed suppressions were restructured instead.
+
+**Hostile review:** 79 pre-implementation attacks corrected 22 defects before a line of code was written, including a draft that would have added a section to the frozen M072 brief and a draft whose vocabulary judged the operator. The implementation pass catalogued 104 attacks and found three genuine defects, every one by executing the code rather than reading it: a position on one instrument citing another instrument's plan silently counted as follow-through; one plan id naming two instruments silently discarding an entry; and a naive `as_of` reported as `LEDGER_INCOHERENT`, telling the operator their persisted data is corrupt when the request was malformed -- a false diagnosis being worse than a crash. The unit suite had passed 38/38 on its first run, which was evidence the tests were not yet pointed at the right places. Two verdicts, implementation R02 and design D03, are retracted in place following owner review, with the reason each was too narrow recorded beside them.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_078_RESEARCH_DECISION_FOLLOW_THROUGH_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, broker readiness, order execution, fills, market valuation, P&L, or investment advice is made anywhere in this milestone.** M078 proves what the operator's ledger records against a session's plans -- a statement about records, not about markets, money or conduct.
+
+**Next permitted action:** see Section 115.
+
+## 115. MILESTONE-078 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_078_RESEARCH_DECISION_FOLLOW_THROUGH_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-078 scope, design, implementation, the owner review correction, the evidence reconciliation, hostile review, fresh second verification pass, and the frozen-preservation audit as one consolidated unit.
+
+**Delivered capability, frozen:** for one research session at an explicit inclusive `as_of`, what the operator's own ledger records against each approved position plan -- an open asserted position, a closed one, or nothing recorded -- together with the open asserted positions that session's plans do not account for, in both text and JSON. Zero new aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, and no monetary value of any kind.
+
+**Delivered via:** pull request #8, owner-approved at head `fc7ac90802c5dda35f1a3fe357da71a3bd6ebac3` with the `foundation` workflow green on that exact SHA, merged into `master` as `565b7ebf072d821e4b5d375a9de28c4b246bdc4e`.
+
+**Correction history preserved.** The pull request was merged with a true merge commit and nothing was squashed. All three commits remain reachable on `master`: the implementation `2c14d0a9f745980a31c0b0b46a957124b2b4cff3`, the owner correction `110fc3b43bad1b997e59511f9cfe50ec8b059768`, and the evidence reconciliation `fc7ac90802c5dda35f1a3fe357da71a3bd6ebac3`.
+
+**Effective-time limitation, preserved verbatim and not strengthened by this freeze.** M078 is an EFFECTIVE-TIME audit based on M076's `event_timestamp`. M076 defines `event_timestamp` as when the operator says the event happened and `recorded_at` as when the assertion was written down, and `recorded_at` does not drive the fold. A later backfilled assertion can therefore change the answer for an earlier `as_of`. **M078 does NOT prove what information or evidence was available to the system at historical time `t`** -- it reports what the ledger now says about `t` -- and **must NOT be treated as historical evidence-availability or forward-evaluation proof without a future `recorded_at` firewall**, because doing so would be a look-ahead leak. This documents existing frozen M076 semantics; no M076 or M078 code was changed to address it, and doing so would be a separate, explicitly authorized milestone.
+
+**Preservation:** MILESTONE-077, MILESTONE-076 and MILESTONE-075 are entirely unchanged by this freeze, as is M070's `ResearchSession` -- M078 defends its own read boundary against malformed persisted session data rather than tightening a frozen aggregate. MILESTONE-074 and the M063 exceptional byte-seal reconciliation record are untouched. No M057-M077 source file's semantics change and no migration is added or changed. The M062/M064/M065 CRLF seal debt was deliberately not repaired: M078 introduces no fixture, no dataset bundle and no byte seal, so the debt provably does not block it, and it continues to warrant its own authorization.
+
+**Freeze declaration:** `M078 MACRO MILESTONE APPROVED_AND_FROZEN`. `M078 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-079 — recommendation only; not started as part of M078. Per the mission's own explicit instruction, MILESTONE-079 was NOT built.
