@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-076
+LATEST_FROZEN_MILESTONE=MILESTONE-077
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -703,8 +703,21 @@ M076_PROFITABILITY_CLAIM=NONE_MADE
 M076_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M076_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M077_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-077 -- recommendation only; not started as part of M076
+M077_SCOPE=Portfolio-Aware Capital Feasibility (a new additive, read-only decision artifact charging exposure the operator has ASSERTED is already open against this session's own approved M060 position plans under one explicit M067 capital policy, surfaced in the M072 brief in text and JSON under a strict honesty banner; held exposure is quantity x asserted entry price and is never revalued; capital is measured as utilization rather than as a cash balance; a plan already cited by an open asserted position informs the capital base but contributes zero new proposed notional; zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, and M075/M076 read-only and unmodified)
+M077_SCOPE_STATUS=APPROVED_AND_FROZEN
+M077_DESIGN_STATUS=APPROVED_AND_FROZEN
+M077_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M077_IMPLEMENTATION_COMMIT=0678522 (corrected by 0559a20)
+M077_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M077_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M077_OWNER_FREEZE_COMMIT=PENDING
+M077_STATUS=APPROVED_AND_FROZEN
+M077_PROFITABILITY_CLAIM=NONE_MADE
+M077_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M077_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M078_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-078 -- recommendation only; not started as part of M077
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2816,4 +2829,46 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-077 — recommendation only; not started as part of M076. Per the mission's own explicit instruction, MILESTONE-077 was NOT built.
+## 112. MILESTONE-077 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_077_PORTFOLIO_AWARE_CAPITAL_FEASIBILITY_SCOPE_AND_DESIGN.md` (repository truth, the tested hypothesis answered question by question from code, an eight-candidate ranking, architecture, domain and temporal semantics, absence and error semantics, concurrency, honesty boundary, explicit non-goals, and a 71-attack pre-implementation adversarial design review) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, the owner correction, canonical results, adversarial review, fresh second verification pass, frozen preservation, owner approval).
+
+**Why M077 exists.** The mission proposed that after M076 the daily path still could not judge today's proposals after accounting for already-held operator-asserted exposure. The hypothesis was attacked rather than accepted, and it survived structurally: a search over `src/` for every M076 symbol returned consumers in exactly three places -- M076's own two usecases, its own two CLI entrypoints, and the persistence runtime. No other module imported the ledger; `build_daily_research_brief.py` did not reference it and `same_day_capital_feasibility.py` imported only M067. M075 could therefore report "fits within capital" to an operator whose capital was already fully deployed, and say nothing about why that was wrong. Eight candidates were ranked against six criteria: portfolio-aware feasibility 26, session-to-position lineage 23, operational exposure summary 21, decision-versus-outcome evaluation 21, data-freshness authority 20, forward/paper observation 18, realized/unrealized observation 16, an M068 concentration guard 13. Decision-versus-outcome carries the highest scientific value of any candidate and was rejected as premature -- it needs an outcome, which needs market revaluation or realized proceeds, and M076 asserts neither, so building it now would have forced a fabricated valuation. M077 is its precondition. The M068 guard was rejected because it would convert historical dependence evidence into an operational control.
+
+**Why a new artifact rather than wiring M076 into M075.** M075's own rendered banner states it is "NOT current portfolio state; NOT open positions; NOT prior-day exposure". Feeding held exposure into M075 would have made its own banner false. The additive design is forced by that, not chosen for convenience.
+
+**Selected design.** One new pure, I/O-free module, `decision_candidate/portfolio_aware_capital_feasibility.py`, plus an additive keyword-defaulted field on the M072 brief, rendering in both formats, an optional repository and suppression flag on the handler, and `--no-portfolio-aware-feasibility` on each of the two daily entrypoints. Held exposure is quantity times the operator's asserted entry price, taken from M076's fold and never revalued. Capital is measured as utilization -- M067's own frozen model -- not as cash depletion, because buying an asset converts cash into that asset and leaves equity unchanged. Zero new aggregate, zero new PostgreSQL table, zero new migration, zero new repository. M076 is read-only and, notably, is not modified to expose plan lineage: rather than change a frozen structure, M077 projects lineage from the same event tuple it already read, and does not re-implement M076's fold.
+
+**Actual results, un-massaged.** Re-measured against an identical baseline in one environment: `master` `e05cb2f` ran 8 failed / 1922 passed / 12 errors with PostgreSQL off and 24 failed / 2237 passed / 44 errors with PostgreSQL on; M077 ran 8 failed / 1975 passed / 12 errors and 24 failed / 2311 passed / 44 errors. The zero-regression claim does not rest on counts matching: the sorted failing-test-id lists were diffed and are identical, and no M075, M076 or M077 test appears in the failing set. Those failures and errors are the pre-existing M062/M064/M065 CRLF seal debt, invisible on the `windows-latest` runner. No gate was suppressed to go green -- the module carries zero `type: ignore` and zero `noqa`; an early draft carried both and they were removed by restructuring rather than by silencing the checker.
+
+**Tests:** 53 pure unit tests and 17 real-PostgreSQL integration tests -- 70 focused -- plus a fresh second pass of 4 on a database created empty with deliberately different governance ids, symbols, a shifted breakout fixture, a different `as_of`, different quantities, six-decimal prices and a different capital base. Held notional is cross-checked against a raw-SQL `quantity * asserted_price` product with no repository helper in the path.
+
+**Owner review correction.** One blocking finding, and it was real. The double-counting filter removed already-acted plans from `usable` before the capital base was derived from `usable`, so one list answered two different questions -- which plans are new proposals, and what equity did this session size against. A session whose plans had all been acted upon therefore reported a capital base of zero, and with it a zero ceiling and null utilisation, so the held snapshot could not be judged against anything. Corrected by separating `capital_inputs` from `proposed`: validity is checked first, so a plan with non-positive equity is bad data and never a capital authority; every valid approved plan informs the capital base; already-acted valid plans remain capital-authority inputs and contribute zero new proposed notional. M075's minimum-equity rule is preserved across every valid approved plan. A second, related defect fell out of it: a fully-acted session was still labelled `NO_APPROVED_POSITION_PLANS`, which is a false statement about a session that did approve plans, so the closed vocabulary gained `ALL_PLANS_ALREADY_ACTED_UPON` and both directions are tested.
+
+**Hostile review:** 71 pre-implementation attacks corrected nine defects before a line of code was written, including the sharpest -- charging held notional against equity reads as double counting unless utilisation is distinguished from depletion -- and rejected a first design that would have added a field to M076's frozen `DerivedPosition`. The implementation pass catalogued 106 attacks and found four genuine defects, each confirmed by executing the code rather than reading it: input-order-dependent assessments twice from one root cause, a quantised ceiling that made a boundary plan feasible under M075 and infeasible under M077 over identical inputs, and a blank persisted plan citation treated as an identifier. One is worth recording plainly: the existing determinism test passed only because it had no already-acted plans, so the test was weaker than the claim it defended. Design-review attack C02 is retracted in place -- it checked the reporting of excluded plans and never checked the capital base, so it was narrower than the defect it was meant to cover.
+
+**Concurrency:** `list_all()` is a single `SELECT`, so `READ COMMITTED` gives one consistent statement-level snapshot, and M076 commits each position's event atomically under a per-position advisory lock. No additional locking is required, proven by a real barrier-synchronised writer/reader race rather than asserted.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_077_PORTFOLIO_AWARE_CAPITAL_FEASIBILITY_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, broker readiness, order execution, fills, market valuation, P&L, or investment advice is made anywhere in this milestone.** Held exposure is what the operator asserted, not what a broker confirmed: there is no broker, no confirmation and no reconciliation. A parametrised test asserts that `EXECUTED`, `FILLED`, `VERIFIED`, `ALLOCATED` and `MARKET_VALUE` appear nowhere in the vocabulary, and the rendered banner -- not merely the documentation -- denies each of those claims.
+
+**Next permitted action:** see Section 113.
+
+## 113. MILESTONE-077 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_077_PORTFOLIO_AWARE_CAPITAL_FEASIBILITY_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-077 scope, design, implementation, the owner review correction, hostile review, fresh second verification pass, and the frozen-preservation audit as one consolidated unit.
+
+**Delivered capability, frozen:** the daily research brief now reports which of this session's approved position plans remain feasible once exposure the operator has asserted is already open has been charged against one explicit capital policy -- in both text and JSON, with `--no-portfolio-aware-feasibility` available on both daily paths. Held exposure is never revalued and is never presented as a market valuation. Zero new aggregate, zero new PostgreSQL schema, zero new migration, zero new repository.
+
+**Delivered via:** pull request #7, owner-approved at head `0559a20960c9b5fd6fa2009e0a94e44c76a03fae` with the `foundation` workflow green on that exact SHA, merged into `master` as `525e3e30503833c02dc9c1436da5f9cb2b559fa9`.
+
+**Correction history preserved.** The pull request was merged with a true merge commit and nothing was squashed. Both commits remain reachable on `master`: the implementation `0678522546f8f01d0051b50f00a2a4a001cd2290` and the owner correction `0559a20960c9b5fd6fa2009e0a94e44c76a03fae`.
+
+**Preservation:** MILESTONE-076 and MILESTONE-075 are entirely unchanged by this freeze -- M077 reads M076 only through its existing contract and neither modifies nor re-interprets either milestone. MILESTONE-074 and the M063 exceptional byte-seal reconciliation record are untouched. No M057-M076 source file's semantics change and no migration is added or changed. The M062/M064/M065 CRLF seal debt was deliberately not repaired: M077 introduces no fixture, no dataset bundle and no byte seal, so the debt provably does not block it, and it continues to warrant its own authorization.
+
+**Freeze declaration:** `M077 MACRO MILESTONE APPROVED_AND_FROZEN`. `M077 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-078 — recommendation only; not started as part of M077. Per the mission's own explicit instruction, MILESTONE-078 was NOT built.
