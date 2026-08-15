@@ -139,3 +139,13 @@ class ResearchSessionId(Identifier):
     """One-command daily research session identifier."""
 
     prefix = "RESEARCH"
+
+
+class OperatorPositionEventId(Identifier):
+    """MILESTONE-076. Identifies one operator-asserted position event.
+
+    Operator-asserted: the human said this happened. Not a broker record and
+    not a verified fill.
+    """
+
+    prefix = "OPEV"
