@@ -14,6 +14,11 @@ from empirical_platform.decision_candidate.daily_research_brief import (
     HistoricalPortfolioEvidence,
 )
 from empirical_platform.decision_candidate.research_session import SessionComparisonOutcome
+from empirical_platform.decision_candidate.same_day_capital_feasibility import (
+    CAPITAL_FEASIBILITY_BANNER,
+    SameDayCapitalAssessment,
+    SameDayCapitalOutcome,
+)
 
 __all__ = [
     "render_daily_research_brief_json",
@@ -117,6 +122,9 @@ def render_daily_research_brief_json(brief: DailyResearchBrief) -> dict[str, obj
         },
         "HISTORICAL_PORTFOLIO_EVIDENCE": _historical_evidence_json(
             brief.historical_portfolio_evidence
+        ),
+        "SAME_DAY_CAPITAL_FEASIBILITY": _capital_feasibility_json(
+            brief.same_day_capital_assessment
         ),
         "LIMITATIONS": list(brief.limitations),
         "AUDIT": {
@@ -236,6 +244,66 @@ def _entry_line(entry: BriefInstrumentEntry) -> str:
 def _section(title: str, lines: list[str]) -> list[str]:
     body = lines if lines else ["  (none)"]
     return [title, *body, ""]
+
+
+def _capital_feasibility_json(
+    assessment: SameDayCapitalAssessment | None,
+) -> dict[str, object]:
+    """MILESTONE-075. `assessment is None` means the assessment was not
+    computed at all (suppressed by flag) -- reported as such, never as a
+    feasible verdict."""
+    if assessment is None:
+        return {
+            "honesty_banner": CAPITAL_FEASIBILITY_BANNER,
+            "computed": False,
+            "outcome": None,
+            "note": (
+                "same-day capital feasibility was not computed for this brief; this is "
+                "not a finding that the session's approved plans fit within capital"
+            ),
+        }
+    return {
+        "honesty_banner": CAPITAL_FEASIBILITY_BANNER,
+        "computed": True,
+        "outcome": assessment.outcome.value,
+        "unassessable_reason": (
+            assessment.unassessable_reason.value
+            if assessment.unassessable_reason is not None
+            else None
+        ),
+        "policy_id": assessment.policy_id,
+        "policy_version": assessment.policy_version,
+        "currency": assessment.currency,
+        "capital_base": assessment.capital_base,
+        "max_concurrent_positions": assessment.max_concurrent_positions,
+        "max_capital_utilization_percent": assessment.max_capital_utilization_percent,
+        "capital_ceiling": assessment.capital_ceiling,
+        "requested_plan_count": assessment.requested_plan_count,
+        "admitted_plan_count": assessment.admitted_plan_count,
+        "excluded_plan_count": assessment.excluded_plan_count,
+        "total_requested_notional": assessment.total_requested_notional,
+        "total_admitted_notional": assessment.total_admitted_notional,
+        "total_admitted_risk": assessment.total_admitted_risk,
+        "utilization_percent_of_ceiling": assessment.utilization_percent_of_ceiling,
+        "requested_percent_of_capital_base": assessment.requested_percent_of_capital_base,
+        "verdicts": [
+            {
+                "rank": v.rank,
+                "instrument_symbol": v.instrument_symbol,
+                "position_plan_governance_id": v.position_plan_governance_id,
+                "quantity": v.quantity,
+                "position_notional": v.position_notional,
+                "actual_risk": v.actual_risk,
+                "fits": v.fits,
+                "rejection_reason": (
+                    v.rejection_reason.value if v.rejection_reason is not None else None
+                ),
+                "cumulative_committed_notional": v.cumulative_committed_notional,
+            }
+            for v in assessment.verdicts
+        ],
+        "limitations": list(assessment.limitations),
+    }
 
 
 def render_daily_research_brief_text(brief: DailyResearchBrief) -> str:
@@ -373,6 +441,53 @@ def render_daily_research_brief_text(brief: DailyResearchBrief) -> str:
             "with matching strategy, risk, sizing, and universe authority"
         )
     out.extend(_section("HISTORICAL PORTFOLIO EVIDENCE", historical_lines))
+
+    capital_lines = [f"  {line}" for line in CAPITAL_FEASIBILITY_BANNER.split(". ") if line]
+    assessment = brief.same_day_capital_assessment
+    if assessment is None:
+        capital_lines.append(
+            "  not computed for this brief -- this is NOT a finding that the approved "
+            "plans fit within capital"
+        )
+    else:
+        capital_lines.append(f"  outcome: {assessment.outcome}")
+        if assessment.unassessable_reason is not None:
+            capital_lines.append(f"  not assessable: {assessment.unassessable_reason}")
+        if assessment.outcome in (
+            SameDayCapitalOutcome.FITS_WITHIN_CAPITAL,
+            SameDayCapitalOutcome.EXCEEDS_CAPITAL,
+        ):
+            capital_lines.append(
+                f"  policy: {assessment.policy_id} v{assessment.policy_version} "
+                f"capital_base={assessment.capital_base} {assessment.currency} "
+                f"ceiling={assessment.capital_ceiling} "
+                f"max_concurrent={assessment.max_concurrent_positions}"
+            )
+            capital_lines.append(
+                f"  requested {assessment.requested_plan_count} plan(s) totalling "
+                f"{assessment.total_requested_notional} "
+                f"({assessment.requested_percent_of_capital_base} of capital base); "
+                f"{assessment.admitted_plan_count} fit, totalling "
+                f"{assessment.total_admitted_notional}"
+            )
+            for v in assessment.verdicts:
+                rank = "-" if v.rank is None else str(v.rank)
+                if v.fits:
+                    capital_lines.append(
+                        f"    [{rank}] {v.instrument_symbol} qty={v.quantity} "
+                        f"notional={v.position_notional} FITS "
+                        f"(cumulative {v.cumulative_committed_notional})"
+                    )
+                else:
+                    capital_lines.append(
+                        f"    [{rank}] {v.instrument_symbol} qty={v.quantity} "
+                        f"notional={v.position_notional} DOES NOT FIT "
+                        f"({v.rejection_reason})"
+                    )
+        for limitation in assessment.limitations:
+            capital_lines.append(f"  limitation: {limitation}")
+
+    out.extend(_section("SAME-DAY CAPITAL FEASIBILITY", capital_lines))
 
     out.extend(_section("LIMITATIONS", [f"  - {limitation}" for limitation in brief.limitations]))
 

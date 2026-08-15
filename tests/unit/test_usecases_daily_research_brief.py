@@ -831,6 +831,7 @@ def test_main_json_flag_produces_valid_json(
         "RISK_AND_EVIDENCE",
         "DATA_QUALITY",
         "HISTORICAL_PORTFOLIO_EVIDENCE",
+        "SAME_DAY_CAPITAL_FEASIBILITY",
         "LIMITATIONS",
         "AUDIT",
     }
@@ -853,3 +854,64 @@ def test_main_json_flag_combined_with_explicit_session(monkeypatch: MonkeyPatch)
     brief_entrypoint.main()
 
     assert captured_kwargs["session_governance_id"] == "RESEARCH-0001"
+
+
+# --------------------------------------------------------------------------
+# MILESTONE-075 -- same-day capital feasibility rendering
+# --------------------------------------------------------------------------
+
+
+def _capital_brief(assessment: object) -> object:
+    from empirical_platform.usecases.daily_research_brief_io import (
+        render_daily_research_brief_json,
+        render_daily_research_brief_text,
+    )
+
+    return render_daily_research_brief_json, render_daily_research_brief_text, assessment
+
+
+def test_m075_json_and_text_agree_on_the_capital_outcome() -> None:
+    from decimal import Decimal
+
+    from empirical_platform.decision_candidate.same_day_capital_feasibility import (
+        SameDayPositionRequest,
+        assess_same_day_capital_feasibility,
+    )
+    from empirical_platform.usecases.daily_research_brief_io import (
+        _capital_feasibility_json,
+    )
+
+    requests = tuple(
+        SameDayPositionRequest(
+            rank=i,
+            instrument_symbol=s,
+            position_plan_governance_id=f"POS-{s}",
+            quantity=10,
+            position_notional=Decimal("25000"),
+            actual_risk=Decimal("500"),
+            supplied_account_equity=Decimal("100000"),
+        )
+        for i, s in enumerate(["AAPL", "MSFT", "GOOG", "AMZN", "NVDA"], start=1)
+    )
+    assessment = assess_same_day_capital_feasibility(requests=requests, session_is_completed=True)
+    payload = _capital_feasibility_json(assessment)
+    assert payload["computed"] is True
+    assert payload["outcome"] == "EXCEEDS_CAPITAL"
+    assert payload["admitted_plan_count"] == 4
+    verdicts = payload["verdicts"]
+    assert isinstance(verdicts, list)
+    assert verdicts[-1]["fits"] is False
+    assert verdicts[-1]["rejection_reason"] == "MAX_CAPITAL_UTILIZATION_EXCEEDED"
+
+
+def test_m075_suppressed_assessment_is_not_reported_as_feasible() -> None:
+    from empirical_platform.usecases.daily_research_brief_io import (
+        _capital_feasibility_json,
+    )
+
+    payload = _capital_feasibility_json(None)
+    assert payload["computed"] is False
+    assert payload["outcome"] is None
+    note = payload["note"]
+    assert isinstance(note, str)
+    assert "not a finding" in note
