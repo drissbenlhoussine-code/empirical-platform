@@ -56,7 +56,7 @@ _USAGE = (
     "[--as-of YYYY-MM-DD] [--lookback-days N] "
     "[--account-equity X] [--risk-percent X] "
     "[--artifact-path PATH] [--no-historical-evidence] "
-    "<symbol> [symbol ...]"
+    "[--no-capital-feasibility] <symbol> [symbol ...]"
 )
 
 #: Sensible, documented, overridable defaults -- avoids a 30-argument
@@ -92,6 +92,7 @@ def run_daily_research_workflow(
     config: PostgreSQLConfigSnapshot | None = None,
     rng: random.Random | None = None,
     include_historical_evidence: bool = True,
+    include_capital_feasibility: bool = True,
 ) -> DailyResearchBrief:
     """Run one complete daily research session against real
     PostgreSQL and the real network-capable Yahoo Finance adapter,
@@ -169,6 +170,7 @@ def run_daily_research_workflow(
             historical_evidence_query_repository=(
                 runtime.historical_portfolio_evidence_query if include_historical_evidence else None
             ),
+            include_capital_feasibility=include_capital_feasibility,
         )
         entry_point = QueryEntryPoint(brief_handler)
         return entry_point(
@@ -190,6 +192,7 @@ def _parse_args(args: list[str]) -> dict[str, object]:
     artifact_path: str | None = None
     symbols: list[str] = []
     include_historical_evidence = True
+    include_capital_feasibility = True
 
     i = 0
     while i < len(args):
@@ -220,6 +223,9 @@ def _parse_args(args: list[str]) -> dict[str, object]:
         elif arg == "--no-historical-evidence":
             include_historical_evidence = False
             i += 1
+        elif arg == "--no-capital-feasibility":
+            include_capital_feasibility = False
+            i += 1
         elif arg.startswith("--"):
             raise SystemExit(_USAGE)
         else:
@@ -238,6 +244,7 @@ def _parse_args(args: list[str]) -> dict[str, object]:
         "artifact_path": artifact_path,
         "symbols": tuple(symbols),
         "include_historical_evidence": include_historical_evidence,
+        "include_capital_feasibility": include_capital_feasibility,
     }
 
 
@@ -271,6 +278,7 @@ def main() -> None:
             risk_percent=parsed["risk_percent"],  # type: ignore[arg-type]
             artifact_path=parsed["artifact_path"],  # type: ignore[arg-type]
             include_historical_evidence=parsed["include_historical_evidence"],  # type: ignore[arg-type]
+            include_capital_feasibility=parsed["include_capital_feasibility"],  # type: ignore[arg-type]
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from exc

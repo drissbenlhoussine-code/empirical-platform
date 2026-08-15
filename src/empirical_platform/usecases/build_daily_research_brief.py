@@ -38,6 +38,11 @@ from empirical_platform.decision_candidate.research_session import (
 from empirical_platform.decision_candidate.research_session_repository import (
     ResearchSessionRepository,
 )
+from empirical_platform.decision_candidate.same_day_capital_feasibility import (
+    SameDayCapitalAssessment,
+    SameDayPositionRequest,
+    assess_same_day_capital_feasibility,
+)
 from empirical_platform.decision_candidate.trade_plan import TradePlan
 from empirical_platform.decision_candidate.trade_plan_repository import TradePlanRepository
 from empirical_platform.identifiers.pairs import DomainIdentity
@@ -91,6 +96,26 @@ def _risk_evidence_from(
     )
 
 
+def _capital_request_from(
+    *, decision: ResearchDecisionEntry, position_plan: PositionPlan
+) -> SameDayPositionRequest | None:
+    """MILESTONE-075. Extract one approved plan's capital demand. Returns
+    `None` when the plan carries no sizing, so the assessment can name the
+    exclusion rather than silently dropping it."""
+    sizing = position_plan.sizing
+    if sizing is None:
+        return None
+    return SameDayPositionRequest(
+        rank=decision.rank,
+        instrument_symbol=decision.instrument_symbol,
+        position_plan_governance_id=str(position_plan.identity.governance_id),
+        quantity=sizing.quantity,
+        position_notional=sizing.position_notional,
+        actual_risk=sizing.actual_risk,
+        supplied_account_equity=position_plan.supplied_account_equity,
+    )
+
+
 class BuildDailyResearchBriefHandler:
     """Build one operator-facing daily research brief. MILESTONE-074
     adds a read-only historical-evidence discovery step that surfaces
@@ -103,6 +128,7 @@ class BuildDailyResearchBriefHandler:
         "_trade_plans",
         "_position_plans",
         "_historical_evidence_discovery",
+        "_include_capital_feasibility",
     )
 
     def __init__(
@@ -114,11 +140,13 @@ class BuildDailyResearchBriefHandler:
         position_plan_repository: PositionPlanRepository,
         historical_evidence_query_repository: HistoricalPortfolioEvidenceQueryRepository
         | None = None,
+        include_capital_feasibility: bool = True,
     ) -> None:
         self._research_sessions = research_session_repository
         self._decision_candidates = decision_candidate_repository
         self._trade_plans = trade_plan_repository
         self._position_plans = position_plan_repository
+        self._include_capital_feasibility = include_capital_feasibility
         self._historical_evidence_discovery = (
             DiscoverHistoricalPortfolioEvidenceHandler(
                 query_repository=historical_evidence_query_repository
@@ -140,12 +168,23 @@ class BuildDailyResearchBriefHandler:
         )
 
         is_completed = target.status.value == "COMPLETED"
-        evidence_by_governance_id = {
+        fetched = {
             decision.decision_candidate_governance_id: self._fetch_evidence(
                 decision, session_is_completed=is_completed
             )
             for decision in target.decisions
         }
+        evidence_by_governance_id = {key: value[0] for key, value in fetched.items()}
+        # MILESTONE-075. Ordering here is irrelevant -- the assessment sorts by
+        # its own deterministic priority key -- but the tuple is built from
+        # `target.decisions` rather than the dict so it never depends on dict
+        # insertion order either.
+        capital_requests = tuple(
+            request
+            for decision in target.decisions
+            for request in (fetched[decision.decision_candidate_governance_id][1],)
+            if request is not None
+        )
 
         summary = ResearchSessionSummary(
             identity=target.identity,
@@ -195,6 +234,13 @@ class BuildDailyResearchBriefHandler:
                 "not a confirmed absence of compatible evidence",
             )
 
+        capital_assessment: SameDayCapitalAssessment | None = None
+        if self._include_capital_feasibility:
+            capital_assessment = assess_same_day_capital_feasibility(
+                requests=capital_requests,
+                session_is_completed=is_completed,
+            )
+
         return build_daily_research_brief(
             session=summary,
             session_status=target.status.value,
@@ -226,11 +272,12 @@ class BuildDailyResearchBriefHandler:
                 f"{stage.stage_name.value}: {stage.status.value}" for stage in target.stage_manifest
             ),
             historical_portfolio_evidence=historical_evidence,
+            same_day_capital_assessment=capital_assessment,
         )
 
     def _fetch_evidence(
         self, decision: ResearchDecisionEntry, *, session_is_completed: bool
-    ) -> FetchedInstrumentEvidence:
+    ) -> tuple[FetchedInstrumentEvidence, SameDayPositionRequest | None]:
         candidate = self._decision_candidates.get_by_governance_id(
             DecisionCandidateId(decision.decision_candidate_governance_id)
         )
@@ -248,6 +295,7 @@ class BuildDailyResearchBriefHandler:
         position_plan_reason_codes: tuple[str, ...] = ()
         position_plan_reason_unavailable = False
         risk_evidence: BriefRiskEvidence | None = None
+        capital_request: SameDayPositionRequest | None = None
 
         if decision.position_plan_governance_id is not None:
             position_plan = self._position_plans.get_by_governance_id(
@@ -259,6 +307,9 @@ class BuildDailyResearchBriefHandler:
                 risk_evidence = _risk_evidence_from(
                     trade_plan=trade_plan, position_plan=position_plan
                 )
+                capital_request = _capital_request_from(
+                    decision=decision, position_plan=position_plan
+                )
         elif session_is_completed and decision.trade_plan_decision == "APPROVED_PLAN":
             # MILESTONE-070's own orchestrator attempts position sizing for
             # every APPROVED_PLAN trade plan and only persists
@@ -269,7 +320,7 @@ class BuildDailyResearchBriefHandler:
             position_plan_status = "REJECTED_POSITION_PLAN"
             position_plan_reason_unavailable = True
 
-        return FetchedInstrumentEvidence(
+        evidence = FetchedInstrumentEvidence(
             evaluation_reason_codes=evaluation_reason_codes,
             trade_plan_reason_codes=trade_plan_reason_codes,
             position_plan_status=position_plan_status,
@@ -277,3 +328,4 @@ class BuildDailyResearchBriefHandler:
             position_plan_reason_unavailable=position_plan_reason_unavailable,
             risk_evidence=risk_evidence,
         )
+        return evidence, capital_request
