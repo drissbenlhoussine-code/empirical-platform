@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-073
+LATEST_FROZEN_MILESTONE=MILESTONE-074
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -664,8 +664,21 @@ M073_PROFITABILITY_CLAIM=NONE_MADE
 M073_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M073_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M074_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-074 -- recommendation only; not started as part of M073
+M074_SCOPE=Historical Portfolio Evidence in the Daily Research Brief (a read-only, M074-owned query boundary plus a pure compatibility rule binding separately persisted M064 survivorship-aware robustness studies and their M067 portfolio companions to an already-persisted M070 daily session, surfaced in the M072 brief under a strict honesty banner; zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new business logic)
+M074_SCOPE_STATUS=APPROVED_AND_FROZEN
+M074_DESIGN_STATUS=APPROVED_AND_FROZEN
+M074_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M074_IMPLEMENTATION_COMMIT=42eafb5
+M074_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M074_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M074_OWNER_FREEZE_COMMIT=PENDING
+M074_STATUS=APPROVED_AND_FROZEN
+M074_PROFITABILITY_CLAIM=NONE_MADE
+M074_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M074_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M075_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-075 -- recommendation only; not started as part of M074
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2659,4 +2672,44 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 
 **Status:** `APPROVED_AND_FROZEN`.
 
-**Next permitted action:** MILESTONE-074 — recommendation only; not started as part of M073. Per the mission's own explicit instruction, MILESTONE-074 was NOT built.
+## 106. MILESTONE-074 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_074_HISTORICAL_PORTFOLIO_EVIDENCE_MACRO_MILESTONE_FREEZE.md` (implementation evidence, canonical results, hostile review, independent second pass, freeze-impact audit, owner approval) and `MILESTONE_063_EXCEPTIONAL_BYTE_SEAL_RECONCILIATION.md` (the owner-authorized, non-semantic byte-seal repair to frozen MILESTONE-063 that M074 closure required). Unlike M070-M073, M074 has no separate `..._SCOPE_AND_DESIGN.md`; its scope, compatibility rules, and design rationale are recorded in the `historical_portfolio_evidence.py` module docstring, in pull request #4, and in `.validation-proof-m074/`. That deviation is recorded rather than papered over.
+
+**Why M074 exists.** M073 made the daily research product runnable as one command, and named portfolio/risk evidence integration as the single biggest remaining blocker. M074 closes the read-only half of that gap: the operator's daily brief can now show whether separately produced, structurally compatible historical portfolio evidence exists for the exact strategy, ranking, risk and sizing identities the session ran under -- and, just as importantly, say honestly when it does not, and why.
+
+**Selected design.** A pure, I/O-free compatibility rule in `decision_candidate/historical_portfolio_evidence.py` (H1-H4 hard policy identity, W minimum window count, C classification threshold, U1/U2 universe coverage separating evaluated from eligible instrument sets, L lineage integrity enforced in the pure rule rather than trusted from the adapter, T coverage timestamp, F future-evidence rejection, S 90-day staleness), a Protocol query boundary owned by `decision_candidate`, a SELECT-only PostgreSQL adapter, a thin discovery usecase, and read-only extensions to the M072 brief. Discovery failure is surfaced to the operator as an explicitly unavailable lookup, never as a confirmed absence of evidence. `--no-historical-evidence` suppresses the lookup itself on both daily paths.
+
+**The M063 exception.** M074 inherited a blocker it did not cause: frozen M063's dataset seal recorded a Windows working-tree (CRLF) digest rather than the committed blob, so 14 M063 unit tests failed on every clean checkout and the `foundation` workflow could not reach green on any branch. Under narrow owner authorization the seal was reconciled to the committed blob's own digest, with a `-text` pin scoped to that single fixture path. Zero fixture bytes changed; the entire repair is four lines. MILESTONE-063 remains `APPROVED_AND_FROZEN` and its original freeze document is untouched.
+
+**Actual results, un-massaged.** The original closure run was interrupted and its container lost; every figure below was re-measured afterwards on fresh clones against a PostgreSQL 16 instance created for the purpose, not carried over. With PostgreSQL off: 1863 passed, 357 skipped, 80.01% coverage against an unchanged 79% floor. With PostgreSQL on: 2206 passed, 14 skipped, 91.93%. M070-M074 integration: 24 passed, 5 skipped, twice, the second against a brand-new database. Two clones differing only in `core.autocrlf` both reproduce the repaired M063 seal.
+
+**Tests:** 29 new pure unit tests plus 6 real-PostgreSQL integration tests across a lifecycle suite and a logically independent second-pass suite.
+
+**Hostile review:** three passes recorded in `.validation-proof-m074/`, the last of them 89 checks run fresh after the interruption rather than inherited. It found one genuine defect and fixed it inline with two regression tests: a naive `datetime.min` `coverage_end` sentinel made candidate ordering raise `TypeError` whenever one M064 study was rejected before coverage could be derived and another after, which silently replaced a correct INCOMPATIBLE verdict and its reasons with a "discovery failed / lookup unavailable" warning. Two further findings were recorded for the owner rather than changed.
+
+**Freeze-impact audit:** every pre-M074 Python file this milestone touches is AST-identical to its `master` counterpart -- the M067 migration, the M067 lifecycle test, and both M068 usecase modules changed by `ruff format` reflow only. M064/M065 fixture blob OIDs are identical to `master`, no M064/M065 test file was touched, and `git check-attr text` reports `unspecified` for every M064/M065 fixture.
+
+**Known remaining defect, deliberately not repaired:** M062, M064 and M065 carry the same seal-authoring defect M063 carried. On a clean LF checkout M074's head fails 8 tests with 12 errors where `master` before it failed 22 with 12 -- the 14-test improvement is exactly the M063 repair, and nothing regressed. CI runs on `windows-latest`, so none of it surfaces there. Each warrants its own authorization.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_074_HISTORICAL_PORTFOLIO_EVIDENCE_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, or investment advice is made anywhere in this milestone** -- M074 surfaces historical research evidence that already existed, under a banner that explicitly disclaims today's portfolio, open positions, live risk, paper accounts, profitability, and any claim that survivorship bias was eliminated. Concurrent-position handling remains absent, and continues to gate both richer daily risk evidence and any legitimate future paper-trading milestone.
+
+**Next permitted action:** see Section 107.
+
+## 107. MILESTONE-074 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_074_HISTORICAL_PORTFOLIO_EVIDENCE_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-074 scope, design, implementation, hostile review, independent second pass, and the freeze-impact audit as one consolidated unit, together with the owner-authorized M063 exceptional byte-seal reconciliation recorded separately in `MILESTONE_063_EXCEPTIONAL_BYTE_SEAL_RECONCILIATION.md`.
+
+**Delivered capability, frozen:** the daily research brief now surfaces separately persisted, structurally compatible M064 survivorship-aware robustness evidence and its M067 portfolio companion, under a strict honesty banner, in both text and JSON -- and distinguishes an unavailable lookup from a confirmed absence of evidence. Zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new business logic.
+
+**Delivered via:** pull request #4, owner-approved at head `822451376ab2ec1594df0d056b0e0ba740e69928` with the `foundation` workflow green on that exact SHA (run `31874225648`, all fourteen steps), merged into `master` as `5e9e0b61d19870a3f1686e7f9b1c4ee8c8b54e24`. Owner approval was granted only after an owner-verification script, executed unmodified from the project root, proved the M063 and M064/M065 claims directly from Git objects: **21 passed, 0 failed**.
+
+**MILESTONE-063 status is unchanged by this freeze:** `APPROVED_AND_FROZEN`. Its original freeze document is untouched and remains historical truth, including the seal value it recorded. The exception record does not replace, amend, or reinterpret it.
+
+**Freeze declaration:** `M074 MACRO MILESTONE APPROVED_AND_FROZEN`. `M074 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-075 — recommendation only; not started as part of M074. Per the mission's own explicit instruction, MILESTONE-075 was NOT built.
