@@ -3,6 +3,7 @@ A	external-review/MILESTONE-076/README.md
 A	external-review/MILESTONE-076/changed-files.txt
 A	external-review/MILESTONE-076/hostile-implementation-review.md
 A	external-review/MILESTONE-076/known-limitations.md
+A	external-review/MILESTONE-076/owner-correction-pass.md
 A	external-review/MILESTONE-076/reality-gate.md
 A	external-review/MILESTONE-076/scope-and-design-snapshot.md
 A	external-review/MILESTONE-076/validation-results.md

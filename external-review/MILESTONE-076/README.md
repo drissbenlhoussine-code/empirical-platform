@@ -12,4 +12,5 @@ Status: `M076 IMPLEMENTED_AND_REVIEWED_CANDIDATE_PENDING_OWNER_FREEZE`.
 | `validation-results.md` | gates, master-vs-branch baseline, PostgreSQL, CLI transcript |
 | `hostile-implementation-review.md` | 49 attacks, 4 genuine defects found and fixed |
 | `known-limitations.md` | what this does not do, and why |
+| `owner-correction-pass.md` | the three owner findings and exactly how each was corrected |
 | `reality-gate.md` | the ten honesty questions, answered |

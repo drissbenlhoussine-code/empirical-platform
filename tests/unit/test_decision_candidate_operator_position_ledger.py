@@ -6,7 +6,7 @@ pre-implementation design review. Happy paths are the minority.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -373,3 +373,104 @@ def test_no_identifier_type_lost_its_prefix() -> None:
     assert types.ResearchSessionId.prefix == "RESEARCH"
     assert types.OperatorPositionEventId.prefix == "OPEV"
     assert str(types.OperatorPositionEventId("OPEV-7601")) == "OPEV-7601"
+
+
+# --------------------------------------------------------------------------
+# MILESTONE-076 owner correction -- Finding 2: timezone invariant
+# --------------------------------------------------------------------------
+
+
+def test_naive_event_timestamp_is_refused_at_the_domain_boundary() -> None:
+    with pytest.raises(LedgerRejectionError) as exc:
+        OperatorAssertedPositionEvent(
+            governance_id="E1",
+            runtime_id="R1",
+            position_governance_id="P1",
+            instrument_symbol="AAPL",
+            kind=OperatorPositionEventKind.OPENED,
+            quantity=1,
+            asserted_price=Decimal("10"),
+            event_timestamp=datetime(2026, 3, 1),  # noqa: DTZ001 - the attack
+            recorded_at=_T0,
+        )
+    assert exc.value.reason is LedgerRejectionReason.NAIVE_TIMESTAMP
+
+
+def test_naive_recorded_at_is_refused_at_the_domain_boundary() -> None:
+    with pytest.raises(LedgerRejectionError) as exc:
+        OperatorAssertedPositionEvent(
+            governance_id="E1",
+            runtime_id="R1",
+            position_governance_id="P1",
+            instrument_symbol="AAPL",
+            kind=OperatorPositionEventKind.OPENED,
+            quantity=1,
+            asserted_price=Decimal("10"),
+            event_timestamp=_T0,
+            recorded_at=datetime(2026, 3, 1),  # noqa: DTZ001 - the attack
+        )
+    assert exc.value.reason is LedgerRejectionReason.NAIVE_TIMESTAMP
+
+
+def test_naive_as_of_is_refused() -> None:
+    with pytest.raises(LedgerRejectionError) as exc:
+        derive_position_state(events=(), as_of=datetime(2026, 3, 1))  # noqa: DTZ001
+    assert exc.value.reason is LedgerRejectionReason.NAIVE_TIMESTAMP
+
+
+def test_different_offsets_for_the_same_instant_behave_identically() -> None:
+    """A single instant expressed two ways must fold to the same state, and the
+    inclusive `as_of` boundary must hold across offsets."""
+    utc_moment = datetime(2026, 3, 5, 12, 0, tzinfo=UTC)
+    plus_two = datetime(2026, 3, 5, 14, 0, tzinfo=timezone(timedelta(hours=2)))
+    assert utc_moment == plus_two
+    event = OperatorAssertedPositionEvent(
+        governance_id="E1",
+        runtime_id="R1",
+        position_governance_id="P1",
+        instrument_symbol="AAPL",
+        kind=OperatorPositionEventKind.OPENED,
+        quantity=8,
+        asserted_price=Decimal("10"),
+        event_timestamp=plus_two,
+        recorded_at=utc_moment,
+    )
+    assert derive_position_state(events=(event,), as_of=utc_moment).total_open_quantity == 8
+    assert derive_position_state(events=(event,), as_of=plus_two).total_open_quantity == 8
+    just_before = utc_moment - timedelta(microseconds=1)
+    assert derive_position_state(events=(event,), as_of=just_before).total_open_quantity == 0
+
+
+# --------------------------------------------------------------------------
+# MILESTONE-076 owner correction -- Finding 3: price invariants
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("price", ["0", "-1", "-0.000001"])
+def test_non_positive_price_is_a_domain_invariant_not_only_a_db_check(price: str) -> None:
+    with pytest.raises(LedgerRejectionError) as exc:
+        _ev("E1", "OPENED", price=price)
+    assert exc.value.reason is LedgerRejectionReason.NON_POSITIVE_ASSERTED_PRICE
+
+
+@pytest.mark.parametrize("price", ["1.1234567", "0.00000001", "100.123456789"])
+def test_price_beyond_the_persisted_scale_is_refused(price: str) -> None:
+    """NUMERIC(20,6) would round these, so an accepted value would reload as a
+    different one and break deterministic replay."""
+    with pytest.raises(LedgerRejectionError) as exc:
+        _ev("E1", "OPENED", price=price)
+    assert exc.value.reason is LedgerRejectionReason.ASSERTED_PRICE_PRECISION_EXCEEDED
+
+
+@pytest.mark.parametrize("price", ["1", "1.5", "0.000001", "123.456789", "99999999999.999999"])
+def test_prices_within_the_persisted_scale_are_accepted(price: str) -> None:
+    assert _ev("E1", "OPENED", price=price).asserted_price == Decimal(price)
+
+
+def test_max_precision_survives_the_canonical_money_rendering() -> None:
+    state = derive_position_state(
+        events=(_ev("E1", "OPENED", qty=1, price="123.456789"),),
+        as_of=_T0 + timedelta(days=1),
+    )
+    assert state.open_positions[0].asserted_entry_price == "123.456789"
+    assert state.open_positions[0].asserted_open_notional == "123.456789"

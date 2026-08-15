@@ -5,6 +5,10 @@ My own attack on my own diff. Not an independent review.
 
 ## Genuine defects found and fixed
 
+> **Owner review of this head found three further correctness defects that this review
+> missed or, in one case, explicitly waved through. They are recorded in
+> `owner-correction-pass.md` and are fixed on this branch.**
+
 **I-01 — I broke 74 previously-passing tests by appending an identifier class in the
 wrong place.** The new `OperatorPositionEventId` landed between `ResearchSessionId`'s
 docstring and its `prefix = "RESEARCH"` line, so `ResearchSessionId` silently inherited
@@ -112,5 +116,5 @@ rejected by `ANN401` and removed.
 | 45 | Unparseable price/quantity/timestamp | PASS — usage error |
 | 46 | Rejection surfaces as a stack trace | PASS — `SystemExit("rejected: …")` |
 | 47 | Reconstruction after restart | PASS — state is derived from rows every call; the CLI proves it across separate processes |
-| 48 | Two concurrent appends both validate | ACCEPTED — the unique constraint stops duplicates; two *different* conflicting events could interleave. Single-operator CLI primitive; documented in `known-limitations.md` rather than locked with a mechanism this milestone cannot justify |
+| 48 | Two concurrent appends both validate | **FIXED after owner review — my original `ACCEPTED` verdict was wrong.** I found this race and argued it away as a documented limitation. A ledger whose invariant two ordinary writers can break does not have that invariant. Now atomic under `pg_advisory_xact_lock` keyed on the position id, with four real concurrency attacks. See `owner-correction-pass.md` |
 | 49 | Symbol not validated against `instrument_master` | ACCEPTED — deliberately uncoupled so the primitive stands alone; documented |

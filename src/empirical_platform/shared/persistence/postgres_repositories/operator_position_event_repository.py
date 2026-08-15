@@ -8,6 +8,7 @@ the ledger being an immutable log of operator assertions.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, cast
@@ -15,9 +16,11 @@ from typing import Any, cast
 from empirical_platform.decision_candidate.operator_position_ledger import (
     OperatorAssertedPositionEvent,
     OperatorPositionEventKind,
+    validate_appended_event,
 )
 from empirical_platform.shared.contracts.repository import AggregateAlreadyExists
 from empirical_platform.shared.errors import FoundationError
+from empirical_platform.shared.interfaces.persistence import PersistenceUnitOfWork
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories._errors import (
     unique_violation_constraint_name,
@@ -57,42 +60,79 @@ class PostgresOperatorPositionLedgerRepository:
     def __init__(self, service: PostgresPersistenceService) -> None:
         self._service = service
 
-    def append(self, event: OperatorAssertedPositionEvent) -> None:
+    def append_validated(
+        self, candidate: OperatorAssertedPositionEvent
+    ) -> OperatorAssertedPositionEvent:
+        """Serialise on the position key, then read-validate-insert atomically.
+
+        MILESTONE-076 owner correction (Finding 1). `pg_advisory_xact_lock` is
+        held for the remainder of THIS transaction, so a second writer targeting
+        the same position key blocks until this one commits or rolls back and
+        then re-reads committed state. Without it, two concurrent reducers could
+        each validate against the same open quantity and both persist, leaving a
+        ledger the canonical fold rejects.
+
+        The lock key is the position governance id, so writers to DIFFERENT
+        positions never contend.
+        """
         with self._service.unit_of_work() as work:
-            try:
-                work.execute(
-                    "INSERT INTO operator_position_event "
-                    "(runtime_id, governance_id, position_governance_id, "
-                    "instrument_symbol, event_kind, quantity, asserted_price, "
-                    "event_timestamp, recorded_at, "
-                    "source_position_plan_governance_id, note) VALUES "
-                    "(:runtime_id, :governance_id, :position_governance_id, "
-                    ":instrument_symbol, :event_kind, :quantity, :asserted_price, "
-                    ":event_timestamp, :recorded_at, "
-                    ":source_position_plan_governance_id, :note)",
-                    {
-                        "runtime_id": event.runtime_id,
-                        "governance_id": event.governance_id,
-                        "position_governance_id": event.position_governance_id,
-                        "instrument_symbol": event.instrument_symbol,
-                        "event_kind": event.kind.value,
-                        "quantity": event.quantity,
-                        "asserted_price": event.asserted_price,
-                        "event_timestamp": event.event_timestamp,
-                        "recorded_at": event.recorded_at,
-                        "source_position_plan_governance_id": (
-                            event.source_position_plan_governance_id
-                        ),
-                        "note": event.note,
-                    },
-                )
-            except FoundationError as exc:
-                constraint = unique_violation_constraint_name(exc)
-                if constraint in _ROOT_UNIQUE_CONSTRAINTS:
-                    raise AggregateAlreadyExists(
-                        aggregate_kind=_AGGREGATE_KIND, identity=event.governance_id
-                    ) from exc
-                raise
+            work.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(:lock_key))",
+                {"lock_key": f"operator_position_event:{candidate.position_governance_id}"},
+            )
+            rows = work.execute(
+                "SELECT runtime_id, governance_id, position_governance_id, "
+                "instrument_symbol, event_kind, quantity, asserted_price, "
+                "event_timestamp, recorded_at, source_position_plan_governance_id, note "
+                "FROM operator_position_event ORDER BY event_timestamp, governance_id"
+            )
+            existing = tuple(_row_to_event(row) for row in rows)
+            effective_quantity = validate_appended_event(existing=existing, candidate=candidate)
+            persisted = (
+                replace(candidate, quantity=effective_quantity)
+                if candidate.kind is OperatorPositionEventKind.CLOSED
+                else candidate
+            )
+            self._insert(work, persisted)
+        return persisted
+
+    def _insert(self, work: PersistenceUnitOfWork, event: OperatorAssertedPositionEvent) -> None:
+        """Insert one already-validated event inside the CALLER's transaction,
+        so the advisory lock taken by `append_validated` still covers it."""
+        try:
+            work.execute(
+                "INSERT INTO operator_position_event "
+                "(runtime_id, governance_id, position_governance_id, "
+                "instrument_symbol, event_kind, quantity, asserted_price, "
+                "event_timestamp, recorded_at, "
+                "source_position_plan_governance_id, note) VALUES "
+                "(:runtime_id, :governance_id, :position_governance_id, "
+                ":instrument_symbol, :event_kind, :quantity, :asserted_price, "
+                ":event_timestamp, :recorded_at, "
+                ":source_position_plan_governance_id, :note)",
+                {
+                    "runtime_id": event.runtime_id,
+                    "governance_id": event.governance_id,
+                    "position_governance_id": event.position_governance_id,
+                    "instrument_symbol": event.instrument_symbol,
+                    "event_kind": event.kind.value,
+                    "quantity": event.quantity,
+                    "asserted_price": event.asserted_price,
+                    "event_timestamp": event.event_timestamp,
+                    "recorded_at": event.recorded_at,
+                    "source_position_plan_governance_id": (
+                        event.source_position_plan_governance_id
+                    ),
+                    "note": event.note,
+                },
+            )
+        except FoundationError as exc:
+            constraint = unique_violation_constraint_name(exc)
+            if constraint in _ROOT_UNIQUE_CONSTRAINTS:
+                raise AggregateAlreadyExists(
+                    aggregate_kind=_AGGREGATE_KIND, identity=event.governance_id
+                ) from exc
+            raise
 
     def list_all(self) -> tuple[OperatorAssertedPositionEvent, ...]:
         with self._service.unit_of_work() as work:

@@ -7,7 +7,7 @@ would invalidate a later one is rejected instead of silently corrupting history.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
@@ -16,7 +16,6 @@ from empirical_platform.decision_candidate.operator_position_ledger import (
     LedgerRejectionError,
     OperatorAssertedPositionEvent,
     OperatorPositionEventKind,
-    validate_appended_event,
 )
 from empirical_platform.decision_candidate.operator_position_ledger_repository import (
     OperatorPositionLedgerRepository,
@@ -48,15 +47,16 @@ class RecordOperatorPositionEventHandler:
         self._ledger = ledger_repository
 
     def handle(self, command: RecordOperatorPositionEventCommand) -> OperatorAssertedPositionEvent:
-        candidate = command.event
-        existing = self._ledger.list_all()
-        effective_quantity = validate_appended_event(existing=existing, candidate=candidate)
-        if candidate.kind is OperatorPositionEventKind.CLOSED:
-            # The closing quantity is DERIVED, so an operator-supplied value can
-            # never disagree with the quantity actually open.
-            candidate = replace(candidate, quantity=effective_quantity)
-        self._ledger.append(candidate)
-        return candidate
+        """Delegate to the repository's ATOMIC validate-and-append.
+
+        MILESTONE-076 owner correction (Finding 1). This handler previously did
+        read -> validate -> append across separate transactions, so two
+        concurrent writers could both validate against the same stale state and
+        both persist, leaving a sequence the canonical fold rejects. Validation
+        now happens inside the same transaction, under the same position-key
+        lock, as the insert -- the only place the invariant can actually hold.
+        """
+        return self._ledger.append_validated(command.event)
 
 
 @dataclass(frozen=True, slots=True)

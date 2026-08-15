@@ -29,6 +29,7 @@ from decimal import Decimal
 from enum import StrEnum
 
 __all__ = [
+    "ASSERTED_PRICE_MAX_DECIMAL_PLACES",
     "OPERATOR_LEDGER_BANNER",
     "DerivedPosition",
     "DerivedPositionState",
@@ -39,6 +40,16 @@ __all__ = [
     "derive_position_state",
     "validate_appended_event",
 ]
+
+#: MILESTONE-076 owner correction (Finding 3). The persisted column is
+# NUMERIC(20, 6), so a price carrying more than six decimal places could be
+# silently rounded on the way to PostgreSQL -- an accepted value would then
+# reload as a DIFFERENT value, breaking deterministic replay and making the
+# rendered price disagree with the stored one. The domain therefore refuses any
+# price persistence cannot round-trip exactly. Rejecting is chosen over
+# quantizing because silently altering a number the operator asserted is itself
+# a small dishonesty.
+ASSERTED_PRICE_MAX_DECIMAL_PLACES = 6
 
 OPERATOR_LEDGER_BANNER = (
     "what the operator ASSERTED they did, and nothing more. NOT a broker record; "
@@ -68,6 +79,9 @@ class LedgerRejectionReason(StrEnum):
     INSTRUMENT_MISMATCH_FOR_POSITION = "INSTRUMENT_MISMATCH_FOR_POSITION"
     DUPLICATE_EVENT_GOVERNANCE_ID = "DUPLICATE_EVENT_GOVERNANCE_ID"
     NON_POSITIVE_QUANTITY = "NON_POSITIVE_QUANTITY"
+    NAIVE_TIMESTAMP = "NAIVE_TIMESTAMP"
+    NON_POSITIVE_ASSERTED_PRICE = "NON_POSITIVE_ASSERTED_PRICE"
+    ASSERTED_PRICE_PRECISION_EXCEEDED = "ASSERTED_PRICE_PRECISION_EXCEEDED"
 
 
 class LedgerRejectionError(Exception):
@@ -110,6 +124,44 @@ class OperatorAssertedPositionEvent:
     note: str | None = None
 
     def __post_init__(self) -> None:
+        # Finding 2: the whole temporal model -- inclusive `as_of`, exclusion of
+        # later events, TIMESTAMPTZ persistence -- depends on an unambiguous
+        # instant. A naive datetime has no instant, and comparing one against an
+        # aware one raises at runtime, so it is refused at the boundary.
+        for label, moment in (
+            ("event_timestamp", self.event_timestamp),
+            ("recorded_at", self.recorded_at),
+        ):
+            if moment.tzinfo is None or moment.utcoffset() is None:
+                raise LedgerRejectionError(
+                    reason=LedgerRejectionReason.NAIVE_TIMESTAMP,
+                    detail=(
+                        f"{label} must be timezone-aware; got a naive datetime {moment.isoformat()}"
+                    ),
+                )
+        # Finding 3: positivity is a domain invariant, not something the domain
+        # leaves to a database CHECK constraint.
+        if self.asserted_price <= 0:
+            raise LedgerRejectionError(
+                reason=LedgerRejectionReason.NON_POSITIVE_ASSERTED_PRICE,
+                detail=f"asserted_price must be > 0, got {self.asserted_price}",
+            )
+        exponent = self.asserted_price.as_tuple().exponent
+        if not isinstance(exponent, int):
+            raise LedgerRejectionError(
+                reason=LedgerRejectionReason.NON_POSITIVE_ASSERTED_PRICE,
+                detail=f"asserted_price must be finite, got {self.asserted_price}",
+            )
+        if -exponent > ASSERTED_PRICE_MAX_DECIMAL_PLACES:
+            raise LedgerRejectionError(
+                reason=LedgerRejectionReason.ASSERTED_PRICE_PRECISION_EXCEEDED,
+                detail=(
+                    f"asserted_price {self.asserted_price} carries {-exponent} decimal "
+                    f"places; persistence is NUMERIC(20, "
+                    f"{ASSERTED_PRICE_MAX_DECIMAL_PLACES}) and could not round-trip it "
+                    "exactly"
+                ),
+            )
         if (
             self.kind
             in (
@@ -326,6 +378,11 @@ def derive_position_state(
     after `as_of` are excluded even though their rows already exist, so a query
     about the past can never see the future.
     """
+    if as_of.tzinfo is None or as_of.utcoffset() is None:
+        raise LedgerRejectionError(
+            reason=LedgerRejectionReason.NAIVE_TIMESTAMP,
+            detail=f"as_of must be timezone-aware; got a naive datetime {as_of.isoformat()}",
+        )
     considered = tuple(e for e in events if e.event_timestamp <= as_of)
     excluded = len(events) - len(considered)
 
