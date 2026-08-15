@@ -26,6 +26,7 @@ from empirical_platform.decision_candidate.operator_position_ledger import (
     LedgerRejectionReason,
     OperatorAssertedPositionEvent,
     OperatorPositionEventKind,
+    derive_position_state,
 )
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
@@ -492,3 +493,49 @@ def test_m076_mixed_timezone_offsets_for_one_instant_agree(clean_tables: Engine)
     assert at_boundary.total_open_quantity == 4  # type: ignore[attr-defined]
     just_before = _state(config, utc_moment - timedelta(seconds=1))
     assert just_before.total_open_quantity == 0  # type: ignore[attr-defined]
+
+
+def test_m076_maximum_numeric_20_6_price_round_trips_exactly(clean_tables: Engine) -> None:
+    """The final owner correction, proven against the real column: the largest
+    value the domain accepts must survive PostgreSQL unchanged, and render
+    identically in memory and after reload."""
+    config = _config()
+    price = Decimal("99999999999999.999999")
+    original = _ev(
+        "EV-MAX1", "OPENED", pos="POS-MAX", symbol="AAPL", qty=1, price=str(price), day=0
+    )
+    _record(config, original)
+
+    with postgres_repository_runtime(config) as runtime:
+        loaded = runtime.operator_position_ledger.list_for_position("POS-MAX")
+    assert loaded[0].asserted_price == price
+    assert loaded[0] == original  # full semantic equality after reload
+
+    with clean_tables.begin() as conn:
+        stored = conn.execute(
+            text("SELECT asserted_price FROM operator_position_event WHERE governance_id='EV-MAX1'")
+        ).scalar_one()
+    assert Decimal(str(stored)) == price
+
+    in_memory = derive_position_state(events=(original,), as_of=_T0 + timedelta(days=1))
+    reloaded = _state(config, _T0 + timedelta(days=1))
+    assert (
+        in_memory.open_positions[0].asserted_entry_price
+        == reloaded.open_positions[0].asserted_entry_price  # type: ignore[attr-defined]
+        == "99999999999999.999999"
+    )
+
+
+def test_m076_overflowing_price_is_refused_before_it_reaches_postgresql(
+    clean_tables: Engine,
+) -> None:
+    """PostgreSQL would raise "numeric field overflow" on this value. The domain
+    must refuse it first, so no row is ever attempted."""
+    with pytest.raises(LedgerRejectionError) as exc:
+        _ev(
+            "EV-MAX2", "OPENED", pos="POS-OVF", symbol="AAPL", qty=1, price="100000000000000", day=0
+        )
+    assert exc.value.reason is LedgerRejectionReason.ASSERTED_PRICE_PRECISION_EXCEEDED
+    with clean_tables.begin() as conn:
+        count = conn.execute(text("SELECT count(*) FROM operator_position_event")).scalar_one()
+    assert count == 0

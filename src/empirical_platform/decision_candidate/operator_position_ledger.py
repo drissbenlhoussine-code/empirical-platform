@@ -30,6 +30,7 @@ from enum import StrEnum
 
 __all__ = [
     "ASSERTED_PRICE_MAX_DECIMAL_PLACES",
+    "ASSERTED_PRICE_MAX_INTEGER_DIGITS",
     "OPERATOR_LEDGER_BANNER",
     "DerivedPosition",
     "DerivedPositionState",
@@ -50,6 +51,17 @@ __all__ = [
 # quantizing because silently altering a number the operator asserted is itself
 # a small dishonesty.
 ASSERTED_PRICE_MAX_DECIMAL_PLACES = 6
+
+#: MILESTONE-076 owner correction (final). NUMERIC(20, 6) bounds the TOTAL
+# precision at 20 digits, not just the scale, so at most 20 - 6 = 14 digits may
+# sit left of the point. PostgreSQL states it directly: "A field with precision
+# 20, scale 6 must round to an absolute value less than 10^14."
+#
+# Bounding the scale alone was not enough. `Decimal("100000000000000")` passed
+# every domain check and was then refused by the database -- which broke M076's
+# own claim that an accepted price round-trips deterministically, since a value
+# that cannot be stored cannot round-trip at all.
+ASSERTED_PRICE_MAX_INTEGER_DIGITS = 14
 
 OPERATOR_LEDGER_BANNER = (
     "what the operator ASSERTED they did, and nothing more. NOT a broker record; "
@@ -81,6 +93,10 @@ class LedgerRejectionReason(StrEnum):
     NON_POSITIVE_QUANTITY = "NON_POSITIVE_QUANTITY"
     NAIVE_TIMESTAMP = "NAIVE_TIMESTAMP"
     NON_POSITIVE_ASSERTED_PRICE = "NON_POSITIVE_ASSERTED_PRICE"
+    #: Covers BOTH NUMERIC(20, 6) bounds -- too many decimal places, and too
+    # many digits left of the point. One reason is kept rather than two because
+    # the invariant is single: "exactly representable by the persisted column".
+    # The detail message names which bound was exceeded.
     ASSERTED_PRICE_PRECISION_EXCEEDED = "ASSERTED_PRICE_PRECISION_EXCEEDED"
 
 
@@ -151,6 +167,17 @@ class OperatorAssertedPositionEvent:
             raise LedgerRejectionError(
                 reason=LedgerRejectionReason.NON_POSITIVE_ASSERTED_PRICE,
                 detail=f"asserted_price must be finite, got {self.asserted_price}",
+            )
+        integer_digits = max(0, len(self.asserted_price.as_tuple().digits) + exponent)
+        if integer_digits > ASSERTED_PRICE_MAX_INTEGER_DIGITS:
+            raise LedgerRejectionError(
+                reason=LedgerRejectionReason.ASSERTED_PRICE_PRECISION_EXCEEDED,
+                detail=(
+                    f"asserted_price {self.asserted_price} needs {integer_digits} digits "
+                    f"left of the point; persistence is NUMERIC(20, "
+                    f"{ASSERTED_PRICE_MAX_DECIMAL_PLACES}) and admits at most "
+                    f"{ASSERTED_PRICE_MAX_INTEGER_DIGITS}"
+                ),
             )
         if -exponent > ASSERTED_PRICE_MAX_DECIMAL_PLACES:
             raise LedgerRejectionError(

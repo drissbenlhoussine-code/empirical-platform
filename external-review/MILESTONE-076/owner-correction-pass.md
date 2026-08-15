@@ -72,18 +72,59 @@ in-scale values accepted including `0.000001` and `99999999999.999999`; six-deci
 round-trips through PostgreSQL with full object equality; over-precision refused *before*
 any row is written.
 
+## Finding 4 — NUMERIC(20,6) total-precision parity (second owner re-review)
+
+Owner re-review of `f1b4340` confirmed Findings 1–3 fixed and found one more
+contract gap, which was also real.
+
+**Root cause.** Finding 3 bounded the *scale* at six decimal places but never the
+*total precision*. `NUMERIC(20, 6)` bounds both: 20 total digits, so at most **14 digits
+left of the point**. `Decimal("100000000000000")` therefore passed every domain check and
+was refused by PostgreSQL:
+
+```
+ERROR:  numeric field overflow
+DETAIL:  A field with precision 20, scale 6 must round to an absolute value
+         less than 10^14.
+```
+
+That broke M076's own claim that an accepted price round-trips deterministically — a
+value that cannot be stored cannot round-trip at all. My earlier "maximum precision" test
+used `99999999999999.999999`'s smaller cousin `99999999999.999999`, only eleven integer
+digits, so it never probed the real ceiling.
+
+**Correction.** `ASSERTED_PRICE_MAX_INTEGER_DIGITS = 14`, enforced in the domain, with the
+existing `ASSERTED_PRICE_PRECISION_EXCEEDED` reason refined to cover both halves of one
+invariant — *exactly representable by the persisted column* — and a detail message naming
+which bound was exceeded. No clamping, no rounding; the value is refused.
+
+| Attack | Result |
+|---|---|
+| `99999999999999.999999` (the column's exact ceiling) | **accepted** |
+| `99999999999999` (max integer-only) | **accepted** |
+| `100000000000000` (one integer digit too many) | rejected in-domain, before persistence |
+| `100000000000000.5`, `999999999999999`, `1E+15` | rejected |
+| `1.1234567` (>6 decimals) | still rejected |
+| `0`, `-1`, `-0.000001` | still rejected |
+| PostgreSQL round-trip of the ceiling value | exact: `Decimal` equality, full object equality, raw-SQL equality |
+| in-memory vs reloaded rendering | identical `99999999999999.999999` |
+| overflow value | never reaches PostgreSQL — row count stays 0 |
+
+The honesty banner is **byte-identical** and the ledger module diff is **purely additive
+(zero deleted lines)**.
+
 ## Verification after correction
 
 | | master `92ff472` | corrected branch |
 |---|---|---|
-| PostgreSQL off | 8 failed, 1869 passed, 12 errors | 8 failed, **1914** passed, 12 errors |
-| PostgreSQL on | 24 failed, 2168 passed, 44 errors | 24 failed, **2227** passed, 44 errors |
+| PostgreSQL off | 8 failed, 1869 passed, 12 errors | 8 failed, **1922** passed, 12 errors |
+| PostgreSQL on | 24 failed, 2168 passed, 44 errors | 24 failed, **2237** passed, 44 errors |
 
-Identical failure and error counts; **+45 / +59 passing. Zero regressions.**
+Identical failure and error counts; **+53 / +69 passing. Zero regressions.**
 
-- M076 focused: 45 unit + 14 integration
-- M070–M076 integration: 36 passed, 5 skipped
-- Fresh second PostgreSQL pass on `m076_correction_pass2`, migrations from empty: 14/14
+- M076 focused: 53 unit + 16 integration
+- M070–M076 integration: 38 passed, 5 skipped
+- Fresh second PostgreSQL pass on a database created empty: 16/16
 - ruff / format / mypy (289) / architecture / negative fixture / pip-audit / secret scan
   (0) / build / wheel import — all pass
 

@@ -474,3 +474,61 @@ def test_max_precision_survives_the_canonical_money_rendering() -> None:
     )
     assert state.open_positions[0].asserted_entry_price == "123.456789"
     assert state.open_positions[0].asserted_open_notional == "123.456789"
+
+
+# --------------------------------------------------------------------------
+# MILESTONE-076 final owner correction -- NUMERIC(20,6) total-precision parity
+# --------------------------------------------------------------------------
+
+
+def test_maximum_value_numeric_20_6_can_hold_is_accepted() -> None:
+    """14 integer digits + 6 decimals is exactly the column's ceiling."""
+    price = Decimal("99999999999999.999999")
+    assert _ev("E1", "OPENED", price=str(price)).asserted_price == price
+
+
+def test_maximum_integer_only_value_is_accepted() -> None:
+    assert _ev("E1", "OPENED", price="99999999999999").asserted_price == Decimal("99999999999999")
+
+
+@pytest.mark.parametrize(
+    "price",
+    ["100000000000000", "100000000000000.5", "999999999999999", "1E+15"],
+)
+def test_one_integer_digit_too_many_is_rejected(price: str) -> None:
+    """Regression for the final owner finding. Bounding the SCALE alone was not
+    enough: NUMERIC(20,6) also bounds TOTAL precision, so `100000000000000`
+    passed every domain check and was then refused by PostgreSQL with
+    "must round to an absolute value less than 10^14" -- breaking M076's own
+    claim that an accepted price round-trips deterministically."""
+    with pytest.raises(LedgerRejectionError) as exc:
+        _ev("E1", "OPENED", price=price)
+    assert exc.value.reason is LedgerRejectionReason.ASSERTED_PRICE_PRECISION_EXCEEDED
+    assert "left of the point" in exc.value.detail
+
+
+def test_the_two_numeric_bounds_are_both_enforced_by_one_invariant() -> None:
+    """Scale and precision are two halves of one rule: exactly representable by
+    the persisted column. Both raise the same reason, with a detail naming which
+    bound was exceeded."""
+    too_many_decimals = pytest.raises(LedgerRejectionError)
+    with too_many_decimals as scale_exc:
+        _ev("E1", "OPENED", price="1.1234567")
+    with pytest.raises(LedgerRejectionError) as precision_exc:
+        _ev("E2", "OPENED", price="100000000000000")
+    assert (
+        scale_exc.value.reason
+        is precision_exc.value.reason
+        is LedgerRejectionReason.ASSERTED_PRICE_PRECISION_EXCEEDED
+    )
+    assert "decimal places" in scale_exc.value.detail
+    assert "left of the point" in precision_exc.value.detail
+
+
+def test_max_valid_price_renders_identically_in_memory() -> None:
+    state = derive_position_state(
+        events=(_ev("E1", "OPENED", qty=1, price="99999999999999.999999"),),
+        as_of=_T0 + timedelta(days=1),
+    )
+    assert state.open_positions[0].asserted_entry_price == "99999999999999.999999"
+    assert state.open_positions[0].asserted_open_notional == "99999999999999.999999"
