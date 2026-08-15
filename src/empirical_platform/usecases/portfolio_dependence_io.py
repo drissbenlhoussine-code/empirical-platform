@@ -180,15 +180,12 @@ def portfolio_dependence_report_payload(report: object) -> dict[str, object]:
             ),
             "stressed_perfect_correlation_concentration": (
                 str(typed.concentration_stress.stressed_perfect_correlation_concentration)
-                if typed.concentration_stress.stressed_perfect_correlation_concentration
-                is not None
+                if typed.concentration_stress.stressed_perfect_correlation_concentration is not None
                 else None
             ),
         },
         "pairwise_dependence": [_pair_payload(p) for p in typed.pairwise_dependence],
-        "concurrent_exposure_states": [
-            _state_payload(s) for s in typed.concurrent_exposure_states
-        ],
+        "concurrent_exposure_states": [_state_payload(s) for s in typed.concurrent_exposure_states],
         "classification": cast(_ValueEnumView, typed.classification).value,
         "limitations": list(typed.limitations),
     }

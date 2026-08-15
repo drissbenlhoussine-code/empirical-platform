@@ -11,6 +11,7 @@ from empirical_platform.decision_candidate.daily_research_brief import (
     AttentionLevel,
     BriefInstrumentEntry,
     DailyResearchBrief,
+    HistoricalPortfolioEvidence,
 )
 from empirical_platform.decision_candidate.research_session import SessionComparisonOutcome
 
@@ -73,7 +74,9 @@ def _entry_json(entry: BriefInstrumentEntry) -> dict[str, object]:
 def render_daily_research_brief_json(brief: DailyResearchBrief) -> dict[str, object]:
     """The same eight-section hierarchy as the text renderer, structured
     for machine consumption. Semantically identical content -- verified
-    against the text renderer by a dedicated test."""
+    against the text renderer by a dedicated test. MILESTONE-074 adds
+    a HISTORICAL_PORTFOLIO_EVIDENCE section between DATA_QUALITY and
+    LIMITATIONS when historical evidence is present."""
     return {
         "SESSION": {
             "session_governance_id": brief.session_governance_id,
@@ -112,6 +115,9 @@ def render_daily_research_brief_json(brief: DailyResearchBrief) -> dict[str, obj
             "dataset_sha256": brief.dataset_sha256,
             "as_of": brief.as_of.isoformat(),
         },
+        "HISTORICAL_PORTFOLIO_EVIDENCE": _historical_evidence_json(
+            brief.historical_portfolio_evidence
+        ),
         "LIMITATIONS": list(brief.limitations),
         "AUDIT": {
             "campaign_governance_id": brief.campaign_governance_id,
@@ -120,6 +126,102 @@ def render_daily_research_brief_json(brief: DailyResearchBrief) -> dict[str, obj
             "scan_governance_id": brief.scan_governance_id,
             "stage_manifest_summary": list(brief.stage_manifest_summary),
         },
+    }
+
+
+_HISTORICAL_BANNER = (
+    "separately persisted historical research evidence, structurally "
+    "compatible with this daily session. NOT today's portfolio; NOT open "
+    "positions; NOT live risk; NOT a paper account; NOT a profitability "
+    "claim; NOT proof that survivorship bias was eliminated."
+)
+
+
+def _historical_evidence_json(
+    items: tuple[HistoricalPortfolioEvidence, ...],
+) -> dict[str, object]:
+    """Render the historical portfolio evidence section as a JSON
+    object. Returns either a populated list (with the honesty banner)
+    or an explicit absence placeholder -- never fabricated evidence."""
+    if not items:
+        return {
+            "honesty_banner": _HISTORICAL_BANNER,
+            "candidates": [],
+            "selected_compatible": None,
+            "absence_reason": (
+                "no compatible historical evidence available -- to produce one, run "
+                "empirical-platform-run-survivorship-aware-robustness-study and "
+                "optionally empirical-platform-run-portfolio-historical-evidence "
+                "with matching strategy, risk, sizing, and universe authority"
+            ),
+        }
+    serialized: list[dict[str, object]] = []
+    for item in items:
+        serialized.append(
+            {
+                "is_selected": item.is_selected,
+                "compatibility_status": item.compatibility_status,
+                "compatibility_reasons": list(item.compatibility_reasons),
+                "survivorship_study_identity_runtime": item.survivorship_study_identity_runtime,
+                "survivorship_study_identity_governance": (
+                    item.survivorship_study_identity_governance
+                ),
+                "survivorship_study_window_count": (item.survivorship_study_window_count),
+                "survivorship_study_total_executed_trade_count": (
+                    item.survivorship_study_total_executed_trade_count
+                ),
+                "survivorship_study_all_window_net_pnl_total": (
+                    item.survivorship_study_all_window_net_pnl_total
+                ),
+                "survivorship_study_classification": (item.survivorship_study_classification),
+                "survivorship_study_dataset_bundle_id": (item.survivorship_study_dataset_bundle_id),
+                "survivorship_study_dataset_bundle_sha256": (
+                    item.survivorship_study_dataset_bundle_sha256
+                ),
+                "survivorship_study_universe_id": item.survivorship_study_universe_id,
+                "survivorship_study_universe_version": (item.survivorship_study_universe_version),
+                "survivorship_study_universe_membership_model": (
+                    item.survivorship_study_universe_membership_model
+                ),
+                "survivorship_study_supplied_account_equity": (
+                    item.survivorship_study_supplied_account_equity
+                ),
+                "survivorship_study_supplied_risk_percent": (
+                    item.survivorship_study_supplied_risk_percent
+                ),
+                "survivorship_study_stress_comparison": (item.survivorship_study_stress_comparison),
+                "coverage_end": item.coverage_end.isoformat(),
+                "matched_window_resolved_eligible_symbols": list(
+                    item.matched_window_resolved_eligible_symbols
+                ),
+                "portfolio_study_identity_governance": (item.portfolio_study_identity_governance),
+                "portfolio_study_allocated_count": item.portfolio_study_allocated_count,
+                "portfolio_study_realized_pnl": item.portfolio_study_realized_pnl,
+                "portfolio_study_initial_capital": item.portfolio_study_initial_capital,
+                "portfolio_study_currency": item.portfolio_study_currency,
+                "portfolio_study_max_concurrent_positions": (
+                    item.portfolio_study_max_concurrent_positions
+                ),
+                "portfolio_study_max_capital_utilization_percent": (
+                    item.portfolio_study_max_capital_utilization_percent
+                ),
+            }
+        )
+    selected = next((item for item in items if item.is_selected), None)
+    return {
+        "honesty_banner": _HISTORICAL_BANNER,
+        "candidates": serialized,
+        "selected_compatible": (
+            {
+                "survivorship_study_governance_id": (
+                    selected.survivorship_study_identity_governance
+                ),
+                "coverage_end": selected.coverage_end.isoformat(),
+                "window_count": selected.survivorship_study_window_count,
+            }
+            if selected is not None
+            else None
+        ),
     }
 
 
@@ -224,6 +326,53 @@ def render_daily_research_brief_text(brief: DailyResearchBrief) -> str:
             ],
         )
     )
+
+    historical_lines = [f"  {line}" for line in _HISTORICAL_BANNER.split(". ") if line]
+    if brief.historical_portfolio_evidence:
+        for item in brief.historical_portfolio_evidence:
+            selected_marker = " [SELECTED]" if item.is_selected else ""
+            historical_lines.append(
+                f"  candidate{selected_marker}: "
+                f"{item.survivorship_study_identity_governance} "
+                f"status={item.compatibility_status} "
+                f"windows={item.survivorship_study_window_count} "
+                f"trades={item.survivorship_study_total_executed_trade_count} "
+                f"pnl={item.survivorship_study_all_window_net_pnl_total} "
+                f"classification={item.survivorship_study_classification} "
+                f"coverage_end={item.coverage_end.isoformat()}"
+            )
+            for reason in item.compatibility_reasons:
+                historical_lines.append(f"    reason: {reason}")
+        selected = next(
+            (item for item in brief.historical_portfolio_evidence if item.is_selected),
+            None,
+        )
+        if selected is not None:
+            historical_lines.append("")
+            historical_lines.append(
+                f"  selected compatible study: "
+                f"{selected.survivorship_study_identity_governance} "
+                f"(latest historical coverage ending at {selected.coverage_end.isoformat()})"
+            )
+            if selected.portfolio_study_identity_governance is not None:
+                historical_lines.append(
+                    f"  attached M067 portfolio report: "
+                    f"{selected.portfolio_study_identity_governance} "
+                    f"allocated={selected.portfolio_study_allocated_count} "
+                    f"pnl={selected.portfolio_study_realized_pnl} "
+                    f"initial_capital={selected.portfolio_study_initial_capital} "
+                    f"max_concurrent={selected.portfolio_study_max_concurrent_positions}"
+                )
+            else:
+                historical_lines.append("  no M067 portfolio report attached for this M064 study")
+    else:
+        historical_lines.append(
+            "  no compatible historical evidence available -- to produce one, run "
+            "empirical-platform-run-survivorship-aware-robustness-study and "
+            "optionally empirical-platform-run-portfolio-historical-evidence "
+            "with matching strategy, risk, sizing, and universe authority"
+        )
+    out.extend(_section("HISTORICAL PORTFOLIO EVIDENCE", historical_lines))
 
     out.extend(_section("LIMITATIONS", [f"  - {limitation}" for limitation in brief.limitations]))
 

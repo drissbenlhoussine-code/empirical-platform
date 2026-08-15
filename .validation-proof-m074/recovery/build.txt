@@ -1,0 +1,4 @@
+adding 'empirical_platform-0.0.0.dist-info/RECORD'
+removing build/bdist.linux-x86_64/wheel
+Successfully built empirical_platform-0.0.0.tar.gz and empirical_platform-0.0.0-py3-none-any.whl
+exit=0

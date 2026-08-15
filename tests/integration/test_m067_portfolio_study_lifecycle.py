@@ -443,7 +443,10 @@ def test_acceptance_control_capital_bottleneck(study_seeded: tuple[Engine, str, 
         runtime_id=RuntimeIdentifier("00000000-0000-4000-8000-000000000001"),
     )
     report = build_portfolio_evidence_report(
-        identity=identity, study=study, window_runs=window_runs, capital_policy=tiny_policy  # type: ignore[arg-type]
+        identity=identity,
+        study=study,
+        window_runs=window_runs,
+        capital_policy=tiny_policy,  # type: ignore[arg-type]
     )
 
     assert report.allocated_count > 0
@@ -459,7 +462,10 @@ def test_acceptance_control_capital_bottleneck(study_seeded: tuple[Engine, str, 
 
     # Deterministic: rerunning produces an identical decision set.
     report_again = build_portfolio_evidence_report(
-        identity=identity, study=study, window_runs=window_runs, capital_policy=tiny_policy  # type: ignore[arg-type]
+        identity=identity,
+        study=study,
+        window_runs=window_runs,
+        capital_policy=tiny_policy,  # type: ignore[arg-type]
     )
     assert report_again.allocation_decisions == report.allocation_decisions
 
@@ -485,7 +491,10 @@ def test_acceptance_control_capital_release(study_seeded: tuple[Engine, str, str
         runtime_id=RuntimeIdentifier("00000000-0000-4000-8000-000000000002"),
     )
     report = build_portfolio_evidence_report(
-        identity=identity, study=study, window_runs=window_runs, capital_policy=policy  # type: ignore[arg-type]
+        identity=identity,
+        study=study,
+        window_runs=window_runs,
+        capital_policy=policy,  # type: ignore[arg-type]
     )
     allocated = [
         d for d in report.allocation_decisions if d.decision is PortfolioAllocationOutcome.ALLOCATED
@@ -605,13 +614,9 @@ def test_acceptance_control_future_mutation(study_seeded: tuple[Engine, str, str
     latest_run, latest_trade = max(all_trades, key=lambda rt: cast(datetime, rt[1].entry_timestamp))
     assert latest_trade.entry_timestamp is not None
     mutated_trade = dataclasses.replace(latest_trade, net_pnl=Decimal("-999999.000000"))
-    mutated_trades = tuple(
-        mutated_trade if t is latest_trade else t for t in latest_run.trades
-    )
+    mutated_trades = tuple(mutated_trade if t is latest_trade else t for t in latest_run.trades)
     mutated_run = dataclasses.replace(latest_run, trades=mutated_trades)
-    mutated_window_runs = tuple(
-        mutated_run if run is latest_run else run for run in window_runs
-    )
+    mutated_window_runs = tuple(mutated_run if run is latest_run else run for run in window_runs)
 
     mutated = build_portfolio_evidence_report(
         identity=identity,

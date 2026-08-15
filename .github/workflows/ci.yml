@@ -13,7 +13,11 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install
-        run: python -m pip install -e ".[dev,test,security,build]"
+        # persistence and object-storage carry sqlalchemy/alembic/psycopg and
+        # boto3, which src/ imports directly. Without them the environment
+        # cannot type-check or even import the persistence layer, so `mypy`
+        # fails on unresolvable imports and test collection breaks.
+        run: python -m pip install -e ".[persistence,object-storage,dev,test,security,build]"
       - name: Syntax compile
         run: python -m compileall -q src tests tools migrations
       - name: Format check
@@ -33,6 +37,11 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             throw "Negative architecture fixture did not report a violation."
           }
+          # The fixture is SUPPOSED to exit non-zero. GitHub's pwsh wrapper
+          # appends `exit $LASTEXITCODE`, so without this the step inherits the
+          # checker's expected failure and reports the gate as broken. Reaching
+          # this line means the negative fixture behaved exactly as required.
+          exit 0
       - name: Dependency audit
         run: python -m pip_audit
       - name: Secret scan

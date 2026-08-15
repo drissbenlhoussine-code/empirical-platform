@@ -1,0 +1,38 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.13.14, pytest-9.1.1, pluggy-1.6.0 -- C:\Users\LuxSy\Documents\trading\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+hypothesis profile 'default'
+rootdir: C:\Users\LuxSy\Documents\trading
+configfile: pyproject.toml
+plugins: hypothesis-6.156.6, cov-6.3.0, xdist-3.8.0
+collecting ... collected 27 items
+
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_compatible_study_selected_in_order PASSED [  3%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_strategy_mismatch_makes_incompatible PASSED [  7%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_strategy_version_mismatch PASSED [ 11%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_ranking_mismatch PASSED [ 14%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_risk_policy_mismatch PASSED [ 18%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_sizing_policy_mismatch PASSED [ 22%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_requested_universe_not_in_any_window PASSED [ 25%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_one_window_study_is_rejected PASSED [ 29%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_insufficient_sample_classification_rejected PASSED [ 33%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_future_evidence_rejected PASSED [ 37%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_stale_evidence_marked PASSED [ 40%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_stale_boundary_91_days PASSED [ 44%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_exactly_at_staleness_boundary_not_stale PASSED [ 48%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_missing_instrument_master_mapping_drops_resolved PASSED [ 51%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_multiple_candidates_sorted_by_coverage_desc PASSED [ 55%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_equal_coverage_uses_deterministic_runtime_id_tiebreak PASSED [ 59%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_detached_m067_silently_dropped PASSED [ 62%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_capital_policy_difference_annotated_not_rejected PASSED [ 66%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_m067_dataset_bundle_sha256_differs_from_m070_is_allowed PASSED [ 70%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_minimum_m064_window_count_constant_is_2 PASSED [ 74%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_no_candidates_returns_empty_tuple PASSED [ 77%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_evaluate_compatibility_pure_helper_short_circuits_in_order PASSED [ 81%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_universe_id_version_mismatch_in_persisted_data_does_not_block PASSED [ 85%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_u2_regression_eligible_superset_evaluated_subset_still_compatible PASSED [ 88%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_u2_evaluated_subset_only_fails_u2_pass_u1 PASSED [ 92%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_m067_malicious_portfolio_lookup_under_wrong_key_is_dropped PASSED [ 96%]
+tests/unit/test_decision_candidate_historical_portfolio_evidence.py::test_m067_correct_lineage_is_attached PASSED [100%]
+
+============================= 27 passed in 0.54s ==============================

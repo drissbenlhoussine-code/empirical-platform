@@ -1,0 +1,2 @@
+Required test coverage of 79.0% reached. Total coverage: 91.93%
+2206 passed, 14 skipped in 113.17s (0:01:53)

@@ -27,6 +27,9 @@ from empirical_platform.shared.persistence.postgres_repositories.evidence_packag
 from empirical_platform.shared.persistence.postgres_repositories.historical_backtest_repository import (  # noqa: E501
     PostgresHistoricalBacktestRunRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.historical_portfolio_evidence_query_repository import (  # noqa: E501
+    PostgresHistoricalPortfolioEvidenceQueryRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.portfolio_dependence_repository import (  # noqa: E501
     PostgresPortfolioDependenceReportRepository,
 )
@@ -104,6 +107,7 @@ class PostgresRepositoryRuntime:
         "_portfolio_studies",
         "_portfolio_dependence_reports",
         "_research_sessions",
+        "_historical_portfolio_evidence_query",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -135,6 +139,9 @@ class PostgresRepositoryRuntime:
         self._portfolio_studies = PostgresPortfolioStudyRepository(service)
         self._portfolio_dependence_reports = PostgresPortfolioDependenceReportRepository(service)
         self._research_sessions = PostgresResearchSessionRepository(service)
+        self._historical_portfolio_evidence_query = (
+            PostgresHistoricalPortfolioEvidenceQueryRepository(service)
+        )
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -221,6 +228,12 @@ class PostgresRepositoryRuntime:
     @property
     def research_sessions(self) -> PostgresResearchSessionRepository:
         return self._research_sessions
+
+    @property
+    def historical_portfolio_evidence_query(
+        self,
+    ) -> PostgresHistoricalPortfolioEvidenceQueryRepository:
+        return self._historical_portfolio_evidence_query
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""

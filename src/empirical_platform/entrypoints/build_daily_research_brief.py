@@ -33,7 +33,8 @@ from empirical_platform.usecases.list_daily_research_sessions import (
 )
 
 _USAGE = (
-    "usage: empirical-platform-daily-brief [--json] [<session_governance_id> <session_runtime_id>]"
+    "usage: empirical-platform-daily-brief [--json] [--no-historical-evidence] "
+    "[<session_governance_id> <session_runtime_id>]"
 )
 
 
@@ -42,6 +43,7 @@ def run_build_daily_research_brief(
     session_governance_id: str | None,
     session_runtime_id: str | None,
     config: PostgreSQLConfigSnapshot | None = None,
+    include_historical_evidence: bool = True,
 ) -> DailyResearchBrief:
     """Build one daily research brief end-to-end against real
     PostgreSQL. With no explicit session, defaults to the single most
@@ -69,6 +71,9 @@ def run_build_daily_research_brief(
             decision_candidate_repository=runtime.decision_candidates,
             trade_plan_repository=runtime.trade_plans,
             position_plan_repository=runtime.position_plans,
+            historical_evidence_query_repository=(
+                runtime.historical_portfolio_evidence_query if include_historical_evidence else None
+            ),
         )
         entry_point = QueryEntryPoint(handler)
         return entry_point(BuildDailyResearchBriefQuery(identity=identity))
@@ -77,7 +82,8 @@ def run_build_daily_research_brief(
 def main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
-    positional = [a for a in args if a != "--json"]
+    include_historical_evidence = "--no-historical-evidence" not in args
+    positional = [a for a in args if a not in ("--json", "--no-historical-evidence")]
 
     if len(positional) not in (0, 2):
         raise SystemExit(_USAGE)
@@ -88,6 +94,7 @@ def main() -> None:
     brief = run_build_daily_research_brief(
         session_governance_id=session_governance_id,
         session_runtime_id=session_runtime_id,
+        include_historical_evidence=include_historical_evidence,
     )
     if as_json:
         print(json.dumps(render_daily_research_brief_json(brief), sort_keys=True))

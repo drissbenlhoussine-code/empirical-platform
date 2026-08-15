@@ -1,0 +1,15 @@
+﻿## feature/m074-historical-portfolio-evidence
+ M src/empirical_platform/decision_candidate/daily_research_brief.py
+ M src/empirical_platform/entrypoints/build_daily_research_brief.py
+ M src/empirical_platform/entrypoints/run_daily_research_workflow.py
+ M src/empirical_platform/shared/persistence/postgres_repositories/runtime.py
+ M src/empirical_platform/usecases/build_daily_research_brief.py
+ M src/empirical_platform/usecases/daily_research_brief_io.py
+ M tests/unit/test_usecases_daily_research_brief.py
+?? .validation-proof-m074/
+?? src/empirical_platform/decision_candidate/historical_portfolio_evidence.py
+?? src/empirical_platform/decision_candidate/historical_portfolio_evidence_query_repository.py
+?? src/empirical_platform/shared/persistence/postgres_repositories/historical_portfolio_evidence_query_repository.py
+?? src/empirical_platform/usecases/discover_historical_portfolio_evidence.py
+?? tests/integration/test_m074_historical_portfolio_evidence_lifecycle.py
+?? tests/unit/test_decision_candidate_historical_portfolio_evidence.py

@@ -152,9 +152,7 @@ portfolio_allocation_decision = sa.Table(
         ondelete="CASCADE",
     ),
     sa.CheckConstraint("risk_amount > 0", name="risk_amount_positive"),
-    sa.CheckConstraint(
-        "decision IN ('ALLOCATED', 'REJECTED')", name="decision_valid"
-    ),
+    sa.CheckConstraint("decision IN ('ALLOCATED', 'REJECTED')", name="decision_valid"),
     sa.CheckConstraint(
         "rejection_reason IS NULL OR rejection_reason IN "
         "('INSUFFICIENT_AVAILABLE_CAPITAL', 'MAX_CONCURRENT_POSITIONS', "

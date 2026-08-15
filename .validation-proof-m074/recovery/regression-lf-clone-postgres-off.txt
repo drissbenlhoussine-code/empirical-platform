@@ -1,0 +1,9 @@
+# LF clean clone (core.autocrlf=false) at 36ef719, PostgreSQL off
+# Documents the pre-existing M062/M064/M065 CRLF-seal exposure.
+
+     12 ERROR tests/unit/test_decision_candidate_survivorship_study.py
+      1 FAILED tests/unit/test_decision_candidate_historical_import.py
+      6 FAILED tests/unit/test_decision_candidate_validation_study.py
+      1 FAILED tests/unit/test_decision_candidate_validation_study_independent_verification.py
+
+8 failed, 1843 passed, 357 skipped, 12 errors in 12.81s
