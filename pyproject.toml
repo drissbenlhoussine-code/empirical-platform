@@ -121,6 +121,7 @@ empirical-platform-record-position-event = "empirical_platform.entrypoints.recor
 empirical-platform-get-position-state = "empirical_platform.entrypoints.get_operator_position_state:main"
 empirical-platform-audit-follow-through = "empirical_platform.entrypoints.audit_research_decision_follow_through:main"
 empirical-platform-operator-evidence-snapshot = "empirical_platform.entrypoints.get_operator_evidence_snapshot:main"
+empirical-platform-asserted-round-trip = "empirical_platform.entrypoints.get_asserted_round_trip_report:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
