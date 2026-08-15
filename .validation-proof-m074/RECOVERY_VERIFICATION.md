@@ -19,7 +19,7 @@ the owner and are left exactly as they were.
 
 ## Clean-clone seal reproduction
 
-`clean-clone-seal-reproduction.txt`. Two clones of the same commit differing
+`clean-clone-seal-reproduction.md`. Two clones of the same commit differing
 only in `core.autocrlf`. The M063 fixture materializes to the repaired seal in
 both, which is what the `-text` pin exists to guarantee. M064 still materializes
 to its own recorded seal under `autocrlf=true`, untouched.
