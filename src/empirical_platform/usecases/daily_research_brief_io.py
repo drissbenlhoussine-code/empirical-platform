@@ -13,6 +13,11 @@ from empirical_platform.decision_candidate.daily_research_brief import (
     DailyResearchBrief,
     HistoricalPortfolioEvidence,
 )
+from empirical_platform.decision_candidate.portfolio_aware_capital_feasibility import (
+    PORTFOLIO_AWARE_FEASIBILITY_BANNER,
+    PortfolioAwareCapitalAssessment,
+    PortfolioAwareOutcome,
+)
 from empirical_platform.decision_candidate.research_session import SessionComparisonOutcome
 from empirical_platform.decision_candidate.same_day_capital_feasibility import (
     CAPITAL_FEASIBILITY_BANNER,
@@ -125,6 +130,9 @@ def render_daily_research_brief_json(brief: DailyResearchBrief) -> dict[str, obj
         ),
         "SAME_DAY_CAPITAL_FEASIBILITY": _capital_feasibility_json(
             brief.same_day_capital_assessment
+        ),
+        "PORTFOLIO_AWARE_CAPITAL_FEASIBILITY": _portfolio_aware_json(
+            brief.portfolio_aware_capital_assessment
         ),
         "LIMITATIONS": list(brief.limitations),
         "AUDIT": {
@@ -244,6 +252,77 @@ def _entry_line(entry: BriefInstrumentEntry) -> str:
 def _section(title: str, lines: list[str]) -> list[str]:
     body = lines if lines else ["  (none)"]
     return [title, *body, ""]
+
+
+def _portfolio_aware_json(
+    assessment: PortfolioAwareCapitalAssessment | None,
+) -> dict[str, object]:
+    """MILESTONE-077. Absence is reported as absence, never as a pass."""
+    if assessment is None:
+        return {
+            "computed": False,
+            "banner": PORTFOLIO_AWARE_FEASIBILITY_BANNER,
+            "note": (
+                "portfolio-aware capital feasibility was not computed for this brief; "
+                "this is not a finding that the session's approved plans fit within "
+                "capital after already-asserted exposure"
+            ),
+        }
+    return {
+        "computed": True,
+        "banner": PORTFOLIO_AWARE_FEASIBILITY_BANNER,
+        "outcome": assessment.outcome.value,
+        "unassessable_reason": (
+            None if assessment.unassessable_reason is None else assessment.unassessable_reason.value
+        ),
+        "policy_id": assessment.policy_id,
+        "policy_version": assessment.policy_version,
+        "currency": assessment.currency,
+        "capital_base": assessment.capital_base,
+        "max_concurrent_positions": assessment.max_concurrent_positions,
+        "max_capital_utilization_percent": assessment.max_capital_utilization_percent,
+        "capital_ceiling": assessment.capital_ceiling,
+        "held_position_count": assessment.held_position_count,
+        "held_asserted_notional": assessment.held_asserted_notional,
+        "remaining_capital_under_policy": assessment.remaining_capital_under_policy,
+        "requested_plan_count": assessment.requested_plan_count,
+        "admitted_plan_count": assessment.admitted_plan_count,
+        "excluded_plan_count": assessment.excluded_plan_count,
+        "total_admitted_notional": assessment.total_admitted_notional,
+        "projected_committed_notional": assessment.projected_committed_notional,
+        "projected_utilization_percent_of_ceiling": (
+            assessment.projected_utilization_percent_of_ceiling
+        ),
+        "excluded_future_event_count": assessment.excluded_future_event_count,
+        "plans_already_acted_upon": list(assessment.plans_already_acted_upon),
+        "held_positions": [
+            {
+                "position_governance_id": position.position_governance_id,
+                "instrument_symbol": position.instrument_symbol,
+                "open_quantity": position.open_quantity,
+                "asserted_entry_price": position.asserted_entry_price,
+                "asserted_open_notional": position.asserted_open_notional,
+                "source_position_plan_governance_id": (position.source_position_plan_governance_id),
+            }
+            for position in assessment.held_positions
+        ],
+        "verdicts": [
+            {
+                "rank": verdict.rank,
+                "instrument_symbol": verdict.instrument_symbol,
+                "position_plan_governance_id": verdict.position_plan_governance_id,
+                "quantity": verdict.quantity,
+                "position_notional": verdict.position_notional,
+                "fits": verdict.fits,
+                "rejection_reason": (
+                    None if verdict.rejection_reason is None else verdict.rejection_reason.value
+                ),
+                "cumulative_committed_notional": verdict.cumulative_committed_notional,
+            }
+            for verdict in assessment.verdicts
+        ],
+        "limitations": list(assessment.limitations),
+    }
 
 
 def _capital_feasibility_json(
@@ -488,6 +567,69 @@ def render_daily_research_brief_text(brief: DailyResearchBrief) -> str:
             capital_lines.append(f"  limitation: {limitation}")
 
     out.extend(_section("SAME-DAY CAPITAL FEASIBILITY", capital_lines))
+
+    portfolio_lines = [
+        f"  {line}" for line in PORTFOLIO_AWARE_FEASIBILITY_BANNER.split(". ") if line
+    ]
+    portfolio = brief.portfolio_aware_capital_assessment
+    if portfolio is None:
+        portfolio_lines.append(
+            "  not computed for this brief -- this is NOT a finding that the approved "
+            "plans fit within capital after already-asserted exposure"
+        )
+    else:
+        portfolio_lines.append(f"  outcome: {portfolio.outcome}")
+        if portfolio.unassessable_reason is not None:
+            portfolio_lines.append(f"  not assessable: {portfolio.unassessable_reason}")
+        if portfolio.outcome is not PortfolioAwareOutcome.NOT_ASSESSABLE:
+            portfolio_lines.append(
+                f"  policy: {portfolio.policy_id} v{portfolio.policy_version} "
+                f"capital_base={portfolio.capital_base} {portfolio.currency} "
+                f"ceiling={portfolio.capital_ceiling} "
+                f"max_concurrent={portfolio.max_concurrent_positions}"
+            )
+            portfolio_lines.append(
+                f"  operator-asserted open positions: {portfolio.held_position_count}, "
+                f"asserted notional {portfolio.held_asserted_notional}; remaining under "
+                f"policy {portfolio.remaining_capital_under_policy}"
+            )
+            for position in portfolio.held_positions:
+                cited = position.source_position_plan_governance_id or "-"
+                portfolio_lines.append(
+                    f"    held {position.instrument_symbol} qty={position.open_quantity} "
+                    f"asserted_entry={position.asserted_entry_price} "
+                    f"asserted_notional={position.asserted_open_notional} "
+                    f"cites_plan={cited}"
+                )
+            portfolio_lines.append(
+                f"  proposed {portfolio.requested_plan_count} plan(s); "
+                f"{portfolio.admitted_plan_count} fit after held exposure, totalling "
+                f"{portfolio.total_admitted_notional}; projected utilisation "
+                f"{portfolio.projected_utilization_percent_of_ceiling}"
+            )
+            for verdict in portfolio.verdicts:
+                rank = "-" if verdict.rank is None else str(verdict.rank)
+                if verdict.fits:
+                    portfolio_lines.append(
+                        f"    [{rank}] {verdict.instrument_symbol} "
+                        f"qty={verdict.quantity} notional={verdict.position_notional} "
+                        f"FITS (cumulative {verdict.cumulative_committed_notional})"
+                    )
+                else:
+                    portfolio_lines.append(
+                        f"    [{rank}] {verdict.instrument_symbol} "
+                        f"qty={verdict.quantity} notional={verdict.position_notional} "
+                        f"DOES NOT FIT ({verdict.rejection_reason})"
+                    )
+        for plan_id in portfolio.plans_already_acted_upon:
+            portfolio_lines.append(
+                f"  already acted upon: plan {plan_id} is cited by an open "
+                "operator-asserted position and was not counted again"
+            )
+        for limitation in portfolio.limitations:
+            portfolio_lines.append(f"  limitation: {limitation}")
+
+    out.extend(_section("PORTFOLIO-AWARE CAPITAL FEASIBILITY", portfolio_lines))
 
     out.extend(_section("LIMITATIONS", [f"  - {limitation}" for limitation in brief.limitations]))
 

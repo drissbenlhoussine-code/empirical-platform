@@ -13,6 +13,7 @@ pure `build_daily_research_brief` domain function unchanged.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from empirical_platform.decision_candidate.daily_research_brief import (
     BriefRiskEvidence,
@@ -25,6 +26,19 @@ from empirical_platform.decision_candidate.historical_portfolio_evidence import 
 )
 from empirical_platform.decision_candidate.historical_portfolio_evidence_query_repository import (
     HistoricalPortfolioEvidenceQueryRepository,
+)
+from empirical_platform.decision_candidate.operator_position_ledger import (
+    LedgerRejectionError,
+    OperatorPositionEventKind,
+    derive_position_state,
+)
+from empirical_platform.decision_candidate.operator_position_ledger_repository import (
+    OperatorPositionLedgerRepository,
+)
+from empirical_platform.decision_candidate.portfolio_aware_capital_feasibility import (
+    PortfolioAwareCapitalAssessment,
+    assess_portfolio_aware_capital_feasibility,
+    open_position_plan_lineage,
 )
 from empirical_platform.decision_candidate.position_plan import PositionPlan
 from empirical_platform.decision_candidate.position_plan_repository import PositionPlanRepository
@@ -129,6 +143,8 @@ class BuildDailyResearchBriefHandler:
         "_position_plans",
         "_historical_evidence_discovery",
         "_include_capital_feasibility",
+        "_operator_position_ledger",
+        "_include_portfolio_aware_feasibility",
     )
 
     def __init__(
@@ -141,12 +157,16 @@ class BuildDailyResearchBriefHandler:
         historical_evidence_query_repository: HistoricalPortfolioEvidenceQueryRepository
         | None = None,
         include_capital_feasibility: bool = True,
+        operator_position_ledger_repository: OperatorPositionLedgerRepository | None = None,
+        include_portfolio_aware_feasibility: bool = True,
     ) -> None:
         self._research_sessions = research_session_repository
         self._decision_candidates = decision_candidate_repository
         self._trade_plans = trade_plan_repository
         self._position_plans = position_plan_repository
         self._include_capital_feasibility = include_capital_feasibility
+        self._operator_position_ledger = operator_position_ledger_repository
+        self._include_portfolio_aware_feasibility = include_portfolio_aware_feasibility
         self._historical_evidence_discovery = (
             DiscoverHistoricalPortfolioEvidenceHandler(
                 query_repository=historical_evidence_query_repository
@@ -241,6 +261,12 @@ class BuildDailyResearchBriefHandler:
                 session_is_completed=is_completed,
             )
 
+        portfolio_assessment = self._portfolio_aware_assessment(
+            capital_requests=capital_requests,
+            as_of=target.as_of,
+            is_completed=is_completed,
+        )
+
         return build_daily_research_brief(
             session=summary,
             session_status=target.status.value,
@@ -273,6 +299,7 @@ class BuildDailyResearchBriefHandler:
             ),
             historical_portfolio_evidence=historical_evidence,
             same_day_capital_assessment=capital_assessment,
+            portfolio_aware_capital_assessment=portfolio_assessment,
         )
 
     def _fetch_evidence(
@@ -329,3 +356,49 @@ class BuildDailyResearchBriefHandler:
             risk_evidence=risk_evidence,
         )
         return evidence, capital_request
+
+    def _portfolio_aware_assessment(
+        self,
+        *,
+        capital_requests: tuple[SameDayPositionRequest, ...],
+        as_of: datetime,
+        is_completed: bool,
+    ) -> PortfolioAwareCapitalAssessment | None:
+        """MILESTONE-077. Charge already-asserted exposure against this
+        session's proposals.
+
+        Read-only with respect to M076. A ledger that cannot be read, or whose
+        persisted events do not fold coherently, is reported as withheld --
+        never as "nothing is held", which would be a stronger and false claim.
+        """
+        if not self._include_portfolio_aware_feasibility:
+            return None
+        ledger = self._operator_position_ledger
+        if ledger is None:
+            return assess_portfolio_aware_capital_feasibility(
+                requests=capital_requests,
+                held_state=None,
+                session_is_completed=is_completed,
+                ledger_available=False,
+            )
+        try:
+            events = ledger.list_all()
+            state = derive_position_state(events=events, as_of=as_of)
+        except LedgerRejectionError:
+            return assess_portfolio_aware_capital_feasibility(
+                requests=capital_requests,
+                held_state=None,
+                session_is_completed=is_completed,
+                ledger_available=True,
+            )
+        return assess_portfolio_aware_capital_feasibility(
+            requests=capital_requests,
+            held_state=state,
+            held_plan_lineage=open_position_plan_lineage(events=events, state=state),
+            lineage_by_position_key={
+                event.position_governance_id: event.source_position_plan_governance_id
+                for event in events
+                if event.kind is OperatorPositionEventKind.OPENED
+            },
+            session_is_completed=is_completed,
+        )

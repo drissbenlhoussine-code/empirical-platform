@@ -832,6 +832,7 @@ def test_main_json_flag_produces_valid_json(
         "DATA_QUALITY",
         "HISTORICAL_PORTFOLIO_EVIDENCE",
         "SAME_DAY_CAPITAL_FEASIBILITY",
+        "PORTFOLIO_AWARE_CAPITAL_FEASIBILITY",
         "LIMITATIONS",
         "AUDIT",
     }
