@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-078
+LATEST_FROZEN_MILESTONE=MILESTONE-079
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -729,8 +729,21 @@ M078_PROFITABILITY_CLAIM=NONE_MADE
 M078_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M078_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M079_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-079 -- recommendation only; not started as part of M078
+M079_SCOPE=Operator Evidence Availability Snapshot (a read-only, additive, point-in-time snapshot over the M076 operator-asserted ledger, reporting what the ledger RECORDS as having been recorded by an explicit inclusive knowledge cutoff K about what it says happened by an explicit inclusive effective cutoff E; M079 applies exactly one filter, recorded_at <= K, and delegates the effective filter and the fold to frozen M076 unchanged; no assertion with recorded_at > K may influence state, status, reason, counts, limitations, ordering or classification, enforced structurally because the snapshot builder is never given the unfiltered events; evidence recorded by K that does not fold is reported as UNRESOLVED_KNOWLEDGE_SEQUENCE with nothing inferred and no verdict on whether it will later resolve; emits NO monetary value of any kind; zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, and M070/M075/M076/M077/M078 read-only and unmodified)
+M079_SCOPE_STATUS=APPROVED_AND_FROZEN
+M079_DESIGN_STATUS=APPROVED_AND_FROZEN
+M079_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M079_IMPLEMENTATION_COMMIT=2996730 (evidence package 21ed5ad, corrected by 007df59)
+M079_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M079_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M079_OWNER_FREEZE_COMMIT=PENDING
+M079_STATUS=APPROVED_AND_FROZEN
+M079_PROFITABILITY_CLAIM=NONE_MADE
+M079_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M079_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M080_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-080 -- recommendation only; not started as part of M079
 ```
 
 ## 3. Frozen Milestone Summary
@@ -2931,3 +2944,49 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-079 — recommendation only; not started as part of M078. Per the mission's own explicit instruction, MILESTONE-079 was NOT built.
+
+## 116. MILESTONE-079 Macro Milestone Mission (APPROVED_AND_FROZEN)
+
+**Governance documents:** `MILESTONE_079_OPERATOR_EVIDENCE_AVAILABILITY_SNAPSHOT_SCOPE_AND_DESIGN.md` (repository truth, the proved gap, six ranked candidates, the two-dimensional temporal semantics, authoritative and non-authoritative inputs, failure modes, explicit non-goals, test strategy, and the owner-review retraction banner) and `..._MACRO_MILESTONE_FREEZE.md` (implementation evidence, the owner review correction, canonical results, adversarial review, the two-database proof, fresh second verification pass, frozen preservation, owner approval).
+
+**Why M079 exists.** M078's own frozen record named the missing piece: M078 is an EFFECTIVE-TIME audit and must not be treated as evidence-availability or forward-evaluation proof "without a future `recorded_at` firewall". That firewall did not exist. M076 persists two timestamps on every operator assertion -- `event_timestamp`, when the operator says the event happened, and `recorded_at`, when the assertion says it was written down -- both `TIMESTAMPTZ NOT NULL`, both validated timezone-aware, both SELECTed and INSERTed. A repository-wide search proved `recorded_at` was never filtered on, never ordered on and never read by any derivation: the fold's only temporal filter was `event_timestamp <= as_of`. The platform already stored knowledge-time and had no way to use it, so a position opened effective Aug 10 and written down on Aug 12 was fully visible to an audit asking "as known at Aug 10 16:00" -- a look-ahead leak that would silently contaminate every future calibration or outcome analysis.
+
+**Why this capability and not the outcome one.** Six candidates were ranked across ten criteria; the evidence-availability firewall won at 45, ahead of cross-session exposure evolution at 40 and decision-versus-asserted-outcome evaluation at 37. It is the only candidate that is a strict prerequisite for three of the others: outcome evaluation, forward observation and calibration all evaluate a decision against later information and are unsafe until knowledge-time filtering exists. Round-trip outcome evaluation remains rejected on honesty rather than feasibility, exactly as M078 froze it, and remains the owner's explicit choice. M079 makes it technically safe for the first time without making it any more authorized.
+
+**Selected design.** One new pure, I/O-free module, `decision_candidate/operator_evidence_availability.py`, plus one usecase, one renderer producing text and JSON from a single object, and one CLI entrypoint with its registered console script. Zero new aggregate, zero new PostgreSQL table, zero new column, zero new migration, zero new repository. M079 applies exactly one filter, `recorded_at <= K`, and hands the survivors to M076's own `derive_position_state`, which applies the effective filter and folds -- M076's fold remains the sole authority on open versus closed, is not modified and is not re-implemented. Both cutoffs are required and neither has a default, in the domain or in the CLI, because a default on either dimension would silently choose an epistemic stance.
+
+**Owner review correction: the classification leaked even though no value did.** One blocking temporal-leak finding, and it was real -- and wider than the finding named. When the knowledge-filtered sequence failed to fold, the first candidate re-folded the same key against the UNFILTERED event set to choose between `INCOMPLETE_KNOWLEDGE_SEQUENCE` and `LEDGER_INCOHERENT_FOR_POSITION`. That set can contain assertions with `recorded_at > K`, so future knowledge decided the status emitted at historical `K`. No position quantity was ever copied from that second fold; the design review verified exactly that and a test asserted it, and verifying only that no VALUE leaked is precisely what made the defect invisible -- nobody asked whether the CLASSIFICATION leaked. Two further fields failed the same rule and neither review had questioned them: `total_event_count`, which counts the whole ledger, and `excluded_by_knowledge_cutoff`, which is a direct readout of the rows the firewall hid, together with the limitation string carrying that count. All three are removed. The two statuses collapse into one honest `UNRESOLVED_KNOWLEDGE_SEQUENCE`, `total_event_count` becomes `known_event_count`, and `excluded_by_effective_cutoff` survives because it is computed only from evidence recorded by `K`. The guarantee is now structural rather than stated: all snapshot logic lives in `_snapshot_from_known_evidence`, which is never given the unfiltered events, so a post-cutoff row is not merely unused but unreachable, asserted by a test against that function's own signature and source. Design review conclusions T07, C05 and K03, the reality gate's safeguard paragraph and the original validation results are retracted in place with their originals preserved verbatim.
+
+**Actual results, un-massaged.** Measured against an identical baseline in one environment: `master` `5945e4e` ran 8 failed / 1975 passed / 12 errors with PostgreSQL off and 24 failed / 2383 passed / 44 errors with PostgreSQL on; the corrected M079 ran 8 failed / 2086 passed / 12 errors and 24 failed / 2458 passed / 44 errors. The zero-regression claim does not rest on counts matching: the sorted failing-test-id lists were diffed and are identical, and no M076, M077, M078 or M079 test appears in the failing set. Focused: 57 unit and 14 real-PostgreSQL integration tests, plus 4 on a fresh database created empty with reversed insertion order and deliberately different inputs; M076-M079 chain 290 passed. No gate was suppressed -- the module carries zero `type: ignore` and zero concealing `noqa`, and a `**dict` splat that would have needed a suppression was removed by restructuring.
+
+**Hostile review:** 81 pre-implementation attacks corrected 25 defects before a line of code was written, including a first draft with a single `as_of` serving both dimensions, a draft defaulting `knowledge_as_of` to now, and a draft that re-implemented M076's fold instead of delegating to it. The implementation pass catalogued 126 attacks and found two genuine defects, both by executing the code rather than reading it: R01, an unreachable `position is None` branch whose `continue` would have dropped a position from a snapshot with no entry, no count and no limitation; and R02, the design review's own header overstating its attack count. The unit suite had passed 37/37 on its first run, which was evidence the tests were not yet pointed at the right places. The owner review correction pass added 20 further attacks, catalogued O01-O20, and found three defects.
+
+**The two-database proof.** The strongest evidence for the corrected claim runs over real PostgreSQL: a second physical database created empty and migrated from scratch inside the test, both ledgers written through the real M076 repository. The two agree on every row with `recorded_at <= K` -- verified byte-for-byte by raw SQL -- and differ afterwards by governance id, asserted price, `recorded_at` and, in one, an entire extra position. At the cutoff the snapshots are equal as objects, their JSON is equal and their text is equal. A companion test advances the cutoff to prove the databases were genuinely different all along, and re-queries the original cutoff to prove the earlier answer is not retroactively strengthened. One frozen M076 behaviour is recorded rather than worked around: M076 derives a `CLOSED` event's quantity from the open position rather than taking it as supplied, so both ledgers' openings must carry the same quantity for the visible prefix to match. M076 was not modified.
+
+**Status:** `APPROVED_AND_FROZEN`. Owner Freeze record: `MILESTONE_079_OPERATOR_EVIDENCE_AVAILABILITY_SNAPSHOT_MACRO_MILESTONE_FREEZE.md`.
+
+**No claim of profitability, live-trading readiness, broker readiness, order execution, fills, market valuation, P&L, or investment advice is made anywhere in this milestone.** M079 proves what the operator's ledger records as having been recorded by a knowledge cutoff -- a statement about records of records, not about markets, money or conduct.
+
+**Next permitted action:** see Section 117.
+
+## 117. MILESTONE-079 Owner Freeze
+
+**Owner Freeze record:** `MILESTONE_079_OPERATOR_EVIDENCE_AVAILABILITY_SNAPSHOT_MACRO_MILESTONE_FREEZE.md`. Freezes MILESTONE-079 scope, design, implementation, the owner review correction, hostile review, the two-database PostgreSQL proof, fresh second verification pass, and the frozen-preservation audit as one consolidated unit.
+
+**Delivered capability, frozen:** `OPERATOR_EVIDENCE_AVAILABLE_AT(E, K)` -- for an explicit inclusive effective cutoff `E` and an explicit inclusive knowledge cutoff `K`, what the operator's ledger records as having been recorded by `K` about what it says happened by `E`, in both text and JSON. Zero new aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, and no monetary value of any kind. Distinct from `STATE_AT(t)`, `EVENT_AFTER(t)`, M074's `HISTORICAL_EVIDENCE_AVAILABLE_AT(t)`, M075's `RECOMMENDATION_SET_FEASIBILITY_AT(t)`, M076's `OPERATOR_ASSERTED_POSITION_STATE_AT(t)`, M077's `PORTFOLIO_AWARE_FEASIBILITY_AT(t)` and M078's `FOLLOW_THROUGH_OBSERVED_AT(t)`; it is the first two-dimensional temporal predicate in the platform.
+
+**Delivered via:** pull request #9, owner-approved at head `007df59948401b29f1330614a8da2dd99f0f42ed` with the `foundation` workflow green on that exact SHA, merged into `master` as `ac5de9404326c7920b7917cecdd574d219b9f7d4`.
+
+**Correction history preserved.** The pull request was merged with a true merge commit and nothing was squashed. All three commits remain reachable on `master`: the implementation `2996730`, the external review evidence package `21ed5ad693aa5d412d287bb7e38cced426616fab`, and the owner review correction `007df59948401b29f1330614a8da2dd99f0f42ed`.
+
+**The M079 point-in-time claim, preserved exactly and not strengthened by this freeze.** M079 reports what the ledger RECORDS as having been recorded by knowledge cutoff `K`. It does **NOT** prove what evidence was actually available at `K`, because `recorded_at` is operator-supplied and is not a system-assigned, independently attested, immutable receipt time -- an operator who back-dates it defeats the firewall undetectably. **No assertion with `recorded_at > K` may influence state, status, reason, counts, limitations, ordering or classification.** `UNRESOLVED_KNOWLEDGE_SEQUENCE` remains the honest point-in-time refusal: it means the evidence recorded by that cutoff does not form a coherent fold, and from that evidence alone it cannot be known whether this is temporary incompleteness or underlying ledger incoherence. **The retracted future-knowledge discriminator must not be silently restored.** Two costs of that correction are recorded rather than hidden: an operator can no longer be told whether an unresolved gap is likely to close, and the snapshot cannot report how many assertions it hid, because counting them would require reading them.
+
+**Owner-review retractions preserved.** The evidence package retains the superseded conclusions marked RETRACTED in place with their originals verbatim -- design review T07, C05 and K03, the reality gate's safeguard paragraph, the original validation results, and the mission report's own claim that the discriminator was "load-bearing", which was exactly backwards. The original incorrect discriminator decision is **not rewritten out of history**.
+
+**Preservation:** MILESTONE-078, MILESTONE-077, MILESTONE-076 and MILESTONE-075 are entirely unchanged by this freeze. `operator_position_ledger.py`, `same_day_capital_feasibility.py`, `portfolio_aware_capital_feasibility.py` and `research_decision_follow_through.py` are byte-identical across the merge, verified by diff rather than asserted. M078's frozen effective-time limitation is neither edited nor weakened: M079 supplies the firewall that limitation named as missing and does not retroactively change what M078 proves, so M078 remains an effective-time audit. MILESTONE-074 and the M063 exceptional byte-seal reconciliation record are untouched. No M057-M078 source file's semantics change and no migration is added or changed. The M062/M064/M065 CRLF seal debt was deliberately not repaired: M079 introduces no fixture, no dataset bundle and no byte seal, so the debt provably does not block it, and it continues to warrant its own authorization.
+
+**Freeze declaration:** `M079 MACRO MILESTONE APPROVED_AND_FROZEN`. `M079 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-080 — recommendation only; not started as part of M079.
