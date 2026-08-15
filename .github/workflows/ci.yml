@@ -37,6 +37,11 @@ jobs:
           if ($LASTEXITCODE -eq 0) {
             throw "Negative architecture fixture did not report a violation."
           }
+          # The fixture is SUPPOSED to exit non-zero. GitHub's pwsh wrapper
+          # appends `exit $LASTEXITCODE`, so without this the step inherits the
+          # checker's expected failure and reports the gate as broken. Reaching
+          # this line means the negative fixture behaved exactly as required.
+          exit 0
       - name: Dependency audit
         run: python -m pip_audit
       - name: Secret scan
