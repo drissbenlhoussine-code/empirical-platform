@@ -15,6 +15,7 @@ from decimal import Decimal
 from empirical_platform.decision_candidate.historical_portfolio_evidence import (
     HISTORICAL_EVIDENCE_STALENESS_DAYS,
     MINIMUM_M064_WINDOW_COUNT,
+    NO_COVERAGE_DERIVED,
     HistoricalEvidenceCompatibilityStatus,
     _evaluate_compatibility,
     find_compatible_historical_evidence,
@@ -1041,3 +1042,58 @@ def test_m067_correct_lineage_is_attached() -> None:
     )
     assert out[0].compatibility_status is HistoricalEvidenceCompatibilityStatus.COMPATIBLE
     assert out[0].portfolio_study_identity_governance == str(good_report.identity.governance_id)
+
+
+def test_no_coverage_sentinel_is_timezone_aware() -> None:
+    """The sentinel must be aware. Every real coverage_end comes from an
+    M064 window timestamp and is aware, and both kinds are sorted through
+    the same key."""
+    assert NO_COVERAGE_DERIVED.tzinfo is not None
+    assert NO_COVERAGE_DERIVED.utcoffset() == timedelta(0)
+
+
+def test_early_and_late_rejected_candidates_sort_together() -> None:
+    """Regression: one candidate rejected BEFORE coverage can be derived
+    (rule C) and one rejected AFTER it is derived (rule U1) end up in the
+    same non-compatible bucket and are sorted through one datetime key.
+
+    With a naive sentinel this raised
+    `TypeError: can't compare offset-naive and offset-aware datetimes`.
+    The brief handler catches it, so the brief still rendered -- but it
+    rendered the "discovery failed ... not a confirmed absence" warning
+    and dropped the evidence entirely. The lookup had in fact succeeded;
+    the operator was told the data was unavailable when the honest answer
+    was "two candidates, both incompatible, here is why".
+    """
+    early_runtime = _id_generator().generate()
+    early = _build_study(
+        study_runtime=early_runtime,
+        coverage_ends=_COVERAGE_DATES,
+        classification=SurvivorshipClassification.INSUFFICIENT_SAMPLE,
+    )
+    late_runtime = _id_generator().generate()
+    late = _build_study(
+        study_runtime=late_runtime,
+        coverage_ends=_COVERAGE_DATES,
+        eligible_iids_per_window=((InstrumentId("INSTR-AAPL-001"),),) * 2,
+        evaluated_iids_per_window=((InstrumentId("INSTR-AAPL-001"),),) * 2,
+    )
+
+    out = find_compatible_historical_evidence(
+        **_base_kwargs(),
+        survivorship_candidates=(early, late),
+        portfolio_lookup={},
+    )
+
+    assert len(out) == 2
+    assert all(
+        item.compatibility_status is HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE
+        for item in out
+    )
+    assert all(item.is_selected is False for item in out)
+    # coverage_end DESC: the candidate with real derived coverage sorts
+    # ahead of the one that never got any.
+    assert out[0].coverage_end == _COVERAGE_DATES[-1]
+    assert out[1].coverage_end == NO_COVERAGE_DERIVED
+    # And the sentinel still serializes without blowing up.
+    assert out[1].coverage_end.isoformat() == "0001-01-01T00:00:00+00:00"

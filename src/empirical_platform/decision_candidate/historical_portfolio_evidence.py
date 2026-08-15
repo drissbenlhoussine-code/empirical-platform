@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from empirical_platform.decision_candidate.instrument_master import InstrumentId, InstrumentMaster
@@ -62,6 +62,19 @@ from empirical_platform.decision_candidate.survivorship_study import (
 #: M074 design constant. Not a business policy that M075 may revise --
 # this is the M074 implementation constant.
 HISTORICAL_EVIDENCE_STALENESS_DAYS: int = 90
+
+#: Sentinel `coverage_end` for a candidate rejected before any coverage
+# could be derived (H1-H4, W, C, or an M064 with no window_results).
+#
+# It is timezone-AWARE on purpose. Every candidate that survives far
+# enough to derive a real `coverage_end` gets an aware timestamp from
+# the M064 window results, and `find_compatible_historical_evidence`
+# sorts rejected and accepted candidates through the same key. A naive
+# sentinel makes that sort raise
+# `TypeError: can't compare offset-naive and offset-aware datetimes`
+# as soon as one candidate is rejected early and another is rejected
+# late in the same call.
+NO_COVERAGE_DERIVED: datetime = datetime.min.replace(tzinfo=UTC)
 
 #: Frozen M074 evidence threshold. M064 must have at least this many
 # windows to qualify as "robustness" evidence (one-window M064 is
@@ -232,7 +245,12 @@ def _evaluate_compatibility(
             f"{survivorship_study.sizing_policy_version!r}"
         )
     if reasons:
-        return HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE, tuple(reasons), datetime.min, ()
+        return (
+            HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE,
+            tuple(reasons),
+            NO_COVERAGE_DERIVED,
+            (),
+        )
 
     # W: window_count >= 2
     if survivorship_study.window_count < MINIMUM_M064_WINDOW_COUNT:
@@ -240,7 +258,12 @@ def _evaluate_compatibility(
             f"M064 window_count={survivorship_study.window_count} is below M074 threshold "
             f"of {MINIMUM_M064_WINDOW_COUNT}; one-window M064 is degenerate"
         )
-        return HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE, tuple(reasons), datetime.min, ()
+        return (
+            HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE,
+            tuple(reasons),
+            NO_COVERAGE_DERIVED,
+            (),
+        )
 
     # C: classification
     if (
@@ -251,12 +274,22 @@ def _evaluate_compatibility(
             f"M064 classification={survivorship_study.classification.value!r} does not meet "
             f"M074 evidence threshold"
         )
-        return HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE, tuple(reasons), datetime.min, ()
+        return (
+            HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE,
+            tuple(reasons),
+            NO_COVERAGE_DERIVED,
+            (),
+        )
 
     # T: coverage end = max(window.data_end_timestamp)
     if not survivorship_study.window_results:
         reasons.append("M064 has no window_results; cannot derive coverage")
-        return HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE, tuple(reasons), datetime.min, ()
+        return (
+            HistoricalEvidenceCompatibilityStatus.INCOMPATIBLE,
+            tuple(reasons),
+            NO_COVERAGE_DERIVED,
+            (),
+        )
     coverage_end = max(result.data_end_timestamp for result in survivorship_study.window_results)
 
     # F: future evidence (must be checked before staleness)
@@ -489,7 +522,9 @@ def find_compatible_historical_evidence(
     # runtime_id ASC as a deterministic tiebreak), then everything else
     # (also by coverage_end DESC, then runtime_id ASC). We use a single
     # sort key tuple. We do NOT use coverage_end.timestamp() (Windows
-    # rejects datetime.min / pre-epoch datetimes).
+    # rejects datetime.min / pre-epoch datetimes). Candidates rejected
+    # before coverage could be derived carry NO_COVERAGE_DERIVED, which
+    # is aware for exactly this reason -- see its definition.
     compat = [
         s
         for s in summaries
