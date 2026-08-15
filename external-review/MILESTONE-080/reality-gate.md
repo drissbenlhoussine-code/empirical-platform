@@ -1,5 +1,12 @@
 # M080 — Reality Gate
 
+> **Corrected after Owner review.** This document previously claimed that every
+> excluded component is a cost and therefore that every M080 result is
+> "systematically more favourable than a real economic outcome". **That claim is
+> false and is retracted** — dividends, corporate actions and tax effects are not
+> costs and can move the real outcome in either direction. The corrected
+> statement is below; the superseded passage is struck through in place.
+
 ## The question this milestone must answer exactly
 
 **M080 emits money. What EXACTLY is it?**
@@ -52,34 +59,67 @@ of those is **simulated** P&L over historical bars. None touches an operator
 assertion. M080 is a different kind of claim and deliberately shares none of
 that vocabulary.
 
-## Costs — stated, not buried
+## Excluded economic components — stated, not buried
 
-| Component | Stored by M076? | In the result? |
-|---|---|---|
-| commissions | no | **excluded** |
-| spread | no | **excluded** |
-| slippage | no | **excluded** |
-| exchange and regulatory fees | no | **excluded** |
-| taxes | no | **excluded** |
-| dividends | no | **excluded** |
-| corporate actions | no | **excluded** |
-| financing and borrow cost | no | **excluded** |
-| current market price | no | **no unrealized figure is computed** |
+⚠ **This section previously read "Costs — stated, not buried" and asserted a
+universal favourable bias.** Retracted; see the banner above.
 
-These are emitted as a **structured field** (`excluded_cost_components`) on every
-report and named again in the limitations, because a reader must not have to
-infer which costs are missing.
+| Component | Stored by M076? | In the result? | Direction if included |
+|---|---|---|---|
+| commissions | no | **excluded** | would normally **reduce** a raw result |
+| spread | no | **excluded** | would normally **reduce** |
+| slippage | no | **excluded** | would normally **reduce** |
+| exchange and regulatory fees | no | **excluded** | would normally **reduce** |
+| financing and borrow cost | no | **excluded** | would normally **reduce** |
+| taxes | no | **excluded** | **either direction** — jurisdiction- and context-dependent |
+| dividends | no | **excluded** | **either direction** — a dividend on a long position *raises* the real outcome |
+| corporate actions | no | **excluded** | **either direction** — splits, mergers and spin-offs alter quantity or basis |
+| current market price | no | **no unrealized figure is computed** | — |
 
-**The direction of the bias is stated:** every result is *systematically more
-favourable* than any real economic outcome, because all of the omitted
-components are costs. That sentence is on every report.
+These are emitted as a **structured field** (`excluded_economic_components`) on
+every report, **partitioned** into `EXCLUDED_FRICTION_COMPONENTS` and
+`EXCLUDED_NON_DIRECTIONAL_COMPONENTS`, and named again in the limitations.
+
+**What the artifact now says, and all it may say:**
+
+- the arithmetic excludes the listed economic components;
+- it is therefore **NOT a complete economic outcome**;
+- the **direction of the total omitted effect is NOT generally knowable**;
+- frictions such as commissions, spread, slippage and fees would normally
+  **reduce** a raw result;
+- dividends, corporate actions and tax effects can alter interpretation in
+  **either** direction and are not represented.
+
+~~Every result is systematically more favourable than any real economic
+outcome.~~ **RETRACTED — no universal bound in either direction is claimed.**
+
+## Exactness — corrected after Owner review
+
+The result must be **exact for every price/quantity combination M076
+persistence admits**, and independent of the caller's `Decimal` context. It was
+not: `Decimal(quantity) * price` and `_money()`'s `normalize()` both evaluate
+under the ambient context, so at `quantity = 2147483647` and the maximum price
+the exact 30-digit product was silently rounded to 28 significant digits.
+
+All monetary arithmetic is now carried in **Python integers scaled to 10⁻⁶**,
+which is exact by construction and context-free, and rendering performs no
+`Decimal` operation at all. Proven at the boundary:
+
+```
+2147483647 @ 99999999999999.999999  ->  exited at 0.000001
+result: -214748364699999999995705.032706      (30 significant digits, no loss)
+```
+
+identical under ambient precisions 1, 5, 9, 28 and 60 and under `ROUND_UP` and
+`ROUND_FLOOR`, and matching an independent integer recomputation from the raw
+PostgreSQL rows byte for byte.
 
 ## Could a reasonable user misread the output?
 
 | Misreading | Prevented by |
 |---|---|
 | "this is my profit" | the banner's first clause calls it arithmetic on assertions; the field is `asserted_round_trip_result`; no field contains `profit` |
-| "this is what I actually made after costs" | the eight excluded components are listed on every report with the bias direction named |
+| "this is what I actually made after costs" | the eight excluded components are listed on every report, partitioned into frictions and non-directional components, with the explicit statement that this is **not a complete economic outcome** and that the total direction is **not generally knowable** |
 | "this position made 120" when 6 of 10 units are still open | **implementation review R01** — the result line itself now reads `on the 4 exited unit(s) ONLY; 6 still open and NOT covered` |
 | "this closed position made −60" when 4 units are unaccounted for | the line reads `on ONLY the 6 exited unit(s) visible here … so this is NOT the whole position's result` |
 | "my portfolio made X" | **no aggregate exists.** Not omitted by oversight — an aggregate is a performance claim this milestone has no authority to make |
@@ -102,6 +142,9 @@ guarantees are computations and absences, not wording:
   missing exits.
 - **The overclaiming guards are absences.** No aggregate, no percentage, no
   unrealized figure and no market price exist to be misused.
+- **The exactness guarantee is integral, not contextual.** No `Decimal`
+  operation appears in the arithmetic or the rendering, so no ambient precision
+  or rounding mode can alter a published figure.
 
 ## One thing worth stating plainly
 

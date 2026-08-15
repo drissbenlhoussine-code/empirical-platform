@@ -46,3 +46,27 @@ platform at all, the honest fallback is candidate **E** from the ranking — the
 same lifecycle reconstruction with the arithmetic removed. It scores 41 to
 candidate A's 48, leaves the proved gap open, and unlocks nothing, but it emits
 no money.
+
+---
+
+## Owner review correction pass — what to re-check
+
+| # | Check | Where |
+|---|---|---|
+| 1 | No `Decimal` operation remains in the arithmetic or rendering | `_scaled_price`, `_money_from_scaled`; `test_the_module_performs_no_decimal_arithmetic_at_all` |
+| 2 | The boundary result is exact to the last digit | `-214748364699999999995705.032706`, in unit **and** PostgreSQL suites |
+| 3 | The result cannot move with the caller's context | six precisions and two rounding modes, object + text + JSON |
+| 4 | Raw PostgreSQL rows recomputed independently agree | `test_m080_boundary_row_arithmetic_is_exact_against_raw_sql` |
+| 5 | Rendering cannot re-round a >28-digit value | `test_money_rendering_does_not_round_a_value_beyond_the_context_precision` |
+| 6 | No global Decimal state is mutated and `prec` is not raised | no `getcontext()` call exists in the module |
+| 7 | The component list is no longer named for costs | `EXCLUDED_ECONOMIC_COMPONENTS`, field and JSON key renamed |
+| 8 | Dividends / corporate actions / taxes are not classified as costs | partitioned into `EXCLUDED_NON_DIRECTIONAL_COMPONENTS` |
+| 9 | No universally-favourable-bias claim survives anywhere | four phrasings checked across banner, limitations and text |
+| 10 | The original broker / P&L / profit guards still hold | 13 tokens and six banner phrases re-asserted at the boundary case |
+| 11 | E04 / E06 / E07 / E12 / H08 are retracted, not rewritten | `hostile-design-review.md` |
+
+## Why the API name changed before freeze
+
+`excluded_cost_components` is a field name that **makes a claim**, and the claim
+was false. Renaming it now costs nothing; freezing it would have preserved a
+misleading contract permanently.

@@ -1,7 +1,23 @@
 # MILESTONE-080 — Operator-Asserted Round-Trip Result — External Review Package
 
-**Status: IMPLEMENTED_AND_REVIEWED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged,
-not frozen.**
+**Status: CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
+
+> ## ⚠ This package covers TWO passes
+>
+> Owner review of the first candidate (`d8c8244`) found **two blocking defects
+> my own 152-attack review missed**:
+>
+> 1. **The arithmetic was not exact.** `Decimal` products and `normalize()` are
+>    context-sensitive, and at the maximum persistence-valid quantity
+>    (`2147483647`) six digits were silently lost. Fixed with exact
+>    scaled-integer arithmetic.
+> 2. **"Every omitted component is a cost" was false.** Dividends, corporate
+>    actions and taxes are not costs, so the claimed universally favourable bias
+>    does not hold. Vocabulary and claims corrected before freeze.
+>
+> Superseded verdicts — design review E04, E06, E07, E12 and H08 — are marked
+> **RETRACTED in place**, not deleted. Read
+> `hostile-implementation-review.md` §"Owner review correction" first.
 
 M080 reads the one thing M076 stored and nothing ever used: the `asserted_price`
 on `REDUCED` and `CLOSED` events. It reports the arithmetic those prices imply
@@ -19,7 +35,7 @@ and which costs are excluded.
 | `reality-gate.md` | what the number is and is not; the misreading analysis |
 | `scope-and-design-snapshot.md` | the 24-section design as it stood before implementation |
 | `hostile-design-review.md` | 137 attacks, 46 design corrections **before** any code |
-| `hostile-implementation-review.md` | 152 attacks against running code; 1 defect (R01) |
+| `hostile-implementation-review.md` | 175 attacks; 1 defect I found (R01) + the 2 the Owner found |
 | `focused-re-review.md` | the correction re-attacked in its changed area |
 | `fresh-second-verification-pass.md` | separate database, different inputs, reversed recording order |
 | `validation-results.md` | gates, and the baseline-vs-candidate failing-ID diff |

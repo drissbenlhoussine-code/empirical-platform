@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from empirical_platform.decision_candidate.operator_asserted_round_trip import (
     ASSERTED_ROUND_TRIP_BANNER,
+    EXCLUDED_FRICTION_COMPONENTS,
+    EXCLUDED_NON_DIRECTIONAL_COMPONENTS,
     AssertedRoundTripReport,
     RoundTripOutcome,
     RoundTripStatus,
@@ -32,7 +34,7 @@ def render_round_trip_report_json(report: AssertedRoundTripReport) -> dict[str, 
         "fully_exited_count": report.fully_exited_count,
         "unreconciled_count": report.unreconciled_count,
         "unresolved_count": report.unresolved_count,
-        "excluded_cost_components": list(report.excluded_cost_components),
+        "excluded_economic_components": list(report.excluded_economic_components),
         "entries": [
             {
                 "position_governance_id": entry.position_governance_id,
@@ -84,7 +86,17 @@ def render_round_trip_report_text(report: AssertedRoundTripReport) -> str:
             f"{report.unreconciled_count} unreconciled, "
             f"{report.unresolved_count} unresolved at this knowledge cutoff"
         )
-        lines.append("  excluded from every result: " + ", ".join(report.excluded_cost_components))
+        lines.append(
+            "  excluded economic components (this is NOT a complete economic outcome): "
+            + ", ".join(report.excluded_economic_components)
+        )
+        lines.append(
+            "  the direction of the total omitted effect is NOT generally knowable: "
+            + ", ".join(EXCLUDED_FRICTION_COMPONENTS)
+            + " would normally reduce a raw result, while "
+            + ", ".join(EXCLUDED_NON_DIRECTIONAL_COMPONENTS)
+            + " can move the real outcome either way"
+        )
         for entry in report.entries:
             head = (
                 f"    {entry.instrument_symbol} position={entry.position_governance_id} "

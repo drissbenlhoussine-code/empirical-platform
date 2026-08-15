@@ -2,6 +2,37 @@
 
 ## Status: IMPLEMENTATION CANDIDATE — NOT OWNER FROZEN
 
+---
+
+> ## ⚠ TWO SECTIONS SUPERSEDED BY OWNER REVIEW
+>
+> **§14 (precision) and §15 (excluded components) were both wrong.** They are
+> retracted in place below and the corrected semantics are summarised here.
+>
+> **Finding 1 — the arithmetic was not exact.** §14 claimed "products and sums
+> are exact" under `Decimal`. `Decimal` arithmetic and `normalize()` are
+> **context-sensitive**, and M076 persists `quantity` as PostgreSQL `INTEGER`,
+> so `2147483647 × 99999999999999.999999` is a persistence-valid product of
+> **30 significant digits** — six more than the default 28-digit context keeps.
+> All monetary arithmetic is now carried in **Python integers scaled to 10⁻⁶**,
+> exact by construction and independent of the ambient context, with rendering
+> performing no `Decimal` operation at all.
+>
+> **Finding 2 — not every excluded component is a cost.** §15 called the whole
+> list costs and claimed every result is "systematically more favourable" than
+> reality. Dividends **raise** a long position's real outcome, corporate actions
+> move it either way, and tax effects are jurisdiction-dependent. The concept is
+> now `EXCLUDED_ECONOMIC_COMPONENTS`, partitioned into
+> `EXCLUDED_FRICTION_COMPONENTS` and `EXCLUDED_NON_DIRECTIONAL_COMPONENTS`, and
+> the artifact states that it is **not a complete economic outcome** and that the
+> **direction of the total omitted effect is not generally knowable**.
+>
+> The API vocabulary was corrected **before** freeze deliberately: freezing a
+> field named for a false claim would be worse than renaming it now.
+
+---
+
+
 ## 1. Repository Authority
 
 Verified from repository objects at mission start, not from the mission text.
@@ -306,7 +337,10 @@ quantity. The still-open remainder gets no result, no per-share extrapolation an
 no implied value. The open quantity is reported as a separate integer so the
 reader can see what is *not* covered.
 
-## 14. Precision Semantics
+## 14. ⚠ RETRACTED — Precision Semantics
+
+> **Retracted by Owner review.** The exactness claim below is false for the
+> maximum persistence-valid quantity. Preserved verbatim.
 
 Decimal throughout; no float anywhere in the module. Products and sums are exact:
 a `NUMERIC(20, 6)` price times an integer quantity is exact in `Decimal`, and
@@ -316,7 +350,10 @@ memory and one read from PostgreSQL render identically. No quantization and no
 rounding is applied to a result, because rounding a number the operator implied
 is the same small dishonesty M076 refused for prices.
 
-## 15. Fees, Slippage, Taxes, Corporate Actions — explicitly absent
+## 15. ⚠ RETRACTED — Fees, Slippage, Taxes, Corporate Actions — explicitly absent
+
+> **Retracted by Owner review.** Calling the whole list *costs* and claiming a
+> universally favourable bias is false. Preserved verbatim.
 
 M076 stores **none** of the following, so none is in the arithmetic:
 
@@ -331,9 +368,11 @@ M076 stores **none** of the following, so none is in the arithmetic:
 | financing / borrow cost | no | **excluded** |
 | current market price | no | **no unrealized result is computed** |
 
-This is emitted as a **structured, itemised limitation on every result**, not
-buried in prose. A result that ignores costs is systematically optimistic
-relative to any real economic outcome, and the artifact says so.
+⚠ **RETRACTED.** Itemising on every result was right; the bias claim was not.
+The corrected statement is that the result is **not a complete economic
+outcome** and that the **direction of the total omitted effect is not generally
+knowable** — frictions would normally reduce a raw result, while dividends,
+corporate actions and tax effects move it either way.
 
 ## 16. Persistence and Query Architecture
 

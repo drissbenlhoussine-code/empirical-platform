@@ -94,20 +94,45 @@ result).
 
 ## E. Numeric and precision
 
+> ### ⚠ E04 / E06 / E07 RETRACTED BY OWNER REVIEW — the numeric test domain was too weak
+>
+> Those three verdicts declared `Decimal` multiplication and summation exact.
+> **The claim is false**, and the reason it survived this review is instructive:
+> every numeric attack below paired a **large price with a small quantity**
+> (`99999999999999.999999 × 1000`) or a small price with a small quantity. None
+> paired the maximum price with the maximum **persistence-valid quantity**.
+>
+> M076 persists `quantity` as PostgreSQL `INTEGER`, so `2147483647` is a legal
+> row. At the maximum price the exact product is
+> `214748364699999999997852.516353` — **30 significant digits**. Python's
+> default `Decimal` context carries **28**, so the original implementation
+> silently produced `214748364699999999997852.5164`, losing six digits, and
+> `_money()`'s `normalize()` would have re-rounded it again on the way out even
+> if the arithmetic had been exact.
+>
+> Decimal arithmetic and `normalize()` are **context-sensitive**, so the result
+> also depended on the caller's ambient precision and rounding mode — which
+> M080 never controlled.
+>
+> The original verdicts are preserved verbatim below. See
+> `hostile-implementation-review.md` §"Owner review correction" for the exact
+> scaled-integer replacement and its proof.
+
+
 | # | Attack | Verdict |
 |---|---|---|
 | E01 | `float` appears anywhere in the arithmetic | PASS — `Decimal` only, asserted by a test that walks every field |
 | E02 | Quantity assumed `Decimal` | **FIXED** — proven by execution that M076's `quantity` is **`int`**; it is widened with `Decimal(q)` explicitly rather than relied upon |
 | E03 | Six-decimal price loses precision | PASS — exact in `Decimal` |
-| E04 | Maximum `NUMERIC(20, 6)` price overflows | PASS — the *result* is not persisted, so no column bound applies; `99999999999999.999999 × 1000` renders exactly |
+| E04 | Maximum `NUMERIC(20, 6)` price overflows | **⚠ RETRACTED — the attack used a quantity of 1000, not the persistence-valid maximum.** Original verdict, preserved: PASS — the *result* is not persisted, so no column bound applies; `99999999999999.999999 × 1000` renders exactly |
 | E05 | Minimum positive price `0.000001` underflows | PASS — exact |
-| E06 | Multiplication precision loss | PASS — `Decimal` × `Decimal` from an exact integer is exact |
-| E07 | Summation precision loss | PASS — exact addition of exacts |
+| E06 | Multiplication precision loss | **⚠ RETRACTED — false for `2147483647 × 99999999999999.999999`; six digits were lost.** Original verdict, preserved: PASS — `Decimal` × `Decimal` from an exact integer is exact |
+| E07 | Summation precision loss | **⚠ RETRACTED with E06 — sums of inexact products are inexact, and the sum itself rounds once it exceeds the context precision.** Original verdict, preserved: PASS — exact addition of exacts |
 | E08 | Result rounded or quantized silently | **FIXED** — no rounding; §14 states that rounding an implied number repeats the dishonesty M076 refused for prices |
 | E09 | Exact break-even renders as something other than zero | PASS — `Decimal("0.000000").normalize()` → `0` |
 | E10 | **Negative zero renders as `-0`** | **FIXED (defensively)** — proven that `Decimal("-0.000000")` renders `-0`. Also proven **not reachable** through `exit − entry`, since `a − a` is `+0` under the default rounding. A guard and a test are added anyway because the rendering would be misleading if a future refactor made it reachable. Recorded as defensive, not corrective |
 | E11 | A loss renders without its sign | PASS — `-60` |
-| E12 | A huge result renders in exponent form | PASS — `normalize()` then `format(..., "f")`, M076's own idiom |
+| E12 | A huge result renders in exponent form | **⚠ PARTIALLY RETRACTED — no exponent form appeared, but `normalize()` re-rounded a value beyond the context precision, so "huge" was never actually tested.** Original verdict, preserved: PASS — `normalize()` then `format(..., "f")`, M076's own idiom |
 | E13 | A value read from PostgreSQL renders differently from one built in memory | PASS — same canonical form; asserted by integration test |
 | E14 | Fractional quantities | PASS — impossible; M076 quantity is `int`. Stated in §12 rather than assumed |
 | E15 | Negative quantity | PASS — M076 rejects |
@@ -154,7 +179,7 @@ result).
 | H05 | …called an execution result | PASS |
 | H06 | The bare token `PNL` appears in a field or status | **FIXED** — banned outright; it survives only inside negative disclaimers |
 | H07 | The result is presented as cash that moved | **FIXED** — named `asserted_round_trip_result`, and the banner says no cash claim is made |
-| H08 | Fees, slippage, taxes, dividends and corporate actions are omitted silently | **FIXED** — itemised as a structured limitation on **every** result, per §15, not buried in prose |
+| H08 | Fees, slippage, taxes, dividends and corporate actions are omitted silently | **⚠ PARTIALLY RETRACTED BY OWNER REVIEW.** Itemising them was right; calling the whole list *costs* and claiming a universally favourable bias was wrong — a dividend can raise a long position's real outcome, corporate actions move either way, and tax effects are jurisdiction-dependent. The list is now `EXCLUDED_ECONOMIC_COMPONENTS`, split into frictions and non-directional components, and no universal bound is claimed. Original verdict, preserved: **FIXED** — itemised as a structured limitation on **every** result, per §15, not buried in prose |
 | H09 | **An open position's partial result reads as the whole position's result** | **FIXED** — distinct `PARTIAL_EXIT_ASSERTED` status, the covered quantity stated explicitly, the still-open quantity reported separately, and no per-share extrapolation |
 | H10 | An unrealized result is computed for the open remainder | PASS — impossible; no market price exists in the platform and none is invented |
 | H11 | The result is aggregated across positions into a portfolio figure | **FIXED** — deliberately not built; aggregation implies a performance claim and belongs to an authorized calibration milestone |

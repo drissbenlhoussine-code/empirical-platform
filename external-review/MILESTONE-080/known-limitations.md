@@ -3,10 +3,16 @@
 1. **Every figure is arithmetic over assertions, not a measurement.** There is no
    broker, no confirmation, no reconciliation, and no evidence that any trade
    occurred or occurred at the stated price.
-2. **All costs are excluded** — commissions, spread, slippage, exchange and
-   regulatory fees, taxes, dividends, corporate actions and financing cost. M076
-   stores none of them. Every result is therefore **systematically more
-   favourable** than a real economic outcome.
+2. **Economic components are excluded** — commissions, spread, slippage,
+   exchange and regulatory fees, taxes, dividends, corporate actions and
+   financing cost. M076 stores none of them, so a result is **NOT a complete
+   economic outcome**. ⚠ *Corrected after Owner review:* this item previously
+   said all of them are costs and that every result is "systematically more
+   favourable" than reality. **That is false.** Frictions (commissions, spread,
+   slippage, fees, financing) would normally reduce a raw result, but dividends,
+   corporate actions and tax effects can move the real outcome in **either**
+   direction, so **the direction of the total omitted effect is not generally
+   knowable** and no universal bound is claimed.
 3. **No unrealized figure is computed** for a still-open quantity, because the
    platform holds no authoritative current market price. A partly-exited
    position's result covers the exited quantity only and is never extrapolated.
@@ -45,3 +51,12 @@
     share positions cannot be represented at all — by the frozen ledger, not by
     M080.
 14. **Pre-existing and untouched:** the M062/M064/M065 CRLF seal debt.
+15. **Exactness is guaranteed by integer arithmetic, not by a Decimal context.**
+    ⚠ *Added after Owner review.* The original implementation multiplied under
+    the ambient `Decimal` context and rendered through `normalize()`, so at the
+    maximum persistence-valid quantity (`2147483647`) against the maximum price
+    it silently lost six digits and depended on the caller's precision and
+    rounding mode. All monetary arithmetic is now carried in Python integers
+    scaled to 10⁻⁶ — exact by construction, and context-free. The guarantee
+    rests on frozen M076 capping the price scale at six decimal places; if that
+    cap ever changed, `_scaled_price` raises rather than rounding silently.

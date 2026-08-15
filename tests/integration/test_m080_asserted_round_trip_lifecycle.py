@@ -21,7 +21,7 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_UP, Decimal, localcontext
 from pathlib import Path
 
 import pytest
@@ -628,3 +628,130 @@ def test_m080_the_two_databases_diverge_once_knowledge_advances(
     assert _report(db_a, effective=_NOW, knowledge=_K1) == _report(
         db_b, effective=_NOW, knowledge=_K1
     )
+
+
+# ---------------------------------------------------------------------------
+# Owner review finding 1 — exactness over genuinely persisted boundary rows
+# ---------------------------------------------------------------------------
+
+_POSTGRES_INT_MAX = 2147483647
+
+
+def test_m080_boundary_row_arithmetic_is_exact_against_raw_sql(
+    clean_tables: Engine,
+) -> None:
+    """Owner review attack 10.
+
+    The maximum PostgreSQL INTEGER quantity at the maximum NUMERIC(20,6) price,
+    exited at the minimum price. The result is recomputed from the raw columns
+    with pure integer arithmetic -- arbitrary-precision and immune to any
+    Decimal context -- and must match M080 byte for byte.
+    """
+    config = _config()
+    _record(
+        config,
+        gid="OPEV-8500-O",
+        pos="POS-8500",
+        symbol="AAPL",
+        kind=OperatorPositionEventKind.OPENED,
+        quantity=_POSTGRES_INT_MAX,
+        price="99999999999999.999999",
+        effective=_E1,
+        recorded=_K1,
+    )
+    _record(
+        config,
+        gid="OPEV-8500-C",
+        pos="POS-8500",
+        symbol="AAPL",
+        kind=OperatorPositionEventKind.CLOSED,
+        quantity=0,
+        price="0.000001",
+        effective=_E2,
+        recorded=_K2,
+    )
+
+    with clean_tables.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT event_kind, quantity, asserted_price FROM operator_position_event "
+                "WHERE position_governance_id = :p ORDER BY event_timestamp"
+            ),
+            {"p": "POS-8500"},
+        ).fetchall()
+    by_kind = {row.event_kind: row for row in rows}
+    assert by_kind["OPENED"].quantity == _POSTGRES_INT_MAX, "INTEGER max must persist exactly"
+    assert by_kind["OPENED"].asserted_price == Decimal("99999999999999.999999")
+    assert by_kind["CLOSED"].quantity == _POSTGRES_INT_MAX, "close quantity derived by M076"
+
+    def scaled(value: Decimal) -> int:
+        sign, digits, exponent = value.as_tuple()
+        assert isinstance(exponent, int)
+        unscaled = int("".join(str(digit) for digit in digits)) * 10 ** (exponent + 6)
+        return -unscaled if sign else unscaled
+
+    scaled_cost = by_kind["OPENED"].quantity * scaled(by_kind["OPENED"].asserted_price)
+    scaled_consideration = by_kind["CLOSED"].quantity * scaled(by_kind["CLOSED"].asserted_price)
+    scaled_result = scaled_consideration - scaled_cost
+    sign = "-" if scaled_result < 0 else ""
+    whole, fraction = divmod(abs(scaled_result), 10**6)
+    expected = f"{sign}{whole}.{fraction:06d}".rstrip("0").rstrip(".")
+
+    entry = _report(config, effective=_NOW, knowledge=_NOW).entries[0]
+    assert entry.asserted_round_trip_result == expected
+    assert entry.asserted_round_trip_result == "-214748364699999999995705.032706"
+    assert entry.asserted_entry_cost_for_exited_quantity == "214748364699999999997852.516353"
+
+
+def test_m080_boundary_row_is_context_independent_over_real_rows(
+    clean_tables: Engine,
+) -> None:
+    """Owner review attacks 8 and 9, over persisted rows rather than in memory."""
+    config = _config()
+    _record(
+        config,
+        gid="OPEV-8501-O",
+        pos="POS-8501",
+        symbol="TSLA",
+        kind=OperatorPositionEventKind.OPENED,
+        quantity=_POSTGRES_INT_MAX,
+        price="99999999999999.999999",
+        effective=_E1,
+        recorded=_K1,
+    )
+    _record(
+        config,
+        gid="OPEV-8501-C",
+        pos="POS-8501",
+        symbol="TSLA",
+        kind=OperatorPositionEventKind.CLOSED,
+        quantity=0,
+        price="0.000001",
+        effective=_E2,
+        recorded=_K2,
+    )
+    baseline = _report(config, effective=_NOW, knowledge=_NOW)
+    with localcontext() as context:
+        context.prec = 5
+        context.rounding = ROUND_UP
+        under_context = _report(config, effective=_NOW, knowledge=_NOW)
+    assert under_context == baseline
+    assert render_round_trip_report_text(under_context) == render_round_trip_report_text(baseline)
+    assert render_round_trip_report_json(under_context) == render_round_trip_report_json(baseline)
+
+
+def test_m080_reports_the_corrected_economic_component_vocabulary(
+    clean_tables: Engine,
+) -> None:
+    """Owner review finding 2, over real rows."""
+    config = _config()
+    _seed_mandated_position(config, pos="POS-8600", symbol="NVDA", plan=None)
+    report = _report(config, effective=_NOW, knowledge=_NOW)
+    payload = render_round_trip_report_json(report)
+    rendered = render_round_trip_report_text(report)
+
+    assert "excluded_economic_components" in payload
+    assert "excluded_cost_components" not in payload
+    assert "NOT a complete economic outcome" in rendered
+    assert "NOT generally knowable" in rendered
+    assert "systematically more favourable" not in rendered

@@ -4,7 +4,7 @@ A **new** adversarial pass against the real code and real persistence
 behaviour. **Not an independent review** — the same agent wrote the code.
 Counts are computed programmatically from this file.
 
-**152 attacks executed against the running code, the usecase layer and real PostgreSQL. 1 genuine defect found and fixed, with regression tests that fail against the pre-fix implementation. Two of my own probe assertions were wrong and are recorded as such.**
+**175 attacks executed against the running code, the usecase layer and real PostgreSQL, including the Owner review correction pass. 1 defect found by my own review (R01); the Owner review found **two more** that my numeric and honesty attacks were too weak to catch. Three of my own probe assertions were wrong and are recorded as such.**
 
 The unit suite passed **54/54 on its first run**. As in M078 and M079, that was
 evidence the tests were not yet pointed at the right places rather than evidence
@@ -327,3 +327,154 @@ an unanchored substring match:
 
 They are recorded because an attack that fails for the wrong reason is as
 misleading as a test that passes for the wrong reason.
+
+---
+
+# Owner review correction — two findings, both real
+
+**This section supersedes design-review verdicts E04, E06, E07, E12 and H08.
+Those entries are retained there, visibly retracted, not deleted.**
+
+## Finding 1 — Decimal arithmetic was not exact for all persistence-valid inputs
+
+### What was wrong
+
+M080 claimed exact arithmetic, no rounding and exact reproducibility. All three
+were false, and my own numeric attacks missed it because **every one of them
+paired a large price with a small quantity**. None used the maximum
+persistence-valid quantity.
+
+M076 persists `quantity` as PostgreSQL `INTEGER`. `2147483647` is a legal row.
+At the maximum price:
+
+```
+exact:    214748364699999999997852.516353     (30 significant digits)
+produced: 214748364699999999997852.5164       (rounded to the ambient 28)
+```
+
+Two distinct defects, not one:
+
+| # | Defect |
+|---|---|
+| 1a | `Decimal(quantity) * asserted_price` evaluates under the **ambient** context and rounds to its precision |
+| 1b | `_money()` rendered through `Decimal.normalize()`, which **re-rounds** an exact value on the way out — so even exact arithmetic could not have been rendered faithfully |
+
+Both made the output depend on the **caller's** precision and rounding mode,
+which M080 never controlled. My first verification of this finding was itself
+wrong: I "independently" recomputed the product with `Decimal(int) / Decimal(10**6)`,
+which is *also* context-sensitive, so it rounded identically and appeared to
+confirm the code. Only pure integer arithmetic settled it.
+
+### The fix — exact scaled-integer arithmetic
+
+Chosen over deriving a local `Decimal` context precision because it requires
+**no precision parameter to justify**: it is exact by construction rather than
+exact up to a proven bound.
+
+The justification is a property frozen M076 already guarantees: an asserted
+price carries **at most six decimal places** (validated in
+`operator_position_ledger.py`, `ASSERTED_PRICE_MAX_DECIMAL_PLACES = 6`). So
+every price is an exact integer multiple of `10⁻⁶`, and since quantities are
+`int`, **every monetary quantity M080 computes is an integer multiple of
+`10⁻⁶`**. The whole computation therefore fits in Python `int`, which is
+arbitrary-precision and entirely context-free.
+
+| Step | How |
+|---|---|
+| price → scaled integer | `_scaled_price()` reads `Decimal.as_tuple()` — **pure data, no Decimal operation** — and shifts by appending zero digits |
+| entry cost | `exited_quantity * entry_price_scaled` (int) |
+| exit consideration | `Σ event.quantity * _scaled_price(...)` (int) |
+| result | integer subtraction |
+| rendering | `_money_from_scaled()` — integer `divmod` and string formatting, **no Decimal at all** |
+
+`_scaled_price` deliberately avoids `scaleb`, `quantize` and multiplication by a
+power: every one of those is context-sensitive. Global `getcontext().prec` is
+**not** raised and no global state is mutated.
+
+Two incidental improvements fall out. Negative zero is now **impossible by
+construction** rather than guarded, because the sign comes from an integer. And
+the renderer cannot emit exponent form, because it never builds a Decimal.
+
+### Proof
+
+| # | Owner attack | Result |
+|---|---|---|
+| R-Q01 | PostgreSQL INTEGER max quantity `2147483647` | persists and computes exactly |
+| R-Q02 | Maximum price `99999999999999.999999` | exact |
+| R-Q03 | Minimum price `0.000001` | exact, including at INTEGER-max quantity |
+| R-Q04 | Exact entry-cost boundary | `214748364699999999997852.516353` |
+| R-Q05 | Exact exit-consideration boundary | `2147.483647` |
+| R-Q06 | Exact negative result boundary | **`-214748364699999999995705.032706`**, matching the Owner's stated value digit for digit |
+| R-Q07 | Several `REDUCED` events totalling near INTEGER max | exact; identical entry and exit prices give exactly `0` |
+| R-Q08 | Caller context at `prec` 1, 5, 9, 28, 60 | **identical** object, text and JSON |
+| R-Q09 | Caller rounding `ROUND_UP`, `ROUND_FLOOR` | **identical** |
+| R-Q10 | Raw PostgreSQL rows recomputed by an independent integer method | matches byte for byte |
+| R-Q11 | Text and JSON carry the identical full-precision string | 30 digits, both |
+| R-Q12 | `_money` formatting of a >28-digit exact value | no rounding, no exponent form |
+| R-Q13 | Structural: does `_entry_for_key` still perform any Decimal operation? | **no** — asserted against its source for `Decimal(`, `.normalize(`, `.quantize(`, `.scaleb(` |
+
+## Finding 2 — "every omitted component is a cost" was false
+
+### What was wrong
+
+The banner, the limitations, the evidence package and the PR body all claimed
+that because every excluded component is a cost, **every result is
+systematically more favourable than a real economic outcome**.
+
+That is an overclaim in the *opposite* direction from the usual failure mode —
+it asserts a universal bound that does not hold:
+
+| Component | Why it is not a cost |
+|---|---|
+| dividends | on a long position a dividend **raises** the real economic outcome |
+| corporate actions | splits, mergers and spin-offs alter quantity or basis in **either** direction |
+| taxes | jurisdiction- and context-dependent; can be a liability or a relief |
+
+So the **direction of the total omitted effect is not generally knowable**, and
+a name like `EXCLUDED_COST_COMPONENTS` was itself the misleading part — a field
+name a consumer would read as a claim.
+
+### The fix — vocabulary corrected before freeze
+
+| Before | After |
+|---|---|
+| `EXCLUDED_COST_COMPONENTS` | `EXCLUDED_ECONOMIC_COMPONENTS` |
+| `excluded_cost_components` (field) | `excluded_economic_components` |
+| `"excluded_cost_components"` (JSON key) | `"excluded_economic_components"` |
+| "systematically more favourable than any real economic outcome" | "**NOT a complete economic outcome**; the **direction** of the total omitted effect is **NOT generally knowable**" |
+
+The list is additionally **partitioned**, so the honest statement can be made
+about each group rather than a false one about the whole:
+
+- `EXCLUDED_FRICTION_COMPONENTS` — commissions, spread, slippage, exchange and
+  regulatory fees, financing and borrow cost. Omitting these **would normally
+  make a raw result look better** than reality.
+- `EXCLUDED_NON_DIRECTIONAL_COMPONENTS` — taxes, dividends, corporate actions.
+  These can move the real outcome **either way**.
+
+Correcting the API name now is deliberate: M080 is not frozen, and freezing a
+field named for a claim that is false would be far worse than renaming it.
+
+### Proof
+
+| # | Owner attack | Result |
+|---|---|---|
+| R-R01 | Any surviving claim that every excluded item is a cost | none — banner, limitations, text and field names all checked |
+| R-R02 | Any surviving universally-favourable-bias claim | none — four phrasings checked including "upper bound" |
+| R-R03 | Dividends classified as a cost | no — in the non-directional group |
+| R-R04 | Corporate actions classified as a cost | no |
+| R-R05 | Taxes classified as a cost | no |
+| R-R06 | The two groups partition the full list exactly | yes — union equal, intersection empty |
+| R-R07 | Text and JSON expose the corrected terminology | yes; the old key is absent |
+| R-R08 | The report states it is not a complete economic outcome | yes |
+| R-R09 | The banner states the direction is not knowable | yes |
+| R-R10 | **All original broker / P&L / profit guards still intact** | yes — 13 forbidden tokens and six banner phrases re-asserted at the boundary case |
+
+## One correction to my own verification, recorded
+
+My first attempt to confirm Finding 1 computed the "exact" control value with
+`Decimal(q * price_scaled) / Decimal(10**6)`. Decimal **division** is
+context-sensitive too, so the control rounded exactly like the code and printed
+`EQUAL: True` — appearing to refute the Owner. Only pure integer arithmetic is a
+valid control here. Recorded because a verification that agrees for the wrong
+reason is more dangerous than one that fails.

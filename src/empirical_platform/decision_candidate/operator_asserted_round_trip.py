@@ -10,7 +10,9 @@ an actual execution result. Not actual cash proceeds. Not investment
 performance. Not a market return. Not a tax result. Not evidence that any trade
 occurred or occurred at the stated price. It excludes commissions, spread,
 slippage, exchange and regulatory fees, taxes, dividends, corporate actions and
-financing cost -- because M076 stores none of them.
+financing cost -- because M076 stores none of them -- so it is NOT a complete
+economic outcome, and the DIRECTION of the total omitted effect is not generally
+knowable.
 
 THE GAP THIS CLOSES. M076 validates and persists an `asserted_price` on EVERY
 lifecycle event, including REDUCED and CLOSED. A repository-wide search shows
@@ -68,7 +70,9 @@ from empirical_platform.decision_candidate.research_decision_follow_through impo
 
 __all__ = [
     "ASSERTED_ROUND_TRIP_BANNER",
-    "EXCLUDED_COST_COMPONENTS",
+    "EXCLUDED_ECONOMIC_COMPONENTS",
+    "EXCLUDED_FRICTION_COMPONENTS",
+    "EXCLUDED_NON_DIRECTIONAL_COMPONENTS",
     "AssertedRoundTripReport",
     "PositionRoundTripEntry",
     "RoundTripOutcome",
@@ -87,15 +91,26 @@ ASSERTED_ROUND_TRIP_BANNER = (
     "market return; NOT a tax result; NOT evidence that any trade occurred or occurred "
     "at the stated price; NOT advice. It EXCLUDES commissions, spread, slippage, "
     "exchange and regulatory fees, taxes, dividends, corporate actions and financing "
-    "cost, because the ledger stores none of them -- so a result here is "
-    "systematically more favourable than any real economic outcome. No result is "
+    "cost, because the ledger stores none of them -- so this is NOT a complete "
+    "economic outcome. The DIRECTION of the total omitted effect is NOT generally "
+    "knowable: frictions such as commissions, spread, slippage and fees would "
+    "normally reduce a raw result, while dividends, corporate actions and tax "
+    "effects can move the real economic outcome in either direction. No result is "
     "computed for a still-open quantity, because no market price exists here. "
     "Nothing recorded after the knowledge cutoff influences any figure below."
 )
 
 #: Named individually rather than summarised, so no reader has to infer which
-# costs are missing. Design review H08.
-EXCLUDED_COST_COMPONENTS = (
+# components are missing. Design review H08.
+#
+# OWNER REVIEW FINDING 2. This was previously called EXCLUDED_COST_COMPONENTS and
+# the artifact claimed every omitted item was a cost, so every result was
+# "systematically more favourable" than reality. That claim is FALSE: a dividend
+# on a long position can raise the real outcome, corporate actions can move it
+# either way, and tax effects are jurisdiction- and context-dependent. The list
+# is therefore named for what it actually contains -- economic components -- and
+# the two groups are separated so the honest statement can be made about each.
+EXCLUDED_ECONOMIC_COMPONENTS = (
     "commissions",
     "spread",
     "slippage",
@@ -104,6 +119,22 @@ EXCLUDED_COST_COMPONENTS = (
     "dividends",
     "corporate actions",
     "financing and borrow cost",
+)
+
+#: Frictions: omitting these makes a raw result look better than reality.
+EXCLUDED_FRICTION_COMPONENTS = (
+    "commissions",
+    "spread",
+    "slippage",
+    "exchange and regulatory fees",
+    "financing and borrow cost",
+)
+
+#: Components whose omission has NO generally knowable direction.
+EXCLUDED_NON_DIRECTIONAL_COMPONENTS = (
+    "taxes",
+    "dividends",
+    "corporate actions",
 )
 
 
@@ -146,24 +177,64 @@ class RoundTripUnassessableReason(StrEnum):
     LEDGER_UNAVAILABLE = "LEDGER_UNAVAILABLE"
 
 
-def _money(value: Decimal) -> str:
-    """Canonical signed decimal string.
+#: M076 validates that an asserted price carries at most this many decimal
+# places, so every persisted price is an exact integer multiple of 10**-6.
+_PRICE_SCALE_EXPONENT = 6
+_PRICE_SCALE = 10**_PRICE_SCALE_EXPONENT
 
-    Mirrors frozen M076's own rendering idiom -- `normalize()` then
-    `format(..., "f")` -- so a value built in memory and one reloaded from
-    `NUMERIC(20, 6)` render identically. M076's helper is private to a frozen
-    module, so it is reproduced here rather than imported across that boundary.
 
-    The negative-zero guard is DEFENSIVE, not corrective: design review E10
-    proved `Decimal("-0.000000")` renders as `-0`, and separately proved that
-    `a - a` yields `+0` under the default rounding, so this arithmetic cannot
-    reach it today. The guard exists so a future refactor cannot make a
-    misleading `-0` appear silently.
+def _scaled_price(price: Decimal) -> int:
+    """`price` expressed exactly as an integer count of 10**-6 units.
+
+    OWNER REVIEW FINDING 1. This conversion is deliberately built from the
+    Decimal's own digit tuple rather than from arithmetic, because every
+    Decimal operation -- multiplication, division, `scaleb`, even `normalize`
+    -- is evaluated under the AMBIENT context and silently rounds to its
+    precision. `as_tuple()` is pure data and is context-free.
+
+    Frozen M076 caps the scale at six decimal places, so `exponent >= -6` and
+    the shift below is a non-negative integer power: the result is exact for
+    every persistence-valid price.
     """
-    normalized = value.normalize()
-    if normalized == 0:
-        normalized = abs(normalized)
-    return format(normalized, "f")
+    sign, digits, exponent = price.as_tuple()
+    if not isinstance(exponent, int):  # NaN / Infinity carry a string exponent
+        raise AssertionError(f"invariant violated: asserted price is not finite: {price}")
+    shift = exponent + _PRICE_SCALE_EXPONENT
+    if shift < 0:
+        raise AssertionError(
+            "invariant violated: frozen M076 admits at most "
+            f"{_PRICE_SCALE_EXPONENT} decimal places, got {-exponent} in {price}"
+        )
+    # Scaling by appending zero digits rather than multiplying by a power keeps
+    # the operation unambiguously integral -- `int ** int` is typed `Any`,
+    # because a negative exponent would yield a float, and `shift` is proven
+    # non-negative just above.
+    unscaled = int("".join(str(digit) for digit in digits) + "0" * shift)
+    return -unscaled if sign else unscaled
+
+
+def _money_from_scaled(scaled: int) -> str:
+    """Canonical signed decimal string from an exact 10**-6-scaled integer.
+
+    OWNER REVIEW FINDING 1. The previous implementation rendered through
+    `Decimal.normalize()`, which is context-sensitive: an exact value carrying
+    more than the ambient precision (28 significant digits by default) was
+    silently re-rounded on the way out, so even exact arithmetic could not have
+    been rendered faithfully. This function performs no Decimal operation at
+    all -- it is integer division and string formatting, so it cannot round.
+
+    The output matches frozen M076's `format(value.normalize(), "f")` idiom for
+    every value both can express: trailing fractional zeros are stripped, the
+    point disappears when the fraction is empty, and no exponent form is ever
+    produced. Negative zero is impossible by construction rather than by guard,
+    because the sign is taken from the integer.
+    """
+    sign = "-" if scaled < 0 else ""
+    whole, fraction = divmod(abs(scaled), _PRICE_SCALE)
+    rendered_fraction = f"{fraction:0{_PRICE_SCALE_EXPONENT}d}".rstrip("0")
+    if rendered_fraction:
+        return f"{sign}{whole}.{rendered_fraction}"
+    return f"{sign}{whole}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,7 +297,7 @@ class AssertedRoundTripReport:
     fully_exited_count: int
     unreconciled_count: int
     unresolved_count: int
-    excluded_cost_components: tuple[str, ...] = EXCLUDED_COST_COMPONENTS
+    excluded_economic_components: tuple[str, ...] = EXCLUDED_ECONOMIC_COMPONENTS
     entries: tuple[PositionRoundTripEntry, ...] = ()
     limitations: tuple[str, ...] = field(default_factory=tuple)
 
@@ -322,19 +393,22 @@ def _entry_for_key(
     else:
         status = RoundTripStatus.FULLY_EXITED_ASSERTED
 
-    entry_price = opening.asserted_price
+    entry_price_scaled = _scaled_price(opening.asserted_price)
     if exited_quantity > 0:
-        # Quantities are `int` in frozen M076, not Decimal, so they are widened
-        # explicitly. Every product and sum below is exact.
-        entry_cost = Decimal(exited_quantity) * entry_price
-        consideration = sum(
-            (Decimal(event.quantity) * event.asserted_price for event in exits),
-            Decimal("0"),
+        # OWNER REVIEW FINDING 1. Every monetary quantity here is an integer
+        # multiple of 10**-6, because M076 caps the price scale at six decimal
+        # places and quantities are `int`. So the whole computation is carried
+        # in Python integers, which are arbitrary-precision and, unlike Decimal,
+        # entirely independent of the ambient context's precision and rounding
+        # mode. Nothing here can round.
+        entry_cost_scaled = exited_quantity * entry_price_scaled
+        consideration_scaled = sum(
+            event.quantity * _scaled_price(event.asserted_price) for event in exits
         )
-        result = consideration - entry_cost
-        entry_cost_text: str | None = _money(entry_cost)
-        consideration_text: str | None = _money(consideration)
-        result_text: str | None = _money(result)
+        result_scaled = consideration_scaled - entry_cost_scaled
+        entry_cost_text: str | None = _money_from_scaled(entry_cost_scaled)
+        consideration_text: str | None = _money_from_scaled(consideration_scaled)
+        result_text: str | None = _money_from_scaled(result_scaled)
     else:
         # Nothing exited means NO arithmetic, not a zero: a zero would read as
         # break-even. Design review E16.
@@ -351,7 +425,7 @@ def _entry_for_key(
         exited_quantity=exited_quantity,
         still_open_quantity=still_open,
         unaccounted_quantity=unaccounted,
-        asserted_entry_price=_money(entry_price),
+        asserted_entry_price=_money_from_scaled(entry_price_scaled),
         asserted_entry_cost_for_exited_quantity=entry_cost_text,
         asserted_exit_consideration=consideration_text,
         asserted_round_trip_result=result_text,
@@ -379,10 +453,16 @@ def _report_from_known_evidence(
     limitations: list[str] = [
         "every figure here is arithmetic over what the operator ASSERTED, not a broker "
         "record, not a verified fill, and not evidence that any trade occurred",
-        "the result EXCLUDES "
-        + ", ".join(EXCLUDED_COST_COMPONENTS)
-        + "; the ledger stores none of them, so any result here is systematically more "
-        "favourable than a real economic outcome",
+        "the result EXCLUDES these economic components, none of which the ledger "
+        "stores: " + ", ".join(EXCLUDED_ECONOMIC_COMPONENTS) + ". It is therefore NOT a "
+        "complete economic outcome",
+        "the DIRECTION of the total omitted effect is NOT generally knowable: "
+        + ", ".join(EXCLUDED_FRICTION_COMPONENTS)
+        + " are frictions whose omission would normally make a raw result look better "
+        "than reality, but "
+        + ", ".join(EXCLUDED_NON_DIRECTIONAL_COMPONENTS)
+        + " can move the real economic outcome in either direction, so no universal "
+        "bound in either direction is claimed",
         "assertions recorded after the knowledge cutoff are excluded and influence "
         "nothing above; that exclusion is the firewall's own effect, not an absence of "
         "activity. By construction this report cannot say how many there were, because "

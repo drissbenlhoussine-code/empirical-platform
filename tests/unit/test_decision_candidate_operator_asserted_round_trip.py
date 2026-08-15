@@ -16,13 +16,15 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import UTC, datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import ROUND_FLOOR, ROUND_UP, Decimal, localcontext
 
 import pytest
 
 from empirical_platform.decision_candidate.operator_asserted_round_trip import (
     ASSERTED_ROUND_TRIP_BANNER,
-    EXCLUDED_COST_COMPONENTS,
+    EXCLUDED_ECONOMIC_COMPONENTS,
+    EXCLUDED_FRICTION_COMPONENTS,
+    EXCLUDED_NON_DIRECTIONAL_COMPONENTS,
     AssertedRoundTripReport,
     RoundTripOutcome,
     RoundTripStatus,
@@ -596,20 +598,15 @@ def test_the_banner_states_what_the_result_is_not() -> None:
         assert phrase in ASSERTED_ROUND_TRIP_BANNER
 
 
-def test_every_excluded_cost_component_is_named_on_every_report() -> None:
+def test_every_excluded_economic_component_is_named_on_every_report() -> None:
     opened = event(gid="O", effective=D1)
     for result in (report(events=(opened,)), report(events=()), report(ledger_available=False)):
         if result.outcome is RoundTripOutcome.NOT_ASSESSABLE:
             continue
-        assert result.excluded_cost_components == EXCLUDED_COST_COMPONENTS
+        assert result.excluded_economic_components == EXCLUDED_ECONOMIC_COMPONENTS
     joined = " ".join(report(events=(opened,)).limitations)
-    for component in EXCLUDED_COST_COMPONENTS:
+    for component in EXCLUDED_ECONOMIC_COMPONENTS:
         assert component in joined
-
-
-def test_the_cost_exclusion_says_the_result_is_systematically_favourable() -> None:
-    joined = " ".join(report(events=(event(gid="O", effective=D1),)).limitations)
-    assert "more favourable than a real economic outcome" in joined
 
 
 def test_no_aggregate_result_across_positions_is_emitted() -> None:
@@ -752,3 +749,226 @@ def test_the_three_coverage_phrasings_are_distinct() -> None:
             )
         )
     assert len(lines) == 3
+
+
+# --------------------------------------------------------------------------
+# Owner review finding 1 — exact arithmetic, independent of the ambient
+# Decimal context. The previous design verdicts E04/E06/E07 tested only SMALL
+# quantities against a large price and were therefore too weak to see this.
+# --------------------------------------------------------------------------
+
+#: PostgreSQL INTEGER maximum: the largest quantity M076 persistence admits.
+_POSTGRES_INT_MAX = 2147483647
+_MAX_PRICE = "99999999999999.999999"
+_MIN_PRICE = "0.000001"
+
+
+def _max_boundary_position() -> tuple[OperatorAssertedPositionEvent, ...]:
+    opened = event(gid="O", effective=D1, quantity=_POSTGRES_INT_MAX, price=_MAX_PRICE)
+    closed = closed_after((opened,), gid="C", price=_MIN_PRICE, effective=D2)
+    return (opened, closed)
+
+
+def test_the_owner_boundary_case_is_exact_to_the_last_digit() -> None:
+    """Owner review attacks 1, 2, 3, 4, 5 and 6 in one position.
+
+    Before the fix this rounded to 28 significant digits under the default
+    Decimal context and silently lost six digits.
+    """
+    entry = report(events=_max_boundary_position()).entries[0]
+    assert entry.asserted_entry_cost_for_exited_quantity == "214748364699999999997852.516353"
+    assert entry.asserted_exit_consideration == "2147.483647"
+    assert entry.asserted_round_trip_result == "-214748364699999999995705.032706"
+
+
+def test_the_exact_product_matches_independent_integer_arithmetic() -> None:
+    """Owner review attack 10, in-memory twin: recomputed with pure integers,
+    which are arbitrary-precision and cannot be affected by any context."""
+    entry = report(events=_max_boundary_position()).entries[0]
+    scaled_entry = _POSTGRES_INT_MAX * 99999999999999999999
+    scaled_exit = _POSTGRES_INT_MAX * 1
+    scaled_result = scaled_exit - scaled_entry
+    sign = "-" if scaled_result < 0 else ""
+    whole, fraction = divmod(abs(scaled_result), 10**6)
+    expected = f"{sign}{whole}.{fraction:06d}".rstrip("0").rstrip(".")
+    assert entry.asserted_round_trip_result == expected
+
+
+@pytest.mark.parametrize(
+    ("precision", "rounding"),
+    [
+        pytest.param(1, None, id="prec-1"),
+        pytest.param(5, None, id="prec-5"),
+        pytest.param(28, None, id="prec-28-default"),
+        pytest.param(9, ROUND_UP, id="prec-9-round-up"),
+        pytest.param(3, ROUND_FLOOR, id="prec-3-round-floor"),
+        pytest.param(60, None, id="prec-60"),
+    ],
+)
+def test_the_result_is_independent_of_the_ambient_decimal_context(
+    precision: int, rounding: str | None
+) -> None:
+    """Owner review attacks 8 and 9. A caller's context must not change M080."""
+    events = _max_boundary_position()
+    baseline = report(events=events)
+    with localcontext() as context:
+        context.prec = precision
+        if rounding is not None:
+            context.rounding = rounding
+        under_context = report(events=events)
+    assert under_context == baseline
+    assert render_round_trip_report_json(under_context) == render_round_trip_report_json(baseline)
+    assert render_round_trip_report_text(under_context) == render_round_trip_report_text(baseline)
+
+
+def test_many_reductions_totalling_near_integer_max_stay_exact() -> None:
+    """Owner review attack 7."""
+    opened = event(gid="O", effective=D1, quantity=_POSTGRES_INT_MAX, price=_MAX_PRICE)
+    reductions = tuple(
+        event(
+            gid=f"R{index}",
+            kind=OperatorPositionEventKind.REDUCED,
+            quantity=_POSTGRES_INT_MAX // 4,
+            price=_MAX_PRICE,
+            effective=D2 + timedelta(hours=index),
+        )
+        for index in range(4)
+    )
+    entry = report(events=(opened, *reductions)).entries[0]
+    exited = (_POSTGRES_INT_MAX // 4) * 4
+    scaled = exited * 99999999999999999999
+    whole, fraction = divmod(scaled, 10**6)
+    expected = f"{whole}.{fraction:06d}".rstrip("0").rstrip(".")
+    assert entry.exited_quantity == exited
+    assert entry.asserted_exit_consideration == expected
+    # entry and exit at the same price: exactly zero, to the last digit
+    assert entry.asserted_round_trip_result == "0"
+
+
+def test_money_rendering_does_not_round_a_value_beyond_the_context_precision() -> None:
+    """Owner review attack 12. The old renderer went through
+    `Decimal.normalize()`, which re-rounded an exact value on the way out."""
+    entry = report(events=_max_boundary_position()).entries[0]
+    rendered = entry.asserted_round_trip_result
+    assert rendered is not None
+    digits = rendered.replace("-", "").replace(".", "")
+    assert len(digits) == 30, "an exact 30-digit result must survive rendering"
+    assert "E" not in rendered and "e" not in rendered
+
+
+def test_text_and_json_carry_the_identical_full_precision_string() -> None:
+    """Owner review attack 11."""
+    result = report(events=_max_boundary_position())
+    exact = result.entries[0].asserted_round_trip_result
+    assert exact is not None
+    payload = render_round_trip_report_json(result)
+    assert payload["entries"][0]["asserted_round_trip_result"] == exact  # type: ignore[index]
+    assert exact in render_round_trip_report_text(result)
+
+
+def test_the_module_performs_no_decimal_arithmetic_at_all() -> None:
+    """The structural form of the guarantee: no Decimal operator can round
+    because no Decimal operator is used."""
+    import inspect
+
+    from empirical_platform.decision_candidate import operator_asserted_round_trip as module
+
+    source = inspect.getsource(module._entry_for_key)
+    for forbidden in ("Decimal(", ".normalize(", ".quantize(", ".scaleb("):
+        assert forbidden not in source, f"{forbidden} reintroduces context sensitivity"
+
+
+def test_the_minimum_price_survives_the_maximum_quantity() -> None:
+    """Owner review attack 3 at the opposite extreme."""
+    opened = event(gid="O", effective=D1, quantity=_POSTGRES_INT_MAX, price=_MIN_PRICE)
+    closed = closed_after((opened,), gid="C", price=_MIN_PRICE, effective=D2)
+    entry = report(events=(opened, closed)).entries[0]
+    assert entry.asserted_entry_cost_for_exited_quantity == "2147.483647"
+    assert entry.asserted_round_trip_result == "0"
+
+
+# --------------------------------------------------------------------------
+# Owner review finding 2 — not every excluded component is a cost
+# --------------------------------------------------------------------------
+
+
+def test_no_claim_survives_that_every_excluded_item_is_a_cost() -> None:
+    result = report(events=(event(gid="O", effective=D1),))
+    surfaces = [ASSERTED_ROUND_TRIP_BANNER, *result.limitations]
+    surfaces.append(render_round_trip_report_text(result))
+    joined = " ".join(surfaces).lower()
+    assert "cost components" not in joined
+    for field in dataclasses.fields(AssertedRoundTripReport):
+        assert "cost_component" not in field.name
+
+
+def test_no_claim_survives_of_a_universally_favourable_bias() -> None:
+    result = report(events=(event(gid="O", effective=D1),))
+    joined = " ".join(
+        [ASSERTED_ROUND_TRIP_BANNER, *result.limitations, render_round_trip_report_text(result)]
+    ).lower()
+    for banned in (
+        "systematically more favourable",
+        "more favourable than a real economic outcome",
+        "always more favourable",
+        "upper bound",
+    ):
+        assert banned not in joined
+
+
+def test_dividends_and_corporate_actions_are_not_classified_as_costs() -> None:
+    assert "dividends" not in EXCLUDED_FRICTION_COMPONENTS
+    assert "corporate actions" not in EXCLUDED_FRICTION_COMPONENTS
+    assert "taxes" not in EXCLUDED_FRICTION_COMPONENTS
+    assert "dividends" in EXCLUDED_NON_DIRECTIONAL_COMPONENTS
+    assert "corporate actions" in EXCLUDED_NON_DIRECTIONAL_COMPONENTS
+    assert "taxes" in EXCLUDED_NON_DIRECTIONAL_COMPONENTS
+
+
+def test_the_two_component_groups_partition_the_whole_list() -> None:
+    assert set(EXCLUDED_FRICTION_COMPONENTS) | set(EXCLUDED_NON_DIRECTIONAL_COMPONENTS) == set(
+        EXCLUDED_ECONOMIC_COMPONENTS
+    )
+    assert not set(EXCLUDED_FRICTION_COMPONENTS) & set(EXCLUDED_NON_DIRECTIONAL_COMPONENTS)
+
+
+def test_the_report_says_it_is_not_a_complete_economic_outcome() -> None:
+    result = report(events=(event(gid="O", effective=D1),))
+    joined = " ".join(result.limitations)
+    assert "NOT a complete economic outcome" in joined
+    assert "NOT generally knowable" in joined
+
+
+def test_the_banner_states_the_direction_is_not_knowable() -> None:
+    assert "NOT generally knowable" in ASSERTED_ROUND_TRIP_BANNER
+    assert "either direction" in ASSERTED_ROUND_TRIP_BANNER
+    assert "systematically more favourable" not in ASSERTED_ROUND_TRIP_BANNER
+
+
+def test_both_renderings_expose_the_corrected_terminology() -> None:
+    result = report(events=(event(gid="O", effective=D1),))
+    payload = render_round_trip_report_json(result)
+    rendered = render_round_trip_report_text(result)
+    assert "excluded_economic_components" in payload
+    assert "excluded_cost_components" not in payload
+    assert "excluded economic components" in rendered
+    assert "NOT generally knowable" in rendered
+
+
+def test_the_original_honesty_guards_all_still_hold() -> None:
+    """Finding 2's correction must not have weakened finding-agnostic guards."""
+    result = report(events=_max_boundary_position())
+    payload = render_round_trip_report_json(result)
+    keys = list(payload) + [k for entry in payload["entries"] for k in entry]  # type: ignore[union-attr]
+    for key in keys:
+        for token in _FORBIDDEN:
+            assert token not in key.upper()
+    for phrase in (
+        "NOT broker realized profit or loss",
+        "NOT verified profit",
+        "NOT actual cash proceeds",
+        "NOT a market return",
+        "NOT a tax result",
+        "ARITHMETIC ON ASSERTIONS",
+    ):
+        assert phrase in ASSERTED_ROUND_TRIP_BANNER

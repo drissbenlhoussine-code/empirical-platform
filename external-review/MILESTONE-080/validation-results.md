@@ -1,5 +1,15 @@
 # M080 — Validation Results
 
+> ## ⚠ SUPERSEDED BY THE OWNER REVIEW CORRECTION
+>
+> The figures below were measured on the **first** candidate (`d8c8244`), which
+> Owner review found to be numerically inexact at the persistence boundary and
+> to carry a false claim about excluded components. They are kept for audit.
+> **Current numbers are in the section that follows them.**
+>
+> One claim in the original section is not merely stale but **wrong**: the gate
+> table asserted exactness that did not hold at `quantity = 2147483647`.
+
 ## Regression, baseline measured in the same environment
 
 The baseline was measured by checking out `0e73e0b` in the **same working tree**
@@ -117,3 +127,85 @@ isolation and in five subsequent runs (`-k "m077 or m080"` 39 passed; the broad
 chain 364 passed, three times). It is an M077 test in a module M080 does not
 modify. **It is not claimed to be explained.** The authoritative check is the
 failing-ID diff above, which is identical to the baseline.
+
+---
+
+# M080 — Validation Results after the Owner review correction
+
+## Regression, baseline measured in the same environment
+
+| Head | PostgreSQL off | PostgreSQL on |
+|---|---|---|
+| `master` `0e73e0b` | — | 24 failed, **2458** passed, 44 errors |
+| First candidate `d8c8244` | 8 failed, 2144 passed, 12 errors | 24 failed, **2532** passed, 44 errors |
+| **Corrected candidate** | 8 failed, **2164** passed, 12 errors | 24 failed, **2555** passed, 44 errors |
+
+**Zero regressions**, and the claim does not rest on counts: the sorted
+failing-test-id lists were **diffed against the `0e73e0b` baseline and are
+identical**.
+
+## Tests
+
+| Suite | Before | After |
+|---|---|---|
+| M080 unit | 58 | **78 passed** |
+| M080 PostgreSQL integration | 12 | **15 passed** |
+| M080 fresh second pass | 4 | **4 passed** |
+| M076–M080 chain | 364 | **387 passed** |
+
+The 20 added unit tests and 3 added PostgreSQL tests are the Owner's required
+attacks, catalogued R-Q01–R-Q13 and R-R01–R-R10.
+
+## Gates
+
+| Gate | Result |
+|---|---|
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 596 files already formatted |
+| `mypy` | no issues in 302 source files |
+| `check_architecture.py .` | exit 0 |
+| negative architecture fixture | exit 1 (required) |
+| secret scan | 0 findings |
+| `pip-audit` | No known vulnerabilities found |
+| `python -m build` | sdist + wheel |
+| migrations | none added or changed |
+
+**No `# type: ignore`, no concealing `# noqa`, and no gate suppression was
+added.** One mypy finding arose during the correction — `int ** int` is typed
+`Any` because a negative exponent would yield a float — and was fixed by
+scaling through digit-string padding rather than suppressed.
+
+## The exactness proof
+
+```
+quantity 2147483647  @  99999999999999.999999   ->  exited at 0.000001
+
+entry cost   : 214748364699999999997852.516353
+consideration:                     2147.483647
+RESULT       : -214748364699999999995705.032706      (30 significant digits)
+```
+
+- identical under ambient precision 1, 5, 9, 28 and 60
+- identical under `ROUND_UP` and `ROUND_FLOOR`
+- identical in the object, the text and the JSON
+- matches an independent pure-integer recomputation from the **raw PostgreSQL
+  columns**, byte for byte
+- proven in memory **and** over genuinely persisted rows, with raw SQL
+  confirming `quantity = 2147483647` and `asserted_price =
+  99999999999999.999999` round-tripped exactly
+
+Before the correction the same inputs produced
+`214748364699999999997852.5164` — six digits lost.
+
+## The vocabulary proof
+
+`excluded_cost_components` → `excluded_economic_components` in the dataclass,
+the JSON key and the rendered text. The list is partitioned into five frictions
+and three non-directional components, with union equal to the whole and empty
+intersection, asserted by test. No claim that every excluded item is a cost, and
+no universally-favourable-bias claim, survives anywhere — checked across the
+banner, the limitations, the rendered text and every field name.
+
+All thirteen forbidden broker/P&L tokens and all six banner disclaimers were
+re-asserted **at the boundary case**, to confirm the correction did not weaken
+the original honesty guards.
