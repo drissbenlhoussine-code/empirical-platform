@@ -1,0 +1,176 @@
+"""MILESTONE-082 receipt attestation persistence.
+
+APPEND-ONLY, in two enforced layers:
+
+  * this class exposes `attest` and read methods only -- there is no UPDATE and
+    no DELETE code path anywhere in it;
+  * a BEFORE UPDATE OR DELETE trigger on the table refuses direct SQL too, so
+    this is DATABASE-ENFORCED immutability rather than a convention. A superuser
+    can still drop that trigger, and the design states so rather than hiding it.
+
+THE TWO-PHASE MODEL IS THE POINT. `attest` runs in its OWN transaction, AFTER
+the event's transaction has committed, and it READS THE EVENT BACK before taking
+the instant. That read is what proves durability, and taking the instant after
+it is what makes
+
+    system_received_at <= W   IMPLY   the event was durably committed by W.
+
+Assigning the instant inside the ingesting transaction was PROVED to leak: a
+paused transaction's pre-commit timestamp made an invisible row appear
+"available" at a cutoff chosen during the pause.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from typing import Any
+
+from empirical_platform.decision_candidate.operator_event_receipt import OperatorEventReceipt
+from empirical_platform.shared.errors.foundation import FoundationError
+from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories._errors import (
+    unique_violation_constraint_name,
+)
+
+__all__ = ["PostgresOperatorEventReceiptRepository"]
+
+ATTESTER_VERSION = "M082.1"
+
+_EVENT_UNIQUE_CONSTRAINT = "uq_operator_event_receipt_event"
+
+
+class UnknownOperatorEventError(RuntimeError):
+    """Raised when attestation is asked for an event that is not committed.
+
+    Deliberately NOT a soft verdict. An attestation for an event the platform
+    cannot read back would be a receipt for something that may not exist, which
+    is precisely the fabrication this milestone refuses.
+    """
+
+
+class PostgresOperatorEventReceiptRepository:
+    """PostgreSQL-backed append-only receipt store."""
+
+    __slots__ = ("_service",)
+
+    def __init__(self, service: PostgresPersistenceService) -> None:
+        self._service = service
+
+    def attest(
+        self,
+        *,
+        receipt_governance_id: str,
+        event_governance_id: str,
+        attested_by: str,
+    ) -> OperatorEventReceipt:
+        """Attest that `event_governance_id` was read back as already committed.
+
+        Idempotent BY EVENT: if a receipt already exists this returns it
+        unchanged rather than creating a second authority. That is enforced by
+        the UNIQUE constraint, not by a check-then-act race.
+        """
+        existing = self.get_for_event(event_governance_id)
+        if existing is not None:
+            return existing
+
+        with self._service.unit_of_work() as work:
+            # PHASE 2 READ-BACK. This runs in a transaction of its own, so it
+            # can only observe the event if the event's transaction has already
+            # COMMITTED. Everything the receipt claims rests on this read.
+            rows = work.execute(
+                "SELECT governance_id FROM operator_position_event WHERE governance_id = :gid",
+                {"gid": event_governance_id},
+            )
+            if not list(rows):
+                raise UnknownOperatorEventError(
+                    f"no committed operator position event with governance_id "
+                    f"{event_governance_id!r}; refusing to attest"
+                )
+
+            # The instant is taken HERE -- after the read-back proved the event
+            # is durably committed -- so it is an upper bound witness on the
+            # commit time and can never precede it.
+            system_received_at = datetime.now(UTC)
+
+            receipt = OperatorEventReceipt(
+                receipt_governance_id=receipt_governance_id,
+                event_governance_id=event_governance_id,
+                system_received_at=system_received_at,
+                attested_by=attested_by,
+                attester_version=ATTESTER_VERSION,
+            )
+            try:
+                work.execute(
+                    "INSERT INTO operator_event_receipt "
+                    "(receipt_governance_id, event_governance_id, system_received_at, "
+                    "attested_by, attester_version) VALUES "
+                    "(:receipt_governance_id, :event_governance_id, :system_received_at, "
+                    ":attested_by, :attester_version)",
+                    {
+                        "receipt_governance_id": receipt.receipt_governance_id,
+                        "event_governance_id": receipt.event_governance_id,
+                        "system_received_at": receipt.system_received_at,
+                        "attested_by": receipt.attested_by,
+                        "attester_version": receipt.attester_version,
+                    },
+                )
+            except FoundationError as exc:
+                # Two concurrent attesters for one event: the database decides.
+                # The loser reports the winner's receipt, not a fault.
+                #
+                # IMPLEMENTATION REVIEW R01, found by executing four concurrent
+                # attesters. The first version called `get_for_event` HERE,
+                # while still inside this unit of work, which raised "Nested
+                # persistence units of work are not supported" -- so the losers
+                # crashed instead of reporting the winner, which is exactly the
+                # case this branch exists to handle gracefully. The conflict is
+                # now only DETECTED inside the transaction; the winner is read
+                # after it has closed.
+                if unique_violation_constraint_name(exc) != _EVENT_UNIQUE_CONSTRAINT:
+                    raise
+                conflicted = True
+            else:
+                conflicted = False
+
+        if conflicted:
+            winner = self.get_for_event(event_governance_id)
+            if winner is None:  # pragma: no cover - the row must exist to conflict
+                raise RuntimeError(
+                    f"receipt for {event_governance_id!r} conflicted but cannot be read back"
+                )
+            return winner
+        return receipt
+
+    def get_for_event(self, event_governance_id: str) -> OperatorEventReceipt | None:
+        with self._service.unit_of_work() as work:
+            rows = list(
+                work.execute(
+                    "SELECT receipt_governance_id, event_governance_id, system_received_at, "
+                    "attested_by, attester_version FROM operator_event_receipt "
+                    "WHERE event_governance_id = :gid",
+                    {"gid": event_governance_id},
+                )
+            )
+        if not rows:
+            return None
+        return _row_to_receipt(rows[0])
+
+    def list_all(self) -> tuple[OperatorEventReceipt, ...]:
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                "SELECT receipt_governance_id, event_governance_id, system_received_at, "
+                "attested_by, attester_version FROM operator_event_receipt "
+                "ORDER BY system_received_at, event_governance_id"
+            )
+            return tuple(_row_to_receipt(row) for row in rows)
+
+
+def _row_to_receipt(row: Mapping[str, Any]) -> OperatorEventReceipt:
+    return OperatorEventReceipt(
+        receipt_governance_id=str(row["receipt_governance_id"]),
+        event_governance_id=str(row["event_governance_id"]),
+        system_received_at=row["system_received_at"],
+        attested_by=str(row["attested_by"]),
+        attester_version=str(row["attester_version"]),
+    )
