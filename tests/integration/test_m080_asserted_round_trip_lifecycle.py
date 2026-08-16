@@ -337,6 +337,7 @@ def test_m080_text_and_json_agree_over_real_rows(clean_tables: Engine) -> None:
     assert "FULLY_EXITED_ASSERTED" in rendered
     assert "excluded_by_knowledge_cutoff" not in payload
     assert "commissions" in rendered
+    assert "UNSPECIFIED ASSERTED PRICE UNITS" in rendered
 
 
 def test_m080_numeric_round_trip_renders_identically_from_postgres(
@@ -750,8 +751,14 @@ def test_m080_reports_the_corrected_economic_component_vocabulary(
     payload = render_round_trip_report_json(report)
     rendered = render_round_trip_report_text(report)
 
-    assert "excluded_economic_components" in payload
+    assert "unrepresented_economic_components" in payload
     assert "excluded_cost_components" not in payload
+    assert "excluded_economic_components" not in payload
     assert "NOT a complete economic outcome" in rendered
     assert "NOT generally knowable" in rendered
     assert "systematically more favourable" not in rendered
+    assert "costs excluded" not in rendered
+    # Owner review finding 4: spread/slippage are not claimed excluded.
+    assert "NOT claimed to be excluded" in rendered
+    # Owner review finding 3: no denomination is invented over real rows.
+    assert "UNSPECIFIED ASSERTED PRICE UNITS" in rendered

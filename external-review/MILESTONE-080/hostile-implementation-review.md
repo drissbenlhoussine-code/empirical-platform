@@ -4,7 +4,7 @@ A **new** adversarial pass against the real code and real persistence
 behaviour. **Not an independent review** — the same agent wrote the code.
 Counts are computed programmatically from this file.
 
-**175 attacks executed against the running code, the usecase layer and real PostgreSQL, including the Owner review correction pass. 1 defect found by my own review (R01); the Owner review found **two more** that my numeric and honesty attacks were too weak to catch. Three of my own probe assertions were wrong and are recorded as such.**
+**188 attacks executed against the running code, the usecase layer and real PostgreSQL, across three Owner review passes.** 1 defect found by my own review (R01); the Owner found **four** more that my attacks were too weak to catch. **Six** of my own probe assertions were wrong, and one of my own reconciliation records was false; all seven are recorded as such below.
 
 The unit suite passed **54/54 on its first run**. As in M078 and M079, that was
 evidence the tests were not yet pointed at the right places rather than evidence
@@ -22,7 +22,7 @@ unreconciled one, and read the three outputs as an operator would.
 apart from the number:
 
 ```
-ASSERTED ROUND-TRIP RESULT (arithmetic on assertions, costs excluded): -20
+ASSERTED ROUND-TRIP RESULT (arithmetic on assertions, costs excluded): -20   <- wording since corrected
 ASSERTED ROUND-TRIP RESULT (arithmetic on assertions, costs excluded): 120
 ASSERTED ROUND-TRIP RESULT (arithmetic on assertions, costs excluded): -60
 ```
@@ -186,7 +186,7 @@ regression failing-ID diff, which is identical to the baseline.
 | R-H02 | Forbidden token in any JSON key | none |
 | R-H03 | Banner states what the result is not | asserted phrase by phrase |
 | R-H04 | Cost components named on every report | all 8, structured field and limitations |
-| R-H05 | The cost caveat states the direction of the bias | "more favourable than a real economic outcome" |
+| R-H05 | The cost caveat states the direction of the bias | ⚠ **RETRACTED** — the caveat asserted a universal favourable bias that does not hold, and the direction is not generally knowable. Original verdict, preserved: "more favourable than a real economic outcome" |
 | R-H06 | An aggregate, win rate or return percentage exists | none |
 | R-H07 | **The result line hides its own coverage** | **R01 — DEFECT, fixed** |
 | R-H08 | Simulated M062/M067 `realized_pnl` conflated with this | no — named as a distinct claim in design, module docstring and reality gate |
@@ -244,7 +244,7 @@ regression failing-ID diff, which is identical to the baseline.
 | R-L02 | An entry can be mutated | no — frozen |
 | R-L03 | `entries` is a mutable list | no — tuple |
 | R-L04 | `limitations` is a mutable list | no — tuple |
-| R-L05 | `excluded_cost_components` is mutable | no — tuple |
+| R-L05 | `excluded_cost_components` is mutable | no — tuple. ⚠ *field since renamed to `unrepresented_economic_components` by Owner findings 2 and 4* |
 | R-L06 | A raw `Decimal` escapes into an entry field | no — canonical strings only |
 | R-L07 | A monetary field is neither `str` nor `None` | no |
 | R-L08 | A quantity field is not `int` | no |
@@ -313,7 +313,7 @@ regression failing-ID diff, which is identical to the baseline.
 | R-P14 | M079 behaves differently once M080 is importable | identical |
 | R-P15 | M076 behaves differently once M080 is importable | identical |
 
-## Two probe errors of my own, recorded
+## Two probe errors of my own, recorded (three more follow, from a later pass)
 
 Both were wrong **assertions**, not wrong code, and both were the same mistake —
 an unanchored substring match:
@@ -436,21 +436,28 @@ name a consumer would read as a claim.
 
 ### The fix — vocabulary corrected before freeze
 
-| Before | After |
+> ⚠ **The "After" column and the partition below are themselves superseded by
+> Owner finding 4**, in the final honesty reconciliation pass further down this
+> file. Preserved unedited as the record of what this pass concluded.
+
+| Before | After (⚠ superseded) |
 |---|---|
-| `EXCLUDED_COST_COMPONENTS` | `EXCLUDED_ECONOMIC_COMPONENTS` |
-| `excluded_cost_components` (field) | `excluded_economic_components` |
-| `"excluded_cost_components"` (JSON key) | `"excluded_economic_components"` |
-| "systematically more favourable than any real economic outcome" | "**NOT a complete economic outcome**; the **direction** of the total omitted effect is **NOT generally knowable**" |
+| `EXCLUDED_COST_COMPONENTS` | `EXCLUDED_ECONOMIC_COMPONENTS` → now `UNREPRESENTED_ECONOMIC_COMPONENTS` |
+| `excluded_cost_components` (field) | `excluded_economic_components` → now `unrepresented_economic_components` |
+| `"excluded_cost_components"` (JSON key) | `"excluded_economic_components"` → now `"unrepresented_economic_components"` |
+| "systematically more favourable than any real economic outcome" | "**NOT a complete economic outcome**; the **direction** of the total omitted effect is **NOT generally knowable**" — this part still stands |
 
 The list is additionally **partitioned**, so the honest statement can be made
 about each group rather than a false one about the whole:
 
-- `EXCLUDED_FRICTION_COMPONENTS` — commissions, spread, slippage, exchange and
+- ~~`EXCLUDED_FRICTION_COMPONENTS` — commissions, spread, slippage, exchange and
   regulatory fees, financing and borrow cost. Omitting these **would normally
-  make a raw result look better** than reality.
-- `EXCLUDED_NON_DIRECTIONAL_COMPONENTS` — taxes, dividends, corporate actions.
-  These can move the real outcome **either way**.
+  make a raw result look better** than reality.~~ ⚠ **RETRACTED by finding 4** —
+  spread and slippage do not belong in a group that asserts both exclusion and a
+  direction.
+- ~~`EXCLUDED_NON_DIRECTIONAL_COMPONENTS` — taxes, dividends, corporate actions.~~
+  ⚠ **Renamed** to `CONTEXT_DEPENDENT_COMPONENTS`; the statement about them was
+  correct and still stands.
 
 Correcting the API name now is deliberate: M080 is not frozen, and freezing a
 field named for a claim that is false would be far worse than renaming it.
@@ -478,3 +485,151 @@ context-sensitive too, so the control rounded exactly like the code and printed
 `EQUAL: True` — appearing to refute the Owner. Only pure integer arithmetic is a
 valid control here. Recorded because a verification that agrees for the wrong
 reason is more dangerous than one that fails.
+
+
+---
+
+# Owner review — final honesty reconciliation pass
+
+Two further defects, both real, plus stale wording left active by the previous
+correction. **This section supersedes the "frictions" grouping introduced in the
+previous pass.**
+
+## Finding 3 — no currency / denomination authority
+
+**The premise, verified rather than assumed.** M076 persists exactly:
+`instrument_symbol`, `quantity`, `asserted_price`, the two timestamps, the
+optional plan citation and a note. There is **no** `currency`, `quote_currency`,
+`price_currency` or `denomination` column — confirmed against the migration
+(`b7e1c4a95d38`), the frozen domain event and the repository adapter.
+
+**The defect.** M080 emitted values named `asserted_entry_cost`,
+`asserted_exit_consideration` and `asserted_round_trip_result` with **no
+statement of what units they are in**. A reader — or a future aggregating
+milestone — would naturally assume a single currency. Nothing in the platform
+supports that.
+
+**The fix.** `ASSERTED_PRICE_DENOMINATION_LIMITATION` is carried on **every**
+report shape, including the empty and the withheld ones, and the banner repeats
+it. It states that values are in the same **unspecified asserted price units**
+the ledger carries; that no currency is persisted; that `instrument_symbol` is
+**not** a currency authority; that a value must not be read as USD, EUR or
+anything else on M080's authority; and that two values must **not** be assumed to
+share a denomination merely because both appear in one report.
+
+No currency value is invented anywhere. No schema change and no migration.
+
+| # | Owner attack | Result |
+|---|---|---|
+| R-S01 | M076 schema contains a currency field | **no** — asserted against the frozen event's fields |
+| R-S02 | An arbitrary symbol produces an invented denomination | no — `AAPL`, `XAU`, `BTC`, `ZZZZ` all clean |
+| R-S03 | JSON carries an invented currency | no |
+| R-S04 | Text carries an invented currency | no |
+| R-S05 | `$`, `USD`, `EUR`, `GBP`, `JPY`, `CHF`, `CAD`, `AUD`, `€`, `£`, `¥` appear as an inferred unit | none, outside the explicit denials |
+| R-S06 | The limitation is missing from some report shape | present on closed, open, partial, empty **and** withheld |
+| R-S07 | A future M081 could read two entries as a same-currency aggregate | denied in the limitation, and no aggregate field exists |
+
+## Finding 4 — spread and slippage are not provably excluded
+
+**The defect.** The previous correction placed `spread` and `slippage` in
+`EXCLUDED_FRICTION_COMPONENTS` and said their omission "would normally make a
+raw result look better than reality". **Too strong.**
+
+M080's arithmetic uses the operator's **own asserted execution prices**. If those
+prices are what the operator says they actually paid and received, spread and
+slippage are **already embedded in them**. M076 stores no benchmark price, no
+quoted bid or ask, no intended price and no arrival price — so there is nothing
+to measure an execution effect against, and M080 cannot determine whether they
+are absent, embedded, partly embedded or independently attributable.
+
+**The fix — a three-way split**, replacing the previous two-way one:
+
+| Group | Members | What may honestly be said |
+|---|---|---|
+| `UNREPRESENTED_CASHFLOW_COMPONENTS` | commissions, exchange and regulatory fees, financing and borrow cost | cash the ledger never records; including them would normally **reduce** a raw result |
+| `CONTEXT_DEPENDENT_COMPONENTS` | taxes, dividends, corporate actions | can move the real outcome in **either** direction |
+| `NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS` | spread, slippage | **not claimed excluded**; may already be embedded in the asserted prices; not measurable from this data |
+
+The umbrella name also changed, for the same reason: `EXCLUDED_ECONOMIC_COMPONENTS`
+→ `UNREPRESENTED_ECONOMIC_COMPONENTS`. "Excluded" asserts absence, which is
+exactly what cannot be asserted for spread and slippage. The dataclass field and
+JSON key are `unrepresented_economic_components`.
+
+| # | Owner attack | Result |
+|---|---|---|
+| R-T01 | Spread/slippage still grouped with directional frictions | no — own group |
+| R-T02 | Any claim they are definitely excluded | none — "NOT claimed to be excluded" |
+| R-T03 | Are they described as not separately attributable | yes, with the four missing reference prices named |
+| R-T04 | Do they appear in the line that claims a direction | **no** — asserted against that line |
+| R-T05 | Does the cashflow group still contain an execution effect | no — exactly three members |
+| R-T06 | Do the three groups partition the union exactly | yes — disjoint, union equal |
+
+## Three more probe errors of my own, this pass
+
+Recorded on the same principle as the earlier two: an attack that fails for the
+wrong reason misleads exactly as much as a test that passes for the wrong one.
+
+1. **The currency-token searches flagged my own denial.** `USD`, `EUR`, `$` and
+   the rest appear in `ASSERTED_PRICE_DENOMINATION_LIMITATION` and the banner
+   **in order to forbid them**. Three tests failed on that text. The tests were
+   wrong, not the output; they now strip the banner and limitation sentences
+   first, via a `_without_denials` helper, and search what remains.
+2. **An assertion pinned the previous banner wording**, and failed when the
+   banner was corrected for finding 4. The assertion was stale, not the banner.
+3. **A fixture I wrote for the denomination tests gave a position id and an
+   instrument symbol that did not correspond**, so the expectation it encoded
+   was wrong before the code ever ran. Fixed at the fixture.
+
+None of the three was a code defect. Counting them as findings would have
+inflated this review; hiding them would have overstated the quality of my own
+attacks.
+
+## Stale active claims found and reconciled
+
+**The first sweep in this pass was too narrow.** It covered the source tree and
+four evidence documents, reported "7 found, 7 reconciled", and **one of those
+seven was recorded as fixed when it was not**. Re-running the sweep across
+**every** file the branch touches — including the root design document — found
+twelve more. Both errors are recorded below rather than quietly replaced.
+
+Terms searched: `EXCLUDED_COST_COMPONENTS`, `excluded_cost_components`,
+`EXCLUDED_ECONOMIC_COMPONENTS`, `EXCLUDED_FRICTION_COMPONENTS`,
+`EXCLUDED_NON_DIRECTIONAL_COMPONENTS`, `costs excluded`, `excluded costs`,
+`excluded cost`, `systematically more favourable`, `more favourable than`,
+`upper bound`, `spread`, `slippage`, `currency`, `USD`, `EUR`, `$`. Every
+occurrence outside `.venv/` classified:
+
+| # | Location | Was | Disposition |
+|---|---|---|---|
+| 1 | `asserted_round_trip_io.py` result line | "(arithmetic on assertions, **costs excluded**)" | **FIXED** — the live renderer was still asserting the retracted claim on the most-read line in the output |
+| 2 | `owner-review-checklist.md` row 3 | "Every excluded **cost** is named… `EXCLUDED_COST_COMPONENTS`" | **FIXED**, marked as corrected |
+| 3 | `owner-review-checklist.md` row 4 | "systematically more favourable than a real economic outcome" | **FIXED**, marked retracted |
+| 4 | `owner-review-checklist.md` rename rationale | referred only to finding 2 | extended to finding 4 |
+| 5 | `owner-review-checklist.md` rows 7 and 8 | named `EXCLUDED_ECONOMIC_COMPONENTS` / `EXCLUDED_NON_DIRECTIONAL_COMPONENTS` as current | **marked superseded** in place |
+| 6 | `reality-gate.md` closing paragraph | "name the **excluded costs** and the direction of their bias" | **FIXED — on the second attempt.** ⚠ The first sweep recorded this as FIXED **and it was not**; the paragraph was still live. The false record is corrected here, and the paragraph itself now carries a note saying so |
+| 7 | `reality-gate.md` component table | every row read "**excluded**", including spread and slippage | **superseded table struck through and preserved**; a three-way table replaces it |
+| 8 | `reality-gate.md` structured-field paragraph | `excluded_economic_components`, `EXCLUDED_FRICTION_COMPONENTS`, `EXCLUDED_NON_DIRECTIONAL_COMPONENTS` | **FIXED** to the current names |
+| 9 | `reality-gate.md` "what the artifact now says" | "frictions such as commissions, **spread, slippage** and fees would normally reduce" | **FIXED** — spread and slippage moved to their own bullet with no direction claim; a denomination bullet added |
+| 10 | `README.md` | "which **costs** are excluded" | **FIXED** |
+| 11 | `hostile-implementation-review.md` R-H05 | asserted the bias direction as a pass | **marked RETRACTED**, original preserved |
+| 12 | `hostile-implementation-review.md` R-L05 | named the old field | annotated with the rename |
+| 13 | `hostile-implementation-review.md` finding-2 "the fix" table and partition | presented `EXCLUDED_ECONOMIC_COMPONENTS` and the two-way split as current | **marked superseded**, struck through in place, not deleted |
+| 14 | `hostile-design-review.md` H08 | "The list is now `EXCLUDED_ECONOMIC_COMPONENTS`, split into frictions and non-directional components" | **further retraction appended**; original preserved |
+| 15 | `known-limitations.md` item 2 | grouped spread and slippage with frictions that "would normally reduce a raw result" | **FIXED** — rewritten as the three-way split, with both prior versions recorded as retracted |
+| 16 | `known-limitations.md` item 4 | "they omit **costs** and open exposure" | **FIXED**, and pointed at the new denomination limitation |
+| 17 | `known-limitations.md` | no denomination limitation existed at all | **ADDED** as item 16 |
+| 18 | `validation-results.md` "the vocabulary proof" | asserted the two-way partition as a verified current fact | **marked SUPERSEDED**, struck through; the still-valid part kept separately; current measured results added |
+| 19 | `focused-re-review.md` finding-2 rows | "the two groups partition the list exactly"; "frictions would normally reduce" | **marked superseded** in place; finding 3 and 4 re-attack tables added |
+| 20 | `focused-re-review.md` suite table | "78 passed" for the M080 unit suite | **updated** to the re-measured 98 |
+| 21 | `scope-and-design-snapshot.md` header, §15 closing note, §23 | old constant names; "frictions"; "It excludes every cost component in §15" | **FIXED / marked superseded**; §15's body table left struck through and verbatim |
+| 22 | **`MILESTONE_080_..._SCOPE_AND_DESIGN.md` (repository root)** | the same three, in the **frozen-facing** design document — missed entirely by the first sweep, which only looked under `external-review/` | **FIXED**, re-synced byte-for-byte with the snapshot |
+| — | module comment, correction sections, reality-gate strikethrough, R01's quoted pre-fix output, tests asserting absence | name the old terms **in order to retract or forbid them** | **kept** — these are the retraction record, and deleting them would destroy it |
+| — | `USD` / `currency` in `portfolio_study.py`, `run_portfolio_historical_evidence.py`, `portfolio_study_repository.py` | M067/M061 **do** persist a currency | **out of scope** — different milestone, real column, untouched |
+
+**22 active stale claims found; 22 reconciled.** Nineteen were live text that
+read as current truth; one (#6) was a **false reconciliation record** in this
+very file; one (#17) was a missing statement rather than a wrong one; one (#22)
+was in the frozen-facing root document that the first sweep never searched.
+
+No historical conclusion was deleted. Every superseded statement remains
+visible, struck through or annotated, with the finding that superseded it named.

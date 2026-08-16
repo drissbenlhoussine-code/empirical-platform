@@ -15,16 +15,19 @@ The timeline every temporal test is built on:
 from __future__ import annotations
 
 import dataclasses
+import json
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import ROUND_FLOOR, ROUND_UP, Decimal, localcontext
 
 import pytest
 
 from empirical_platform.decision_candidate.operator_asserted_round_trip import (
+    ASSERTED_PRICE_DENOMINATION_LIMITATION,
     ASSERTED_ROUND_TRIP_BANNER,
-    EXCLUDED_ECONOMIC_COMPONENTS,
-    EXCLUDED_FRICTION_COMPONENTS,
-    EXCLUDED_NON_DIRECTIONAL_COMPONENTS,
+    CONTEXT_DEPENDENT_COMPONENTS,
+    NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS,
+    UNREPRESENTED_CASHFLOW_COMPONENTS,
+    UNREPRESENTED_ECONOMIC_COMPONENTS,
     AssertedRoundTripReport,
     RoundTripOutcome,
     RoundTripStatus,
@@ -97,10 +100,14 @@ def closed_after(
     price: str,
     effective: datetime,
     recorded: datetime | None = None,
+    pos: str = "POS-1",
+    symbol: str = "AAPL",
 ) -> OperatorAssertedPositionEvent:
     """Build a CLOSED event whose quantity M076 derives, exactly as persistence does."""
     candidate = event(
         gid=gid,
+        pos=pos,
+        symbol=symbol,
         kind=OperatorPositionEventKind.CLOSED,
         quantity=0,
         price=price,
@@ -598,14 +605,14 @@ def test_the_banner_states_what_the_result_is_not() -> None:
         assert phrase in ASSERTED_ROUND_TRIP_BANNER
 
 
-def test_every_excluded_economic_component_is_named_on_every_report() -> None:
+def test_every_unrepresented_economic_component_is_named_on_every_report() -> None:
     opened = event(gid="O", effective=D1)
     for result in (report(events=(opened,)), report(events=()), report(ledger_available=False)):
         if result.outcome is RoundTripOutcome.NOT_ASSESSABLE:
             continue
-        assert result.excluded_economic_components == EXCLUDED_ECONOMIC_COMPONENTS
+        assert result.unrepresented_economic_components == UNREPRESENTED_ECONOMIC_COMPONENTS
     joined = " ".join(report(events=(opened,)).limitations)
-    for component in EXCLUDED_ECONOMIC_COMPONENTS:
+    for component in UNREPRESENTED_ECONOMIC_COMPONENTS:
         assert component in joined
 
 
@@ -917,19 +924,23 @@ def test_no_claim_survives_of_a_universally_favourable_bias() -> None:
 
 
 def test_dividends_and_corporate_actions_are_not_classified_as_costs() -> None:
-    assert "dividends" not in EXCLUDED_FRICTION_COMPONENTS
-    assert "corporate actions" not in EXCLUDED_FRICTION_COMPONENTS
-    assert "taxes" not in EXCLUDED_FRICTION_COMPONENTS
-    assert "dividends" in EXCLUDED_NON_DIRECTIONAL_COMPONENTS
-    assert "corporate actions" in EXCLUDED_NON_DIRECTIONAL_COMPONENTS
-    assert "taxes" in EXCLUDED_NON_DIRECTIONAL_COMPONENTS
+    for component in ("dividends", "corporate actions", "taxes"):
+        assert component not in UNREPRESENTED_CASHFLOW_COMPONENTS
+        assert component in CONTEXT_DEPENDENT_COMPONENTS
 
 
-def test_the_two_component_groups_partition_the_whole_list() -> None:
-    assert set(EXCLUDED_FRICTION_COMPONENTS) | set(EXCLUDED_NON_DIRECTIONAL_COMPONENTS) == set(
-        EXCLUDED_ECONOMIC_COMPONENTS
+def test_the_three_component_groups_partition_the_whole_list() -> None:
+    """Owner review finding 4 split the old two-way grouping into three."""
+    groups = (
+        set(UNREPRESENTED_CASHFLOW_COMPONENTS),
+        set(CONTEXT_DEPENDENT_COMPONENTS),
+        set(NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS),
     )
-    assert not set(EXCLUDED_FRICTION_COMPONENTS) & set(EXCLUDED_NON_DIRECTIONAL_COMPONENTS)
+    union: set[str] = set()
+    for group in groups:
+        assert not union & group, "the groups must be disjoint"
+        union |= group
+    assert union == set(UNREPRESENTED_ECONOMIC_COMPONENTS)
 
 
 def test_the_report_says_it_is_not_a_complete_economic_outcome() -> None:
@@ -941,7 +952,7 @@ def test_the_report_says_it_is_not_a_complete_economic_outcome() -> None:
 
 def test_the_banner_states_the_direction_is_not_knowable() -> None:
     assert "NOT generally knowable" in ASSERTED_ROUND_TRIP_BANNER
-    assert "either direction" in ASSERTED_ROUND_TRIP_BANNER
+    assert "can move it either way" in ASSERTED_ROUND_TRIP_BANNER
     assert "systematically more favourable" not in ASSERTED_ROUND_TRIP_BANNER
 
 
@@ -949,9 +960,10 @@ def test_both_renderings_expose_the_corrected_terminology() -> None:
     result = report(events=(event(gid="O", effective=D1),))
     payload = render_round_trip_report_json(result)
     rendered = render_round_trip_report_text(result)
-    assert "excluded_economic_components" in payload
+    assert "unrepresented_economic_components" in payload
     assert "excluded_cost_components" not in payload
-    assert "excluded economic components" in rendered
+    assert "excluded_economic_components" not in payload
+    assert "NOT separately represented" in rendered
     assert "NOT generally knowable" in rendered
 
 
@@ -972,3 +984,220 @@ def test_the_original_honesty_guards_all_still_hold() -> None:
         "ARITHMETIC ON ASSERTIONS",
     ):
         assert phrase in ASSERTED_ROUND_TRIP_BANNER
+
+
+# --------------------------------------------------------------------------
+# Owner review finding 3 — no currency / denomination authority
+# --------------------------------------------------------------------------
+
+_CURRENCY_TOKENS = ("USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "$", "€", "£", "¥")
+
+
+def _without_denials(text: str) -> str:
+    """Remove the two surfaces whose PURPOSE is to name currencies in order to
+    deny them. What remains must contain no currency token at all.
+
+    A blanket "USD not in output" assertion is wrong here: the banner says
+    "NOT USD, NOT EUR", which is the honest statement, not a violation. The
+    defect this guards against is a currency appearing as an *inferred unit*.
+    """
+    # The text renderer splits the banner on ". " and prints each sentence on its
+    # own line, so an exact whole-string replace does not match there. Strip by
+    # sentence so the same helper works for text and for JSON.
+    stripped = text
+    for surface in (ASSERTED_ROUND_TRIP_BANNER, ASSERTED_PRICE_DENOMINATION_LIMITATION):
+        for sentence in surface.split(". "):
+            stripped = stripped.replace(sentence, "")
+    return stripped
+
+
+def test_m076_persists_no_currency_field_at_all() -> None:
+    """Owner review attack 1. The premise of finding 3, asserted rather than assumed."""
+    fields = {f.name for f in dataclasses.fields(OperatorAssertedPositionEvent)}
+    for banned in ("currency", "quote_currency", "price_currency", "denomination", "ccy"):
+        assert not any(banned in name for name in fields), (
+            f"{banned} appears in the frozen M076 event; finding 3's premise would be void"
+        )
+
+
+def test_no_denomination_is_invented_from_an_arbitrary_symbol() -> None:
+    """Owner review attack 2."""
+    for symbol in ("AAPL", "XAU", "BTC", "ZZZZ"):
+        opened = event(gid="O", symbol=symbol, effective=D1, quantity=3, price="12.5")
+        closed = closed_after((opened,), gid="C", price="20", effective=D2, symbol=symbol)
+        result = report(events=(opened, closed))
+        rendered = render_round_trip_report_text(result)
+        payload = render_round_trip_report_json(result)
+        residual_text = _without_denials(rendered)
+        residual_json = _without_denials(json.dumps(payload))
+        for token in _CURRENCY_TOKENS:
+            assert token not in residual_text, f"{token} inferred as a unit for {symbol}"
+            assert token not in residual_json, f"{token} in JSON for {symbol}"
+
+
+def test_json_carries_no_invented_currency() -> None:
+    """Owner review attack 3."""
+    payload = _without_denials(
+        json.dumps(render_round_trip_report_json(report(events=_max_boundary_position())))
+    )
+    for token in _CURRENCY_TOKENS:
+        assert token not in payload
+
+
+def test_text_carries_no_invented_currency() -> None:
+    """Owner review attacks 4 and 5."""
+    rendered = _without_denials(
+        render_round_trip_report_text(report(events=_max_boundary_position()))
+    )
+    for token in _CURRENCY_TOKENS:
+        assert token not in rendered
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["closed", "open", "partial", "empty", "withheld"],
+    ids=["closed", "open", "partial", "empty", "withheld"],
+)
+def test_the_denomination_limitation_rides_on_every_report_shape(shape: str) -> None:
+    """Owner review attack 6."""
+    opened = event(gid="O", effective=D1, quantity=10, price="100")
+    if shape == "closed":
+        result = report(
+            events=(opened, closed_after((opened,), gid="C", price="120", effective=D2))
+        )
+    elif shape == "open":
+        result = report(events=(opened,))
+    elif shape == "partial":
+        reduced = event(
+            gid="R", kind=OperatorPositionEventKind.REDUCED, quantity=4, price="120", effective=D2
+        )
+        result = report(events=(opened, reduced))
+    elif shape == "empty":
+        result = report(events=())
+    else:
+        result = report(ledger_available=False)
+
+    assert ASSERTED_PRICE_DENOMINATION_LIMITATION in result.limitations
+    assert "UNSPECIFIED ASSERTED PRICE UNITS" in " ".join(result.limitations)
+    payload = render_round_trip_report_json(result)
+    assert ASSERTED_PRICE_DENOMINATION_LIMITATION in payload["limitations"]  # type: ignore[operator]
+
+
+def test_the_denomination_limitation_denies_currency_and_symbol_authority() -> None:
+    for phrase in (
+        "does NOT establish a currency denomination",
+        "no currency is persisted",
+        "instrument_symbol is not a currency authority",
+        "must NOT be read as USD, EUR or any other currency",
+    ):
+        assert phrase in ASSERTED_PRICE_DENOMINATION_LIMITATION
+
+
+def test_the_banner_denies_a_denomination() -> None:
+    assert "SAME UNSPECIFIED ASSERTED PRICE UNITS" in ASSERTED_ROUND_TRIP_BANNER
+    assert "NO currency is persisted" in ASSERTED_ROUND_TRIP_BANNER
+
+
+def test_two_values_are_not_asserted_to_share_a_denomination() -> None:
+    """Owner review attack 7. A future milestone must not read these entries as a
+    same-currency aggregate."""
+    a = event(gid="A", effective=D1, quantity=1, price="10")
+    a_close = closed_after((a,), gid="AC", price="20", effective=D2)
+    result = report(events=(a, a_close))
+    joined = " ".join(result.limitations)
+    assert "must NOT be assumed to share a denomination" in joined
+    fields = {f.name for f in dataclasses.fields(AssertedRoundTripReport)}
+    for banned in ("total", "aggregate", "sum_"):
+        assert not any(banned in name for name in fields), "no aggregate surface exists"
+
+
+# --------------------------------------------------------------------------
+# Owner review finding 4 — spread and slippage are not provably excluded
+# --------------------------------------------------------------------------
+
+
+def test_spread_and_slippage_are_in_the_not_separately_attributable_group() -> None:
+    assert set(NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS) == {"spread", "slippage"}
+    for component in ("spread", "slippage"):
+        assert component not in UNREPRESENTED_CASHFLOW_COMPONENTS
+        assert component not in CONTEXT_DEPENDENT_COMPONENTS
+
+
+def test_spread_and_slippage_are_not_claimed_definitely_excluded() -> None:
+    result = report(events=_max_boundary_position())
+    surfaces = " ".join(
+        [ASSERTED_ROUND_TRIP_BANNER, *result.limitations, render_round_trip_report_text(result)]
+    )
+    assert "NOT claimed to be excluded" in surfaces
+    assert "may already be embedded" in surfaces.replace(
+        "MAY already be embedded", "may already be embedded"
+    )
+
+
+def test_spread_and_slippage_are_described_as_not_separately_attributable() -> None:
+    result = report(events=_max_boundary_position())
+    joined = " ".join(result.limitations)
+    assert "no benchmark, quoted, intended or arrival price" in joined
+    assert "NOT determinable from this data" in joined
+
+
+def test_no_claim_that_spread_or_slippage_would_reduce_the_result() -> None:
+    """They are deliberately absent from the group that carries a direction."""
+    result = report(events=_max_boundary_position())
+    directional = next(
+        line for line in result.limitations if "would normally reduce a raw result" in line
+    )
+    assert "spread" not in directional
+    assert "slippage" not in directional
+
+
+def test_the_cashflow_group_no_longer_contains_execution_effects() -> None:
+    assert set(UNREPRESENTED_CASHFLOW_COMPONENTS) == {
+        "commissions",
+        "exchange and regulatory fees",
+        "financing and borrow cost",
+    }
+
+
+# --------------------------------------------------------------------------
+# Stale-claim reconciliation
+# --------------------------------------------------------------------------
+
+
+def test_no_active_surface_says_costs_excluded() -> None:
+    result = report(events=_max_boundary_position())
+    surfaces = [
+        ASSERTED_ROUND_TRIP_BANNER,
+        *result.limitations,
+        render_round_trip_report_text(result),
+        json.dumps(render_round_trip_report_json(result)),
+    ]
+    joined = " ".join(surfaces).lower()
+    for stale in ("costs excluded", "excluded costs", "excluded_cost_components"):
+        assert stale not in joined, f"stale phrase still active: {stale}"
+
+
+def test_the_exact_arithmetic_is_unchanged_by_this_pass() -> None:
+    """The finding-1 correction must survive the finding-3/4 rewording untouched."""
+    entry = report(events=_max_boundary_position()).entries[0]
+    assert entry.asserted_round_trip_result == "-214748364699999999995705.032706"
+    assert entry.asserted_entry_cost_for_exited_quantity == "214748364699999999997852.516353"
+
+
+def test_the_knowledge_firewall_is_unchanged_by_this_pass() -> None:
+    baseline = _at_k(_VISIBLE_OPEN)
+    polluted = _at_k(
+        (
+            *_VISIBLE_OPEN,
+            event(
+                gid="F",
+                kind=OperatorPositionEventKind.REDUCED,
+                quantity=4,
+                price="500",
+                effective=D2,
+                recorded=R_LATE,
+            ),
+        )
+    )
+    assert baseline == polluted
+    assert render_round_trip_report_text(baseline) == render_round_trip_report_text(polluted)

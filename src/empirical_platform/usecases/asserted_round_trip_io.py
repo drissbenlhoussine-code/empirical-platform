@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from empirical_platform.decision_candidate.operator_asserted_round_trip import (
     ASSERTED_ROUND_TRIP_BANNER,
-    EXCLUDED_FRICTION_COMPONENTS,
-    EXCLUDED_NON_DIRECTIONAL_COMPONENTS,
+    CONTEXT_DEPENDENT_COMPONENTS,
+    NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS,
+    UNREPRESENTED_CASHFLOW_COMPONENTS,
     AssertedRoundTripReport,
     RoundTripOutcome,
     RoundTripStatus,
@@ -34,7 +35,7 @@ def render_round_trip_report_json(report: AssertedRoundTripReport) -> dict[str, 
         "fully_exited_count": report.fully_exited_count,
         "unreconciled_count": report.unreconciled_count,
         "unresolved_count": report.unresolved_count,
-        "excluded_economic_components": list(report.excluded_economic_components),
+        "unrepresented_economic_components": list(report.unrepresented_economic_components),
         "entries": [
             {
                 "position_governance_id": entry.position_governance_id,
@@ -87,15 +88,22 @@ def render_round_trip_report_text(report: AssertedRoundTripReport) -> str:
             f"{report.unresolved_count} unresolved at this knowledge cutoff"
         )
         lines.append(
-            "  excluded economic components (this is NOT a complete economic outcome): "
-            + ", ".join(report.excluded_economic_components)
+            "  economic components NOT separately represented (this is NOT a complete "
+            "economic outcome): " + ", ".join(report.unrepresented_economic_components)
         )
         lines.append(
-            "  the direction of the total omitted effect is NOT generally knowable: "
-            + ", ".join(EXCLUDED_FRICTION_COMPONENTS)
+            "  the direction of the total effect is NOT generally knowable: "
+            + ", ".join(UNREPRESENTED_CASHFLOW_COMPONENTS)
             + " would normally reduce a raw result, while "
-            + ", ".join(EXCLUDED_NON_DIRECTIONAL_COMPONENTS)
+            + ", ".join(CONTEXT_DEPENDENT_COMPONENTS)
             + " can move the real outcome either way"
+        )
+        lines.append(
+            "  "
+            + ", ".join(NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS)
+            + " are NOT claimed to be excluded: the prices are the operator's own, so "
+            "such effects may already be embedded in them and are not separately "
+            "attributable from this data"
         )
         for entry in report.entries:
             head = (
@@ -147,8 +155,9 @@ def render_round_trip_report_text(report: AssertedRoundTripReport) -> str:
             else:
                 coverage = f"on all {entry.exited_quantity} exited unit(s)"
             lines.append(
-                f"      ASSERTED ROUND-TRIP RESULT {coverage} (arithmetic on "
-                f"assertions, costs excluded): {entry.asserted_round_trip_result}"
+                f"      ASSERTED ROUND-TRIP RESULT {coverage}, in unspecified asserted "
+                f"price units, with the economic components above not separately "
+                f"represented: {entry.asserted_round_trip_result}"
             )
     for limitation in report.limitations:
         lines.append(f"  limitation: {limitation}")

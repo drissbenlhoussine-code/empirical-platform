@@ -1,5 +1,10 @@
 # M080 — Reality Gate
 
+> **Corrected twice after Owner review.** A later pass found two further honesty
+> defects: **no currency denomination authority exists in M076**, and
+> **spread/slippage cannot be claimed excluded** because the prices are the
+> operator's own and may already embed them. Both are corrected below.
+
 > **Corrected after Owner review.** This document previously claimed that every
 > excluded component is a cost and therefore that every M080 result is
 > "systematically more favourable than a real economic outcome". **That claim is
@@ -59,36 +64,56 @@ of those is **simulated** P&L over historical bars. None touches an operator
 assertion. M080 is a different kind of claim and deliberately shares none of
 that vocabulary.
 
-## Excluded economic components — stated, not buried
+## Unrepresented economic components — stated, not buried
 
 ⚠ **This section previously read "Costs — stated, not buried" and asserted a
-universal favourable bias.** Retracted; see the banner above.
+universal favourable bias.** Retracted (finding 2).
+⚠ **It then read "Excluded economic components" and placed spread and slippage
+among the frictions.** Also retracted (finding 4): M080 cannot establish that
+they are excluded at all. The superseded table is struck through and preserved.
 
-| Component | Stored by M076? | In the result? | Direction if included |
+> ~~| commissions | no | **excluded** | would normally reduce a raw result |~~
+> ~~| spread | no | **excluded** | would normally reduce |~~
+> ~~| slippage | no | **excluded** | would normally reduce |~~
+> ~~| exchange and regulatory fees | no | **excluded** | would normally reduce |~~
+> ~~| financing and borrow cost | no | **excluded** | would normally reduce |~~
+> ~~| taxes | no | **excluded** | either direction |~~
+> ~~| dividends | no | **excluded** | either direction |~~
+> ~~| corporate actions | no | **excluded** | either direction |~~
+
+**The current, three-way statement:**
+
+| Group | Component | Stored by M076? | What may honestly be said |
 |---|---|---|---|
-| commissions | no | **excluded** | would normally **reduce** a raw result |
-| spread | no | **excluded** | would normally **reduce** |
-| slippage | no | **excluded** | would normally **reduce** |
-| exchange and regulatory fees | no | **excluded** | would normally **reduce** |
-| financing and borrow cost | no | **excluded** | would normally **reduce** |
-| taxes | no | **excluded** | **either direction** — jurisdiction- and context-dependent |
-| dividends | no | **excluded** | **either direction** — a dividend on a long position *raises* the real outcome |
-| corporate actions | no | **excluded** | **either direction** — splits, mergers and spin-offs alter quantity or basis |
-| current market price | no | **no unrealized figure is computed** | — |
+| `UNREPRESENTED_CASHFLOW_COMPONENTS` | commissions | no | cash the ledger never records; including it would normally **reduce** a raw result |
+| " | exchange and regulatory fees | no | same |
+| " | financing and borrow cost | no | same |
+| `CONTEXT_DEPENDENT_COMPONENTS` | taxes | no | **either direction** — jurisdiction- and context-dependent |
+| " | dividends | no | **either direction** — a dividend on a long position *raises* the real outcome |
+| " | corporate actions | no | **either direction** — splits, mergers and spin-offs alter quantity or basis |
+| `NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS` | spread | no | **NOT claimed excluded** — the asserted prices are the operator's own executions and may already embed it |
+| " | slippage | no | **NOT claimed excluded** — same |
+| — | current market price | no | **no unrealized figure is computed** |
 
-These are emitted as a **structured field** (`excluded_economic_components`) on
-every report, **partitioned** into `EXCLUDED_FRICTION_COMPONENTS` and
-`EXCLUDED_NON_DIRECTIONAL_COMPONENTS`, and named again in the limitations.
+The union is emitted as a **structured field**
+(`unrepresented_economic_components`) on every report, and the three groups are
+named separately in the limitations so their different epistemic status cannot be
+flattened.
 
 **What the artifact now says, and all it may say:**
 
-- the arithmetic excludes the listed economic components;
+- the arithmetic **does not represent** the listed economic components;
 - it is therefore **NOT a complete economic outcome**;
 - the **direction of the total omitted effect is NOT generally knowable**;
-- frictions such as commissions, spread, slippage and fees would normally
-  **reduce** a raw result;
-- dividends, corporate actions and tax effects can alter interpretation in
-  **either** direction and are not represented.
+- unrecorded cashflows — commissions, exchange and regulatory fees, financing and
+  borrow cost — would normally **reduce** a raw result;
+- taxes, dividends and corporate actions can alter interpretation in **either**
+  direction and are not represented;
+- spread and slippage are **not claimed to be excluded**: they may already be
+  embedded in the asserted prices, and M076 stores no benchmark, quoted, intended
+  or arrival price against which any execution effect could be measured;
+- every value is in **unspecified asserted price units** with no currency
+  denomination established by this milestone.
 
 ~~Every result is systematically more favourable than any real economic
 outcome.~~ **RETRACTED — no universal bound in either direction is claimed.**
@@ -113,6 +138,39 @@ result: -214748364699999999995705.032706      (30 significant digits, no loss)
 identical under ambient precisions 1, 5, 9, 28 and 60 and under `ROUND_UP` and
 `ROUND_FLOOR`, and matching an independent integer recomputation from the raw
 PostgreSQL rows byte for byte.
+
+## Denomination — there is none, and M080 says so
+
+M076 persists `instrument_symbol`, `quantity` and `asserted_price`. It persists
+**no** currency, quote currency, price currency or denomination column —
+verified against the migration, the domain event and the repository adapter.
+
+M080 therefore has **no authority to call any figure USD, EUR or anything
+else**, and does not. Every value is arithmetic in the **same unspecified
+asserted price units** the ledger carries. A symbol is not a denomination: it
+identifies an instrument, not the units its price is quoted in.
+
+Two consequences are stated explicitly on every report, including the empty and
+the withheld ones:
+
+- a value here must **not** be read as any currency on M080's authority;
+- two values must **not** be assumed to share a denomination merely because both
+  appear in this report — which is the trap a future aggregating milestone would
+  otherwise fall into.
+
+## Spread and slippage — not claimed excluded
+
+⚠ **The previous pass placed spread and slippage among "frictions" whose
+omission makes a result look better. That was too strong and is retracted.**
+
+M080's arithmetic uses the operator's **own asserted execution prices**. If those
+are what the operator says they actually paid and received, spread and slippage
+effects **may already be embedded in them**. M076 stores no benchmark price, no
+quoted bid or ask, no intended price and no arrival price, so there is nothing to
+measure an execution effect against.
+
+Whether they are absent, embedded, partly embedded or independently attributable
+is **not determinable from this data**, and M080 claims none of those.
 
 ## Could a reasonable user misread the output?
 
@@ -151,9 +209,17 @@ guarantees are computations and absences, not wording:
 This milestone makes the platform emit a money-shaped number for the first time
 from operator assertions. That is a real increase in what it can be *misread* to
 mean, and no amount of banner text fully removes that risk. What has been done
-instead is to make every safeguard structural, to name the excluded costs and
-the direction of their bias on every report, and to make the number state its
-own coverage at the point it is read.
+instead is to make every safeguard structural, to name the unrepresented economic
+components on every report — with a direction stated only where a direction is
+actually knowable, and none claimed for spread and slippage — to state on every
+report that the value carries **no established currency denomination**, and to
+make the number state its own coverage at the point it is read.
+
+> ⚠ *This paragraph previously read "to name the excluded costs and the direction
+> of their bias". Retracted by findings 2, 3 and 4.* A previous pass's evidence
+> recorded this paragraph as already fixed; **that record was itself wrong** —
+> the paragraph was still live until this pass. The mistaken record is corrected
+> in the stale-claims table of `hostile-implementation-review.md`.
 
 Whether the platform should emit such a number at all remains the owner's call.
 This milestone implements it because the mission asked the authorization question

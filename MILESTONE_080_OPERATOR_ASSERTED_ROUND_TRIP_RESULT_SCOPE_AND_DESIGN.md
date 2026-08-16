@@ -4,10 +4,13 @@
 
 ---
 
-> ## ⚠ TWO SECTIONS SUPERSEDED BY OWNER REVIEW
+> ## ⚠ SECTIONS SUPERSEDED BY OWNER REVIEW — THREE PASSES
 >
-> **§14 (precision) and §15 (excluded components) were both wrong.** They are
-> retracted in place below and the corrected semantics are summarised here.
+> **§14 (precision), §15 (unrepresented components) and §23 were wrong.** They
+> are retracted in place below and the corrected semantics are summarised here.
+> Findings 1–2 came from the first correction pass, findings 3–4 from the final
+> honesty reconciliation pass. **Where the two passes disagree, the later one
+> governs**, and the earlier statement is marked as such rather than deleted.
 >
 > **Finding 1 — the arithmetic was not exact.** §14 claimed "products and sums
 > are exact" under `Decimal`. `Decimal` arithmetic and `normalize()` are
@@ -18,17 +21,49 @@
 > exact by construction and independent of the ambient context, with rendering
 > performing no `Decimal` operation at all.
 >
-> **Finding 2 — not every excluded component is a cost.** §15 called the whole
-> list costs and claimed every result is "systematically more favourable" than
-> reality. Dividends **raise** a long position's real outcome, corporate actions
-> move it either way, and tax effects are jurisdiction-dependent. The concept is
-> now `EXCLUDED_ECONOMIC_COMPONENTS`, partitioned into
-> `EXCLUDED_FRICTION_COMPONENTS` and `EXCLUDED_NON_DIRECTIONAL_COMPONENTS`, and
-> the artifact states that it is **not a complete economic outcome** and that the
+> **Finding 2 — not every unrepresented component is a cost.** §15 called the
+> whole list costs and claimed every result is "systematically more favourable"
+> than reality. Dividends **raise** a long position's real outcome, corporate
+> actions move it either way, and tax effects are jurisdiction-dependent. The
+> artifact now states that it is **not a complete economic outcome** and that the
 > **direction of the total omitted effect is not generally knowable**.
 >
-> The API vocabulary was corrected **before** freeze deliberately: freezing a
-> field named for a false claim would be worse than renaming it now.
+> > ⚠ The first correction's own naming — `EXCLUDED_ECONOMIC_COMPONENTS`
+> > partitioned into `EXCLUDED_FRICTION_COMPONENTS` and
+> > `EXCLUDED_NON_DIRECTIONAL_COMPONENTS` — is **itself superseded by finding
+> > 4**. See below for the current names.
+>
+> **Finding 3 — there is no currency or denomination authority.** M080 emitted
+> values named `asserted_entry_cost`, `asserted_exit_consideration` and
+> `asserted_round_trip_result` without stating what units they are in. M076
+> persists **no** currency column of any kind — confirmed against the migration
+> (`b7e1c4a95d38`), the frozen domain event and the repository adapter — and
+> `instrument_symbol` is not a currency authority.
+> `ASSERTED_PRICE_DENOMINATION_LIMITATION` now rides on **every** report shape,
+> including the empty and withheld ones: values are in the same **unspecified
+> asserted price units** the ledger carries, no value may be read as USD, EUR or
+> anything else on M080's authority, and two values must not be assumed to share
+> a denomination merely because they appear in one report. No currency value is
+> invented, no column added, no migration added.
+>
+> **Finding 4 — spread and slippage are not provably excluded.** The first
+> correction grouped them with directional frictions and said their omission
+> "would normally make a raw result look better than reality". **Too strong,
+> and retracted.** The arithmetic runs on the operator's own asserted execution
+> prices, so spread and slippage may already be embedded in them; M076 stores no
+> benchmark, quoted, intended or arrival price, so nothing can be measured
+> against and M080 cannot tell whether they are absent, embedded or partly
+> embedded. The concept is now `UNREPRESENTED_ECONOMIC_COMPONENTS` — "excluded"
+> asserts the very absence that cannot be asserted — partitioned three ways into
+> `UNREPRESENTED_CASHFLOW_COMPONENTS` (commissions, exchange and regulatory fees,
+> financing and borrow cost — would normally **reduce** a raw result),
+> `CONTEXT_DEPENDENT_COMPONENTS` (taxes, dividends, corporate actions — **either**
+> direction) and `NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS` (spread,
+> slippage — **no** direction claimed, and no exclusion claimed).
+>
+> The API vocabulary was corrected **before** freeze deliberately, in both
+> passes: freezing a field named for a false claim would be worse than renaming
+> it now.
 
 ---
 
@@ -352,8 +387,11 @@ is the same small dishonesty M076 refused for prices.
 
 ## 15. ⚠ RETRACTED — Fees, Slippage, Taxes, Corporate Actions — explicitly absent
 
-> **Retracted by Owner review.** Calling the whole list *costs* and claiming a
-> universally favourable bias is false. Preserved verbatim.
+> **Retracted by Owner review, twice.** Calling the whole list *costs* and
+> claiming a universally favourable bias is false (finding 2). Calling spread and
+> slippage **excluded** is also false — M080 cannot establish their absence
+> (finding 4). Preserved verbatim below, including the first correction's own
+> superseded closing note.
 
 M076 stores **none** of the following, so none is in the arithmetic:
 
@@ -373,6 +411,14 @@ The corrected statement is that the result is **not a complete economic
 outcome** and that the **direction of the total omitted effect is not generally
 knowable** — frictions would normally reduce a raw result, while dividends,
 corporate actions and tax effects move it either way.
+
+> ⚠ **That correction is itself superseded.** Grouping spread and slippage with
+> the frictions asserted an omission M080 cannot establish. The current, three-way
+> statement is in the header block at the top of this file: spread and slippage
+> are **not claimed excluded** and carry **no** direction claim. The `spread /
+> slippage` row above, reading "**excluded**", is retracted with the rest of the
+> table. Values in this milestone additionally carry **no established
+> denomination** (finding 3).
 
 ## 16. Persistence and Query Architecture
 
@@ -430,9 +476,14 @@ It does not prove that any trade occurred, that it occurred at the stated price,
 that any cash moved, or that the operator's assertions are true. It is **not**
 broker realized P&L, **not** verified profit, **not** an actual execution result,
 **not** actual cash proceeds, **not** investment performance, **not** a market
-return and **not** a tax result. It excludes every cost component in §15. It
-computes **no** unrealized result for an open position, because no authoritative
-current market price exists in the platform. It makes no causal, predictive or
+return and **not** a tax result. ⚠ *Corrected after Owner review:* this section
+previously read "It excludes every cost component in §15" — retracted, because
+§15's list is not all costs and spread/slippage are not provably excluded at all.
+It **represents none** of the components in
+`UNREPRESENTED_ECONOMIC_COMPONENTS`, and it establishes **no currency
+denomination** for any value it emits. It computes **no** unrealized result for
+an open position, because no authoritative current market price exists in the
+platform. It makes no causal, predictive or
 calibration claim, and no investment advice.
 
 The word "P&L" is not used for M080's own quantity anywhere, including in field

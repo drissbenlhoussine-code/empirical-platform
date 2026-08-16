@@ -197,15 +197,69 @@ RESULT       : -214748364699999999995705.032706      (30 significant digits)
 Before the correction the same inputs produced
 `214748364699999999997852.5164` — six digits lost.
 
-## The vocabulary proof
+## ⚠ SUPERSEDED — the vocabulary proof, as of the second pass
 
-`excluded_cost_components` → `excluded_economic_components` in the dataclass,
-the JSON key and the rendered text. The list is partitioned into five frictions
-and three non-directional components, with union equal to the whole and empty
-intersection, asserted by test. No claim that every excluded item is a cost, and
-no universally-favourable-bias claim, survives anywhere — checked across the
-banner, the limitations, the rendered text and every field name.
+> **Superseded by the final honesty reconciliation pass below.** The two-way
+> partition it verifies was itself too strong: it placed spread and slippage in
+> the friction group, asserting an omission M080 cannot establish. Retained for
+> audit; the current partition is three-way.
+
+> ~~`excluded_cost_components` → `excluded_economic_components` in the dataclass,
+> the JSON key and the rendered text. The list is partitioned into five frictions
+> and three non-directional components, with union equal to the whole and empty
+> intersection, asserted by test.~~
+
+The part of that section that still holds: no claim that every unrepresented
+item is a cost, and no universally-favourable-bias claim, survives anywhere —
+checked across the banner, the limitations, the rendered text and every field
+name.
 
 All thirteen forbidden broker/P&L tokens and all six banner disclaimers were
 re-asserted **at the boundary case**, to confirm the correction did not weaken
 the original honesty guards.
+
+---
+
+# Final honesty reconciliation pass — measured results
+
+## Denomination (finding 3)
+
+| Check | Result |
+|---|---|
+| Does M076 persist any currency-like column? | **No** — migration `b7e1c4a95d38`, the frozen domain event and the repository adapter each inspected; the persisted fields are `instrument_symbol`, `quantity`, `asserted_price`, `event_timestamp`, `recorded_at`, the optional plan citation and a note |
+| Is a currency value invented anywhere? | **No** — nothing is derived from `instrument_symbol`; `AAPL`, `XAU`, `BTC` and `ZZZZ` all render identically clean |
+| Does `ASSERTED_PRICE_DENOMINATION_LIMITATION` reach every report shape? | Yes — closed, open, partial, empty **and** the withheld `NOT_ASSESSABLE` report |
+| Do currency tokens appear outside the explicit denials? | No — `$`, `USD`, `EUR`, `GBP`, `JPY`, `CHF`, `CAD`, `AUD`, `€`, `£`, `¥` searched with the banner and the limitation sentences stripped out first |
+| Schema change or migration added for this? | **None** |
+
+## Component partition (finding 4)
+
+| Group | Members | Direction claim |
+|---|---|---|
+| `UNREPRESENTED_CASHFLOW_COMPONENTS` | commissions, exchange and regulatory fees, financing and borrow cost | would normally **reduce** a raw result |
+| `CONTEXT_DEPENDENT_COMPONENTS` | taxes, dividends, corporate actions | **either** direction |
+| `NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS` | spread, slippage | **none** — not claimed excluded, may be embedded in the asserted prices |
+
+Union equals `UNREPRESENTED_ECONOMIC_COMPONENTS`, the three groups are pairwise
+disjoint, and spread/slippage are asserted **absent** from the line that states a
+direction. All asserted by test.
+
+## Suites re-run after the third correction
+
+| Suite | Result |
+|---|---|
+| M080 unit | **98 passed** |
+| M080 PostgreSQL integration | **15 passed** |
+| M080 fresh second pass | **4 passed**, from a dropped-and-recreated database |
+| M076–M080 chain | **407 passed** |
+| Full regression, candidate | 24 failed, 2575 passed, 14 skipped, 44 errors |
+| Full regression, baseline `0e73e0b`, same tree, same database | identical counts |
+| Failing-ID diff | **empty** — 68 IDs each side, `diff` clean |
+| `ruff check` / `ruff format --check` | clean / 596 files already formatted |
+| `python -m mypy` | Success, 302 source files, **zero suppressions added** |
+| `compileall src tests tools migrations` | clean |
+| `tools/check_architecture.py .` | clean |
+| Negative architecture fixture | still exits non-zero on 32 seeded violations |
+| `pip_audit` | no known vulnerabilities |
+| Secret scan | 1084 targets, **0 findings** |
+| `python -m build` | sdist + wheel built |

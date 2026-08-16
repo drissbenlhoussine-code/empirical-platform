@@ -8,11 +8,14 @@ cutoff E.
 WHAT THIS IS NOT. Not broker realized profit or loss. Not verified profit. Not
 an actual execution result. Not actual cash proceeds. Not investment
 performance. Not a market return. Not a tax result. Not evidence that any trade
-occurred or occurred at the stated price. It excludes commissions, spread,
-slippage, exchange and regulatory fees, taxes, dividends, corporate actions and
-financing cost -- because M076 stores none of them -- so it is NOT a complete
-economic outcome, and the DIRECTION of the total omitted effect is not generally
-knowable.
+occurred or occurred at the stated price. Commissions, exchange and
+regulatory fees, financing cost, taxes, dividends and corporate actions are NOT
+separately represented, so it is NOT a complete economic outcome and the
+DIRECTION of the total effect is not generally knowable. Spread and slippage are
+NOT claimed to be excluded -- the prices are the operator's own, so those effects
+may already be embedded in them. And NO currency is persisted anywhere in M076,
+so every value is in unspecified asserted price units and is NOT USD, EUR or any
+other denomination on this module's authority.
 
 THE GAP THIS CLOSES. M076 validates and persists an `asserted_price` on EVERY
 lifecycle event, including REDUCED and CLOSED. A repository-wide search shows
@@ -70,9 +73,11 @@ from empirical_platform.decision_candidate.research_decision_follow_through impo
 
 __all__ = [
     "ASSERTED_ROUND_TRIP_BANNER",
-    "EXCLUDED_ECONOMIC_COMPONENTS",
-    "EXCLUDED_FRICTION_COMPONENTS",
-    "EXCLUDED_NON_DIRECTIONAL_COMPONENTS",
+    "ASSERTED_PRICE_DENOMINATION_LIMITATION",
+    "CONTEXT_DEPENDENT_COMPONENTS",
+    "NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS",
+    "UNREPRESENTED_CASHFLOW_COMPONENTS",
+    "UNREPRESENTED_ECONOMIC_COMPONENTS",
     "AssertedRoundTripReport",
     "PositionRoundTripEntry",
     "RoundTripOutcome",
@@ -89,52 +94,84 @@ ASSERTED_ROUND_TRIP_BANNER = (
     "happened. NOT broker realized profit or loss; NOT verified profit; NOT an actual "
     "execution result; NOT actual cash proceeds; NOT investment performance; NOT a "
     "market return; NOT a tax result; NOT evidence that any trade occurred or occurred "
-    "at the stated price; NOT advice. It EXCLUDES commissions, spread, slippage, "
-    "exchange and regulatory fees, taxes, dividends, corporate actions and financing "
-    "cost, because the ledger stores none of them -- so this is NOT a complete "
-    "economic outcome. The DIRECTION of the total omitted effect is NOT generally "
-    "knowable: frictions such as commissions, spread, slippage and fees would "
-    "normally reduce a raw result, while dividends, corporate actions and tax "
-    "effects can move the real economic outcome in either direction. No result is "
+    "at the stated price; NOT advice. Every value is in the SAME UNSPECIFIED ASSERTED "
+    "PRICE UNITS the ledger carries: NO currency is persisted, so this is NOT USD, NOT "
+    "EUR and NOT any other denomination on M080's authority. Commissions, exchange and "
+    "regulatory fees, financing cost, taxes, dividends and corporate actions are NOT "
+    "separately represented, so this is NOT a complete economic outcome, and the "
+    "DIRECTION of the total effect is NOT generally knowable -- unrecorded cash "
+    "charges would normally reduce a raw result, while taxes, dividends and corporate "
+    "actions can move it either way. Spread and slippage are NOT claimed to be "
+    "excluded: the prices are the operator's own, so such effects MAY already be "
+    "embedded in them, and nothing in the ledger can measure that. No result is "
     "computed for a still-open quantity, because no market price exists here. "
     "Nothing recorded after the knowledge cutoff influences any figure below."
 )
 
-#: Named individually rather than summarised, so no reader has to infer which
-# components are missing. Design review H08.
+#: OWNER REVIEW FINDING 4. These are named individually, and GROUPED BY WHAT CAN
+# HONESTLY BE SAID ABOUT THEM, so no reader has to infer either which components
+# are missing or what their omission does.
 #
-# OWNER REVIEW FINDING 2. This was previously called EXCLUDED_COST_COMPONENTS and
-# the artifact claimed every omitted item was a cost, so every result was
-# "systematically more favourable" than reality. That claim is FALSE: a dividend
-# on a long position can raise the real outcome, corporate actions can move it
-# either way, and tax effects are jurisdiction- and context-dependent. The list
-# is therefore named for what it actually contains -- economic components -- and
-# the two groups are separated so the honest statement can be made about each.
-EXCLUDED_ECONOMIC_COMPONENTS = (
-    "commissions",
-    "spread",
-    "slippage",
-    "exchange and regulatory fees",
-    "taxes",
-    "dividends",
-    "corporate actions",
-    "financing and borrow cost",
-)
+# The umbrella term is deliberately UNREPRESENTED, not "excluded". "Excluded"
+# asserts that a component is absent from the number, and for spread and
+# slippage that is not knowable -- see below.
+#
+# History: this began as EXCLUDED_COST_COMPONENTS with a claim that every item
+# is a cost and therefore every result is "systematically more favourable" than
+# reality. Owner review finding 2 established that is false (a dividend on a
+# long position RAISES the real outcome). Owner review finding 4 then
+# established that even the surviving "friction" grouping was too strong.
 
-#: Frictions: omitting these makes a raw result look better than reality.
-EXCLUDED_FRICTION_COMPONENTS = (
+#: Cash actually paid or received that the ledger does not record at all.
+# Including them would normally REDUCE a raw result.
+UNREPRESENTED_CASHFLOW_COMPONENTS = (
     "commissions",
-    "spread",
-    "slippage",
     "exchange and regulatory fees",
     "financing and borrow cost",
 )
 
-#: Components whose omission has NO generally knowable direction.
-EXCLUDED_NON_DIRECTIONAL_COMPONENTS = (
+#: Real economic effects whose direction is not generally knowable: they depend
+# on position side, jurisdiction and the corporate action itself.
+CONTEXT_DEPENDENT_COMPONENTS = (
     "taxes",
     "dividends",
     "corporate actions",
+)
+
+#: OWNER REVIEW FINDING 4. Spread and slippage are NOT claimed to be excluded.
+# M080's arithmetic uses the operator's OWN asserted execution prices. If those
+# prices are what the operator says they actually paid and received, then
+# spread and slippage effects may ALREADY BE EMBEDDED in them. M076 stores no
+# benchmark price, no quoted bid or ask, no intended price and no arrival
+# price, so there is nothing to measure an execution effect against. Whether
+# these are absent, embedded, partly embedded or independently attributable is
+# NOT DETERMINABLE from ledger data.
+NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS = (
+    "spread",
+    "slippage",
+)
+
+#: The union, in a stable order. Every one of these is *not separately
+# represented* in the arithmetic; that is the only claim the union supports.
+UNREPRESENTED_ECONOMIC_COMPONENTS = (
+    *UNREPRESENTED_CASHFLOW_COMPONENTS,
+    *CONTEXT_DEPENDENT_COMPONENTS,
+    *NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS,
+)
+
+#: OWNER REVIEW FINDING 3. M076 persists `instrument_symbol`, `quantity` and
+# `asserted_price` -- and NO currency, quote currency, price currency or
+# denomination column. Verified against the migration, the domain event and the
+# repository. M080 therefore has no repository authority to call any figure USD,
+# EUR or anything else, and does not. A symbol is not a denomination: it
+# identifies an instrument, not the units its price is quoted in.
+ASSERTED_PRICE_DENOMINATION_LIMITATION = (
+    "every monetary-looking value here is arithmetic in the SAME UNSPECIFIED "
+    "ASSERTED PRICE UNITS carried by the operator ledger. M080 does NOT establish a "
+    "currency denomination: no currency is persisted on an operator position event, "
+    "and instrument_symbol is not a currency authority. A value here must NOT be "
+    "read as USD, EUR or any other currency on M080's authority, and two values must "
+    "NOT be assumed to share a denomination merely because both appear in this report"
 )
 
 
@@ -297,7 +334,7 @@ class AssertedRoundTripReport:
     fully_exited_count: int
     unreconciled_count: int
     unresolved_count: int
-    excluded_economic_components: tuple[str, ...] = EXCLUDED_ECONOMIC_COMPONENTS
+    unrepresented_economic_components: tuple[str, ...] = UNREPRESENTED_ECONOMIC_COMPONENTS
     entries: tuple[PositionRoundTripEntry, ...] = ()
     limitations: tuple[str, ...] = field(default_factory=tuple)
 
@@ -453,16 +490,24 @@ def _report_from_known_evidence(
     limitations: list[str] = [
         "every figure here is arithmetic over what the operator ASSERTED, not a broker "
         "record, not a verified fill, and not evidence that any trade occurred",
-        "the result EXCLUDES these economic components, none of which the ledger "
-        "stores: " + ", ".join(EXCLUDED_ECONOMIC_COMPONENTS) + ". It is therefore NOT a "
-        "complete economic outcome",
-        "the DIRECTION of the total omitted effect is NOT generally knowable: "
-        + ", ".join(EXCLUDED_FRICTION_COMPONENTS)
-        + " are frictions whose omission would normally make a raw result look better "
-        "than reality, but "
-        + ", ".join(EXCLUDED_NON_DIRECTIONAL_COMPONENTS)
+        ASSERTED_PRICE_DENOMINATION_LIMITATION,
+        "these economic components are NOT separately represented in the arithmetic, "
+        "because the ledger stores none of them: "
+        + ", ".join(UNREPRESENTED_ECONOMIC_COMPONENTS)
+        + ". It is therefore NOT a complete economic outcome",
+        "the DIRECTION of the total effect is NOT generally knowable: "
+        + ", ".join(UNREPRESENTED_CASHFLOW_COMPONENTS)
+        + " are cash charges the ledger never records, and including them would "
+        "normally reduce a raw result, but "
+        + ", ".join(CONTEXT_DEPENDENT_COMPONENTS)
         + " can move the real economic outcome in either direction, so no universal "
         "bound in either direction is claimed",
+        ", ".join(NOT_SEPARATELY_ATTRIBUTABLE_EXECUTION_COMPONENTS)
+        + " are NOT claimed to be excluded. The prices used are the operator's own "
+        "asserted execution prices, so such effects MAY already be embedded in them. "
+        "The ledger stores no benchmark, quoted, intended or arrival price, so whether "
+        "they are absent, embedded, partly embedded or independently attributable is "
+        "NOT determinable from this data",
         "assertions recorded after the knowledge cutoff are excluded and influence "
         "nothing above; that exclusion is the firewall's own effect, not an absence of "
         "activity. By construction this report cannot say how many there were, because "
@@ -604,6 +649,9 @@ def build_asserted_round_trip_report(
             limitations=(
                 "the operator position ledger could not be read; the report is withheld "
                 "rather than presented as if nothing had been recorded",
+                # Finding 3: the denomination limitation rides on EVERY report shape,
+                # including a withheld one, so no surface can imply a currency.
+                ASSERTED_PRICE_DENOMINATION_LIMITATION,
             ),
         )
 

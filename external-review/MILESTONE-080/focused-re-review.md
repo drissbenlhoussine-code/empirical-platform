@@ -61,17 +61,41 @@ Both corrections re-attacked in their changed areas only.
 |---|---|
 | Does any surface still call the whole list costs? | No — banner, limitations, text, JSON key and field names all checked |
 | Does any universally-favourable-bias claim survive? | No — four phrasings checked, including "upper bound" |
-| Do the two groups partition the list exactly? | Yes — union equal, intersection empty, asserted |
-| Is the friction direction still stated, where it *is* knowable? | Yes — frictions "would normally reduce a raw result" |
+| Do the two groups partition the list exactly? | Yes — union equal, intersection empty, asserted. ⚠ **Superseded:** the *two-way* split was itself wrong, see finding 4 below; the partition is now three-way |
+| Is the friction direction still stated, where it *is* knowable? | Yes. ⚠ **Superseded:** the "friction" group then included spread and slippage, for which the direction is **not** knowable |
 | Were the original honesty guards weakened by the rewording? | No — 13 forbidden tokens and six banner disclaimers re-asserted at the boundary case |
 | Was the API renamed rather than aliased? | Renamed. An alias would have preserved the misleading name in the frozen contract |
 
-## Whole-suite confirmation after both corrections
+## Finding 3 — denomination
+
+| Re-attack | Result |
+|---|---|
+| Does M076 persist a currency anywhere? | No — checked in the migration, the frozen domain event and the repository adapter, not assumed |
+| Is a denomination inferred from `instrument_symbol`? | No — `AAPL`, `XAU`, `BTC`, `ZZZZ` all render identically clean |
+| Is the limitation on every report shape, including the withheld one? | Yes — closed, open, partial, empty and `NOT_ASSESSABLE` |
+| Does the JSON carry it as well as the text? | Yes |
+| Do currency tokens survive outside the explicit denials? | No — searched with the banner and limitation sentences stripped first, because the denial legitimately names currencies in order to deny them |
+| Was a column, migration or invented value added? | **None of the three** |
+| Could a future milestone aggregate two entries as one currency? | Denied in the limitation text, and no aggregate field exists to tempt it |
+
+## Finding 4 — spread and slippage
+
+| Re-attack | Result |
+|---|---|
+| Are they still grouped with directional frictions? | No — their own group |
+| Does anything claim they are definitely excluded? | No — "NOT claimed to be excluded" |
+| Is the reason stated, not just the disclaimer? | Yes — the asserted prices are the operator's own executions, and M076 stores no benchmark, quoted, intended or arrival price to measure against |
+| Do they appear in the sentence that asserts a direction? | **No** — asserted against that exact line |
+| Does the cashflow group still contain an execution effect? | No — exactly three members |
+| Do the three groups partition the union exactly? | Yes — pairwise disjoint, union equal |
+| Renamed or aliased? | Renamed — `EXCLUDED_ECONOMIC_COMPONENTS` → `UNREPRESENTED_ECONOMIC_COMPONENTS`, because "excluded" asserts the very absence that cannot be asserted |
+
+## Whole-suite confirmation after all three corrections
 
 | Suite | Result |
 |---|---|
-| M080 unit | **78 passed** |
+| M080 unit | **98 passed** |
 | M080 PostgreSQL integration | **15 passed** |
-| M080 fresh second pass | **4 passed** |
-| M076–M080 chain | **387 passed** |
-| Full regression | failing-ID set identical to the `0e73e0b` baseline |
+| M080 fresh second pass | **4 passed**, from a dropped-and-recreated `m080_second_pass` database |
+| M076–M080 chain | **407 passed** (was 387 before this pass added 20 unit tests) |
+| Full regression | **68 failing IDs, byte-identical to the `0e73e0b` baseline** measured in the same working tree against the same PostgreSQL instance |

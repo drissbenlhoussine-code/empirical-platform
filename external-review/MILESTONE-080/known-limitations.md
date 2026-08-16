@@ -3,23 +3,38 @@
 1. **Every figure is arithmetic over assertions, not a measurement.** There is no
    broker, no confirmation, no reconciliation, and no evidence that any trade
    occurred or occurred at the stated price.
-2. **Economic components are excluded** — commissions, spread, slippage,
-   exchange and regulatory fees, taxes, dividends, corporate actions and
-   financing cost. M076 stores none of them, so a result is **NOT a complete
-   economic outcome**. ⚠ *Corrected after Owner review:* this item previously
-   said all of them are costs and that every result is "systematically more
-   favourable" than reality. **That is false.** Frictions (commissions, spread,
-   slippage, fees, financing) would normally reduce a raw result, but dividends,
-   corporate actions and tax effects can move the real outcome in **either**
-   direction, so **the direction of the total omitted effect is not generally
-   knowable** and no universal bound is claimed.
+2. **Economic components are not represented**, so a result is **NOT a complete
+   economic outcome**. They fall into three groups, which must not be collapsed:
+   - *Unrepresented cashflows* — commissions, exchange and regulatory fees,
+     financing and borrow cost. The ledger records none of them; including them
+     would normally **reduce** a raw result.
+   - *Context-dependent components* — taxes, dividends, corporate actions. These
+     can move the real outcome in **either** direction.
+   - *Not separately attributable execution components* — spread and slippage.
+     M080 does **not** claim these are excluded. The arithmetic runs on the
+     operator's own asserted execution prices, so any spread or slippage may
+     already be embedded in them; M076 stores no benchmark, quoted, intended or
+     arrival price, so there is nothing to measure an execution effect against
+     and M080 cannot tell whether they are absent, embedded or partly embedded.
+
+   Because the groups differ in direction, **the direction of the total omitted
+   effect is not generally knowable** and no universal bound is claimed.
+
+   > ⚠ *Corrected after Owner review (finding 2), then again (finding 4).* This
+   > item first said all of these are costs and that every result is
+   > "systematically more favourable" than reality — **false**. The first
+   > correction then grouped spread and slippage with directional frictions and
+   > said their omission "would normally make a raw result look better than
+   > reality" — **also too strong, and retracted.** The three-way split above is
+   > the current statement.
 3. **No unrealized figure is computed** for a still-open quantity, because the
    platform holds no authoritative current market price. A partly-exited
    position's result covers the exited quantity only and is never extrapolated.
 4. **No aggregate, percentage or win rate is emitted.** Each is a performance
    claim this milestone has no authority to make. A reader wanting a portfolio
    figure must not construct one from these entries without recognising that
-   they omit costs and open exposure.
+   they leave economic components unrepresented, leave open exposure out, and
+   carry no established denomination (see 16).
 5. **`EXIT_QUANTITY_UNRECONCILED` is common at early cutoffs and is not
    corruption.** M076 derives a `CLOSED` event's quantity at append time from the
    full history, so a knowledge-filtered prefix can fold coherently while its
@@ -60,3 +75,12 @@
     scaled to 10⁻⁶ — exact by construction, and context-free. The guarantee
     rests on frozen M076 capping the price scale at six decimal places; if that
     cap ever changed, `_scaled_price` raises rather than rounding silently.
+16. **There is no currency or denomination authority.** ⚠ *Added after Owner
+    review (finding 3).* M076 persists `instrument_symbol`, `quantity`,
+    `asserted_price`, two timestamps, an optional plan citation and a note — and
+    **no** currency column of any kind. Every value M080 emits is therefore in
+    the same **unspecified asserted price units** the ledger carries.
+    `instrument_symbol` is not a currency authority. No value here may be read as
+    USD, EUR or any other currency on M080's authority, and two values must not
+    be assumed to share a denomination merely because both appear in one report.
+    M080 invents no currency value, adds no column and adds no migration.
