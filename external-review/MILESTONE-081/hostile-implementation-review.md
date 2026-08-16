@@ -191,6 +191,63 @@ correction.
 | O2-07 | does any non-recoverability claim survive? | **none** - swept branch-wide over six phrasings, asserted by test on every rendered surface |
 | O2-08 | are exact ratio semantics preserved? | yes - every pre-existing ratio assertion passes unchanged |
 
+## Owner re-review - the correction had not reached the test source
+
+The finding-2 correction swept the rendered output, the design documents and the
+evidence package. It **did not sweep the test source**, and two claims survived
+there, both named by the Owner:
+
+| Location | Was | Disposition |
+|---|---|---|
+| `test_the_ratio_is_reduced_so_four_eighths_and_one_half_are_one_object` docstring | "gcd reduction is applied, **which is also what destroys the money**" | **FIXED** - now "gcd reduction canonicalizes equivalent rational values", with the retraction recorded in the docstring |
+| `test_the_reduced_ratio_does_not_reveal_the_monetary_magnitude` | the **name** asserted universal non-recoverability; the assertion only ever proved the mapping is many-to-one | **RENAMED** to `test_multiple_monetary_magnitudes_can_reduce_to_the_same_ratio`, with the old name and the reason recorded in the docstring. **The assertion is unchanged** - it was always valid evidence for the narrower claim |
+
+**Why the earlier sweep missed them.** It searched rendered surfaces and prose,
+on the assumption that a claim only matters where a reader sees it. A test name
+and a test docstring are exactly where a future maintainer looks to learn what a
+guarantee *is*, so they are load-bearing claims too. Recorded rather than quietly
+fixed.
+
+### The banner was stronger than the limitation
+
+The corrected limitation already drew the semantic distinction. The **banner**
+still said, flatly:
+
+> ~~NO monetary value is emitted at all~~
+
+which reads as an information-theoretic claim, and the coprime counterexample
+disproves exactly that reading. **Reconciled** to match the limitation:
+
+> M081 exposes NO field semantically labelled or authoritative as a monetary
+> amount and provides NO monetary aggregate. That is a SEMANTIC boundary: it
+> does NOT claim the numeric pair can never reveal anything about the underlying
+> M080 operands, because when those operands are already coprime the reduced
+> pair coincides with them.
+
+**No arithmetic, temporal, schema or frozen-file change.** The production diff
+contains no executable-line change at all - only banner wording - confirmed by
+filtering the diff down to non-string, non-comment lines, which is empty.
+
+| # | Owner attack | Result |
+|---|---|---|
+| O3-01 | stale docstring claim | **FIXED** |
+| O3-02 | over-strong test name | **RENAMED**, assertion untouched |
+| O3-03 | eight-term sweep across **test source** as well as prose | every occurrence classified below |
+| O3-04 | any active occurrence outside a retraction record | **none** |
+| O3-05 | banner stronger than the limitation | **reconciled** |
+| O3-06 | production behaviour changed | **no** - wording only |
+
+### Every occurrence of the eight swept terms, classified
+
+| Kind | Where | Disposition |
+|---|---|---|
+| Active stale claim | test docstring; test name | **2 found, 2 reconciled** |
+| Marked retraction (`~~...~~ RETRACTED`) | root design, snapshot, design review, reality gate | **kept** - this is the retraction record |
+| Marked correction note | README, known-limitations, owner checklist | **kept** |
+| Module `RETRACTED:` block | `operator_asserted_round_trip_ratio.py` docstring | **kept** |
+| True corrected statement | the emitted limitation - "monetary magnitude is **NOT promised to be** unrecoverable" | **kept** - this is the current truth |
+| Absence assertion | `test_no_surface_claims_monetary_magnitude_is_unrecoverable` and its forbidden-phrase list, unit and PostgreSQL | **kept** - names the phrases in order to forbid them |
+
 ---
 
 ## Ten probe errors of my own, recorded

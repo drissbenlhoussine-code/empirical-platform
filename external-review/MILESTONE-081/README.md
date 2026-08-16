@@ -29,7 +29,11 @@ claimed gcd reduction made the monetary magnitude **unrecoverable**. That is
 **retracted** — coprime scaled operands survive reduction unchanged, so the
 emitted pair can coincide with the original scaled operands. The guarantee is
 **semantic non-aggregation and non-denomination**, never information-theoretic
-secrecy.
+secrecy. A later Owner re-review found the same over-strong claim still live in
+**two test-source locations and in the banner**, which the first sweep had not
+covered; all three are reconciled, and the banner now says explicitly that it
+does *not* claim the numeric pair can never reveal anything about the M080
+operands.
 
 ## The finding that decided the milestone
 

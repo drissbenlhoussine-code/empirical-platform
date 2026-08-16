@@ -150,14 +150,33 @@ def test_the_mandated_lifecycle_yields_the_exact_reduced_ratio() -> None:
 
 
 def test_the_ratio_is_reduced_so_four_eighths_and_one_half_are_one_object() -> None:
-    """CLAIM: gcd reduction is applied, which is also what destroys the money."""
+    """CLAIM: gcd reduction canonicalizes equivalent rational values.
+
+    ⚠ This docstring previously read "which is also what destroys the money".
+    RETRACTED by Owner finding 2: reduction is a canonicalization, not an
+    information-destruction step, and coprime scaled operands survive it
+    unchanged. The assertion below was always about canonicalization; only the
+    claim attached to it was wrong.
+    """
     entry = only((event(1, OPENED, 10, "100", 0), event(2, CLOSED, 10, "150", 1)))
     # Raw scaled money would be 500000000 / 1000000000.
     assert (entry.ratio_numerator, entry.ratio_denominator) == (1, 2)
 
 
-def test_the_reduced_ratio_does_not_reveal_the_monetary_magnitude() -> None:
-    """CLAIM (design D-F04): 1/2 is emitted by many different money amounts."""
+def test_multiple_monetary_magnitudes_can_reduce_to_the_same_ratio() -> None:
+    """CLAIM: two very different money amounts can produce the identical ratio.
+
+    ⚠ This test was named `test_the_reduced_ratio_does_not_reveal_the_monetary_
+    magnitude` and cited design D-F04. RETRACTED by Owner finding 2: the
+    assertion below proves only that the mapping from monetary magnitude to
+    reduced ratio is MANY-TO-ONE. It does NOT prove universal
+    non-recoverability, and the coprime counterexample
+    (`test_coprime_scaled_operands_survive_reduction_unchanged`) shows the
+    reduced pair can coincide with the scaled operands exactly.
+
+    The assertion is unchanged, because it was always valid evidence for this
+    narrower claim. Only the name and the claim were too strong.
+    """
     small = only((event(1, OPENED, 2, "1", 0), event(2, CLOSED, 2, "1.5", 1)))
     large = only((event(1, OPENED, 1000, "1000", 0), event(2, CLOSED, 1000, "1500", 1)))
     assert small.ratio_exact == large.ratio_exact == "1/2"
@@ -790,7 +809,8 @@ def test_the_banner_denies_every_reading_m081_does_not_support() -> None:
         "ARITHMETICALLY comparable but NOT necessarily ECONOMICALLY comparable",
         "EXITED QUANTITY ONLY",
         "no zero, no break-even",
-        "NO monetary value is emitted at all",
+        "exposes NO field semantically labelled or authoritative as a monetary amount",
+        "does NOT claim the numeric pair can never reveal anything",
         "NOT claimed to be excluded",
     ):
         assert denial in ASSERTED_RATIO_BANNER, denial

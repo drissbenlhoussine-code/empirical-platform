@@ -109,3 +109,26 @@ now-unused import was removed. Nothing else was touched.
 | M081 fresh second pass | 4 passed |
 | M076-M081 chain | **536 passed** |
 | Full regression, both modes | failing-ID sets identical to the `43eb2c3` baseline |
+
+
+---
+
+# Focused Re-Review After the Evidence Consistency Cleanup
+
+Wording only. No arithmetic, temporal, schema or frozen-file change; the
+production diff has **no executable-line change at all**.
+
+| Re-attack | Result |
+|---|---|
+| Does any test docstring still claim reduction destroys money? | **No** |
+| Does any test **name** still assert non-recoverability? | **No** - renamed to the narrower true claim |
+| Was the renamed test's assertion weakened? | **No** - byte-identical; it was always valid evidence for the narrower claim |
+| Is the banner still stronger than the limitation? | **No** - reconciled to the same semantic boundary |
+| Does the banner still deny an aggregate? | Yes - unchanged in force |
+| Does the banner now over-claim secrecy? | **No** - it explicitly says it does not claim the numeric pair can never reveal anything |
+| Any active occurrence of the eight swept terms outside a retraction record? | **None** |
+| Is the retraction history intact? | Yes - every struck-through claim preserved |
+| M081 unit | **101 passed** |
+| M081 PostgreSQL + second pass | **28 passed** |
+| M076-M081 chain | **536 passed** |
+| ruff / format / mypy / architecture | clean |
