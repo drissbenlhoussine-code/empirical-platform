@@ -1,5 +1,37 @@
 # M082 - Hostile Implementation Review
 
+> **⚠ CORRECTED AFTER OWNER REVIEW — READ THIS FIRST.**
+>
+> Two conclusions recorded below are **RETRACTED**. They are left in place, not
+> deleted, so the original reasoning stays readable and the correction stays
+> visible.
+>
+> **RETRACTION 1 (Owner finding 1) — "point-in-time historical snapshot".**
+> The artifact was built from the CURRENT ledger, so a receipt created after the
+> cutoff and an event created after the cutoff both changed the historical
+> output. Executed: two databases with identical evidence at W produced
+> `ATTESTED_AFTER_CUTOFF` vs `NO_SYSTEM_RECEIPT_EVIDENCE`, differing counts, and
+> a leak of a future event's id, position and instrument symbol. Any sentence
+> below claiming the artifact is a point-in-time snapshot, or that "nothing
+> attested after the cutoff influences any figure", is **SUPERSEDED** by
+> `reality-gate.md`. The snapshot is now built FROM RECEIPTS labelled at or
+> before the cutoff; `ATTESTED_AFTER_CUTOFF`, `NO_SYSTEM_RECEIPT_EVIDENCE`,
+> `attested_after_cutoff_count` and `unattested_count` no longer exist.
+>
+> **RETRACTION 2 (Owner finding 2) — the wall-clock upper bound.**
+> Any sentence below asserting `commit_time(event) < system_received_at`, that
+> `system_received_at <= W` implies durable commit by W, that the guarantee is
+> "one-directional", or that M082 "can never overstate", is **RETRACTED**. A
+> backward host clock breaks it, and the attack is executed in
+> `test_a_backward_clock_breaks_the_wall_clock_implication`. What survives is
+> the CAUSAL claim: the read-back preceded the receipt. **M082 therefore does
+> NOT replace M079's `recorded_at` firewall.**
+>
+> Renames that followed: `attested_known_by` → `events_with_receipt_labelled_by`,
+> `attested_as_of` → `receipt_label_cutoff`, `--attested-as-of` →
+> `--receipt-label-cutoff`.
+
+
 **263 attacks executed against the running code, the usecase layer, the CLI, the
 schema and real PostgreSQL.** All 263 pass at the current head.
 

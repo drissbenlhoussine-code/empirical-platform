@@ -1,16 +1,42 @@
 # M082 - Validation Results
 
-All measured, none quoted from a previous run.
+All measured after the Owner review correction pass. None quoted from a previous
+run.
 
 ## Focused suites
 
-| Suite | Result |
+| Suite | Before correction | **After correction** |
+|---|---|---|
+| M082 unit | 30 passed | **40 passed** |
+| M082 PostgreSQL integration | 23 passed | **30 passed** |
+| M082 fresh second pass | 4 passed | **4 passed** (dropped-and-recreated database) |
+| M076-M082 compatibility chain | 435 passed | **522 passed** |
+
+New tests added by this pass, all against real PostgreSQL unless noted:
+
+| Test | Owner requirement |
 |---|---|
-| M082 unit | **30 passed** |
-| M082 PostgreSQL integration | **23 passed** |
-| M082 fresh second pass | **4 passed**, dropped-and-recreated database |
-| M076-M082 compatibility chain | **435 passed** |
-| Executed attack battery | **263 / 263** |
+| `test_a_receipt_created_after_the_cutoff_changes_nothing` | 1 — identical pre-W receipts, different post-W receipt tails |
+| `test_an_event_created_after_the_cutoff_changes_nothing` | 2 — identical pre-W receipts, different future event tails |
+| `test_no_count_in_the_artifact_is_aware_of_anything_after_the_cutoff` | 3 — no future receipt count leaks |
+| `test_an_event_created_after_the_cutoff_changes_nothing` | 4 — no future event identity leaks |
+| `test_a_backward_clock_breaks_the_wall_clock_implication` | 5 — application clock deliberately moves backward |
+| `test_the_causal_claim_survives_the_backward_clock` | 6 — exact claim level remains true under that attack |
+| `test_a_clock_returning_a_naive_datetime_is_refused` | 6 — a label with no offset names no instant |
+| `test_production_wiring_uses_the_host_clock_and_takes_no_caller_instant` | 6 — the injection is not reachable from production |
+| second pass, five-years-early lie | 7 — an old `recorded_at` lie creates no M082 authority |
+| scenario E | 8 — legacy event remains unattested |
+| scenario J | 9 — direct M076 bypass remains unattested |
+| scenario I + second pass | 10 — concurrent receipt idempotency |
+| scenario H, rollback tests | 11 — rollback/crash absence remains honest |
+| `test_text_and_json_agree_and_json_is_deterministic` | 12 — text/JSON parity |
+| frozen-preservation checks below | 13 — M079/M080/M081 unchanged |
+| R02 table below | 14 — M076 test-only migration fix remains non-semantic |
+| `test_a_receipt_labelled_after_the_cutoff_is_wholly_unreachable` (unit) | 1, structural |
+| `test_the_report_carries_no_future_tail_count` (unit) | 3, structural |
+| `test_no_artifact_surface_claims_an_upper_bound_or_a_knowledge_time` (unit) | claim-surface honesty |
+| `test_the_old_overclaiming_names_are_gone` (unit) | the renames are load-bearing |
+| `test_a_receipt_for_an_unsupplied_event_is_refused_not_skipped` (unit) | a missing referent is a fault, not an absence |
 
 ## Full regression, candidate vs master baseline `28a1053`
 
@@ -19,19 +45,14 @@ the **same PostgreSQL instance**, then diffing sorted failing-test-id lists.
 
 | Mode | Baseline `28a1053` | Candidate | Failing-ID diff |
 |---|---|---|---|
-| PostgreSQL **on** | 24 failed, 2704 passed, 14 skipped, 44 errors | 24 failed, **2761** passed, 14 skipped, 44 errors | **empty** - 68 ids each side |
-| PostgreSQL **off** | 8 failed, 2285 passed, 481 skipped, 12 errors | 8 failed, **2316** passed, 507 skipped, 12 errors | **empty** - 20 ids each side |
+| PostgreSQL **on** | 24 failed, 2704 passed, 14 skipped, 44 errors | 24 failed, **2778** passed, 14 skipped, 44 errors | **empty** — 68 ids each side |
+| PostgreSQL **off** | 8 failed, 2285 passed, 481 skipped, 12 errors | 8 failed, **2327** passed, 513 skipped, 12 errors | **empty** — 20 ids each side |
 
-**+57 passing tests with PostgreSQL on, zero new failures in either mode.**
+**+74 passing with PostgreSQL on, +42 with it off, zero new failures in either
+mode.**
 
 The pre-existing M062/M064/M065 seal debt remains, unrepaired and identical on
 both sides of both diffs.
-
-> **One transient failure, found and fixed rather than accepted.** The first
-> candidate run showed **25** failures — one more than baseline.
-> `test_m076_migration_is_reversible` had begun failing because it downgraded by
-> a relative step and assumed M076 was at head. See R02; the corrected run
-> returns to 24 and the diff is empty.
 
 ## Static gates
 
@@ -42,11 +63,13 @@ both sides of both diffs.
 | `ruff format --check .` | 613 files already formatted |
 | `python -m mypy` | Success, **312** source files |
 | `tools/check_architecture.py .` | exit 0 |
-| negative architecture fixture | exit 1 on seeded violations |
+| negative architecture fixture | exit **1** on seeded violations |
 
 **No `# type: ignore`, no concealing `# noqa`, no gate suppression** in any M082
-module - asserted by grep over the domain module, the Protocol, the repository,
-the usecase, the IO module, the entry point and the migration.
+module.
+
+> One lint finding in this pass, fixed rather than silenced: `N806`, an
+> upper-case `W` local in the backward-clock test. Renamed to `cutoff`.
 
 ## Security and build
 
@@ -56,28 +79,25 @@ the usecase, the IO module, the entry point and the migration.
 | secret scan | **0 findings** |
 | `python -m build` | sdist + wheel |
 | wheel import | M082 imports from the built wheel in a clean Python 3.13 venv |
-| console entry point | `empirical-platform-attested-evidence-snapshot` present in wheel metadata |
-
-> The secret scan initially reported **1** finding: my migration's alembic
-> revision identifiers, flagged as high-entropy hex. **Not suppressed** - the
-> repository already filters these in the annotated form every other migration
-> uses, and my file had used the bare form. Conforming to the convention
-> resolved it with no allowlist entry and no baseline file.
+| console entry point | `empirical-platform-attested-evidence-snapshot` present |
 
 ## Migration verification
 
 | Check | Result |
 |---|---|
-| `upgrade head` | OK |
-| `downgrade -1` | OK |
-| `upgrade head` again | OK |
-| receipt table present after up-down-up | yes |
-| immutability trigger restored | yes |
-| **table empty after upgrade (no backfill)** | **yes** |
-| after downgrade: table gone | yes |
-| after downgrade: trigger function gone | yes |
+| `upgrade head` | table present, **0 rows**, trigger 1, function 1 |
+| `downgrade -1` | table gone, trigger 0, function 0 |
+| `upgrade head` again | table present, **0 rows**, trigger 1, function 1 |
 | existing tables altered | **zero** |
 | rows written by the migration | **zero** |
+
+## End-to-end CLI
+
+Run against a real seeded database with two events, **one** attested. The
+snapshot lists exactly the attested event; the unattested one is **absent**, not
+listed as unattested. The banner carries the retraction and the causal claim.
+This is the check that caught M081's duplicated-denial defect, and it is why it
+is run every milestone.
 
 ## Frozen preservation
 
@@ -88,7 +108,36 @@ Byte-identical to `28a1053`: `operator_position_ledger.py`,
 `research_decision_follow_through.py`.
 
 None of M079, M080 or M081 references `operator_event_receipt`,
-`attested_known_by` or `system_received_at` — **no silent adoption**.
+`events_with_receipt_labelled_by` or `system_received_at` — **no silent
+adoption**, and after the correction that matters more, not less: this authority
+is now explicitly weaker than a knowledge-time filter.
 
-Non-M082 files changed: `pyproject.toml` (entry point), `runtime.py` (nine
-added lines, no line removed), and the M076 reversibility test per R02.
+Non-M082 files changed: `pyproject.toml` (entry point), `runtime.py` (nine added
+lines, no line removed), and the M076 reversibility test per R02.
+
+## R02, re-verified this pass
+
+| Requirement | Result |
+|---|---|
+| no M076 behavioural assertion changed | **confirmed** — the diff's only `assert` line is docstring prose |
+| no test weakened | **confirmed** |
+| only migration-target addressing changed | **confirmed** — `"-1"` → `"31365632c016"` |
+| target is M076's own predecessor | **confirmed** — the literal `down_revision`; M076's own `revision` is `b7e1c4a95d38` |
+| passes against M076 in isolation | **confirmed** — M082 migration removed, `alembic heads` = `b7e1c4a95d38 (head)`, test passes |
+| passes with M082's migration present | **confirmed** — 16 passed |
+| no production M076 code changed | **confirmed** |
+
+## Evidence reconciliation sweep
+
+Every phrase the Owner listed was searched across the whole branch — source,
+tests, migrations, the root design document, the evidence package and the PR
+body.
+
+| Location | Action |
+|---|---|
+| M082 source, tests, design doc, evidence package | corrected, with the retracted claims **quoted** rather than deleted |
+| `MILESTONE_005`, `MILESTONE_006` | **no change** — their "one-directional" is about Health/Logging dependency, unrelated |
+| `external-review/MILESTONE-079/reality-gate.md` | **no change** — M079's own frozen snapshot claim, over `recorded_at`, still stands on its own terms |
+| `tests/unit/test_decision_candidate_operator_asserted_round_trip.py` | **no change** — "upper bound" there is M080's forbidden-token list |
+
+None of those four is touched by this branch.

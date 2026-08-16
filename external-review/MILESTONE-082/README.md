@@ -1,123 +1,137 @@
 # MILESTONE-082 - Operator Event Receipt Attestation - External Review Package
 
-**Status: IMPLEMENTED_AND_REVIEWED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
+**Status: CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
 
 Base `master` `28a1053`.
 
-## The gap this closes
+> **⚠ This package was corrected after Owner review. Two claims are RETRACTED.**
+> Read `owner-review-correction-pass.md` before anything else — it reproduces
+> both defects by execution and records exactly what the milestone now claims.
 
-M079 introduced `OPERATOR_EVIDENCE_AVAILABLE_AT(E,K)` and M080/M081 build their
-temporal filtering on it. All three filter on `recorded_at` — and M079's own
-frozen docstring already admits what that field is:
+## What M082 claims, after the correction
 
-> an operator-supplied field, not a system-assigned immutable one
+**A causal fact, and nothing more:**
 
-So every temporal claim in the frozen chain rests on a value the operator
-chooses. An operator can persist any `recorded_at` they like, including one in
-the past, and M079-M081 will honour it. **M082 supplies the missing
-system-assigned authority beside that field — without touching it.**
+    the attestation process READ THIS EVENT BACK from committed persistence,
+    and only THEN created this receipt.
 
-```
-operator_event_receipt.system_received_at  <=  W
-    IMPLIES  the M076 event was durably committed by W
-```
+That holds by program order plus PostgreSQL transaction visibility, and **it
+does not depend on any clock**. `system_received_at` is a **system-assigned
+label** recorded beside that fact.
 
-One direction only. M082 may **understate** what was known and can never
-overstate it.
+## What M082 no longer claims
 
-## The proof that decided the design, and it was executed
-
-The obvious implementation — a `now()` default, or `transaction_timestamp()`, or
-any instant taken inside the writing transaction — **is wrong**, and not by a
-margin you can wave away:
+**RETRACTED — the wall-clock upper bound.** The first version claimed
+`commit_time(event) < system_received_at`, therefore `system_received_at <= W`
+implies durable commit by `W`, and that M082 "can never overstate". Executed
+counter-example, real PostgreSQL:
 
 ```
-timestamp ASSIGNED : 13:44:14.924211
-K chosen in pause  : 13:44:16.424349
-rows VISIBLE at K  : 0            <- genuinely not durable
-COMMIT             : 13:44:17.926
+real commit (wall clock) : 15:12:55.926191
+receipt label            : 15:02:55.926191   <- host clock moved BACK ten minutes
+cutoff (between them)    : 15:07:55.926191
 
-historical query "assigned_at <= K"  ->  RETURNS THE ROW
+snapshot at the cutoff includes the event : True
 ```
 
-The row was invisible to **every** reader at `K`, yet the historical query at `K`
-reported it as available. That is precisely the class of defect M079 exists to
-prevent, reintroduced by the convenient design. The size of the window does not
-change whether the claim is true.
+The event was **not** committed at that real instant, yet it is listed. The
+module's own limitations had already admitted the clock "can move backward", so
+the two statements could never both be true — and nothing had proved the bound.
 
-The receipt is therefore written in a **separate transaction, after the event's
-own commit**, which inverts the direction:
+**The honest consequence, stated rather than buried: M082 does NOT replace
+M079's `recorded_at` firewall.** A smaller true primitive beats a stronger false
+one. Binding an evaluation to receipt identities, or to an explicitly persisted
+receipt set captured at decision time, is a future milestone. It is not started.
+
+**RETRACTED — "point-in-time historical snapshot".** The artifact was built from
+the CURRENT ledger, so rows created after the cutoff changed the historical
+output. Two databases with identical evidence at `W`:
 
 ```
-row visible at K            : 0
-K                           : 13:56:09.230006
-event COMMIT                : 13:56:10.732522
-receipt system_received_at  : 13:56:10.753081
+ATTACK A - a receipt created after W, in DB-A only
+  DB-A : ATTESTED_AFTER_CUTOFF     DB-B : NO_SYSTEM_RECEIPT_EVIDENCE
+  after_cutoff_count A=1 B=0       unattested_count A=0 B=1
+
+ATTACK B - a new event added after W, in DB-A only
+  entry count A=3 B=2
+  future event id / position / symbol leaked into the historical text : True / True / True
 ```
 
-An event committed just before `K` but attested just after it is **excluded**.
-That asymmetry is the deliberate cost of never overstating.
+The banner's own sentence *"Nothing attested after the cutoff influences any
+figure below"* was false.
 
-## What was refused rather than faked
+## What replaced it: a true receipt-cutoff snapshot
 
-- **Commit-time authority.** `track_commit_timestamp` is off,
-  `pg_xact_commit_timestamp` errors here, and turning it on requires a
-  deployment-wide server restart and is not retroactive. M082 uses no commit
-  timestamp and claims no commit time.
-- **Ordering authority.** A `bigserial` is assignment order, not commit order,
-  and its gaps are rollbacks rather than missing receipts. No ordering authority
-  is emitted.
-- **Legacy backfill.** The migration creates the table **empty**. A receipt is
-  never manufactured from `recorded_at`, `event_timestamp`, or a migration time.
-  An unattested event reports `NO_SYSTEM_RECEIPT_EVIDENCE` — absence stays
-  absence.
+The artifact is now built **from receipts** labelled at or before the cutoff.
+A later receipt and an unreceipted event are **structurally unreachable** — no
+entry, no count, no ordering position. `ATTESTED_AFTER_CUTOFF`,
+`NO_SYSTEM_RECEIPT_EVIDENCE`, the whole status enum,
+`attested_after_cutoff_count` and `unattested_count` are gone and **not
+replaced**: the snapshot deliberately **cannot say how much it excluded**, and
+its own text says so.
 
-## The defects worth your time
+Re-run after the correction: **full object, full text and full JSON identical**
+on both sides of both attacks.
 
-**R01 (HIGH)** — the concurrent-loser path **crashed** rather than yielding.
-Four concurrent attesters raced; the loser caught its unique violation and then
-read the winner *inside its own unit of work*, producing
-`FoundationError('Nested persistence units of work are not supported')` in three
-of four callers. Found by executing four concurrent attesters, not by reading
-the code.
+## Names are claims, so three of them changed
 
-**R02** — my migration broke a **frozen milestone's** test.
-`test_m076_migration_is_reversible` used a relative `downgrade(cfg, "-1")`, which
-silently assumed M076 sat at head. Fixed by targeting M076's own predecessor
-revision explicitly. **This is the one frozen-milestone file this branch
-touches, and it is called out for you in `owner-review-checklist.md`.**
+| Old | New |
+|---|---|
+| `attested_known_by` | `events_with_receipt_labelled_by` |
+| `attested_as_of` | `receipt_label_cutoff` |
+| `--attested-as-of` | `--receipt-label-cutoff` |
 
-Separately, the immutability trigger blocked **my own test cleanup** — `DELETE`
-was refused — which is live confirmation the guarantee holds, and exactly what
-design note D-I12 predicted. Fixtures now use `TRUNCATE`.
+## What survived the correction untouched
+
+The two-transaction model and the executed commit-gap proof that forced it; the
+refusal to enable or fake commit timestamps; the refusal to treat a sequence as
+commit order; the empty-table migration and the legacy-backfill prohibition; the
+append-only schema, immutability trigger and FK `RESTRICT`; idempotency,
+concurrency and the R01 fix; and M079/M080/M081, byte-identical and still not
+consuming this authority.
+
+## Defects, all found by execution
+
+| # | Defect |
+|---|---|
+| Owner 1 | historical snapshot leaked future receipts and future events |
+| Owner 2 | the wall-clock upper bound was unproved and false under a backward clock |
+| R01 | the concurrent-loser path crashed with a nested unit of work instead of yielding |
+| R02 | this branch's migration broke frozen M076's reversibility test (test-only; re-verified in full) |
 
 ## Read in this order
 
 | File | What it is |
 |---|---|
-| `reality-gate.md` | which of the five claim levels this reaches, and the four things it does not prove |
-| `transaction-timing-evidence.md` | the executed commit-gap leak and its inversion; why commit time is unavailable |
-| `scope-and-design-snapshot.md` | the 31-section design, the seven candidates, and the rejected alternatives |
-| `hostile-design-review.md` | 207 attacks, 11 findings, all corrected **before** any code |
-| `hostile-implementation-review.md` | 263 executed attacks; 2 defects (R01, R02) and 2 probe errors of my own |
+| `owner-review-correction-pass.md` | **start here** — both Owner findings, reproduced and corrected |
+| `reality-gate.md` | which claim level this reaches, and the two levels it no longer claims |
+| `transaction-timing-evidence.md` | the executed commit-gap leak; why commit time is unavailable |
+| `scope-and-design-snapshot.md` | the design, the eight candidates, the rejected alternatives |
+| `hostile-design-review.md` | 207 attacks, 11 findings, all corrected before any code |
+| `hostile-implementation-review.md` | 263 executed attacks; R01 and R02 |
 | `concurrency-evidence.md` | the four-attester race, before and after R01 |
 | `focused-re-review.md` | the R01 correction re-attacked in its changed area |
 | `fresh-second-verification-pass.md` | separate database, different events, reversed attestation order |
-| `validation-results.md` | every gate, and the baseline-vs-candidate failing-ID diff in both modes |
-| `known-limitations.md` | 14 items |
+| `validation-results.md` | every gate, and the baseline-vs-candidate failing-ID diff |
+| `known-limitations.md` | 19 items, with the retracted ones quoted |
 | `owner-review-checklist.md` | the judgment calls, stated so they can be overruled |
 | `changed-files.txt` | every file this branch touches |
 
+Files predating the correction carry a visible retraction notice at the top.
+Nothing was deleted.
+
 ## Nothing here is erased
 
-Two of my own probe assertions were wrong — including a `recorded_at` substring
-search that flagged the artifact's own limitation text denying it, and a
-variable shadowing that reused `K` for both the cutoff and an event-kind alias.
-Each is recorded beside the attack it broke. A test that fails for the wrong
-reason is as misleading as one that passes for the wrong reason.
+My own probe errors are recorded beside the attacks they broke. Three matter:
 
-An earlier gap-proof probe was also wrong: it reused a single position key, so
-three of five attempts were rejected by M076's ledger-state rules and I nearly
-recorded a **narrower false gap** as the result. Re-run with distinct keys, all
-five persist. The corrected measurement is the one in
-`transaction-timing-evidence.md`.
+- a `recorded_at` substring search that flagged the artifact's own limitation
+  text denying it;
+- a forbidden-token search for `"upper bound"` that failed on the artifact's own
+  **retraction** of that claim — the identical mistake, made twice;
+- a re-run of Attack A that reported a difference after the fix, because *my
+  probe* let the two databases take different wall-clock labels. That same
+  weakness is why the original double-database test compared only a projection
+  of the entries — **and that is exactly why it passed while the leak was live.**
+
+A test that fails for the wrong reason misleads as much as one that passes for
+the wrong reason. The second kind is what the Owner had to catch.

@@ -72,19 +72,33 @@ class AttestOperatorEventReceiptHandler:
 
 @dataclass(frozen=True, slots=True)
 class GetAttestedEvidenceReportQuery:
-    """The cutoff is required. Defaulting it would choose an epistemic stance."""
+    """The cutoff is required. Defaulting it would choose an epistemic stance.
 
-    attested_as_of: datetime
+    RENAMED from `attested_as_of` by Owner review finding 2. "As of" asserted a
+    point-in-time KNOWLEDGE claim the system-assigned label cannot support; this
+    field selects receipts by their LABEL and nothing more.
+    """
+
+    receipt_label_cutoff: datetime
 
     def __post_init__(self) -> None:
-        if self.attested_as_of.tzinfo is None or self.attested_as_of.utcoffset() is None:
+        if (
+            self.receipt_label_cutoff.tzinfo is None
+            or self.receipt_label_cutoff.utcoffset() is None
+        ):
             raise ValueError(
-                "attested_as_of must be timezone-aware; a naive datetime has no instant"
+                "receipt_label_cutoff must be timezone-aware; a naive datetime has no instant"
             )
 
 
 class GetAttestedEvidenceReportHandler:
-    """Reads the frozen M076 ledger and the M082 receipts, and joins them."""
+    """Builds the receipt-cutoff snapshot from the M082 receipts.
+
+    The ledger is read only to resolve the detail of events that a qualifying
+    receipt already names. The domain builder is receipts-first, so no ledger
+    row without such a receipt can reach the artifact -- see Owner review
+    finding 1, which retracted the earlier ledger-first construction.
+    """
 
     __slots__ = ("_ledger", "_receipts")
 
@@ -101,5 +115,5 @@ class GetAttestedEvidenceReportHandler:
         return build_attested_evidence_report(
             events=self._ledger.list_all(),
             receipts=self._receipts.list_all(),
-            attested_as_of=query.attested_as_of,
+            receipt_label_cutoff=query.receipt_label_cutoff,
         )

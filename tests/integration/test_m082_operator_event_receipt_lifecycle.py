@@ -3,6 +3,12 @@
 Mandated scenarios A-M, plus the commit-gap attack, the two-connection ordering
 attack, the legacy-backfill prohibition, direct M076 bypass, immutability and
 the double-database proof.
+
+CORRECTED AFTER OWNER REVIEW. Finding 1 added the future-receipt and
+future-event non-interference attacks and rewrote the double-database proof to
+demand FULL output identity. Finding 2 added the backward-clock attack, which
+required the attestation clock to become injectable, and withdrew every
+assertion that the label bounds the commit time.
 """
 
 from __future__ import annotations
@@ -25,9 +31,8 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from empirical_platform.decision_candidate.operator_event_receipt import (
-    AttestedEvidenceStatus,
-    attested_known_by,
     build_attested_evidence_report,
+    events_with_receipt_labelled_by,
 )
 from empirical_platform.decision_candidate.operator_position_ledger import (
     OperatorAssertedPositionEvent,
@@ -35,7 +40,9 @@ from empirical_platform.decision_candidate.operator_position_ledger import (
 )
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
+from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.operator_event_receipt_repository import (  # noqa: E501
+    PostgresOperatorEventReceiptRepository,
     UnknownOperatorEventError,
 )
 from empirical_platform.usecases.attested_evidence_io import (
@@ -142,6 +149,26 @@ def _attest(config: PostgreSQLConfigSnapshot, rid: str, gid: str, by: str = "tes
         )
 
 
+def _attest_at(  # noqa: ANN202
+    config: PostgreSQLConfigSnapshot, rid: str, gid: str, at: datetime, by: str = "test"
+):
+    """Attest with a PINNED label, so two databases can hold identical evidence.
+
+    The clock injection exists for the Owner-mandated backward-clock attack. It
+    is also what makes the double-database proof able to demand FULL output
+    identity: with two wall clocks the two receipts differ for a reason that has
+    nothing to do with the leak under test, which is exactly the flaw that made
+    the first version of that proof compare only a projection.
+    """
+    service = PostgresPersistenceService(config)
+    try:
+        service.initialize()
+        repository = PostgresOperatorEventReceiptRepository(service, clock=lambda: at)
+        return repository.attest(receipt_governance_id=rid, event_governance_id=gid, attested_by=by)
+    finally:
+        service.close()
+
+
 def _events(config: PostgreSQLConfigSnapshot):  # noqa: ANN202
     with postgres_repository_runtime(config) as runtime:
         return runtime.operator_position_ledger.list_all()
@@ -154,7 +181,14 @@ def _receipts(config: PostgreSQLConfigSnapshot):  # noqa: ANN202
 
 def _report(config: PostgreSQLConfigSnapshot, cutoff: datetime):  # noqa: ANN202
     return build_attested_evidence_report(
-        events=_events(config), receipts=_receipts(config), attested_as_of=cutoff
+        events=_events(config), receipts=_receipts(config), receipt_label_cutoff=cutoff
+    )
+
+
+def _rendered(report) -> tuple[str, str]:  # noqa: ANN001
+    return (
+        render_attested_evidence_report_text(report),
+        json.dumps(render_attested_evidence_report_json(report), sort_keys=True),
     )
 
 
@@ -173,7 +207,8 @@ def test_scenario_a_normal_attested_event(clean_tables: Engine) -> None:
     assert receipt.attester_version == "M082.1"
 
     entry = _report(config, after).entries[0]
-    assert entry.status is AttestedEvidenceStatus.ATTESTED
+    assert entry.event_governance_id == "EV-A"
+    assert entry.system_received_at == receipt.system_received_at
 
 
 @pytest.mark.parametrize(
@@ -199,9 +234,12 @@ def test_a_lying_recorded_at_cannot_influence_the_receipt(
 def test_scenario_e_legacy_event_with_no_receipt(clean_tables: Engine) -> None:
     config = _config()
     _append(config, gid="EV-LEG", pos="POS-LEG", recorded_day=-3650)
-    entry = _report(config, datetime.now(UTC) + timedelta(days=1)).entries[0]
-    assert entry.status is AttestedEvidenceStatus.NO_SYSTEM_RECEIPT_EVIDENCE
-    assert entry.system_received_at is None
+    report = _report(config, datetime.now(UTC) + timedelta(days=1))
+    # Absence is the representation: an unreceipted event is not listed at all,
+    # so there is no placeholder anyone could later fill in.
+    assert report.entries == ()
+    assert report.attested_count == 0
+    assert "EV-LEG" not in _rendered(report)[0]
 
 
 def test_scenario_f_duplicate_receipt_is_idempotent(clean_tables: Engine) -> None:
@@ -267,8 +305,9 @@ def test_scenario_j_direct_m076_bypass_produces_an_unattested_event(
     config = _config()
     _append(config, gid="EV-BYPASS", pos="POS-BYPASS")  # no attestation at all
     report = _report(config, datetime.now(UTC) + timedelta(days=1))
-    assert report.unattested_count == 1
+    assert report.entries == ()
     assert report.attested_count == 0
+    assert "EV-BYPASS" not in _rendered(report)[0]
     assert any(
         "does NOT claim that all events carry receipt authority" in lim
         for lim in report.limitations
@@ -283,8 +322,9 @@ def test_scenarios_k_l_m_cutoff_before_at_and_after_the_receipt(
     _append(config, gid="EV-CUT", pos="POS-CUT")
     receipt = _attest(config, "RC-CUT", "EV-CUT")
     cutoff = receipt.system_received_at + timedelta(seconds=offset_seconds)
-    known = attested_known_by(_events(config), _receipts(config), cutoff)
-    assert (len(known) == 1) is (offset_seconds >= 0)
+    labelled = events_with_receipt_labelled_by(_events(config), _receipts(config), cutoff)
+    assert (len(labelled) == 1) is (offset_seconds >= 0)
+    assert (len(_report(config, cutoff).entries) == 1) is (offset_seconds >= 0)
 
 
 # --------------------------------------------------------------------------
@@ -336,7 +376,8 @@ def test_the_commit_gap_cannot_make_an_uncommitted_event_appear_available(
     assert visible == 0, "the row must genuinely be invisible at the cutoff"
     assert receipt.system_received_at > box["commit_at"]  # type: ignore[attr-defined,operator]
     assert receipt.system_received_at > cutoff  # type: ignore[attr-defined,operator]
-    assert attested_known_by(_events(config), _receipts(config), cutoff) == ()
+    assert events_with_receipt_labelled_by(_events(config), _receipts(config), cutoff) == ()
+    assert _report(config, cutoff).entries == ()
 
 
 def test_concurrent_attestation_order_is_attestation_order_not_event_order(
@@ -376,9 +417,7 @@ def test_no_receipt_instant_is_ever_manufactured_from_a_frozen_field(
     lie_day = -3650
     _append(config, gid="EV-NOBACK", pos="POS-NOBACK", day=1, recorded_day=lie_day)
     report = _report(config, datetime.now(UTC) + timedelta(days=1))
-    entry = report.entries[0]
-    assert entry.status is AttestedEvidenceStatus.NO_SYSTEM_RECEIPT_EVIDENCE
-    assert entry.system_received_at is None
+    assert report.entries == ()
     forbidden = {_T0 + timedelta(days=lie_day), _T0 + timedelta(days=1)}
     assert all(e.system_received_at not in forbidden for e in report.entries)
     # And the migration itself created the table empty.
@@ -470,7 +509,7 @@ def test_the_receipt_matches_raw_sql_independently_of_the_repository(
     assert row[4] == "M082.1"
 
 
-def test_the_rendered_report_states_the_one_directional_guarantee(
+def test_the_rendered_report_states_the_causal_claim_and_the_retraction(
     clean_tables: Engine,
 ) -> None:
     config = _config()
@@ -479,9 +518,14 @@ def test_the_rendered_report_states_the_one_directional_guarantee(
     report = _report(config, datetime.now(UTC) + timedelta(days=1))
     text_out = render_attested_evidence_report_text(report)
     payload = render_attested_evidence_report_json(report)
-    assert "upper bound witness on commit time, NOT the commit time" in text_out
-    assert "ONE DIRECTION ONLY" in payload["banner"]
-    assert json.dumps(payload, sort_keys=True)
+    assert "system-assigned label, NOT a bound on commit time" in text_out
+    assert "cannot say how many events it excluded" in text_out
+    assert "RETRACTED" in payload["banner"]
+    assert "does NOT replace M079's recorded_at firewall" in payload["banner"]
+    # The withdrawn claims must be gone from BOTH renderings.
+    for withdrawn in ("upper bound witness", "ONE DIRECTION ONLY", "can never OVERSTATE"):
+        assert withdrawn not in text_out, withdrawn
+        assert withdrawn not in json.dumps(payload), withdrawn
 
 
 # --------------------------------------------------------------------------
@@ -516,58 +560,247 @@ def second_database(engine: Engine) -> Iterator[str]:
 def test_two_databases_with_identical_attested_prefixes_agree_exactly(
     clean_tables: Engine, second_database: str
 ) -> None:
-    """MANDATORY section 27."""
+    """MANDATORY section 27, STRENGTHENED by Owner review finding 1.
+
+    The first version compared only a PROJECTION of the entries, because the two
+    databases were attested at genuinely different wall-clock moments and their
+    instants therefore differed. That weakness is what let the future-receipt
+    leak survive it. With the label pinned, the two databases hold GENUINELY
+    IDENTICAL evidence at the cutoff, so the proof can now demand what it should
+    always have demanded: the FULL report object, the FULL text and the FULL
+    JSON are identical.
+    """
     primary, other = _config(), _config(second_database)
     assert primary.database != other.database
 
+    pinned = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
     for config in (primary, other):
         _append(config, gid="EV-SAME", pos="POS-SAME")
-        _attest(config, "RC-SAME", "EV-SAME")
+        _attest_at(config, "RC-SAME", "EV-SAME", pinned)
 
-    cutoff = datetime.now(UTC) + timedelta(seconds=1)
+    cutoff = pinned + timedelta(seconds=1)
 
-    # Radically different tails: unattested events, and an attestation that
-    # lands only AFTER the cutoff.
-    time.sleep(1.2)
+    # Radically different tails: an unattested event on one side, and on the
+    # other an event attested only AFTER the cutoff.
     _append(primary, gid="EV-TAIL-1", pos="POS-TAIL-1")
     _append(other, gid="EV-TAIL-2", pos="POS-TAIL-2", symbol="ZZZZ", recorded_day=-999)
-    _attest(other, "RC-TAIL-2", "EV-TAIL-2")
+    _attest_at(other, "RC-TAIL-2", "EV-TAIL-2", cutoff + timedelta(minutes=5))
 
-    left = _report(primary, cutoff)
-    right = _report(other, cutoff)
+    left, right = _report(primary, cutoff), _report(other, cutoff)
 
-    # What the double-database proof actually asserts: given identical attested
-    # EVIDENCE up to the cutoff, the two databases agree on WHICH events are
-    # attested there, however radically their later tails differ.
-    #
-    # It does NOT assert identical receipt INSTANTS: the two databases were
-    # attested at genuinely different moments, so their instants differ by
-    # design. My first version compared whole entries and failed on exactly
-    # that -- the assertion was wrong, not the code.
+    assert left == right
+    assert _rendered(left) == _rendered(right)
+    assert left.attested_count == 1
+    assert [e.event_governance_id for e in left.entries] == ["EV-SAME"]
+
+    # Neither tail leaks any identity into either rendering.
+    for leak in ("EV-TAIL-1", "POS-TAIL-1", "EV-TAIL-2", "POS-TAIL-2", "ZZZZ"):
+        for rendering in (*_rendered(left), *_rendered(right)):
+            assert leak not in rendering, leak
+
+    for config in (primary, other):
+        assert [
+            e.governance_id
+            for e in events_with_receipt_labelled_by(_events(config), _receipts(config), cutoff)
+        ] == ["EV-SAME"]
+
+
+# --------------------------------------------------------------------------
+# OWNER REVIEW FINDING 1 - historical non-interference
+# --------------------------------------------------------------------------
+
+
+def test_a_receipt_created_after_the_cutoff_changes_nothing(
+    clean_tables: Engine, second_database: str
+) -> None:
+    """OWNER MANDATORY ATTACK A - future receipt non-interference.
+
+    Reproduced against the PRE-CORRECTION code, where DB-A reported
+    ATTESTED_AFTER_CUTOFF and DB-B reported NO_SYSTEM_RECEIPT_EVIDENCE, with
+    `attested_after_cutoff_count` differing 1 vs 0. Both databases must now be
+    indistinguishable at the cutoff.
+    """
+    db_a, db_b = _config(), _config(second_database)
+    pinned = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    for config in (db_a, db_b):
+        _append(config, gid="EV-N1", pos="POS-N1")
+        _attest_at(config, "RC-N1", "EV-N1", pinned)
+        _append(config, gid="EV-N2", pos="POS-N2")
+
+    cutoff = pinned + timedelta(seconds=1)
+    # DB-A alone attests EV-N2, AFTER the cutoff.
+    _attest_at(db_a, "RC-N2", "EV-N2", cutoff + timedelta(hours=1))
+
+    left, right = _report(db_a, cutoff), _report(db_b, cutoff)
+    assert left == right
+    assert _rendered(left) == _rendered(right)
     assert left.attested_count == right.attested_count == 1
-    eligible_left = [
-        (e.event_governance_id, e.position_governance_id, e.instrument_symbol, e.status)
-        for e in left.entries
-        if e.status is AttestedEvidenceStatus.ATTESTED
-    ]
-    eligible_right = [
-        (e.event_governance_id, e.position_governance_id, e.instrument_symbol, e.status)
-        for e in right.entries
-        if e.status is AttestedEvidenceStatus.ATTESTED
-    ]
-    assert (
-        eligible_left
-        == eligible_right
-        == [("EV-SAME", "POS-SAME", "AAPL", AttestedEvidenceStatus.ATTESTED)]
-    )
+    assert all(e.event_governance_id != "EV-N2" for e in left.entries)
+    assert "EV-N2" not in _rendered(left)[0]
+    assert "EV-N2" not in _rendered(left)[1]
 
-    # The differing tails are excluded on both sides, including the one that was
-    # attested only AFTER the cutoff.
+
+def test_an_event_created_after_the_cutoff_changes_nothing(
+    clean_tables: Engine, second_database: str
+) -> None:
+    """OWNER MANDATORY ATTACK B - future event existence non-interference.
+
+    Reproduced against the PRE-CORRECTION code, which listed the future event
+    and leaked its id, position and instrument symbol into the historical text.
+    """
+    db_a, db_b = _config(), _config(second_database)
+    pinned = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    for config in (db_a, db_b):
+        _append(config, gid="EV-P1", pos="POS-P1")
+        _attest_at(config, "RC-P1", "EV-P1", pinned)
+
+    cutoff = pinned + timedelta(seconds=1)
+    # DB-A alone gains an entirely new, never-attested event.
+    _append(db_a, gid="EV-FUTURE", pos="POS-FUTURE", symbol="ZZZZ", recorded_day=-999)
+
+    left, right = _report(db_a, cutoff), _report(db_b, cutoff)
+    assert left == right
+    assert _rendered(left) == _rendered(right)
+    assert len(left.entries) == len(right.entries) == 1
+    for leak in ("EV-FUTURE", "POS-FUTURE", "ZZZZ"):
+        for rendering in _rendered(left):
+            assert leak not in rendering, leak
+
+
+def test_no_count_in_the_artifact_is_aware_of_anything_after_the_cutoff(
+    clean_tables: Engine,
+) -> None:
+    """OWNER: no future-tail counts, and no replacement count of hidden rows."""
+    config = _config()
+    pinned = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
+    _append(config, gid="EV-C1", pos="POS-C1")
+    _attest_at(config, "RC-C1", "EV-C1", pinned)
+    cutoff = pinned + timedelta(seconds=1)
+
+    before = _report(config, cutoff)
+    for n in range(2, 6):
+        _append(config, gid=f"EV-C{n}", pos=f"POS-C{n}")
+        _attest_at(config, f"RC-C{n}", f"EV-C{n}", cutoff + timedelta(minutes=n))
+    after = _report(config, cutoff)
+
+    assert before == after
+    assert _rendered(before) == _rendered(after)
+    payload = render_attested_evidence_report_json(after)
+    assert set(payload) == {
+        "banner",
+        "receipt_label_cutoff",
+        "attested_count",
+        "entries",
+        "limitations",
+    }
+    assert payload["attested_count"] == 1
+
+
+# --------------------------------------------------------------------------
+# OWNER REVIEW FINDING 2 - the backward clock
+# --------------------------------------------------------------------------
+
+
+def test_a_backward_clock_breaks_the_wall_clock_implication(clean_tables: Engine) -> None:
+    """OWNER MANDATORY BACKWARD-CLOCK ATTACK.
+
+    The event commits for real. The read-back succeeds. The host clock then
+    returns an instant TEN MINUTES EARLIER. A cutoff W chosen between the label
+    and the real commit selects the event, although at real wall-clock W the
+    event had not committed.
+
+    This is executed, not argued, and it is why the claim
+
+        system_received_at <= W  IMPLIES  durably committed by W
+
+    is RETRACTED. The CAUSAL claim -- the read-back preceded the receipt --
+    survives untouched, because it never depended on the clock.
+    """
+    config = _config()
+    _append(config, gid="EV-CLK", pos="POS-CLK")
+    real_commit = datetime.now(UTC)
+
+    backward = real_commit - timedelta(minutes=10)
+    receipt = _attest_at(config, "RC-CLK", "EV-CLK", backward, by="clock-attack")
+    assert receipt.system_received_at == backward
+    assert receipt.system_received_at < real_commit
+
+    cutoff = backward + timedelta(minutes=5)
+    assert cutoff < real_commit
+
+    report = _report(config, cutoff)
+    assert [e.event_governance_id for e in report.entries] == ["EV-CLK"]
     assert [
-        e.governance_id for e in attested_known_by(_events(primary), _receipts(primary), cutoff)
-    ] == ["EV-SAME"]
-    assert [
-        e.governance_id for e in attested_known_by(_events(other), _receipts(other), cutoff)
-    ] == ["EV-SAME"]
-    assert any(e.status is AttestedEvidenceStatus.ATTESTED_AFTER_CUTOFF for e in right.entries)
-    assert any(e.status is AttestedEvidenceStatus.NO_SYSTEM_RECEIPT_EVIDENCE for e in left.entries)
+        e.governance_id
+        for e in events_with_receipt_labelled_by(_events(config), _receipts(config), cutoff)
+    ] == ["EV-CLK"]
+
+    # The artifact must therefore make NO wall-clock claim about W.
+    #
+    # PROBE ERROR, recorded rather than hidden: the first version of this
+    # assertion searched for the bare substring "upper bound" and failed on the
+    # artifact's own RETRACTION of that very claim -- the same mistake as M081's
+    # currency search, which flagged the sentence denying currency. The check
+    # below distinguishes an ACTIVE claim from a retraction by requiring every
+    # surviving mention to sit in a retracting sentence.
+    text_out, payload = _rendered(report)
+    for withdrawn in ("upper bound witness", "can never OVERSTATE", "ONE DIRECTION ONLY"):
+        assert withdrawn not in text_out, withdrawn
+    for line in text_out.splitlines():
+        if "upper bound" in line.lower():
+            assert "RETRACTED" in line or "retract" in line.lower(), line
+    assert "DOES NOT prove the event was durably committed by that cutoff" in text_out
+    assert "moved BACKWARD" in payload
+
+
+def test_the_causal_claim_survives_the_backward_clock(clean_tables: Engine) -> None:
+    """What M082 still proves: attestation cannot precede the event's commit.
+
+    A receipt is impossible for an event that is not readable, whatever the
+    clock says -- the read-back, not the label, is the gate.
+    """
+    config = _config()
+    with pytest.raises(UnknownOperatorEventError):
+        _attest_at(config, "RC-GHOST", "EV-NOT-COMMITTED", datetime(1999, 1, 1, tzinfo=UTC))
+    assert _receipts(config) == ()
+
+    # And once committed, a receipt labelled in 1999 is still only created after
+    # the read-back succeeded; the label is a label, not a licence.
+    _append(config, gid="EV-CAUSAL", pos="POS-CAUSAL")
+    receipt = _attest_at(config, "RC-CAUSAL", "EV-CAUSAL", datetime(1999, 1, 1, tzinfo=UTC))
+    assert receipt.system_received_at.year == 1999
+    assert len(_receipts(config)) == 1
+
+
+def test_a_clock_returning_a_naive_datetime_is_refused(clean_tables: Engine) -> None:
+    """A label with no offset names no instant, so it may not be stored."""
+    config = _config()
+    _append(config, gid="EV-NAIVE", pos="POS-NAIVE")
+    service = PostgresPersistenceService(config)
+    try:
+        service.initialize()
+        repository = PostgresOperatorEventReceiptRepository(
+            service, clock=lambda: datetime(2026, 5, 1, 12, 0)
+        )
+        with pytest.raises(ValueError, match="naive datetime"):
+            repository.attest(
+                receipt_governance_id="RC-NAIVE",
+                event_governance_id="EV-NAIVE",
+                attested_by="naive",
+            )
+    finally:
+        service.close()
+    assert _receipts(config) == ()
+
+
+def test_production_wiring_uses_the_host_clock_and_takes_no_caller_instant() -> None:
+    """The injection is for tests only; nothing reaches it from the CLI."""
+    import inspect
+
+    from empirical_platform.entrypoints import get_attested_evidence_report as cli
+
+    source = inspect.getsource(cli)
+    assert "clock" not in source
+    assert "PostgresOperatorEventReceiptRepository" not in source
+    signature = inspect.signature(PostgresOperatorEventReceiptRepository.__init__)
+    assert signature.parameters["clock"].default is None

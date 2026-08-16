@@ -9,20 +9,34 @@ APPEND-ONLY, in two enforced layers:
     can still drop that trigger, and the design states so rather than hiding it.
 
 THE TWO-PHASE MODEL IS THE POINT. `attest` runs in its OWN transaction, AFTER
-the event's transaction has committed, and it READS THE EVENT BACK before taking
-the instant. That read is what proves durability, and taking the instant after
-it is what makes
+the event's transaction has committed, and it READS THE EVENT BACK before
+creating the receipt. That read-back, plus program order, is what the receipt
+proves:
 
-    system_received_at <= W   IMPLY   the event was durably committed by W.
+    the event was already durably committed WHEN THIS RECEIPT WAS CREATED.
 
-Assigning the instant inside the ingesting transaction was PROVED to leak: a
-paused transaction's pre-commit timestamp made an invisible row appear
-"available" at a cutoff chosen during the pause.
+That claim is CAUSAL and holds regardless of any clock.
+
+RETRACTED BY OWNER REVIEW (finding 2). This module previously said the ordering
+made `system_received_at <= W` IMPLY the event was durably committed by W. It
+does not. `system_received_at` is a LABEL from `_clock`, and a backward or
+misconfigured host clock can produce a label earlier than the read-back it
+follows -- see `test_a_backward_clock_breaks_the_wall_clock_implication`. The
+label is system-assigned; it is not a proven bound.
+
+Assigning the instant inside the ingesting transaction was separately PROVED to
+leak: a paused transaction's pre-commit timestamp made an invisible row appear
+"available" at a cutoff chosen during the pause. The second transaction is what
+removes that, and it remains mandatory.
+
+THE CLOCK IS INJECTED so the backward-clock attack the Owner mandated can be
+executed rather than argued. Production wiring passes nothing and gets
+`datetime.now(UTC)`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Any
 
@@ -40,6 +54,11 @@ ATTESTER_VERSION = "M082.1"
 _EVENT_UNIQUE_CONSTRAINT = "uq_operator_event_receipt_event"
 
 
+def _host_clock() -> datetime:
+    """The production clock. Untrusted by design -- see the module docstring."""
+    return datetime.now(UTC)
+
+
 class UnknownOperatorEventError(RuntimeError):
     """Raised when attestation is asked for an event that is not committed.
 
@@ -52,10 +71,16 @@ class UnknownOperatorEventError(RuntimeError):
 class PostgresOperatorEventReceiptRepository:
     """PostgreSQL-backed append-only receipt store."""
 
-    __slots__ = ("_service",)
+    __slots__ = ("_clock", "_service")
 
-    def __init__(self, service: PostgresPersistenceService) -> None:
+    def __init__(
+        self,
+        service: PostgresPersistenceService,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._service = service
+        self._clock = clock if clock is not None else _host_clock
 
     def attest(
         self,
@@ -88,10 +113,13 @@ class PostgresOperatorEventReceiptRepository:
                     f"{event_governance_id!r}; refusing to attest"
                 )
 
-            # The instant is taken HERE -- after the read-back proved the event
-            # is durably committed -- so it is an upper bound witness on the
-            # commit time and can never precede it.
-            system_received_at = datetime.now(UTC)
+            # The label is taken HERE, after the read-back. The ORDERING of the
+            # two operations is the causal claim. The VALUE is only a label:
+            # `_clock` is not trusted to be correct, monotonic, or even
+            # forward-moving, and the artifact no longer claims it is.
+            system_received_at = self._clock()
+            if system_received_at.tzinfo is None or system_received_at.utcoffset() is None:
+                raise ValueError("clock returned a naive datetime; an instant needs an offset")
 
             receipt = OperatorEventReceipt(
                 receipt_governance_id=receipt_governance_id,

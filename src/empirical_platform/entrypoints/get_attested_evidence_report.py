@@ -1,4 +1,9 @@
-"""MILESTONE-082 CLI. Read-only: no attestation path is reachable from here."""
+"""MILESTONE-082 CLI. Read-only: no attestation path is reachable from here.
+
+The flag is `--receipt-label-cutoff`, RENAMED from `--attested-as-of` by Owner
+review finding 2: "as of" claimed a point-in-time knowledge stance the
+system-assigned label cannot support.
+"""
 
 from __future__ import annotations
 
@@ -20,7 +25,7 @@ from empirical_platform.usecases.attested_evidence_io import (
 
 _USAGE = (
     "usage: empirical-platform-attested-evidence-snapshot [--json] "
-    "--attested-as-of <ISO-8601 with offset>"
+    "--receipt-label-cutoff <ISO-8601 with offset>"
 )
 
 
@@ -52,7 +57,7 @@ def _cutoff(raw: str | None, label: str) -> datetime:
 def main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
-    attested = _cutoff(_argument(args, "--attested-as-of"), "--attested-as-of")
+    cutoff = _cutoff(_argument(args, "--receipt-label-cutoff"), "--receipt-label-cutoff")
 
     config = resolve_foundation_config().postgresql
     with postgres_repository_runtime(config) as runtime:
@@ -61,7 +66,7 @@ def main() -> None:
             operator_event_receipt_repository=runtime.operator_event_receipts,
         )
         entry_point = QueryEntryPoint(handler)
-        report = entry_point(GetAttestedEvidenceReportQuery(attested_as_of=attested))
+        report = entry_point(GetAttestedEvidenceReportQuery(receipt_label_cutoff=cutoff))
 
     if as_json:
         print(json.dumps(render_attested_evidence_report_json(report), sort_keys=True))

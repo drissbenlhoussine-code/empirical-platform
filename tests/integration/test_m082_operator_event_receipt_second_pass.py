@@ -24,9 +24,8 @@ from pydantic import SecretStr
 from sqlalchemy import text
 
 from empirical_platform.decision_candidate.operator_event_receipt import (
-    AttestedEvidenceStatus,
-    attested_known_by,
     build_attested_evidence_report,
+    events_with_receipt_labelled_by,
 )
 from empirical_platform.decision_candidate.operator_position_ledger import (
     OperatorAssertedPositionEvent,
@@ -134,7 +133,9 @@ def _state(config: PostgreSQLConfigSnapshot, cutoff: datetime):  # noqa: ANN202
         events = runtime.operator_position_ledger.list_all()
         receipts = runtime.operator_event_receipts.list_all()
     return (
-        build_attested_evidence_report(events=events, receipts=receipts, attested_as_of=cutoff),
+        build_attested_evidence_report(
+            events=events, receipts=receipts, receipt_label_cutoff=cutoff
+        ),
         events,
         receipts,
     )
@@ -159,9 +160,8 @@ def test_a_bypassed_legacy_event_is_never_attested(fresh_database: str) -> None:
     config = _config(fresh_database)
     _append(config, gid="SP-COIN", pos="SP-P2", symbol="COIN", day=11, recorded_day=-900)
     report, _, _ = _state(config, datetime.now(UTC) + timedelta(days=1))
-    entry = next(e for e in report.entries if e.event_governance_id == "SP-COIN")
-    assert entry.status is AttestedEvidenceStatus.NO_SYSTEM_RECEIPT_EVIDENCE
-    assert entry.system_received_at is None
+    # Absence, not a placeholder: the bypassed event is not listed at all.
+    assert all(e.event_governance_id != "SP-COIN" for e in report.entries)
 
 
 def test_concurrent_attestation_and_retry_yield_one_authority(fresh_database: str) -> None:
@@ -206,7 +206,9 @@ def test_the_cutoff_boundary_holds_on_a_fresh_database(fresh_database: str) -> N
     exact = receipt.system_received_at
     _, events, receipts = _state(config, exact)
 
-    ids_before = {e.governance_id for e in attested_known_by(events, receipts, before)}
-    ids_exact = {e.governance_id for e in attested_known_by(events, receipts, exact)}
+    ids_before = {
+        e.governance_id for e in events_with_receipt_labelled_by(events, receipts, before)
+    }
+    ids_exact = {e.governance_id for e in events_with_receipt_labelled_by(events, receipts, exact)}
     assert "SP-SMCI" not in ids_before
     assert "SP-SMCI" in ids_exact
