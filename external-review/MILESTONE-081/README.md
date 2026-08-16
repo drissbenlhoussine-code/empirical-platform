@@ -42,6 +42,17 @@ quantities:
   **strictly greater than -1, always**. A total loss would require an asserted
   exit price of zero, which M076 rejects.
 
+## The second defect, and what it says about my method
+
+**R02** - the denomination denial, the single most important sentence in the
+artifact, was printed **twice**. M081 prepended it while also carrying M080's
+limitations verbatim, and M080 already includes it.
+
+None of the 232 structured attacks caught it. Every one of them probed
+*content* - is this value right, is that token absent. Not one probed
+*structure* - is anything said twice. **Running the CLI end-to-end found in one
+glance what the harness was not shaped to see.**
+
 ## The defect worth your time
 
 **R01** - the decimal approximation rounded `ROUND_HALF_EVEN` and, at the
@@ -58,7 +69,7 @@ ledger's arithmetic cannot produce.
 | `reality-gate.md` | what the number is, its dimension, its denominator authority, and what may not be done with it |
 | `scope-and-design-snapshot.md` | the 27-section design, including the candidate ranking and the rejected alternatives |
 | `hostile-design-review.md` | 156 attacks, 9 findings, all corrected **before** any code |
-| `hostile-implementation-review.md` | 232 executed attacks; 1 defect (R01) and 10 wrong probe assertions of my own |
+| `hostile-implementation-review.md` | 232 executed attacks; 2 defects (R01, R02) and 10 wrong probe assertions of my own |
 | `focused-re-review.md` | the R01 correction re-attacked in its changed area |
 | `fresh-second-verification-pass.md` | separate database, different instruments, three exits, reversed knowledge order |
 | `validation-results.md` | every gate, and the baseline-vs-candidate failing-ID diff in both modes |

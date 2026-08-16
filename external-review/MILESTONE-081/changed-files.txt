@@ -1,5 +1,15 @@
 MILESTONE_081_OPERATOR_ASSERTED_ROUND_TRIP_RESULT_RATIO_SCOPE_AND_DESIGN.md
+external-review/MILESTONE-081/README.md
+external-review/MILESTONE-081/changed-files.txt
+external-review/MILESTONE-081/focused-re-review.md
+external-review/MILESTONE-081/fresh-second-verification-pass.md
 external-review/MILESTONE-081/hostile-design-review.md
+external-review/MILESTONE-081/hostile-implementation-review.md
+external-review/MILESTONE-081/known-limitations.md
+external-review/MILESTONE-081/owner-review-checklist.md
+external-review/MILESTONE-081/reality-gate.md
+external-review/MILESTONE-081/scope-and-design-snapshot.md
+external-review/MILESTONE-081/validation-results.md
 pyproject.toml
 src/empirical_platform/decision_candidate/operator_asserted_round_trip_ratio.py
 src/empirical_platform/entrypoints/get_asserted_round_trip_ratio_report.py

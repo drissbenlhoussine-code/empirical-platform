@@ -6,10 +6,10 @@ All measured, none quoted from a previous run.
 
 | Suite | Result |
 |---|---|
-| M081 unit | **77 passed** |
+| M081 unit | **79 passed** |
 | M081 PostgreSQL integration | **21 passed** |
 | M081 fresh second pass | **4 passed**, from a dropped-and-recreated database |
-| M076-M081 compatibility chain | **509 passed** |
+| M076-M081 compatibility chain | **511 passed** |
 
 ## Full regression, candidate vs master baseline `43eb2c3`
 
@@ -19,10 +19,10 @@ never by comparing counts.
 
 | Mode | Baseline `43eb2c3` | Candidate | Failing-ID diff |
 |---|---|---|---|
-| PostgreSQL **on** | 24 failed, 2575 passed, 14 skipped, 44 errors | 24 failed, **2677** passed, 14 skipped, 44 errors | **empty** - 68 ids each side |
-| PostgreSQL **off** | 8 failed, 2184 passed, 453 skipped, 12 errors | 8 failed, **2261** passed, 478 skipped, 12 errors | **empty** - 20 ids each side |
+| PostgreSQL **on** | 24 failed, 2575 passed, 14 skipped, 44 errors | 24 failed, **2679** passed, 14 skipped, 44 errors | **empty** - 68 ids each side |
+| PostgreSQL **off** | 8 failed, 2184 passed, 453 skipped, 12 errors | 8 failed, **2263** passed, 478 skipped, 12 errors | **empty** - 20 ids each side |
 
-**+102 passing tests with PostgreSQL on, zero new failures in either mode.**
+**+104 passing tests with PostgreSQL on, zero new failures in either mode.**
 
 The pre-existing M062/M064/M065 seal debt remains, unrepaired and unchanged - it
 appears identically on both sides of both diffs.
@@ -61,7 +61,7 @@ re-run with the project interpreter it installs and imports cleanly.
 | Pass | Attacks | Outcome |
 |---|---|---|
 | Hostile design review | **156** | 9 findings, all corrected before implementation |
-| Hostile implementation review | **232** | 1 defect (R01), fixed; 10 wrong probe assertions of mine, recorded |
+| Hostile implementation review | **232** | 1 defect (R01); a further defect (R02) found by running the CLI end-to-end, which none of the 232 attacks was shaped to catch; 10 wrong probe assertions of mine, recorded |
 
 ## The PostgreSQL evidence
 

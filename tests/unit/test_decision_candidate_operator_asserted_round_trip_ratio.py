@@ -532,6 +532,27 @@ def test_the_denomination_limitation_is_carried_verbatim_from_m080() -> None:
     assert ASSERTED_PRICE_DENOMINATION_LIMITATION in rep.limitations
 
 
+@pytest.mark.parametrize("ledger_available", [True, False])
+def test_no_limitation_is_emitted_twice(ledger_available: bool) -> None:
+    """CLAIM (implementation R02): the denomination denial appears exactly once.
+
+    Found by running the CLI end-to-end. M081 prepended the limitation while
+    also carrying M080's verbatim, and M080 already includes it -- so the most
+    important denial in the artifact printed twice. A caveat repeated verbatim
+    reads as a formatting bug and invites the reader to skim the rest.
+    """
+    rep = build_asserted_round_trip_ratio_report(
+        events=(event(1, OPENED, 10, "100", 0), event(2, CLOSED, 10, "150", 1)),
+        effective_as_of=BASE + timedelta(days=400),
+        knowledge_as_of=BASE + timedelta(days=400),
+        ledger_available=ledger_available,
+    )
+    assert rep.limitations.count(ASSERTED_PRICE_DENOMINATION_LIMITATION) == 1
+    assert len(rep.limitations) == len(set(rep.limitations))
+    rendered = render_round_trip_ratio_report_text(rep)
+    assert rendered.count(ASSERTED_PRICE_DENOMINATION_LIMITATION) == 1
+
+
 def test_the_ratio_is_never_rendered_as_a_percentage() -> None:
     """CLAIM (design D-H14): a percentage reads as a return."""
     events = (event(1, OPENED, 10, "100", 0), event(2, CLOSED, 10, "150", 1))

@@ -4,7 +4,7 @@
 test suite itself and real PostgreSQL.** Not reasoned about - executed, with
 results captured from the interpreter.
 
-**1 defect found (R01), by execution.** **Ten of my own probe assertions were
+**2 defects found (R01, R02), both by execution.** **Ten of my own probe assertions were
 wrong** and are recorded below; none of them was a code defect, and an attack
 that fails for the wrong reason is as misleading as a test that passes for the
 wrong one.
@@ -50,6 +50,41 @@ asserts both that `float()` of the value is `-1.0` and that the rendering is
 `~-0.999999`; `test_the_approximation_never_exceeds_the_exact_magnitude` asserts
 the truncation property over four cases including the boundary. Both also run
 against real PostgreSQL rows.
+
+---
+
+## R02 (MEDIUM) - the most important denial was printed twice
+
+**Found by running the CLI end-to-end against real PostgreSQL**, not by any of
+the 232 structured attacks - none of which had looked at the *shape* of the
+limitations list.
+
+M081 prepended `ASSERTED_PRICE_DENOMINATION_LIMITATION` **and** carried M080's
+limitations verbatim. M080 already includes that limitation, on every report
+shape including the withheld one. So the denomination denial - the single most
+important sentence in the artifact - appeared **twice, consecutively**, in the
+text and in the JSON.
+
+**Root cause.** An assumption that M080's limitations did not already carry it.
+Never checked, because it seemed obvious that M081 would have to add its own.
+
+**Why it matters beyond cosmetics.** A caveat repeated verbatim reads as a
+formatting bug, and a reader who spots one duplicated paragraph starts skimming
+the rest of them. The limitations are the part of this artifact that does the
+honesty work.
+
+**Fix.** M081 no longer adds it; M080's limitations already carry it. The unused
+import was removed rather than left dangling.
+
+**Regression test.** `test_no_limitation_is_emitted_twice`, parametrised over
+both report shapes, asserts the limitation appears exactly once, that the whole
+limitations tuple has no duplicates at all, and that the rendered text contains
+it once.
+
+**Recorded as a lesson about my own method:** 232 attacks all probed *content* -
+is this value right, is that token absent. Not one probed *structure* - is
+anything said twice. The end-to-end run found in one glance what the harness was
+not shaped to see.
 
 ---
 

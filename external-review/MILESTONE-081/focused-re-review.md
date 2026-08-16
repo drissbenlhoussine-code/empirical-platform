@@ -34,3 +34,36 @@ not the exact rational, not the reduction, not the statuses, not the firewall.
 | M081 fresh second pass | 4 passed |
 | M076-M081 chain | 509 passed |
 | Full regression | failing-ID sets identical to the `43eb2c3` baseline in both modes |
+
+
+---
+
+# Focused Re-Review After the R02 Correction
+
+## What changed
+
+`_limitations` no longer has `ASSERTED_PRICE_DENOMINATION_LIMITATION` prepended
+alongside M080's verbatim limitations, because M080 already carries it. The
+now-unused import was removed. Nothing else was touched.
+
+| Re-attack | Result |
+|---|---|
+| Does the denomination limitation still appear? | **Yes, exactly once**, on both report shapes |
+| Is it still verbatim from M080? | Yes - same constant, not a copy |
+| Does the withheld `NOT_ASSESSABLE` report still carry it? | Yes - asserted, parametrised |
+| Are there any other duplicated limitations? | **No** - the whole tuple is asserted duplicate-free |
+| Did any other limitation disappear? | No - M080's are carried verbatim, M081's eight are appended |
+| Does the rendered text contain it once? | Yes - asserted on the rendered string, not only the tuple |
+| Did the ratio, statuses or firewall change? | No - all 232 attacks re-run, all pass |
+| Gates after the change | ruff, format, mypy (306 files), architecture, negative fixture all clean |
+
+## Whole-suite confirmation after both corrections
+
+| Suite | Result |
+|---|---|
+| M081 unit | **79 passed** |
+| M081 PostgreSQL integration | 21 passed |
+| M081 fresh second pass | 4 passed |
+| M081 suites combined | 104 passed |
+| Full regression, both modes | failing-ID sets identical to the `43eb2c3` baseline |
+| Executed attacks re-run | 232 / 232 |

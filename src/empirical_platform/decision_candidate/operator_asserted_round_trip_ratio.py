@@ -58,7 +58,6 @@ from enum import StrEnum
 from math import gcd
 
 from empirical_platform.decision_candidate.operator_asserted_round_trip import (
-    ASSERTED_PRICE_DENOMINATION_LIMITATION,
     UNREPRESENTED_ECONOMIC_COMPONENTS,
     AssertedRoundTripReport,
     PositionRoundTripEntry,
@@ -303,7 +302,18 @@ def _ratio_entry(source: PositionRoundTripEntry) -> PositionRoundTripRatioEntry:
 
 
 def _limitations(source: AssertedRoundTripReport) -> tuple[str, ...]:
-    """M080's limitations, carried verbatim, plus the ones M081 itself owes."""
+    """M080's limitations, carried verbatim, plus the ones M081 itself owes.
+
+    IMPLEMENTATION REVIEW R02, found by running the CLI end-to-end against real
+    PostgreSQL. M081 originally PREPENDED
+    `ASSERTED_PRICE_DENOMINATION_LIMITATION` as well as carrying M080's
+    limitations verbatim -- but M080 already includes it, on every report shape
+    including the withheld one, so the most important denial in the artifact was
+    printed TWICE. A caveat repeated verbatim reads as a formatting bug and
+    invites the reader to skim the rest.
+
+    M080's limitations already carry it, so it is not added again here.
+    """
     return (
         *source.limitations,
         "limitation: the ratio is DIMENSIONLESS only because the same "
@@ -380,5 +390,5 @@ def build_asserted_round_trip_ratio_report(
         unresolved_count=source.unresolved_count,
         unrepresented_economic_components=UNREPRESENTED_ECONOMIC_COMPONENTS,
         entries=entries,
-        limitations=(ASSERTED_PRICE_DENOMINATION_LIMITATION, *_limitations(source)),
+        limitations=_limitations(source),
     )
