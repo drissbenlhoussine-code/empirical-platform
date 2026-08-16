@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-079
+LATEST_FROZEN_MILESTONE=MILESTONE-080
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -742,8 +742,21 @@ M079_PROFITABILITY_CLAIM=NONE_MADE
 M079_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M079_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M080_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-080 -- recommendation only; not started as part of M079
+M080_SCOPE=Operator-Asserted Round-Trip Result (a read-only, additive arithmetic artifact over the M076 operator-asserted ledger, reporting for each position the difference between what the operator asserted they received on exit and what they asserted they paid on entry, for the exited quantity only, computed exclusively from evidence the ledger records as having been recorded by an explicit inclusive knowledge cutoff K about what it says happened by an explicit inclusive effective cutoff E; the M079 knowledge-time firewall is mandatory and structural, so no assertion with recorded_at > K may influence any value, status, count, ordering or limitation; all arithmetic is carried in Python integers scaled to 10^-6 and is exact and independent of the ambient Decimal context, with rendering performing no Decimal operation at all; M076 persists no currency, so every value is in UNSPECIFIED ASSERTED PRICE UNITS and M080 establishes no denomination and invents none; economic components are unrepresented in three groups with different epistemic status -- unrepresented cashflows, context-dependent components, and spread/slippage which are NOT claimed excluded because they may already be embedded in the operator's own asserted execution prices; no aggregate, no percentage, no win rate and no unrealized figure is emitted, and a partly-exited or unreconciled position's result is explicitly labelled as covering the exited quantity only and NOT the whole position; zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, and M070/M075/M076/M077/M078/M079 read-only and unmodified)
+M080_SCOPE_STATUS=APPROVED_AND_FROZEN
+M080_DESIGN_STATUS=APPROVED_AND_FROZEN
+M080_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M080_IMPLEMENTATION_COMMIT=18b8e90 (evidence package d8c8244, owner correction pass 1 e0510b0, owner correction pass 2 51d8128)
+M080_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M080_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M080_OWNER_FREEZE_COMMIT=PENDING
+M080_STATUS=APPROVED_AND_FROZEN
+M080_PROFITABILITY_CLAIM=NONE_MADE
+M080_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M080_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M081_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-081 -- recommendation only; not started as part of M080
 ```
 
 ## 3. Frozen Milestone Summary
