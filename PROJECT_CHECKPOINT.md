@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-080
+LATEST_FROZEN_MILESTONE=MILESTONE-081
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -755,8 +755,21 @@ M080_PROFITABILITY_CLAIM=NONE_MADE
 M080_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M080_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M081_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-081 -- recommendation only; not started as part of M080
+M081_SCOPE=Operator-Asserted Round-Trip Result Ratio (a read-only, additive composition over frozen M080, reporting for each position the EXACT REDUCED RATIONAL ratio of the M080 asserted round-trip result to the asserted entry cost of the SAME exited quantity, per position only and never aggregated; the ratio is DIMENSIONLESS only because the same unspecified asserted price units cancel within one position, which does NOT establish a currency or denomination and does NOT permit inference of one from instrument_symbol, exchange, country, asset class or venue; the exact reduced rational is the AUTHORITATIVE representation and any decimal is an explicit APPROXIMATION truncated toward zero, prefixed ~ when inexact, and rendered as a signed bound (>-0.000001 and <0, or >0 and <0.000001) when a non-zero magnitude falls below six places so the sign of a non-zero ratio is never erased; no percentage rendering exists and no % sign is emitted; frozen M076's positive asserted-price invariant makes the denominator strictly positive so division by zero is unreachable and makes the ratio STRICTLY GREATER THAN -1 always; a partial-exit ratio covers the exited quantity only and is not a whole-position result; a position with no asserted exit gets NO ratio, not zero and not break-even; EXIT_QUANTITY_UNRECONCILED may carry a ratio over the visible exited quantity with its status and quantity limitation preserved; the M079 knowledge-time firewall is mandatory and inherited structurally, so no event with recorded_at > K may influence any output; gcd reduction is canonical rational normalization ONLY and is NOT a secrecy or information-destruction mechanism, so the non-monetary boundary is SEMANTIC -- M081 exposes no field semantically labelled or authoritative as a monetary amount and provides no monetary aggregate -- and is NOT an information-theoretic confidentiality claim; arithmetic dimensionlessness does NOT guarantee economic comparability; NO aggregate, average, median, best, worst, win rate, positive-ratio rate, portfolio result or monetary aggregation is emitted, while counts by evidence status remain; zero new domain aggregate, zero new PostgreSQL schema, zero new migration, zero new repository, and M070/M075/M076/M077/M078/M079/M080 read-only and unmodified)
+M081_SCOPE_STATUS=APPROVED_AND_FROZEN
+M081_DESIGN_STATUS=APPROVED_AND_FROZEN
+M081_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M081_IMPLEMENTATION_COMMIT=135622b (evidence package 93d3192, owner correction pass 99322aa and 9f68635, final evidence consistency cleanup 9bea332)
+M081_MACRO_REVIEW_STATUS=APPROVED_WITH_INLINE_CORRECTIONS
+M081_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M081_OWNER_FREEZE_COMMIT=PENDING
+M081_STATUS=APPROVED_AND_FROZEN
+M081_PROFITABILITY_CLAIM=NONE_MADE
+M081_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M081_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M082_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-082 -- recommendation only; not started as part of M081
 ```
 
 ## 3. Frozen Milestone Summary
