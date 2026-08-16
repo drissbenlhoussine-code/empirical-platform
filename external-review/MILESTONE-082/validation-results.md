@@ -1,5 +1,9 @@
 # M082 - Validation Results
 
+> **⚠ Superseded numbers below are from the previous pass.** The final authority
+> hardening pass re-ran everything; its figures are in the "Hardening pass"
+> section at the end of this file.
+
 All measured after the Owner review correction pass. None quoted from a previous
 run.
 
@@ -141,3 +145,72 @@ body.
 | `tests/unit/test_decision_candidate_operator_asserted_round_trip.py` | **no change** — "upper bound" there is M080's forbidden-token list |
 
 None of those four is touched by this branch.
+
+
+---
+
+# Hardening pass - final measured figures
+
+## Focused suites
+
+| Suite | Correction pass | **Hardening pass** |
+|---|---|---|
+| M082 unit | 40 | **40** |
+| M082 PostgreSQL integration | 30 | **40** |
+| M082 fresh second pass | 4 | **4** |
+| M076-M082 compatibility chain | 522 | **532** |
+
+Ten new PostgreSQL tests, one per Owner requirement:
+
+| Test | Owner requirement |
+|---|---|
+| `test_a_same_transaction_event_and_receipt_is_refused_by_the_database` | 1 — same-transaction direct SQL attack |
+| `test_a_savepoint_wrapped_same_transaction_insert_is_also_refused` (×2 depths) | 1 — subtransaction and nested-subtransaction variants |
+| `test_rollback_to_savepoint_then_reinsert_is_still_refused` | 1 — retry variant |
+| `test_a_direct_insert_for_an_already_committed_event_is_still_accepted` | 2, 3, 4 — direct INSERT, forged label, forged version |
+| `test_a_concurrent_committed_writer_with_a_higher_xid_is_not_falsely_refused` | same-xid vs prior-xid, the false-rejection attack on the trigger |
+| `test_the_repository_attest_path_still_works_under_the_trigger` | 5 — repository attest path causal guarantee |
+| `test_immutability_is_row_level_update_delete_only` | immutability wording |
+| `test_a_later_backdated_receipt_changes_the_same_cutoff` | 10 — same cutoff before/after a BACKDATED receipt |
+| `test_a_later_forward_labelled_receipt_does_not_change_the_same_cutoff` | 11 — same cutoff before/after a forward-labelled receipt |
+
+Requirements 6–9 and 12–15 are covered by the suites carried forward unchanged
+(concurrency, rollback, legacy event, direct M076 bypass, text/JSON parity,
+frozen-module preservation, migration up/down/up, M076 migration isolation).
+
+## Migration verification, with two triggers
+
+| Check | Result |
+|---|---|
+| `upgrade head` | table present, **0 rows**, **triggers 2**, **functions 2** |
+| `downgrade -1` | table gone, triggers 0, functions 0 |
+| `upgrade head` again | table present, **0 rows**, triggers 2, functions 2 |
+| existing tables altered | **zero** |
+| rows written by the migration | **zero** |
+
+## Static gates
+
+| Gate | Result |
+|---|---|
+| `compileall src tests tools migrations` | clean |
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 613 files already formatted |
+| `python -m mypy` | Success, **312** source files |
+| `tools/check_architecture.py .` | exit 0 |
+| negative architecture fixture | exit **1** |
+| secret scan | **0 findings** |
+
+> One lint finding, fixed rather than suppressed: `S608`, SQL built by string
+> interpolation in the new raw-SQL attack helpers. Rewritten to use bound
+> parameters. **No `# noqa` was added.**
+
+## Evidence reconciliation sweep, now a script over the whole tree
+
+| | |
+|---|---|
+| RETRACTION-MARKED occurrences | **87** |
+| ACTIVE occurrences | **8** — every one a denial or a heading naming the defect |
+
+The sweep tool's own first run was wrong: it scanned `.venv` and reported 91
+"active" hits, 83 of them `mypy`, `sqlalchemy` and `psycopg` discussing
+type-variable and range upper bounds. Recorded rather than quietly fixed.

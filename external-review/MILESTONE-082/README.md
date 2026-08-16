@@ -2,6 +2,12 @@
 
 **Status: CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
 
+> **⚠ Hardened after a second Owner review.** Three further findings are resolved:
+> a stale upper-bound claim that survived in the **migration**; a persisted row
+> that did **not** prove the causal claim against a direct same-transaction SQL
+> INSERT; and a label cutoff that is **not** a stable snapshot. Read
+> `owner-review-hardening-pass.md` first.
+
 Base `master` `28a1053`.
 
 > **⚠ This package was corrected after Owner review. Two claims are RETRACTED.**
@@ -96,6 +102,9 @@ consuming this authority.
 |---|---|
 | Owner 1 | historical snapshot leaked future receipts and future events |
 | Owner 2 | the wall-clock upper bound was unproved and false under a backward clock |
+| Owner 3 | a stale upper-bound claim survived in the migration; the first sweep never searched `migrations/` |
+| Owner 4 | a persisted row did not prove the causal claim — a same-transaction direct SQL INSERT forged one |
+| Owner 5 | the label cutoff is not a stable snapshot; a later backdated label changes the same cutoff |
 | R01 | the concurrent-loser path crashed with a nested unit of work instead of yielding |
 | R02 | this branch's migration broke frozen M076's reversibility test (test-only; re-verified in full) |
 
@@ -103,7 +112,8 @@ consuming this authority.
 
 | File | What it is |
 |---|---|
-| `owner-review-correction-pass.md` | **start here** — both Owner findings, reproduced and corrected |
+| `owner-review-hardening-pass.md` | **start here** — findings 3, 4 and 5, reproduced and corrected |
+| `owner-review-correction-pass.md` | the previous pass — findings 1 and 2 |
 | `reality-gate.md` | which claim level this reaches, and the two levels it no longer claims |
 | `transaction-timing-evidence.md` | the executed commit-gap leak; why commit time is unavailable |
 | `scope-and-design-snapshot.md` | the design, the eight candidates, the rejected alternatives |

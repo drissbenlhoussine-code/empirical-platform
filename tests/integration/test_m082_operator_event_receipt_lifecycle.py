@@ -520,6 +520,7 @@ def test_the_rendered_report_states_the_causal_claim_and_the_retraction(
     payload = render_attested_evidence_report_json(report)
     assert "system-assigned label, NOT a bound on commit time" in text_out
     assert "cannot say how many events it excluded" in text_out
+    assert "re-evaluating this same cutoff later can return MORE" in text_out
     assert "RETRACTED" in payload["banner"]
     assert "does NOT replace M079's recorded_at firewall" in payload["banner"]
     # The withdrawn claims must be gone from BOTH renderings.
@@ -804,3 +805,249 @@ def test_production_wiring_uses_the_host_clock_and_takes_no_caller_instant() -> 
     assert "PostgresOperatorEventReceiptRepository" not in source
     signature = inspect.signature(PostgresOperatorEventReceiptRepository.__init__)
     assert signature.parameters["clock"].default is None
+
+
+# --------------------------------------------------------------------------
+# OWNER REVIEW FINDING 4 - the persisted row must itself prove the causal claim
+# --------------------------------------------------------------------------
+
+
+_RAW_EVENT_SQL = text(
+    "INSERT INTO operator_position_event (runtime_id, governance_id, "
+    "position_governance_id, instrument_symbol, event_kind, quantity, "
+    "asserted_price, event_timestamp, recorded_at) "
+    "VALUES (:rt, :gid, :pos, 'FAKE', 'OPENED', 1, 100, :t, :t)"
+)
+
+_RAW_RECEIPT_SQL = text(
+    "INSERT INTO operator_event_receipt (receipt_governance_id, "
+    "event_governance_id, system_received_at, attested_by, attester_version) "
+    "VALUES (:rid, :gid, :ts, :by, :ver)"
+)
+
+
+def _raw_event(gid: str, pos: str) -> dict[str, object]:
+    return {"rt": f"rt-{gid}", "gid": gid, "pos": pos, "t": _T0}
+
+
+def _raw_receipt(
+    rid: str, gid: str, ts: datetime, by: str = "forged", ver: str = "M082.1"
+) -> dict[str, object]:
+    return {"rid": rid, "gid": gid, "ts": ts, "by": by, "ver": ver}
+
+
+def test_a_same_transaction_event_and_receipt_is_refused_by_the_database(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER MANDATORY ATTACK, finding 4.
+
+    Reproduced against the PRE-TRIGGER head: the insert succeeded and the M082
+    report listed the row as authoritative with a forged 2020 label and a forged
+    attester. The foreign key was satisfied because the event was visible to the
+    very transaction that wrote it, so the persisted row proved nothing.
+
+    A BEFORE INSERT trigger now refuses it. The causal claim therefore holds for
+    every persisted row, not only for rows produced through `attest()`.
+    """
+    config = _config()
+    with pytest.raises(sa.exc.ProgrammingError, match="PRIOR COMMITTED event"):
+        with engine.begin() as conn:
+            conn.execute(_RAW_EVENT_SQL, _raw_event("EV-SAMETX", "POS-SAMETX"))
+            conn.execute(
+                _RAW_RECEIPT_SQL,
+                _raw_receipt("RC-SAMETX", "EV-SAMETX", datetime(2020, 1, 1, tzinfo=UTC)),
+            )
+    assert _receipts(config) == ()
+    assert _report(config, datetime.now(UTC) + timedelta(days=1)).entries == ()
+
+
+@pytest.mark.parametrize("depth", [1, 2])
+def test_a_savepoint_wrapped_same_transaction_insert_is_also_refused(
+    clean_tables: Engine, engine: Engine, depth: int
+) -> None:
+    """A subtransaction gets its OWN, HIGHER xid.
+
+    A naive `xmin = pg_current_xact_id()::xid` check would MISS this, which is
+    why the trigger tests whether the writing transaction is still IN PROGRESS
+    instead. Measured directly on PostgreSQL 16.13 before choosing the
+    mechanism: same-txn `equal=true`, savepoint `equal=false`.
+    """
+    config = _config()
+    gid = f"EV-SAVE{depth}"
+    with pytest.raises(sa.exc.ProgrammingError, match="PRIOR COMMITTED event"):
+        with engine.connect() as conn:
+            tx = conn.begin()
+            for n in range(depth):
+                conn.execute(text(f"SAVEPOINT s{n}"))
+            conn.execute(_RAW_EVENT_SQL, _raw_event(gid, f"POS-SAVE{depth}"))
+            for n in reversed(range(depth)):
+                conn.execute(text(f"RELEASE SAVEPOINT s{n}"))
+            conn.execute(
+                _RAW_RECEIPT_SQL,
+                _raw_receipt(f"RC-SAVE{depth}", gid, datetime(2020, 1, 1, tzinfo=UTC)),
+            )
+            tx.commit()
+    assert _receipts(config) == ()
+
+
+def test_rollback_to_savepoint_then_reinsert_is_still_refused(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    config = _config()
+    with pytest.raises(sa.exc.ProgrammingError, match="PRIOR COMMITTED event"):
+        with engine.connect() as conn:
+            tx = conn.begin()
+            conn.execute(text("SAVEPOINT r"))
+            conn.execute(_RAW_EVENT_SQL, _raw_event("EV-RB", "POS-RB"))
+            conn.execute(text("ROLLBACK TO SAVEPOINT r"))
+            conn.execute(_RAW_EVENT_SQL, _raw_event("EV-RB", "POS-RB"))
+            conn.execute(
+                _RAW_RECEIPT_SQL,
+                _raw_receipt("RC-RB", "EV-RB", datetime(2020, 1, 1, tzinfo=UTC)),
+            )
+            tx.commit()
+    assert _receipts(config) == ()
+
+
+def test_a_concurrent_committed_writer_with_a_higher_xid_is_not_falsely_refused(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """The false-REJECTION attack on the trigger itself.
+
+    A transaction that starts LATER can hold a HIGHER xid and still commit
+    first. A plain xid ordering comparison would refuse a perfectly legitimate
+    receipt here. Measured: reader xid 140579, concurrent row xmin 140580,
+    status `committed`. The attestation must succeed.
+    """
+    config = _config()
+    with engine.connect() as reader:
+        reader_tx = reader.begin()
+        reader.execute(text("SELECT pg_current_xact_id()"))  # force an xid now
+        # A different, LATER transaction writes and commits.
+        _append(config, gid="EV-CONCX", pos="POS-CONCX")
+        reader_tx.commit()
+
+    receipt = _attest(config, "RC-CONCX", "EV-CONCX")
+    assert receipt.event_governance_id == "EV-CONCX"
+    assert len(_receipts(config)) == 1
+
+
+def test_the_repository_attest_path_still_works_under_the_trigger(
+    clean_tables: Engine,
+) -> None:
+    """The enforcement must not break the only legitimate pathway."""
+    config = _config()
+    _append(config, gid="EV-OK", pos="POS-OK")
+    receipt = _attest(config, "RC-OK", "EV-OK")
+    assert receipt.attester_version == "M082.1"
+    assert [e.event_governance_id for e in _report(config, datetime.now(UTC)).entries] == ["EV-OK"]
+
+
+def test_a_direct_insert_for_an_already_committed_event_is_still_accepted(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """THE RESIDUAL LIMITATION, asserted rather than hidden.
+
+    The trigger closes the same-transaction hole. It does NOT authenticate the
+    label, the attester name or the attester version. A direct SQL caller with
+    write access can still forge all three for an ALREADY COMMITTED event, and
+    the view cannot tell it apart from one `attest()` produced.
+
+    This test EXISTS TO PIN THAT DOWN. If it ever starts failing, the artifact's
+    limitation text has become too weak, not too strong.
+    """
+    config = _config()
+    _append(config, gid="EV-FORGE", pos="POS-FORGE")
+    with engine.begin() as conn:
+        conn.execute(
+            _RAW_RECEIPT_SQL,
+            _raw_receipt(
+                "RC-FORGE",
+                "EV-FORGE",
+                datetime(1999, 1, 1, tzinfo=UTC),
+                by="not-the-attester",
+                ver="M999-FORGED",
+            ),
+        )
+    entries = _report(config, datetime.now(UTC) + timedelta(days=1)).entries
+    forged = next(e for e in entries if e.event_governance_id == "EV-FORGE")
+    assert forged.system_received_at.year == 1999
+    assert forged.attested_by == "not-the-attester"
+
+    report = _report(config, datetime.now(UTC) + timedelta(days=1))
+    joined = " ".join(report.limitations)
+    assert "UNAUTHENTICATED LABELS" in joined
+    assert "cannot distinguish" in joined
+
+
+def test_immutability_is_row_level_update_delete_only(clean_tables: Engine, engine: Engine) -> None:
+    """The wording must match exactly what is enforced.
+
+    TRUNCATE is a statement-level operation a row trigger does not intercept.
+    The test asserts that, so the artifact cannot claim absolute immutability.
+    """
+    config = _config()
+    _append(config, gid="EV-TRUNC", pos="POS-TRUNC")
+    _attest(config, "RC-TRUNC", "EV-TRUNC")
+    assert len(_receipts(config)) == 1
+
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE operator_event_receipt"))
+    assert _receipts(config) == (), "TRUNCATE is NOT blocked, and the limitations say so"
+
+    joined = " ".join(_report(config, datetime.now(UTC)).limitations)
+    assert "ROW-LEVEL UPDATE/DELETE ONLY" in joined
+    assert "NOT absolute database immutability" in joined
+
+
+# --------------------------------------------------------------------------
+# OWNER REVIEW FINDING 5 - the label cutoff is not a stable snapshot
+# --------------------------------------------------------------------------
+
+
+def test_a_later_backdated_receipt_changes_the_same_cutoff(clean_tables: Engine) -> None:
+    """OWNER MANDATORY BACKDATED-LABEL ATTACK.
+
+    This output SHOULD change, and the artifact must say so rather than claim
+    point-in-time stability it cannot deliver.
+    """
+    config = _config()
+    cutoff = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    _append(config, gid="EV-B1", pos="POS-B1")
+    _attest_at(config, "RC-B1", "EV-B1", cutoff - timedelta(hours=1))
+
+    before = _report(config, cutoff)
+    before_rendered = _rendered(before)
+    assert [e.event_governance_id for e in before.entries] == ["EV-B1"]
+
+    # A LATER attestation, through the REAL path, with a backward clock.
+    _append(config, gid="EV-B2", pos="POS-B2")
+    _attest_at(config, "RC-B2", "EV-B2", cutoff - timedelta(minutes=10))
+
+    after = _report(config, cutoff)
+    assert after != before
+    assert _rendered(after) != before_rendered
+    assert [e.event_governance_id for e in after.entries] == ["EV-B1", "EV-B2"]
+
+    text_out, payload = _rendered(after)
+    assert "REPEATED EVALUATION AT THE SAME CUTOFF CAN CHANGE" in payload
+    assert "re-evaluating this same cutoff later can return MORE" in text_out
+    assert "NOT a historical snapshot" in payload
+
+
+def test_a_later_forward_labelled_receipt_does_not_change_the_same_cutoff(
+    clean_tables: Engine,
+) -> None:
+    """The control. Only BACKDATED labels destabilise the cutoff."""
+    config = _config()
+    cutoff = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    _append(config, gid="EV-F1", pos="POS-F1")
+    _attest_at(config, "RC-F1", "EV-F1", cutoff - timedelta(hours=1))
+    before = _report(config, cutoff)
+
+    _append(config, gid="EV-F2", pos="POS-F2")
+    _attest_at(config, "RC-F2", "EV-F2", cutoff + timedelta(hours=1))
+
+    after = _report(config, cutoff)
+    assert after == before
+    assert _rendered(after) == _rendered(before)

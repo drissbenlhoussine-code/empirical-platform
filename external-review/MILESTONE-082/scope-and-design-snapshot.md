@@ -217,6 +217,9 @@ Because the receipt instant is taken strictly **after** the event is durably
 committed:
 
 ```
+RETRACTED (owner review finding 2) - the inequality below is NOT proved and is
+false under a backward host clock. Kept verbatim as the original reasoning.
+
 commit_time(event)  <  system_received_at(receipt)
 ```
 
@@ -306,6 +309,10 @@ that `recorded_at` is honest, or that the event was durably visible at any
 instant *earlier* than `system_received_at`.
 
 ## 13. Receipt Versus Commit Semantics
+
+> **⚠ RETRACTED (owner review finding 2).** The sentence below is withdrawn.
+> `system_received_at` bounds nothing; it is a system-assigned label. Kept
+> verbatim as the original reasoning.
 
 `system_received_at` is an **upper bound witness** on the event's commit time,
 never the commit time itself:

@@ -24,10 +24,10 @@
 8. **No ordering authority is emitted.** A database sequence is assignment
    order, not commit order, and its gaps do not mean missing receipts. Ordering
    is by `(system_received_at, event_governance_id)` for determinism only.
-9. **The snapshot is receipt-cutoff only.** It is built from receipts labelled
+9. **The view is receipt-label-cutoff only.** It is built from receipts labelled
    at or before the cutoff. A later receipt, and an event with no such receipt,
    are structurally unreachable — no entry, no count, no ordering position.
-10. **The snapshot cannot report how much it excluded.** No count of hidden rows
+10. **The view cannot report how much it excluded.** No count of hidden rows
     is offered, because any such count would itself be future-aware.
 11. **An event absent from the snapshot is not attested by M082.** Absence is
     the representation, and it is never filled in from `recorded_at`,
@@ -75,3 +75,27 @@ review caught the contradiction.
 Additionally, the first version's item list contained **no** statement that the
 snapshot excluded future rows structurally, because it did not — see
 `reality-gate.md` for the executed leak.
+
+
+---
+
+## Added by the final authority hardening pass
+
+20. **A persisted row now proves the causal claim, database-enforced.** A
+    `BEFORE INSERT` trigger refuses a receipt whose referenced event was written
+    by the current transaction. Before it, a direct SQL caller could fabricate
+    both in one transaction and the report could not tell.
+21. **`system_received_at`, `attested_by` and `attester_version` are NOT
+    authenticated.** A direct SQL caller with write access can forge all three
+    for an already-committed event. A test asserts this forgery succeeds, so the
+    limitation cannot silently drift.
+22. **Immutability is row-level UPDATE/DELETE under the installed trigger only.**
+    `TRUNCATE` succeeds — proved by a test — and DROP TRIGGER, DROP TABLE and
+    superuser mutation remain possible. Not absolute database immutability.
+23. **This is a RECEIPT-LABEL-CUTOFF VIEW, not a stable snapshot.** Repeated
+    evaluation at the same cutoff can return MORE, because a label can be
+    backdated. Executed and recorded.
+24. **`HISTORICAL_OUTPUT_POST_W_INDEPENDENT=YES` is SUPERSEDED.** The view is
+    independent of receipts whose persisted *label* exceeds the cutoff, and of
+    events lacking a qualifying receipt — not of receipts created later with a
+    backdated label.

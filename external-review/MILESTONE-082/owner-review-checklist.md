@@ -69,3 +69,24 @@
 - **Adding any count of what the snapshot excluded.** That count is future-aware by construction.
 - **Adding a receipt sequence.** Proved misleading.
 - **Backfilling legacy events to make coverage look complete.** That fabricates knowledge history.
+
+
+---
+
+## Added by the final authority hardening pass
+
+| # | Call | Why |
+|---|---|---|
+| 13 | **Option A, not Option B** — database-enforce prior-transaction existence | It is achievable and tested on PostgreSQL 16.13, and it upgrades the causal claim from "true for rows `attest()` made" to "true for every persisted row". |
+| 14 | **`pg_xact_status` "in progress", not an xid comparison** | Measured: `xmin = pg_current_xact_id()::xid` MISSES savepoints, and an xid ordering test FALSELY REFUSES a concurrent committed writer holding a higher xid. |
+| 15 | **Unknown CLOG status accepted, not refused** | A transaction still in progress always has its CLOG. "Too old to know" can only mean "committed long ago", so failing closed there would refuse legitimate old events for no security gain. |
+| 16 | **Amend the existing M082 migration rather than add a revision** | It is not frozen and belongs to this same unmerged PR. This also leaves R02's `31365632c016` target untouched. |
+| 17 | **Assert the residual forgery in a test rather than only in prose** | `test_a_direct_insert_for_an_already_committed_event_is_still_accepted` fails if the limitation text ever becomes too weak. |
+| 18 | **Rename "snapshot" to RECEIPT-LABEL-CUTOFF VIEW** | "Snapshot" implies knowledge at a historical instant, which a backdatable label cannot deliver. |
+| 19 | **Add NO hidden creation timestamp to stabilise the cutoff** | It would reopen finding 4 one layer down, with a second unauthenticated column instead of one. |
+
+## What I would still push back on
+
+- **Reading the trigger as authenticating the receipt.** It authenticates the *event's* prior commit and nothing else.
+- **Calling the table immutable.** It is row-level UPDATE/DELETE immutable under the installed trigger; `TRUNCATE` succeeds.
+- **Calling the view a snapshot.** Repeated evaluation at the same cutoff can return more.

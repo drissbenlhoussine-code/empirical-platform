@@ -10,9 +10,39 @@ knowledge history. Absence of a receipt is an honest state and stays absent.
 `ON DELETE RESTRICT`, never CASCADE: M076 is append-only, but if a row were ever
 removed the receipt evidence must not silently vanish with it.
 
-The trigger makes receipts DATABASE-ENFORCED immutable against UPDATE and
-DELETE, not merely append-only by application convention. A superuser can still
-drop the trigger; that limit is stated in the design rather than hidden.
+TWO TRIGGERS, AND EACH ENFORCES EXACTLY ONE NARROW THING.
+
+1. ROW-LEVEL UPDATE/DELETE IMMUTABILITY, under the installed trigger. That is
+   the whole of it: TRUNCATE is a statement-level operation a row trigger does
+   not intercept, and DROP TRIGGER, DROP TABLE and superuser mutation are all
+   still possible. This is NOT absolute database immutability and must not be
+   described as such.
+
+2. PRIOR-COMMITTED-EVENT ENFORCEMENT (Owner review finding 4). Without it the
+   foreign key alone could be satisfied by an event INSERTed earlier in the SAME
+   transaction, so a direct SQL caller could fabricate a receipt for an event
+   that had never committed -- and the report could not tell it apart from one
+   produced by `attest()`. Reproduced before being fixed.
+
+   The trigger asks whether the referenced event's `xmin` transaction is still
+   IN PROGRESS. If the row is visible to us and its writer is still in progress,
+   that writer can only be our own transaction or a subtransaction of it, since
+   MVCC never shows another transaction's uncommitted rows. That test handles
+   savepoints, nested savepoints and rollback-to-savepoint, which a simple
+   `xmin = pg_current_xact_id()::xid` comparison does NOT -- a subtransaction
+   gets its own, higher, xid. It also does not produce a false rejection when a
+   CONCURRENT transaction with a HIGHER xid committed before we read, which a
+   plain xid ordering comparison would.
+
+   An unknown status (an xid too old for CLOG retention) is treated as NOT in
+   progress, and therefore accepted: a transaction still in progress always has
+   its CLOG present, so "too old to know" can only mean "committed long ago".
+
+WHAT THIS STILL DOES NOT ENFORCE, stated so no reader over-reads it: the
+receipt's `system_received_at`, `attested_by` and `attester_version` are
+UNAUTHENTICATED LABELS. A direct SQL caller with write access can insert a
+receipt for an already-committed event carrying any label, any attester name and
+any version, and the report cannot distinguish it from one `attest()` produced.
 
 Revision ID: d9a2f5c81b73
 Revises: b7e1c4a95d38
@@ -46,6 +76,56 @@ BEFORE UPDATE OR DELETE ON operator_event_receipt
 FOR EACH ROW EXECUTE FUNCTION operator_event_receipt_immutable()
 """
 
+# Owner review finding 4. The FK alone accepts an event inserted earlier in the
+# SAME transaction, because it is visible to that transaction. This refuses it.
+_PRIOR_COMMIT_FUNCTION = """
+CREATE OR REPLACE FUNCTION operator_event_receipt_requires_prior_commit()
+RETURNS trigger AS $$
+DECLARE
+    event_xmin xid;
+    probe numeric;
+    writer_status text;
+BEGIN
+    SELECT e.xmin INTO event_xmin
+      FROM operator_position_event e
+     WHERE e.governance_id = NEW.event_governance_id;
+
+    IF NOT FOUND THEN
+        -- No such event: the foreign key is the authority on that, not this.
+        RETURN NEW;
+    END IF;
+
+    -- Promote the 32-bit xmin into the current xid8 epoch. A transaction that
+    -- is still in progress is necessarily in the current epoch, so this is
+    -- exact for the only case being tested.
+    probe := (pg_current_xact_id()::text::numeric
+              - pg_current_xact_id()::xid::text::numeric)
+             + event_xmin::text::numeric;
+
+    BEGIN
+        writer_status := pg_xact_status(probe::text::xid8);
+    EXCEPTION WHEN OTHERS THEN
+        -- Unknown means too old to have CLOG, which cannot be in progress.
+        writer_status := NULL;
+    END;
+
+    IF writer_status = 'in progress' THEN
+        RAISE EXCEPTION
+            'operator_event_receipt requires a PRIOR COMMITTED event: % was '
+            'written by the current transaction, so no receipt can attest it',
+            NEW.event_governance_id;
+    END IF;
+
+    RETURN NEW;
+END $$ LANGUAGE plpgsql
+"""
+
+_PRIOR_COMMIT_TRIGGER = """
+CREATE TRIGGER operator_event_receipt_requires_prior_commit_trigger
+BEFORE INSERT ON operator_event_receipt
+FOR EACH ROW EXECUTE FUNCTION operator_event_receipt_requires_prior_commit()
+"""
+
 
 def upgrade() -> None:
     op.create_table(
@@ -55,9 +135,14 @@ def upgrade() -> None:
         # retry idempotent structurally rather than by convention, and what
         # resolves two concurrent attesters for the same event.
         sa.Column("event_governance_id", sa.String(length=64), nullable=False),
-        # The attestation instant. Assigned by the application host clock AFTER
-        # the event was read back as committed, so it is an UPPER BOUND WITNESS
-        # on the event's commit time -- never the commit time itself.
+        # The attestation LABEL, assigned by the application host clock after
+        # the event was read back as committed.
+        #
+        # RETRACTED (Owner review finding 2): this comment previously called it
+        # an "UPPER BOUND WITNESS on the event's commit time". It is not. The
+        # host clock can be wrong, adjusted or moved BACKWARD, and an executed
+        # backward-clock attack produces a label preceding the event's real
+        # commit. This column is a system-assigned label and bounds nothing.
         sa.Column("system_received_at", _TIMESTAMPTZ, nullable=False),
         # Recorded strings describing the pathway. Neither is an authority in
         # itself; both exist so a reader can tell what produced the receipt.
@@ -79,12 +164,19 @@ def upgrade() -> None:
     )
     op.execute(_IMMUTABILITY_FUNCTION)
     op.execute(_IMMUTABILITY_TRIGGER)
+    op.execute(_PRIOR_COMMIT_FUNCTION)
+    op.execute(_PRIOR_COMMIT_TRIGGER)
 
 
 def downgrade() -> None:
+    op.execute(
+        "DROP TRIGGER IF EXISTS operator_event_receipt_requires_prior_commit_trigger "
+        "ON operator_event_receipt"
+    )
     op.execute(
         "DROP TRIGGER IF EXISTS operator_event_receipt_immutable_trigger ON operator_event_receipt"
     )
     op.drop_index("ix_operator_event_receipt_received_at", table_name="operator_event_receipt")
     op.drop_table("operator_event_receipt")
     op.execute("DROP FUNCTION IF EXISTS operator_event_receipt_immutable()")
+    op.execute("DROP FUNCTION IF EXISTS operator_event_receipt_requires_prior_commit()")

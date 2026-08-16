@@ -1,12 +1,26 @@
 """MILESTONE-082 receipt attestation persistence.
 
-APPEND-ONLY, in two enforced layers:
+APPEND-ONLY, in two layers, each narrower than the phrase suggests:
 
   * this class exposes `attest` and read methods only -- there is no UPDATE and
     no DELETE code path anywhere in it;
-  * a BEFORE UPDATE OR DELETE trigger on the table refuses direct SQL too, so
-    this is DATABASE-ENFORCED immutability rather than a convention. A superuser
-    can still drop that trigger, and the design states so rather than hiding it.
+  * a BEFORE UPDATE OR DELETE trigger refuses direct SQL too. That is ROW-LEVEL
+    UPDATE/DELETE IMMUTABILITY UNDER THE INSTALLED TRIGGER, and nothing more.
+    TRUNCATE is a statement-level operation a row trigger does not intercept,
+    and DROP TRIGGER, DROP TABLE and superuser mutation all remain possible.
+    Calling this "database-enforced immutability" without that qualification
+    over-reads it, and the earlier wording here did exactly that.
+
+PRIOR-COMMITTED-EVENT ENFORCEMENT (owner review finding 4). A BEFORE INSERT
+trigger refuses a receipt whose referenced event was written by the CURRENT
+transaction. Before it existed, a direct SQL caller could insert an event and a
+matching receipt in ONE transaction -- the foreign key was satisfied because the
+event was visible to that transaction -- so a persisted row proved the causal
+claim only for rows this class had produced. It now holds for every row.
+
+What is STILL not enforced: `system_received_at`, `attested_by` and
+`attester_version` are unauthenticated labels. A direct SQL caller with write
+access can forge all three for an already-committed event.
 
 THE TWO-PHASE MODEL IS THE POINT. `attest` runs in its OWN transaction, AFTER
 the event's transaction has committed, and it READS THE EVENT BACK before

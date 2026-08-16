@@ -64,16 +64,46 @@ chosen during the pause while the row was invisible to every reader. After
 commit, a historical query `assigned_at <= K` returned the row. The second
 transaction plus read-back is what makes the causal claim true.
 
-THE SNAPSHOT IS RECEIPT-CUTOFF ONLY (M082 owner review, finding 1). The
-historical artifact is built FROM RECEIPTS whose label is at or before the
+THIS IS A RECEIPT-LABEL-CUTOFF VIEW, NOT A HISTORICAL SNAPSHOT (owner review,
+findings 1 and 5). It is built FROM RECEIPTS whose label is at or before the
 cutoff, never from the current ledger inventory. A receipt labelled after the
 cutoff, and an event that has no such receipt, are structurally unreachable: no
 entry, no count and no ordering position can be derived from them. An earlier
 version built the artifact from `ledger.list_all()` and emitted
 ATTESTED_AFTER_CUTOFF, NO_SYSTEM_RECEIPT_EVIDENCE and
 `attested_after_cutoff_count`; that made the output depend on rows created after
-the cutoff, and it is **RETRACTED**. The snapshot deliberately does NOT know how
+the cutoff, and it is **RETRACTED**. The view deliberately does NOT know how
 much evidence it excluded, and no replacement count is offered.
+
+But it is NOT a stable point-in-time reconstruction, and calling it a "snapshot"
+would overclaim. Because a label may be backdated (finding 2), a receipt created
+LATER can carry a label at or before the cutoff and therefore appear in a
+re-evaluation of the SAME cutoff. Executed: the same cutoff returned one entry,
+then two, after a later attestation ran with a backward clock. What the view IS:
+
+    a predicate over the labels in the CURRENT persisted receipt set.
+
+What it is NOT: a reconstruction of which receipts existed at real wall-clock W.
+Repeated evaluation at the same cutoff can legitimately change. No hidden
+creation timestamp was added to paper over this -- that would simply reopen the
+same authority problem one layer down.
+
+WHAT THE DATABASE ENFORCES, AND WHAT IT DOES NOT (owner review, finding 4). A
+BEFORE INSERT trigger refuses a receipt whose referenced event was written by
+the CURRENT transaction, so the causal claim now holds for every persisted row
+and not merely for rows produced through `attest()`. Before that trigger existed
+a direct SQL caller could open one transaction, insert an event, insert a
+matching receipt, and commit -- the foreign key was satisfied because the event
+was visible to that same transaction -- producing a receipt for an event that
+had never independently committed. That was reproduced before being fixed.
+
+Still NOT enforced, and this must not be over-read: `system_received_at`,
+`attested_by` and `attester_version` are UNAUTHENTICATED LABELS. A direct SQL
+caller with write access can insert a receipt for an ALREADY COMMITTED event
+carrying any label, any attester name and any version, and this report cannot
+distinguish it from one `attest()` produced. Row immutability is likewise narrow:
+row-level UPDATE/DELETE under the installed trigger only, not TRUNCATE, not DROP
+TRIGGER, not DROP TABLE, not a superuser.
 
 LEGACY EVENTS ARE NEVER BACKFILLED. A receipt is never manufactured from
 `recorded_at`, `event_timestamp` or a migration time. An event without a receipt
@@ -145,9 +175,14 @@ class OperatorEventReceipt:
 
 
 ATTESTED_EVIDENCE_BANNER = (
-    "SYSTEM-RECEIPT-ATTESTED OPERATOR EVIDENCE: the operator-asserted events "
-    "that carry an M082 receipt whose SYSTEM-ASSIGNED LABEL is at or before the "
-    "cutoff below. "
+    "RECEIPT-LABEL-CUTOFF VIEW OF SYSTEM-RECEIPT-ATTESTED OPERATOR EVIDENCE: the "
+    "operator-asserted events that carry an M082 receipt whose SYSTEM-ASSIGNED "
+    "LABEL is at or before the cutoff below. "
+    "This is a PREDICATE OVER LABELS IN THE CURRENT PERSISTED RECEIPT SET. It is "
+    "NOT a historical snapshot and NOT a reconstruction of which receipts "
+    "existed at the cutoff in real time: because a label can be backdated, a "
+    "receipt created LATER can carry a qualifying label, so REPEATED EVALUATION "
+    "AT THE SAME CUTOFF CAN CHANGE. "
     "What a receipt PROVES is CAUSAL and clock-independent: the attestation "
     "process read the event back from COMMITTED persistence, and only then "
     "created the receipt. "
@@ -166,11 +201,15 @@ ATTESTED_EVIDENCE_BANNER = (
     "and is not claimed. "
     "It does NOT assert that the operator's assertion is true, that recorded_at "
     "is honest, that any trade occurred, or that any price was paid. "
-    "This is a RECEIPT-CUTOFF SNAPSHOT: it is built ONLY from receipts labelled "
-    "at or before the cutoff. Receipts labelled after the cutoff, and events "
-    "with no such receipt, are structurally absent -- they contribute no entry, "
-    "no count and no ordering. "
-    "Consequently this report CANNOT tell you how much evidence it excluded, "
+    "It is built ONLY from receipts labelled at or before the cutoff. Receipts "
+    "labelled after the cutoff, and events with no such receipt, are "
+    "structurally absent -- they contribute no entry, no count and no ordering. "
+    "The DATABASE enforces that a receipt's event was committed by a PRIOR "
+    "transaction, so the causal claim holds for every row here. It does NOT "
+    "authenticate the label, the attester name or the attester version: a direct "
+    "SQL caller with write access can insert a receipt for an already-committed "
+    "event carrying any of the three, and this report cannot tell it apart. "
+    "Consequently this view CANNOT tell you how much evidence it excluded, "
     "and it deliberately offers no count of what it cannot see. "
     "An event that does not appear is NOT attested by M082 and carries no M082 "
     "authority; it remains a valid M076 operator assertion, and its absence is "
@@ -198,7 +237,7 @@ class AttestedEventEntry:
 
 @dataclass(frozen=True, slots=True)
 class AttestedEvidenceReport:
-    """The receipt-cutoff snapshot.
+    """The receipt-label-cutoff view.
 
     There is DELIBERATELY no `attested_after_cutoff_count` and no
     `unattested_count`. Both were future-aware: they counted rows that exist
@@ -262,18 +301,36 @@ _LIMITATIONS = (
     "limitation: no monotonicity is enforced and no cryptographic claim is "
     "made. This is not a trusted timestamping service, and a sufficiently "
     "privileged actor can influence the clock that produces the label",
+    "limitation: receipt immutability is ROW-LEVEL UPDATE/DELETE ONLY, under the "
+    "installed trigger. TRUNCATE is a statement-level operation a row trigger "
+    "does not intercept, and DROP TRIGGER, DROP TABLE and superuser mutation "
+    "remain possible. This is NOT absolute database immutability",
     "limitation: NO ordering authority is emitted. A database sequence is "
     "assignment order, not commit order -- two connections proved a transaction "
     "taking the earlier sequence can commit later -- and its gaps do not mean "
     "missing receipts. Ordering here is by (system_received_at, "
     "event_governance_id) for determinism only",
-    "limitation: this is a RECEIPT-CUTOFF SNAPSHOT built ONLY from receipts "
+    "limitation: this is a RECEIPT-LABEL-CUTOFF VIEW built ONLY from receipts "
     "labelled at or before the cutoff. Receipts labelled after it, and events "
     "with no such receipt, are structurally unreachable and contribute nothing",
-    "limitation: this snapshot CANNOT report how much evidence it excluded. A "
-    "count of what it cannot see would itself be future-aware, so none is "
-    "offered",
-    "limitation: an event absent from this snapshot is NOT attested by M082. "
+    "limitation: it is NOT a stable point-in-time snapshot. The cutoff is a "
+    "predicate over the labels in the CURRENT persisted receipt set, not a "
+    "reconstruction of which receipts existed at that instant in real time. "
+    "Because a label can be backdated, a receipt created LATER can carry a "
+    "qualifying label, so REPEATED EVALUATION AT THE SAME CUTOFF CAN CHANGE -- "
+    "this is executed and recorded, not hypothetical",
+    "limitation: the DATABASE enforces that a receipt's referenced event was "
+    "committed by a PRIOR transaction, refusing an event written by the same "
+    "transaction as the receipt. That makes the causal claim hold for every "
+    "persisted row rather than only for rows produced through attest()",
+    "limitation: the database does NOT authenticate system_received_at, "
+    "attested_by or attester_version. All three are UNAUTHENTICATED LABELS, and "
+    "a direct SQL caller with write access can insert a receipt for an "
+    "already-committed event carrying any of them. This view cannot distinguish "
+    "such a row from one attest() produced",
+    "limitation: this view CANNOT report how much evidence it excluded. A count "
+    "of what it cannot see would itself be future-aware, so none is offered",
+    "limitation: an event absent from this view is NOT attested by M082. "
     "That absence is NEVER filled in from recorded_at, event_timestamp, a "
     "migration time or any other guess. Such an event remains a valid M076 "
     "operator assertion carrying no M082 authority",
@@ -295,7 +352,7 @@ def build_attested_evidence_report(
     receipts: tuple[OperatorEventReceipt, ...],
     receipt_label_cutoff: datetime,
 ) -> AttestedEvidenceReport:
-    """Build the receipt-cutoff snapshot.
+    """Build the receipt-label-cutoff view.
 
     RECEIPTS ARE THE SPINE, not the ledger. Only receipts labelled at or before
     the cutoff are considered, and `events` is consulted solely to resolve the

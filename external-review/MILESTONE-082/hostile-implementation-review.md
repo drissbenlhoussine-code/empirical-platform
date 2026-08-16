@@ -41,7 +41,7 @@ milestone's test.
 
 | Batch | Attacks |
 |---|---|
-| authority/semantics, one-directional guarantee, `recorded_at` isolation | 32 |
+| authority/semantics, one-directional guarantee *(RETRACTED claim - see finding 2)*, `recorded_at` isolation | 32 |
 | schema and database introspection | 17 |
 | immutability | 8 |
 | idempotency and retry | 21 |

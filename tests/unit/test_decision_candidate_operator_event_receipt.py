@@ -175,6 +175,14 @@ def test_an_unreceipted_event_is_absent_rather_than_listed() -> None:
 def test_the_snapshot_says_it_cannot_report_what_it_excluded() -> None:
     text = render_attested_evidence_report_text(report([event(1)], [], cutoff_day=10))
     assert "cannot say how many events it excluded" in text
+    assert "re-evaluating this same cutoff later can return MORE" in text
+    assert "RECEIPT-LABEL-CUTOFF VIEW" in text
+    # PROBE NOTE. A bare "snapshot" search is wrong here for the same reason the
+    # "upper bound" search was wrong last pass: the artifact must be allowed to
+    # DENY being a snapshot. Every surviving mention must sit in a denial.
+    for line in text.splitlines():
+        if "snapshot" in line.lower():
+            assert "NOT a historical snapshot" in line or "NOT a stable point-in-time" in line, line
 
 
 @pytest.mark.parametrize(("cutoff_day", "expected"), [(4, False), (5, True), (6, True)])
@@ -235,8 +243,12 @@ def test_the_banner_states_the_causal_claim_and_the_retraction() -> None:
         "DOES NOT prove the event was durably committed by that cutoff",
         "RETRACTED",
         "does NOT replace M079's recorded_at firewall",
-        "RECEIPT-CUTOFF SNAPSHOT",
+        "RECEIPT-LABEL-CUTOFF VIEW",
+        "PREDICATE OVER LABELS IN THE CURRENT PERSISTED RECEIPT SET",
+        "REPEATED EVALUATION AT THE SAME CUTOFF CAN CHANGE",
         "structurally absent",
+        "committed by a PRIOR transaction",
+        "does NOT authenticate the label",
         "CANNOT tell you how much evidence it excluded",
         "NEVER filled in from recorded_at",
         "NO ordering authority is emitted",
@@ -247,13 +259,18 @@ def test_the_banner_states_the_causal_claim_and_the_retraction() -> None:
 def test_the_limitations_retract_the_bound_and_deny_the_m079_replacement() -> None:
     rep = report([], [], cutoff_day=10)
     joined = " ".join(rep.limitations)
-    assert len(rep.limitations) == 13
+    assert len(rep.limitations) == 17
     assert "RETRACTED CLAIM" in joined
     assert "CAUSAL only" in joined
     assert "does NOT replace M079's recorded_at" in joined
     assert "track_commit_timestamp" in joined
     assert "no monotonicity is enforced" in joined
     assert "CANNOT report how much evidence it excluded" in joined
+    assert "NOT a stable point-in-time snapshot" in joined
+    assert "REPEATED EVALUATION AT THE SAME CUTOFF CAN CHANGE" in joined
+    assert "committed by a PRIOR transaction" in joined
+    assert "UNAUTHENTICATED LABELS" in joined
+    assert "ROW-LEVEL UPDATE/DELETE ONLY" in joined
 
 
 def test_events_with_receipt_labelled_by_never_reads_recorded_at() -> None:
@@ -405,7 +422,7 @@ def test_an_empty_snapshot_still_carries_every_limitation() -> None:
     rep = report([], [], cutoff_day=10)
     assert rep.entries == ()
     assert rep.attested_count == 0
-    assert len(rep.limitations) == 13
+    assert len(rep.limitations) == 17
     assert any("CAUSAL only" in lim for lim in rep.limitations)
     assert any("RETRACTED CLAIM" in lim for lim in rep.limitations)
     assert any("track_commit_timestamp" in lim for lim in rep.limitations)

@@ -217,6 +217,9 @@ Because the receipt instant is taken strictly **after** the event is durably
 committed:
 
 ```
+RETRACTED (owner review finding 2) - the inequality below is NOT proved and is
+false under a backward host clock. Kept verbatim as the original reasoning.
+
 commit_time(event)  <  system_received_at(receipt)
 ```
 
@@ -306,6 +309,10 @@ that `recorded_at` is honest, or that the event was durably visible at any
 instant *earlier* than `system_received_at`.
 
 ## 13. Receipt Versus Commit Semantics
+
+> **⚠ RETRACTED (owner review finding 2).** The sentence below is withdrawn.
+> `system_received_at` bounds nothing; it is a system-assigned label. Kept
+> verbatim as the original reasoning.
 
 `system_received_at` is an **upper bound witness** on the event's commit time,
 never the commit time itself:
@@ -509,3 +516,56 @@ any commit-timestamp dependency; any sequence authority; any backfill.
 **Recommended M083, recommendation only:** an attested knowledge watermark, now
 buildable *because* post-commit receipts exist - the stable committed prefix §9
 showed was impossible without them.
+
+---
+
+## Amended by the final Owner authority hardening pass
+
+Three further findings changed the design after the correction pass. The
+sections above are preserved verbatim; where they conflict with what follows,
+**this section wins**.
+
+### Finding 3 — the migration still carried the retracted upper-bound claim
+
+The previous reconciliation sweep covered `src`, `tests`, this document and
+`external-review`, and **did not search `migrations/`** — the one file defining
+the persisted schema. Corrected in place. The sweep is now a script over the
+whole tree that classifies each hit as ACTIVE or RETRACTION-MARKED.
+
+### Finding 4 — a persisted row now proves the causal claim
+
+`BEFORE INSERT ON operator_event_receipt` refuses a receipt whose referenced
+event was written by the current transaction. Before it, a direct SQL caller
+could insert an event and a matching receipt in one transaction — the foreign
+key was satisfied because the event was visible to that transaction — and the
+report listed the result as authoritative with a forged label and attester.
+
+The mechanism was chosen by measurement on PostgreSQL 16.13, not by reading
+documentation. `xmin = pg_current_xact_id()::xid` **misses savepoints**: a
+subtransaction gets its own, higher xid (`equal=false` while the attack
+succeeds). An xid ordering comparison **falsely refuses** a concurrent committed
+writer holding a higher xid (measured: reader 140579, row xmin 140580,
+`committed`). The trigger therefore tests whether the writing transaction is
+still `in progress`, which is correct across same-transaction, one savepoint,
+nested savepoints, rollback-to-savepoint, concurrent-higher-xid, frozen rows and
+aborted transactions.
+
+**Still not enforced:** `system_received_at`, `attested_by` and
+`attester_version` are unauthenticated labels, forgeable by direct SQL for an
+already-committed event. A test asserts that forgery succeeds so the limitation
+cannot drift.
+
+### Finding 5 — this is a RECEIPT-LABEL-CUTOFF VIEW, not a snapshot
+
+Because a label can be backdated, a receipt created later can carry a qualifying
+label, so **repeated evaluation at the same cutoff can return more**. Executed
+through the real attestation path. `HISTORICAL_OUTPUT_POST_W_INDEPENDENT=YES` is
+**SUPERSEDED**: the view is independent of receipts whose persisted *label*
+exceeds the cutoff and of events lacking a qualifying receipt — not of receipts
+created later with a backdated label. No hidden creation timestamp was added;
+that would reopen finding 4 one layer down.
+
+### Immutability wording
+
+Narrowed everywhere to **row-level UPDATE/DELETE under the installed trigger**.
+`TRUNCATE` succeeds, and a test proves it.

@@ -2,7 +2,11 @@
 
 Neither renderer may introduce a field the domain report does not carry. In
 particular there is no future-tail count and no placeholder entry for an event
-the snapshot cannot see -- see Owner review finding 1.
+the view cannot see -- see Owner review finding 1.
+
+The heading says RECEIPT-LABEL-CUTOFF VIEW, not "snapshot": Owner review finding
+5 established that repeated evaluation at the same cutoff can legitimately
+return more, because a label can be backdated.
 """
 
 from __future__ import annotations
@@ -18,7 +22,7 @@ __all__ = ["render_attested_evidence_report_json", "render_attested_evidence_rep
 
 
 def render_attested_evidence_report_text(report: AttestedEvidenceReport) -> str:
-    lines: list[str] = ["SYSTEM-RECEIPT-ATTESTED OPERATOR EVIDENCE", ""]
+    lines: list[str] = ["RECEIPT-LABEL-CUTOFF VIEW OF SYSTEM-RECEIPT-ATTESTED EVIDENCE", ""]
     for sentence in ATTESTED_EVIDENCE_BANNER.split(". "):
         stripped = sentence.strip().rstrip(".")
         if stripped:
@@ -28,7 +32,8 @@ def render_attested_evidence_report_text(report: AttestedEvidenceReport) -> str:
     lines.append(
         f"  {report.attested_count} event(s) carry a receipt labelled at or before this cutoff"
     )
-    lines.append("  this snapshot cannot say how many events it excluded, and does not guess")
+    lines.append("  this view cannot say how many events it excluded, and does not guess")
+    lines.append("  re-evaluating this same cutoff later can return MORE: a label can be backdated")
     for entry in report.entries:
         lines.append(
             f"    {entry.instrument_symbol} event={entry.event_governance_id} "

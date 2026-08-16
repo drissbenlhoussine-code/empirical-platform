@@ -78,6 +78,9 @@ receipt system_received_at  : 13:56:10.753081
 historical query at `K` correctly returns **nothing**.
 
 ```
+RETRACTED (owner review finding 2): this inequality is NOT proved and is false
+under a backward host clock. Kept verbatim as the original reasoning.
+
 commit_time(event)  <  system_received_at(receipt)
   =>  system_received_at <= K  IMPLIES  durably committed by K
 ```
@@ -85,6 +88,9 @@ commit_time(event)  <  system_received_at(receipt)
 The converse does not hold, and that asymmetry is deliberate: an event committed
 just before `K` but attested just after it is **excluded**. M082 may understate
 what was known and can never overstate it.
+
+> **⚠ RETRACTED (owner review finding 2).** The "can never overstate" guarantee
+> above is withdrawn; the executed backward-clock attack disproves it.
 
 ## 4. Commit-time authority is unavailable, and is not faked
 

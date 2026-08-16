@@ -89,7 +89,63 @@ Binding an evaluation to receipt identities, or to an explicitly persisted
 receipt set captured at decision time, rather than reconstructing wall-clock
 availability afterwards, is a **future milestone**. It is not started.
 
-## Is the historical artifact free of future interference?
+## Does a PERSISTED ROW prove the causal claim?
+
+**Yes, now — database-enforced.** A `BEFORE INSERT` trigger refuses a receipt
+whose referenced event was written by the current transaction.
+
+### RETRACTED: the previous pass's implicit assumption
+
+Before that trigger, the causal claim held only for receipts produced through
+`attest()`. A direct SQL caller could insert an event and its receipt in ONE
+transaction — the foreign key was satisfied because the event was visible to
+that transaction — and the report listed the result as authoritative with a
+forged 2020 label and a forged attester. Reproduced before being fixed.
+
+The mechanism was chosen by measurement: `xmin = pg_current_xact_id()::xid`
+**misses savepoints** (a subtransaction gets its own, higher xid), and an xid
+ordering comparison **falsely refuses** a concurrent committed writer that holds
+a higher xid. The trigger instead asks whether the writing transaction is still
+`in progress`, which is correct in every case measured.
+
+## What is NOT database-enforced
+
+`system_received_at`, `attested_by` and `attester_version` are **unauthenticated
+labels**. A direct SQL caller with write access can insert a receipt for an
+**already committed** event carrying any of the three, and this view cannot
+distinguish it from one `attest()` produced. That forgery is asserted by a test,
+so the limitation cannot silently drift.
+
+Immutability is **row-level UPDATE/DELETE under the installed trigger only**.
+`TRUNCATE` succeeds — proved by a test — and DROP TRIGGER, DROP TABLE and
+superuser mutation remain possible. This is not absolute database immutability.
+
+## Is the artifact a stable point-in-time snapshot?
+
+**No, and it is no longer called one.** It is a **RECEIPT-LABEL-CUTOFF VIEW**: a
+predicate over the labels in the CURRENT persisted receipt set.
+
+### SUPERSEDED: `HISTORICAL_OUTPUT_POST_W_INDEPENDENT=YES`
+
+That claim was too broad. Because a label can be backdated, a receipt created
+LATER can carry a qualifying label. Executed, through the real attestation path:
+
+```
+entries at cutoff (before) : ['EV-COMMITTED']
+entries at cutoff (after)  : ['EV-COMMITTED', 'EV-LATE']
+object / text / json identical : False / False / False
+```
+
+Control: a later FORWARD-labelled receipt leaves the cutoff untouched. Only
+backdating destabilises it.
+
+The precise statement is: the view is independent of receipts whose persisted
+**label** is greater than the cutoff, and of events lacking a qualifying
+receipt; it is **NOT** stable against receipts created later with a **backdated**
+label. No hidden creation timestamp was added to paper over this — that would
+reopen the authority problem one layer down.
+
+## Is the artifact free of future interference by label?
 
 **Yes, now — structurally.** The snapshot is built **from receipts** whose label
 is at or before the cutoff. A later receipt and an unreceipted event cannot
