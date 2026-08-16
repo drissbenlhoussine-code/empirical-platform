@@ -61,10 +61,27 @@ exited is a statement about evidence, not about outcomes.
 
 ## Can monetary values be summed?
 
-**No, and M081 cannot even express the attempt.** It emits no monetary value
-anywhere, at any level. The ratio is gcd-reduced, and reduction actively destroys
-the monetary magnitude: `500` over `1000` becomes `1/2`, from which `500` is
-unrecoverable. Summing reduced numerators is not summing money.
+**Not from anything M081 offers.** It emits no monetary value anywhere, at any
+level: no field is named, typed or labelled as money, so there is no monetary
+field to sum and no monetary total to form.
+
+> ### ⚠ CORRECTED AFTER OWNER REVIEW (finding 2)
+>
+> This answer previously continued: ~~"the ratio is gcd-reduced, and reduction
+> actively destroys the monetary magnitude: `500` over `1000` becomes `1/2`,
+> from which `500` is unrecoverable."~~ **RETRACTED — that is not universally
+> true.**
+>
+> When the two M080 scaled operands are already **coprime**, reduction changes
+> nothing and the emitted pair **is** the original scaled pair. One unit opened
+> at `0.000003` and closed at `0.000004` emits `1/3`, whose numerator and
+> denominator are exactly the scaled result and scaled entry cost; M080's scale
+> is publicly fixed at `10^-6`, so the money is readable straight off it.
+>
+> **M081 makes no promise of monetary non-recoverability.** The guarantee is
+> **semantic**: no monetary field exists to aggregate, and no currency is
+> established. gcd reduction is a normalisation so that `4/8` and `1/2` are one
+> value — not a confidentiality boundary.
 
 A reader who wants the money runs M080, which carries its own denomination
 banner.

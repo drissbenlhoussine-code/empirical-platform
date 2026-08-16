@@ -4,7 +4,7 @@
 test suite itself and real PostgreSQL.** Not reasoned about - executed, with
 results captured from the interpreter.
 
-**2 defects found (R01, R02), both by execution.** **Ten of my own probe assertions were
+**2 defects found by my own execution (R01, R02); the Owner found **two more** that 232 attacks missed (findings 1 and 2).** **Ten of my own probe assertions were
 wrong** and are recorded below; none of them was a code defect, and an attack
 that fails for the wrong reason is as misleading as a test that passes for the
 wrong one.
@@ -85,6 +85,111 @@ it once.
 is this value right, is that token absent. Not one probed *structure* - is
 anything said twice. The end-to-end run found in one glance what the harness was
 not shaped to see.
+
+---
+
+# Owner review correction pass - two findings, both real
+
+## Owner finding 1 - a non-zero ratio below the approximation scale lost its sign
+
+**Reproduced on a real M076-valid ledger before anything was changed.**
+
+```
+OPENED  2 @ 1          entry cost   = 2
+REDUCED 1 @ 1          consideration= 1.999999
+CLOSED  1 @ 0.999999   result       = -0.000001
+
+exact ratio     -1/2000000          (negative, magnitude below 10^-6)
+approximation   ~0                  <-- THE SIGN IS GONE
+```
+
+Worse than sign erasure: `+1/10000000` rendered the **identical string**, so a
+tiny gain and a tiny loss were indistinguishable from each other, and both looked
+like nothing happened.
+
+**Root cause.** Truncation toward zero -- the R01 fix -- is correct, but the sign
+was applied only when the truncated quotient was non-zero. For any magnitude
+below `10^-RATIO_APPROXIMATION_DECIMAL_PLACES` the quotient is zero, so the sign
+was dropped.
+
+**Why the R01 regression tests did not catch it.** They asserted
+`|approximation| <= |exact|`, which `~0` satisfies perfectly. The property I
+tested was true; it was simply not the whole requirement.
+
+**Fix.** Raising the precision was rejected -- it moves the boundary rather than
+removing it, and every precision has this degenerate case. Instead, when the
+magnitude truncates away entirely the renderer stops pretending to be a point
+value and states the **bound it actually knows**:
+
+| exact value | rendering |
+|---|---|
+| `< 0`, magnitude `< 10^-6` | `>-0.000001 and <0` |
+| `> 0`, magnitude `< 10^-6` | `>0 and <0.000001` |
+| exactly `0` | `0`, unchanged, `is_exact=True` |
+
+A signed zero (`~-0`) was considered and rejected: `-0` reads as negative zero,
+and the value in this branch is never zero -- it is a small non-zero number,
+which is exactly what the bound states. The three cases are mutually distinct
+strings in text and JSON alike.
+
+| # | Owner attack | Result |
+|---|---|---|
+| O1-01 | `-1/10000000` | `>-0.000001 and <0` |
+| O1-02 | `-1/1000000000000` | `>-0.000001 and <0` |
+| O1-03 | `+1/10000000` | `>0 and <0.000001` - distinct from the negative |
+| O1-04 | exact zero | `0`, `is_exact=True`, distinct from both bounds |
+| O1-05 | exact `-1/2` | `-0.5`, unaffected |
+| O1-06 | just above the strict `-1` boundary | `~-0.999999`, still signed |
+| O1-07 | text / JSON parity | identical string in object, text and JSON |
+| O1-08 | exact rational still authoritative | `-1/2000000` unchanged |
+| O1-09 | ambient `Decimal` context | irrelevant - identical at precision 1, 5, 9, 28, 60 |
+| O1-10 | sign preserved for every non-zero ratio | swept across six denominators spanning the boundary, both signs |
+| O1-11 | against real PostgreSQL rows | cross-checked to `-1/2000000` from raw SQL |
+
+## Owner finding 2 - "monetary magnitude is unrecoverable" was false
+
+**The counterexample, executed:**
+
+```
+OPENED  1 @ 0.000003     scaled entry cost = 3
+CLOSED  1 @ 0.000004     scaled result     = 1
+
+gcd(1, 3) = 1   ->   reduction changes NOTHING
+M081 emits 1/3, whose numerator and denominator ARE the scaled operands.
+M080's scale is publicly fixed at 10^-6, so the money reads straight off it.
+```
+
+My D-F04 claim -- that gcd reduction "actively destroys the monetary magnitude"
+-- is therefore **not universally true**, and I had generalised from a single
+convenient example (`500/1000 -> 1/2`) without testing the coprime case.
+
+**What is actually true, and is now what the artifact says:**
+
+- M081 does **not semantically expose or label** any field as a monetary value;
+- it emits only the exact reduced ratio and its metadata;
+- a ratio does **not generally** identify a unique original scale factor, since
+  infinitely many operand pairs reduce to the same rational;
+- **but** when the scaled operands are already coprime the reduced pair coincides
+  with them, so **no promise of non-recoverability is made**.
+
+gcd reduction is a **normalisation**, so that `4/8` and `1/2` are one value. It
+was never a sound confidentiality boundary and is no longer described as one.
+The frozen requirement is **semantic non-aggregation and non-denomination** --
+which the capability already satisfies, and which is unchanged by this
+correction.
+
+**No capability changed.** Only the claim.
+
+| # | Owner attack | Result |
+|---|---|---|
+| O2-01 | coprime scaled pair `1/3` | reduced pair **equals** the scaled pair; asserted in unit **and** PostgreSQL tests |
+| O2-02 | large coprime pair | `999993/7`, likewise unchanged by reduction |
+| O2-03 | non-coprime `500000000/1000000000` | genuinely reduces to `1/2` - reduction is a real normalisation |
+| O2-04 | is any field NAMED as money? | **no** - asserted over object, text and JSON key sets |
+| O2-05 | is any currency invented? | **no** - unchanged from the original review |
+| O2-06 | does any aggregate exist? | **no** - unchanged |
+| O2-07 | does any non-recoverability claim survive? | **none** - swept branch-wide over six phrasings, asserted by test on every rendered surface |
+| O2-08 | are exact ratio semantics preserved? | yes - every pre-existing ratio assertion passes unchanged |
 
 ---
 

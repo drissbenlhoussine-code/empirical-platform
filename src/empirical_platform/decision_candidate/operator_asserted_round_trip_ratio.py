@@ -38,11 +38,35 @@ assert the very total loss the bound above proves unreachable. The ratio is
 therefore an exact reduced rational and never a float; the decimal rendering is
 an explicitly labelled approximation produced by integer division.
 
-DESIGN REVIEW D-F04. This module emits NO MONETARY VALUE ANYWHERE, at any
-level. The ratio is gcd-reduced, and reduction actively destroys the monetary
-magnitude: 500 over 1000 becomes 1/2, from which 500 is unrecoverable. Summing
-reduced numerators is therefore not summing money. A reader who wants the money
-runs M080, which carries its own denomination banner.
+DESIGN REVIEW D-F04, PARTIALLY RETRACTED BY OWNER REVIEW FINDING 2. This module
+emits NO MONETARY VALUE ANYWHERE, at any level: no field is named, typed or
+labelled as money, and the ratio is gcd-reduced.
+
+    RETRACTED: the original claim continued "...and reduction actively destroys
+    the monetary magnitude: 500 over 1000 becomes 1/2, from which 500 is
+    unrecoverable." THAT IS NOT UNIVERSALLY TRUE and must not be relied on.
+    When the two M080 scaled operands are already COPRIME, reduction changes
+    nothing and the emitted pair IS the original scaled pair. A ledger of one
+    unit opened at 0.000003 and closed at 0.000004 emits 1/3, whose numerator
+    and denominator are exactly the scaled result and scaled entry cost; since
+    M080's scale is publicly fixed at 10^-6, a knowledgeable reader can read the
+    money straight back off it.
+
+The honest statement, which is what this module actually guarantees:
+
+  * M081 does not SEMANTICALLY expose or label any field as a monetary value;
+  * it emits only the exact reduced ratio and its metadata;
+  * a ratio does not GENERALLY identify a unique original scale factor, because
+    infinitely many operand pairs reduce to the same rational;
+  * BUT when the scaled operands are already coprime the reduced pair coincides
+    with them, so no promise of non-recoverability is made or implied.
+
+gcd reduction is a NORMALISATION so that 4/8 and 1/2 are one value. It is NOT a
+confidentiality boundary and was never a sound basis for one. The frozen
+requirement here is SEMANTIC NON-AGGREGATION AND NON-DENOMINATION -- M081 offers
+no monetary field to sum and establishes no currency -- not information-theoretic
+secrecy. A reader who wants the money should run M080, which carries its own
+denomination banner.
 
 M081 ADDS EXACTLY ONE THING: the ratio. The knowledge filter, the effective
 filter, the fold, open-versus-closed and the statuses are all frozen M080's,
@@ -190,6 +214,29 @@ def _decimal_approximation(numerator: int, denominator: int) -> tuple[str, bool]
     ledger's arithmetic cannot produce. An inexact approximation is additionally
     prefixed with `~` so the truncation travels with the value into JSON and
     into anything that quotes it, not only in a separate boolean.
+
+    OWNER REVIEW FINDING 1. Truncation toward zero has one degenerate case the
+    first version got wrong: a NON-ZERO ratio whose magnitude is below
+    10^-RATIO_APPROXIMATION_DECIMAL_PLACES truncates to a quotient of zero, and
+    the sign was then applied only when the quotient was non-zero. So
+    `-1/2000000` -- reachable from a perfectly ordinary M076 ledger -- rendered
+    `~0`, ERASING the fact that the exact value is negative. Worse, `+1/10000000`
+    rendered the identical string, so a tiny gain and a tiny loss were
+    indistinguishable.
+
+    Increasing the precision would only move the boundary, not remove it, so
+    that is deliberately not the fix. Instead, when the magnitude truncates
+    away entirely, the renderer stops pretending to be a point value and states
+    the BOUND it actually knows, which is exactly true and carries the sign
+    unambiguously:
+
+        exact < 0, |exact| < 10^-6   ->   ">-0.000001 and <0"
+        exact > 0, |exact| < 10^-6   ->   ">0 and <0.000001"
+
+    A signed zero (`~-0`) was rejected: `-0` reads as negative zero, and the
+    exact ratio is never zero in this branch -- it is a small non-zero number,
+    which is what the bound says. An exact zero is unaffected and still renders
+    `0`, so the two cases can never be confused.
     """
     scale = 10**RATIO_APPROXIMATION_DECIMAL_PLACES
     negative = numerator < 0
@@ -199,11 +246,18 @@ def _decimal_approximation(numerator: int, denominator: int) -> tuple[str, bool]
     quotient, remainder = divmod(magnitude * scale, denominator)
     exact = remainder == 0
 
+    if quotient == 0 and numerator != 0:
+        # The whole magnitude truncated away. State the bound, not a point.
+        smallest = f"0.{'0' * (RATIO_APPROXIMATION_DECIMAL_PLACES - 1)}1"
+        if negative:
+            return f">-{smallest} and <0", False
+        return f">0 and <{smallest}", False
+
     whole, fraction = divmod(quotient, scale)
     rendered = f"{whole}.{fraction:0{RATIO_APPROXIMATION_DECIMAL_PLACES}d}".rstrip("0").rstrip(".")
     if not rendered:
         rendered = "0"
-    if negative and quotient != 0:
+    if negative:
         rendered = f"-{rendered}"
     return (rendered if exact else f"~{rendered}"), exact
 
@@ -336,9 +390,14 @@ def _limitations(source: AssertedRoundTripReport) -> tuple[str, ...]:
         "division and TRUNCATED TOWARD ZERO so that it can never show a "
         "magnitude larger than the exact value, and it is prefixed with '~' "
         "whenever it is not exact",
-        "limitation: NO monetary value is emitted anywhere in this report, and "
-        "the ratio is reduced to lowest terms, so the monetary magnitude that "
-        "produced it is not recoverable from it. Run M080 for the money",
+        "limitation: NO monetary value is emitted anywhere in this report: no "
+        "field is named, typed or labelled as money, and no monetary total can "
+        "be formed from what is here. This is a SEMANTIC boundary, NOT a "
+        "confidentiality one -- the ratio is reduced to lowest terms, and when "
+        "the underlying scaled operands are already coprime the reduced pair "
+        "coincides with them, so monetary magnitude is NOT promised to be "
+        "unrecoverable. Run M080 for the money, where the denomination "
+        "limitation travels with it",
         "limitation: NO aggregate, mean, median, distribution, best, worst or "
         "count of positive ratios is emitted. Averaging these would weight a "
         "one-unit exit equally with a ten-thousand-unit exit, and a "

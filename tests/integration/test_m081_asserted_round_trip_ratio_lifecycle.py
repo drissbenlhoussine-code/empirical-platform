@@ -746,3 +746,166 @@ def test_a_missing_ledger_withholds_the_report_with_the_denomination_limitation(
     report = _report(_config(), with_ledger=False)
     assert report.unassessable_reason is not None
     assert any("UNSPECIFIED ASSERTED PRICE UNITS" in lim for lim in report.limitations)
+
+
+# --------------------------------------------------------------------------
+# Owner review findings 1 and 2, against real rows
+# --------------------------------------------------------------------------
+
+
+def test_a_tiny_negative_ratio_keeps_its_sign_against_real_rows(clean_tables: Engine) -> None:
+    """Owner finding 1, from PostgreSQL rather than from memory.
+
+    2 units opened at 1.0, exited at 1.0 and 0.999999: the result is -0.000001
+    over an entry cost of 2, so the exact ratio is -1/2000000, which is below
+    the six-place approximation scale and used to render `~0`.
+    """
+    d = lambda n: _T0 + timedelta(days=n)  # noqa: E731
+    config = _config()
+    _record(
+        config,
+        gid="TN-O",
+        pos="POS-TN",
+        symbol="AAPL",
+        kind=OPENED,
+        quantity=2,
+        price="1",
+        effective=d(1),
+        recorded=d(1),
+    )
+    _record(
+        config,
+        gid="TN-R",
+        pos="POS-TN",
+        symbol="AAPL",
+        kind=REDUCED,
+        quantity=1,
+        price="1",
+        effective=d(2),
+        recorded=d(2),
+    )
+    _record(
+        config,
+        gid="TN-C",
+        pos="POS-TN",
+        symbol="AAPL",
+        kind=CLOSED,
+        quantity=1,
+        price="0.999999",
+        effective=d(3),
+        recorded=d(3),
+    )
+
+    entry = _entry(_report(config), "POS-TN")
+    independent = _independent_ratio_from_raw_sql(
+        clean_tables, "POS-TN", knowledge=_NOW, effective=_NOW
+    )
+    assert independent == Fraction(-1, 2000000)
+    assert _fraction(entry) == independent
+    assert _fraction(entry) < 0
+    assert entry.ratio_exact == "-1/2000000"
+    assert entry.ratio_decimal_approx == ">-0.000001 and <0"
+    assert entry.ratio_decimal_approx != "~0"
+
+
+def test_coprime_scaled_operands_survive_reduction_against_real_rows(
+    clean_tables: Engine,
+) -> None:
+    """Owner finding 2, from PostgreSQL.
+
+    One unit opened at 0.000003 and closed at 0.000004 gives scaled operands
+    1 and 3, which are coprime -- so the emitted pair IS the scaled pair, and no
+    promise of monetary non-recoverability may be made.
+    """
+    d = lambda n: _T0 + timedelta(days=n)  # noqa: E731
+    config = _config()
+    _record(
+        config,
+        gid="CP-O",
+        pos="POS-CP",
+        symbol="AAPL",
+        kind=OPENED,
+        quantity=1,
+        price="0.000003",
+        effective=d(1),
+        recorded=d(1),
+    )
+    _record(
+        config,
+        gid="CP-C",
+        pos="POS-CP",
+        symbol="AAPL",
+        kind=CLOSED,
+        quantity=1,
+        price="0.000004",
+        effective=d(2),
+        recorded=d(2),
+    )
+
+    entry = _entry(_report(config), "POS-CP")
+    assert entry.ratio_exact == "1/3"
+    assert (entry.ratio_numerator, entry.ratio_denominator) == (1, 3)
+
+    # Read the scaled operands straight from raw SQL and confirm they coincide.
+    with clean_tables.begin() as conn:
+        rows = list(
+            conn.execute(
+                text(
+                    "SELECT event_kind, quantity, asserted_price "
+                    "FROM operator_position_event WHERE position_governance_id = :p "
+                    "ORDER BY event_timestamp"
+                ),
+                {"p": "POS-CP"},
+            )
+        )
+    scaled = {
+        str(k): int((Decimal(pr) * _PRICE_SCALE).to_integral_exact()) * int(q) for k, q, pr in rows
+    }
+    entry_cost_scaled = scaled["OPENED"]
+    result_scaled = scaled["CLOSED"] - entry_cost_scaled
+    assert (result_scaled, entry_cost_scaled) == (1, 3)
+    assert (entry.ratio_numerator, entry.ratio_denominator) == (result_scaled, entry_cost_scaled)
+
+
+def test_no_postgresql_backed_surface_promises_monetary_non_recoverability(
+    clean_tables: Engine,
+) -> None:
+    d = lambda n: _T0 + timedelta(days=n)  # noqa: E731
+    config = _config()
+    _record(
+        config,
+        gid="NR-O",
+        pos="POS-NR",
+        symbol="AAPL",
+        kind=OPENED,
+        quantity=10,
+        price="100",
+        effective=d(1),
+        recorded=d(1),
+    )
+    _record(
+        config,
+        gid="NR-C",
+        pos="POS-NR",
+        symbol="AAPL",
+        kind=CLOSED,
+        quantity=10,
+        price="150",
+        effective=d(2),
+        recorded=d(2),
+    )
+
+    report = _report(config)
+    surfaces = [
+        render_round_trip_ratio_report_text(report),
+        json.dumps(render_round_trip_ratio_report_json(report)),
+    ]
+    for surface in surfaces:
+        lowered = surface.lower()
+        for claim in (
+            "is unrecoverable",
+            "not recoverable from it",
+            "destroys the magnitude",
+            "cannot recover",
+        ):
+            assert claim not in lowered, claim

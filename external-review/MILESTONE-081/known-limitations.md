@@ -17,9 +17,15 @@
    comparable.** Denomination cancels; economics does not.
 5. **No aggregate of any kind is emitted** - no sum, mean, median, distribution,
    best, worst, or count of positive ratios. Section 17 of the design records why.
-6. **No monetary value is emitted anywhere**, so the ratio cannot be audited from
-   within M081. That is deliberate: run M080 for the money, where the denomination
-   banner travels with it.
+6. **No monetary value is emitted anywhere** - no field is named, typed or
+   labelled as money - so the ratio cannot be audited from within M081. That is
+   deliberate: run M080 for the money, where the denomination banner travels with
+   it. ⚠ *Corrected after Owner review (finding 2):* this item previously said
+   gcd reduction made the monetary magnitude **unrecoverable**. **Retracted** -
+   when the underlying scaled operands are already coprime, reduction changes
+   nothing and the emitted pair coincides with them, so the money is readable
+   straight off the ratio. The guarantee is **semantic non-aggregation and
+   non-denomination**, never information-theoretic secrecy.
 7. **A partial-exit ratio covers the exited quantity only.** Its denominator is
    the entry cost of exactly that quantity, and it says nothing about the eventual
    outcome of the quantity still open.
@@ -31,7 +37,13 @@
    not break-even, not flat - an explicit absence with a reason.
 10. **The exact reduced rational is the authoritative value.** Any decimal shown
     is an approximation to six places, truncated toward zero and prefixed `~` when
-    inexact. A ratio need not terminate in decimal form.
+    inexact. A ratio need not terminate in decimal form. ⚠ *Added after Owner
+    review (finding 1):* a **non-zero** ratio whose magnitude is below `10^-6`
+    has no six-place point representation at all, so instead of a point the
+    report states the bound it actually knows - `>-0.000001 and <0` or
+    `>0 and <0.000001` - which preserves the sign unambiguously. Precision was
+    deliberately **not** increased, because every precision has the same
+    degenerate case.
 11. **No annualization and no time-weighting.** Holding period is not represented
     at all, so two ratios say nothing about which was achieved faster.
 12. **No currency and no denomination**, inherited from M080 and re-stated:

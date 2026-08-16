@@ -461,13 +461,31 @@ numerator and denominator were emitted *unreduced* they would **be** the money,
 and summing numerators would be summing money.
 
 M081 therefore emits the ratio only as a **gcd-reduced** rational, and emits
-**no monetary value anywhere, at any level**. Reduction actively destroys the
-monetary magnitude: a result of `500` over an entry cost of `1000` becomes
-`1/2`, from which `500` is unrecoverable. A reader who wants the money runs
-M080, which carries its own full denomination banner.
+**no monetary value anywhere, at any level** - no field is named, typed or
+labelled as money, and no monetary total can be formed from what is here.
+
+> ### ⚠ D-F04 PARTIALLY RETRACTED BY OWNER REVIEW FINDING 2
+>
+> The conclusion **"M081 emits no monetary value anywhere"** stands, and the
+> design is unchanged.
+>
+> The *reasoning* offered for it does **not**. ~~Reduction actively destroys the
+> monetary magnitude: `500` over `1000` becomes `1/2`, from which `500` is
+> unrecoverable.~~ **RETRACTED.** When the two M080 scaled operands are already
+> **coprime**, reduction changes nothing and the emitted pair **is** the original
+> scaled pair — a ledger of one unit opened at `0.000003` and closed at
+> `0.000004` emits `1/3`, and because M080's scale is publicly fixed at `10^-6`
+> a knowledgeable reader reads the money straight back off it.
+>
+> gcd reduction is a **normalisation**, so that `4/8` and `1/2` are one value.
+> It is **not** a confidentiality boundary and was never a sound basis for one.
+> The real requirement is **semantic non-aggregation and non-denomination**:
+> M081 offers no monetary field to sum and establishes no currency. It makes
+> **no promise of monetary non-recoverability.**
 
 Asserted by a test that walks every M081 surface - object, text and JSON - for
-M080's monetary field names and values.
+M080's monetary field names and values, and by a coprime-operand test that
+demonstrates the retracted claim's counterexample explicitly.
 
 ## 19. Persistence Architecture
 

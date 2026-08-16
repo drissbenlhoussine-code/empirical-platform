@@ -10,6 +10,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, getcontext, localcontext
 from fractions import Fraction
+from math import gcd
 
 import pytest
 
@@ -25,6 +26,7 @@ from empirical_platform.decision_candidate.operator_asserted_round_trip_ratio im
     AssertedRoundTripRatioReport,
     PositionRoundTripRatioEntry,
     RatioAbsenceReason,
+    _decimal_approximation,
     build_asserted_round_trip_ratio_report,
 )
 from empirical_platform.decision_candidate.operator_position_ledger import (
@@ -307,6 +309,199 @@ def test_the_module_never_builds_a_float_or_a_decimal_for_the_ratio() -> None:
     body = text.split('"""', 2)[2]
     for forbidden in ("float(", "Decimal(", ".quantize(", ".normalize(", ".scaleb("):
         assert forbidden not in body, forbidden
+
+
+# --------------------------------------------------------------------------
+# Owner review finding 1 - the sign of a non-zero ratio is never erased
+# --------------------------------------------------------------------------
+
+
+def test_a_negative_ratio_below_the_approximation_scale_keeps_its_sign() -> None:
+    """CLAIM (Owner finding 1): a tiny NEGATIVE ratio must not render as `~0`.
+
+    Reachable from an ordinary M076 ledger: 2 units opened at 1.0, exited at
+    1.0 and 0.999999, so the result is -0.000001 over an entry cost of 2 and the
+    exact ratio is -1/2000000 -- below the six-place approximation scale.
+    """
+    entry = only(
+        (
+            event(1, OPENED, 2, "1", 0),
+            event(2, REDUCED, 1, "1", 1),
+            event(3, CLOSED, 1, "0.999999", 2),
+        )
+    )
+    assert entry.ratio_exact == "-1/2000000"
+    assert Fraction(entry.ratio_numerator or 0, entry.ratio_denominator or 1) < 0
+    assert entry.ratio_decimal_approx == ">-0.000001 and <0"
+    assert entry.ratio_decimal_approx != "~0"
+    assert entry.ratio_approximation_is_exact is False
+
+
+@pytest.mark.parametrize(
+    ("numerator", "denominator", "expected"),
+    [
+        (-1, 10_000_000, ">-0.000001 and <0"),
+        (-1, 1_000_000_000_000, ">-0.000001 and <0"),
+        (1, 10_000_000, ">0 and <0.000001"),
+        (1, 1_000_000_000_000, ">0 and <0.000001"),
+        (0, 1, "0"),
+        (-1, 2, "-0.5"),
+        (1, 2, "0.5"),
+    ],
+)
+def test_the_approximation_states_a_bound_rather_than_erasing_a_sign(
+    numerator: int, denominator: int, expected: str
+) -> None:
+    """CLAIM: the required Owner cases, exercised directly on the renderer."""
+    rendered, _ = _decimal_approximation(numerator, denominator)
+    assert rendered == expected
+
+
+def test_a_tiny_positive_and_a_tiny_negative_ratio_are_distinguishable() -> None:
+    """CLAIM: the defect was not only sign erasure -- both rendered `~0`."""
+    negative, _ = _decimal_approximation(-1, 10_000_000)
+    positive, _ = _decimal_approximation(1, 10_000_000)
+    zero, zero_exact = _decimal_approximation(0, 1)
+    assert negative != positive
+    assert negative != zero
+    assert positive != zero
+    assert zero_exact is True
+
+
+def test_every_nonzero_ratio_renders_with_an_unambiguous_sign() -> None:
+    """CLAIM: swept over magnitudes spanning both sides of the scale boundary."""
+    for denominator in (2, 3, 1_000_000, 1_000_001, 10_000_000, 10**15):
+        for sign in (1, -1):
+            rendered, _ = _decimal_approximation(sign, denominator)
+            assert rendered != "0"
+            if sign < 0:
+                assert "-" in rendered, (sign, denominator, rendered)
+            else:
+                assert "-" not in rendered, (sign, denominator, rendered)
+
+
+def test_the_ratio_just_above_the_minus_one_boundary_still_renders_signed() -> None:
+    entry = only(
+        (
+            event(1, OPENED, 2147483647, "99999999999999.999999", 0),
+            event(2, CLOSED, 2147483647, "0.000001", 1),
+        )
+    )
+    assert entry.ratio_decimal_approx == "~-0.999999"
+    assert entry.ratio_decimal_approx.startswith("~-")
+
+
+def test_the_tiny_negative_ratio_agrees_across_object_text_and_json() -> None:
+    events = (
+        event(1, OPENED, 2, "1", 0),
+        event(2, REDUCED, 1, "1", 1),
+        event(3, CLOSED, 1, "0.999999", 2),
+    )
+    rep = report(events)
+    entry = rep.entries[0]
+    rendered = render_round_trip_ratio_report_text(rep)
+    payload = render_round_trip_ratio_report_json(rep)["entries"][0]
+    assert entry.ratio_decimal_approx is not None
+    assert entry.ratio_decimal_approx in rendered
+    assert (
+        payload["asserted_round_trip_result_to_entry_cost_ratio_decimal_approx"]
+        == entry.ratio_decimal_approx
+    )
+    assert payload["asserted_round_trip_result_to_entry_cost_ratio_exact"] == entry.ratio_exact
+
+
+@pytest.mark.parametrize("precision", [1, 5, 9, 28, 60])
+def test_the_tiny_negative_ratio_is_context_independent(precision: int) -> None:
+    events = (
+        event(1, OPENED, 2, "1", 0),
+        event(2, REDUCED, 1, "1", 1),
+        event(3, CLOSED, 1, "0.999999", 2),
+    )
+    with localcontext() as ctx:
+        ctx.prec = precision
+        entry = only(events)
+    assert entry.ratio_exact == "-1/2000000"
+    assert entry.ratio_decimal_approx == ">-0.000001 and <0"
+
+
+# --------------------------------------------------------------------------
+# Owner review finding 2 - no promise of monetary non-recoverability
+# --------------------------------------------------------------------------
+
+
+def test_coprime_scaled_operands_survive_reduction_unchanged() -> None:
+    """CLAIM (Owner finding 2): the counterexample to the retracted claim.
+
+    One unit opened at 0.000003 and closed at 0.000004 gives a scaled result of
+    1 over a scaled entry cost of 3. They are coprime, so gcd reduction changes
+    NOTHING and the emitted pair IS the original scaled pair. Since M080's scale
+    is publicly fixed at 10^-6, the money is readable straight off it.
+
+    M081 therefore must not, and no longer does, promise non-recoverability.
+    """
+    events = (event(1, OPENED, 1, "0.000003", 0), event(2, CLOSED, 1, "0.000004", 1))
+    entry = only(events)
+    source = build_asserted_round_trip_report(
+        events=events,
+        effective_as_of=BASE + timedelta(days=400),
+        knowledge_as_of=BASE + timedelta(days=400),
+    ).entries[0]
+
+    assert source.asserted_round_trip_result == "0.000001"
+    assert source.asserted_entry_cost_for_exited_quantity == "0.000003"
+    assert entry.ratio_exact == "1/3"
+    # The reduced pair coincides exactly with the scaled operands.
+    assert (entry.ratio_numerator, entry.ratio_denominator) == (1, 3)
+
+
+def test_a_large_coprime_pair_also_survives_reduction_unchanged() -> None:
+    """CLAIM: not a small-number curiosity -- it holds at any magnitude."""
+    events = (event(1, OPENED, 1, "0.000007", 0), event(2, CLOSED, 1, "1.000000", 1))
+    entry = only(events)
+    # scaled entry cost 7 ; scaled consideration 1000000 ; result 999993
+    assert gcd(999993, 7) == 1
+    assert (entry.ratio_numerator, entry.ratio_denominator) == (999993, 7)
+
+
+def test_a_non_coprime_pair_is_genuinely_reduced() -> None:
+    """CLAIM: reduction is a real normalisation -- it just is not a secrecy boundary."""
+    events = (event(1, OPENED, 10, "100", 0), event(2, CLOSED, 10, "150", 1))
+    entry = only(events)
+    # scaled: 500000000 over 1000000000
+    assert (entry.ratio_numerator, entry.ratio_denominator) == (1, 2)
+
+
+def test_no_surface_claims_monetary_magnitude_is_unrecoverable() -> None:
+    """CLAIM (Owner finding 2): every active non-recoverability claim is gone."""
+    events = (event(1, OPENED, 10, "100", 0), event(2, CLOSED, 10, "150", 1))
+    rep = report(events)
+    surfaces = [
+        render_round_trip_ratio_report_text(rep),
+        json.dumps(render_round_trip_ratio_report_json(rep)),
+        ASSERTED_RATIO_BANNER,
+        *rep.limitations,
+    ]
+    for surface in surfaces:
+        lowered = surface.lower()
+        for claim in (
+            "is unrecoverable",
+            "not recoverable from it",
+            "destroys the magnitude",
+            "destroys the monetary",
+            "cannot recover",
+        ):
+            assert claim not in lowered, (claim, surface[:120])
+
+
+def test_the_limitation_states_the_semantic_boundary_not_a_secrecy_one() -> None:
+    rep = report((event(1, OPENED, 10, "100", 0), event(2, CLOSED, 10, "150", 1)))
+    money_limitation = next(
+        limitation for limitation in rep.limitations if "NO monetary value is emitted" in limitation
+    )
+    assert "SEMANTIC boundary" in money_limitation
+    assert "NOT a confidentiality one" in money_limitation
+    assert "coprime" in money_limitation
+    assert "NOT promised to be" in money_limitation
 
 
 # --------------------------------------------------------------------------

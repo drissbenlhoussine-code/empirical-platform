@@ -21,8 +21,15 @@ M081 supplies the one comparison primitive that is provably safe:
 ```
 
 dimensionless by **exact** cancellation, per position, never aggregated - and it
-makes the unsafe comparison structurally impossible by emitting no monetary value
-at all.
+removes the unsafe comparison by emitting **no monetary value at all**: no field
+is named, typed or labelled as money, so there is nothing monetary to sum.
+
+⚠ *Corrected after Owner review (finding 2):* an earlier version of this package
+claimed gcd reduction made the monetary magnitude **unrecoverable**. That is
+**retracted** — coprime scaled operands survive reduction unchanged, so the
+emitted pair can coincide with the original scaled operands. The guarantee is
+**semantic non-aggregation and non-denomination**, never information-theoretic
+secrecy.
 
 ## The finding that decided the milestone
 

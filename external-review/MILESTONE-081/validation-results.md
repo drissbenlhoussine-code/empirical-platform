@@ -84,3 +84,64 @@ M080's or M081's helpers.
 The persistence boundary - max `INTEGER` quantity against the max
 `NUMERIC(20,6)` price - was verified exact against raw rows, strictly greater
 than `-1`, and rendered `~-0.999999` rather than the unreachable `-1`.
+
+
+---
+
+# Owner Review Correction Pass - measured results
+
+## Finding 1 - sign preservation
+
+| Case | Exact | Approximation |
+|---|---|---|
+| `-1/10000000` | negative | `>-0.000001 and <0` |
+| `-1/1000000000000` | negative | `>-0.000001 and <0` |
+| `+1/10000000` | positive | `>0 and <0.000001` |
+| exact zero | `0` | `0`, `is_exact=True` |
+| `-1/2` | negative | `-0.5` |
+| just above the strict `-1` bound | negative | `~-0.999999` |
+
+All three cases are **mutually distinct strings** in object, text and JSON. The
+sign of every non-zero ratio is preserved, swept across six denominators
+spanning the scale boundary in both signs. Identical under ambient precisions
+1, 5, 9, 28 and 60. Cross-checked against raw PostgreSQL rows to `-1/2000000`.
+
+Precision was deliberately **not** increased - every precision has the same
+degenerate case, so raising it moves the boundary rather than removing it.
+
+## Finding 2 - the retracted claim
+
+| Case | Scaled operands | Emitted | Reduction changed it? |
+|---|---|---|---|
+| coprime `1/3` | `1` over `3` | `1/3` | **no** - the pair is unchanged |
+| large coprime | `999993` over `7` | `999993/7` | **no** |
+| non-coprime | `500000000` over `1000000000` | `1/2` | yes |
+
+The first row is the counterexample to the retracted claim, asserted in unit
+**and** PostgreSQL tests. No surface promises non-recoverability any more -
+six phrasings swept branch-wide and asserted absent from every rendered surface.
+No capability changed; only the claim.
+
+## Suites re-run after the correction pass
+
+| Suite | Result |
+|---|---|
+| M081 unit | **101 passed** |
+| M081 PostgreSQL integration | **24 passed** |
+| M081 fresh second pass | **4 passed** |
+| M081 combined | **129 passed** |
+| M076-M081 chain | **536 passed** |
+
+| Full regression vs baseline `43eb2c3` | Baseline | Candidate | Failing-ID diff |
+|---|---|---|---|
+| PostgreSQL **on** | 24 failed, 2575 passed, 44 errors | 24 failed, **2704** passed, 44 errors | **empty** - 68 ids each side |
+| PostgreSQL **off** | 8 failed, 2184 passed, 12 errors | 8 failed, **2285** passed, 12 errors | **empty** - 20 ids each side |
+
+**+129 passing tests with PostgreSQL on, zero new failures in either mode.**
+
+Gates re-run: `compileall` clean; `ruff check` All checks passed;
+`ruff format --check` 603 files; `python -m mypy` Success on 306 source files;
+architecture exit 0; negative fixture exit 1; `pip-audit` clean; secret scan
+**0 findings**; `python -m build` sdist + wheel; the wheel imports in a clean
+Python 3.13 venv and renders `>-0.000001 and <0` for the tiny-negative case, with
+the console entry point registered. **No suppressions in any M081 module.**
