@@ -224,8 +224,13 @@ class AttestedEventEntry:
     """One M076 event whose receipt label is at or before the cutoff.
 
     Every field here is derivable from the receipt and from the append-only,
-    immutable M076 event row the receipt proves was already committed. No field
-    can carry information created after the cutoff.
+    immutable M076 event row the receipt proves was already committed.
+
+    No entry can be derived from a receipt whose system-assigned label is after
+    `receipt_label_cutoff`. That is a LABEL-SELECTION property only. It is NOT a
+    claim that the cutoff establishes real wall-clock knowledge time, nor that
+    the selected events were durably available by that instant -- a label can be
+    backdated, so a receipt created later can still qualify.
     """
 
     event_governance_id: str

@@ -110,9 +110,18 @@ deployment-wide. M082 uses no commit timestamp and claims no commit time.
 | 1 | operator asserted `recorded_at` | not this |
 | 2 | application assigned observed time | **not quite this** |
 | 3 | database assigned observed time | not this |
-| 4 | transaction committed by time X | **THIS, as an upper bound** |
+| 4 | transaction committed by time X | **THIS, as an upper bound** *(RETRACTED)* |
 | 5 | evidence visible to every reader by X | not claimed |
 
 M082 reaches level 4 **as a one-directional bound**: the event *had already*
 committed when the instant was taken. It does not reach the exact commit time,
 and it does not reach level 5.
+
+> **⚠ RETRACTED (owner review finding 2).** The level-4 row and the paragraph
+> above are withdrawn. M082 does **not** reach level 4. `system_received_at` is
+> a system-assigned LABEL and bounds nothing: an executed backward-clock attack
+> produces a label preceding the event's real commit. What M082 reaches is
+> **level 2 — an application-assigned observation label — plus a causal ordering
+> proof** that the event was read back from committed persistence before the
+> receipt was created. Kept verbatim as the original reasoning; see
+> `reality-gate.md` for the current statement.

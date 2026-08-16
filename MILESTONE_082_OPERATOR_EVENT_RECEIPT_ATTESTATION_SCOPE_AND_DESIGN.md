@@ -403,6 +403,29 @@ not hidden.
 
 ## 20. Temporal Query Semantics
 
+> **⚠ RETRACTED AND SUPERSEDED (owner review findings 2 and 5).** The whole of
+> this section as originally written is withdrawn. It is kept verbatim below so
+> the original reasoning stays readable.
+>
+> **What is true instead.** M082 exposes a **RECEIPT-LABEL-CUTOFF VIEW**:
+>
+> ```
+> events_with_receipt_labelled_by(events, receipts, receipt_label_cutoff)
+>   = events whose receipt exists and whose system_received_at <= the cutoff
+> ```
+>
+> The only property this has is **label selection**: no entry can be derived
+> from a receipt whose system-assigned label is after the cutoff. It is **NOT**
+> a claim that the cutoff establishes real wall-clock knowledge time, and **NOT**
+> a claim that the selected events were durably committed or available by that
+> instant. A label can be backdated, so a receipt created later can still
+> qualify, and repeated evaluation at the same cutoff can return more.
+>
+> `attested_known_by` was renamed `events_with_receipt_labelled_by` precisely
+> because "known by" asserted what the label cannot support.
+
+**RETAINED VERBATIM AS THE ORIGINAL, WITHDRAWN REASONING:**
+
 M082 exposes an attested knowledge snapshot at a cutoff `W`:
 
 ```
@@ -417,6 +440,13 @@ if its receipt came later. Both are stated on every report.
 ## 21. Interaction With M079
 
 **None. M079 is frozen and untouched.**
+
+> **⚠ SUPERSEDED (owner review findings 2 and 5).** M082 does not add a second
+> "snapshot", and its field is no longer called `attested_as_of`. M079 keeps its
+> own frozen vocabulary; M082 emits a **receipt-label-cutoff view** whose field
+> is `receipt_label_cutoff`. The two authorities are still separate, and M082
+> is the **weaker** of the two in what it establishes about time — it does not
+> replace M079's `recorded_at` firewall. Original text kept verbatim below.
 
 M079 remains the *operator-recorded* knowledge snapshot, filtering
 `recorded_at <= K`. M082 adds a distinct *system-receipt-attested* snapshot,
