@@ -1,0 +1,241 @@
+# M081 - Hostile Implementation Review
+
+**232 attacks executed against the running code, the usecase layer, the CLI, the
+test suite itself and real PostgreSQL.** Not reasoned about - executed, with
+results captured from the interpreter.
+
+**1 defect found (R01), by execution.** **Ten of my own probe assertions were
+wrong** and are recorded below; none of them was a code defect, and an attack
+that fails for the wrong reason is as misleading as a test that passes for the
+wrong one.
+
+| Batch | Attacks | Passed |
+|---|---|---|
+| Ratio mathematics, inversion, money-absence, aggregation, honesty, denomination, temporal, status, ordering, lineage, architecture | 180 | 180 |
+| CLI, JSON/text, the tests themselves, packaging and repository state | 52 | 52 |
+| **Total** | **232** | **232** |
+
+---
+
+## R01 (HIGH) - the approximation rendered a value the exact ratio cannot take
+
+**Found by executing the persistence boundary, not by reading the code.**
+
+```
+OPENED  q=2147483647 @ 99999999999999.999999
+CLOSED  q=2147483647 @ 0.000001
+
+exact ratio          -99999999999999999998/99999999999999999999
+float(exact)         -1.0
+approximation, v1    -1          <-- ROUND_HALF_EVEN rounded it to the bound
+```
+
+The design already proved a ratio of exactly `-1` is **unreachable**: a total
+loss would require an asserted exit price of zero, which frozen M076 rejects.
+The first implementation nonetheless printed `-1` at the input most likely to be
+quoted. An `is_exact=False` flag beside it was not enough - the string is what a
+reader copies.
+
+**Root cause.** `ROUND_HALF_EVEN` can round a magnitude *up*, across a bound the
+exact value never reaches.
+
+**Fix.** Rounding is now **truncation toward zero**, chosen deliberately over
+half-even, because truncation guarantees `|approximation| <= |exact|` - so the
+approximation can never show a magnitude the ledger's arithmetic cannot produce.
+An inexact approximation additionally carries a `~` prefix so the truncation
+travels with the value into JSON and into anything that quotes it.
+
+**Regression tests.** `test_the_boundary_approximation_never_renders_the_unreachable_minus_one`
+asserts both that `float()` of the value is `-1.0` and that the rendering is
+`~-0.999999`; `test_the_approximation_never_exceeds_the_exact_magnitude` asserts
+the truncation property over four cases including the boundary. Both also run
+against real PostgreSQL rows.
+
+---
+
+## Ten probe errors of my own, recorded
+
+**Six were wrong assertions in the unit suite**, all the same family - a search
+that flagged the artifact's own *denial*:
+
+1. `break-even` - the banner says "no zero, no break-even and no flat" in order
+   to forbid them. Fixed by stripping the denial sentences first.
+2. `total` - the banner says "NOT a total return". Fixed by checking the JSON
+   **key set** rather than substring-scanning the whole payload.
+3. `positive` / `win` - the banner denies emitting a "count of positive ratios".
+   Same fix.
+4. `asserted_round_trip_result` - matched **my own** self-describing key
+   `asserted_round_trip_result_to_entry_cost_ratio_exact`. The key deliberately
+   names its numerator; that is a feature. Fixed by exact key comparison.
+5. `EDGE` - matched **`KNOWLEDGE_AS_OF`**. A naive substring token check reports
+   a forbidden-vocabulary hit inside an ordinary field name. Fixed with
+   word-boundary matching.
+6. The whole banner string searched in the rendered text - the renderer splits it
+   one sentence per line **by design**, so it is never contiguous.
+
+**One in the integration suite:** the currency check split the text on
+`effective_as_of`, but the limitations follow the entries and legitimately name
+currencies to deny them. Fixed by stripping denials.
+
+**Three in the attack harness itself:**
+
+7. `R-I05` - my **expected value** was wrong. `3 @ 1000000 -> 3 @ 1000000.000003`
+   gives `3/1000000000000`, not `1/1000000000000`. The code was right.
+8. `R-D06`/`R-D07` - symbols `EURUSD` and `GBP.L` **contain** `EUR` and `GBP`.
+   Echoing the operator's own instrument symbol is not inferring a currency.
+9. `R-L03` - `position_plan` appears inside the pass-through field name
+   `source_position_plan_governance_id`, which is not an import of M060.
+10. `R-P08` - my "non-M081 files" filter looked for `m081`/`MILESTONE-081`, but
+    the files are named `_ratio` and `MILESTONE_081_` with an underscore, so the
+    filter matched none of them.
+
+Plus two harness bugs of no consequence to the code: helper functions defined
+after first use, and packaging attacks run before the work was committed so they
+had nothing to diff.
+
+---
+
+## RATIO MATHEMATICS - 40 attacks
+
+| # | Attack | Result |
+|---|---|---|
+| R-M01 | mandated lifecycle reduces to `-1/50` | yes |
+| R-M02..R-M11 | `1/2`, `-3/4`, `0`, `2`, `1/3`, `2/3`, `1/7`, `1`, `1/2`, `1/1000000` | all exact |
+| R-M12 | denominator `> 0` over 500 randomized valid cases | always |
+| R-M13 | ratio `> -1` over 500 randomized valid cases | always |
+| R-M14 | exact `-1` reachable | **no** - exit price `0` rejected by frozen M076 |
+| R-M15 | negative zero | impossible - `0`, never `-0` |
+| R-M16 | sign on the denominator | never |
+| R-M17 | gcd reduction applied | yes - `1/2`, not `500000000/1000000000` |
+| R-M18 | wildly different money gives the same ratio | yes - `2@1->1.5` and `1000@1000->1500` both `1/2` |
+| R-M19 | boundary exactness | exact 20-digit rational |
+| R-M20 | boundary approximation prints bare `-1` | **no** - `~-0.999999` after R01 |
+| R-M21 | approximation magnitude exceeds exact, 200 randomized cases | never |
+| R-M22 | inexact approximation carries `~` | always |
+| R-M23 | exact approximation carries `~` | never |
+| R-M24 | `float(` in the module body | absent |
+| R-M25 | `Decimal(` in the module body | absent |
+| R-M26 | `quantize` / `normalize` / `scaleb` | absent |
+| R-M27 | `getcontext` call | absent |
+| R-M28..R-M34 | ratio under ambient precision 1, 2, 5, 9, 28, 60, 200 | identical |
+| R-M35..R-M37 | under `ROUND_UP`, `ROUND_FLOOR`, `ROUND_CEILING` | identical |
+| R-M38 | ambient context mutated by building a report | no |
+| R-M39 | three exits each contribute their own price | yes - `5/9` |
+| R-M40 | very large ratio | exact `999999999999` |
+
+## STRING INVERSION - 11 attacks
+
+| # | Attack | Result |
+|---|---|---|
+| R-I01..R-I05 | round-trip at five different renderings | exact |
+| R-I06 | inversion pads the fraction rather than stripping the point | explicit `ljust` |
+| R-I07 | more than six decimal places | raises, naming the invariant |
+| R-I08 | no-point form `100` | `100000000` |
+| R-I09 | negative form `-20` | `-20000000` |
+| R-I10 | six-place form `1.000001` | `1000001` |
+| R-I11 | exact inverse of M080's own renderer over **500 random scaled integers** | always |
+
+## MONEY ABSENCE - 12 attacks
+
+| # | Attack | Result |
+|---|---|---|
+| R-$01..R-$04 | M080 money keys at report level | absent |
+| R-$11..R-$14 | M080 money keys at entry level | absent |
+| R-$20 | report dataclass has a monetary field | none |
+| R-$21 | entry dataclass has a monetary field | none |
+| R-$22 | the fixture's money value `-20` in the entries JSON | absent |
+| R-$23 | the fixture's entry cost `1000` in the entries JSON | absent |
+| R-$24 | money field labels in the text | absent |
+| R-$25 | numerator is scaled money rather than reduced | reduced - `-1`, not `-20000000` |
+
+## AGGREGATION - 15 attacks
+
+`total`, `mean`, `average`, `median`, `sum`, `best`, `worst`, `aggregate`,
+`portfolio`, `overall`, `combined`, `distribution`, `positive`, `win`,
+`expectancy` - **no key at any level contains any of them.**
+
+## HONESTY - 36 attacks
+
+24 forbidden tokens (`ROI`, `TOTAL_RETURN`, `INVESTMENT_RETURN`,
+`PROFIT_PERCENTAGE`, `PERFORMANCE_PERCENTAGE`, `GAIN_PERCENT`, `WIN_RATE`,
+`HIT_RATE`, `EXPECTANCY`, `ACCURACY`, `ALPHA`, `EDGE`, `YIELD`, `R_MULTIPLE`,
+`PNL`, `PROFIT`, `REALIZED`, `UNREALIZED`, `BROKER`, `FILL`, `CASH_PROCEEDS`,
+`MARKET_VALUE`, `PERFORMANCE`, `RETURN`) asserted absent from every field name,
+enum member and JSON key **with word-boundary matching**. No `%` sign in text or
+JSON. Ten banner denials asserted present verbatim.
+
+## DENOMINATION - 10 attacks
+
+| # | Attack | Result |
+|---|---|---|
+| R-D01..R-D07 | `AAPL`, `XAU`, `BTC`, `7203.T`, `ZZZZ`, `EURUSD`, `GBP.L` | no currency token outside the explicit denials and the operator's own symbol |
+| R-D08 | M080's denomination limitation carried verbatim | yes |
+| R-D09 | two unknown-denomination positions combined | never - `1/2` and `1/10` stay separate |
+| R-D10 | money ranks them opposite to the ratios | yes, and that is the point: `1000 > 500` while `1/10 < 1/2` |
+
+## TEMPORAL - 13 attacks
+
+| # | Attack | Result |
+|---|---|---|
+| R-T01..R-T06 | `K` at day 0, 100, 299, 300, 301, 400 | inclusive at 300, exactly as M079 |
+| R-T07..R-T09 | post-`K` append changes the object / text / JSON | none of the three |
+| R-T10 | module reads a timestamp itself | no - fully delegated |
+| R-T11 | `now(` anywhere | absent |
+| R-T12 | repeated builds differ | identical |
+| R-T13 | caching between cutoffs | none |
+
+## STATUS AND ABSENCE - 13 attacks
+
+Open position: no ratio, explicit reason, not zero, still listed. Unresolved
+sequence: no ratio, own reason. Partial exit: exited-quantity denominator,
+still-open reported, and distinct coverage wording on the ratio line itself.
+Counts correct. Empty and withheld reports keep the denomination limitation.
+
+## ORDERING AND RENDERING - 8 attacks
+
+Ordered by symbol, never by value - and the value order would genuinely differ
+(`1/100` before `8` by identity; the reverse by magnitude). JSON deterministic,
+text and JSON agree, no randomness, no mutable global state.
+
+## LINEAGE - 5 attacks
+
+Two positions citing one plan keep independent denominators (`1/2` and `-1/5`).
+Citation shown, never dereferenced. No M060 or M078 import. Missing citation
+tolerated.
+
+## ARCHITECTURE - 15 attacks
+
+No `shared.persistence` import, no re-fold, calls M080's builder, M080 constants
+intact, no migration, stdlib only, frozen dataclasses with slots, both cutoffs
+validated at the request boundary, handler withholds without a repository and
+**propagates** database faults, no suppressions, `__all__` complete, no wall
+clock.
+
+## CLI - 13 attacks
+
+No arguments, each cutoff missing, naive timestamp, unparseable timestamp and a
+flag with no value are all rejected with a usage message. No default on either
+cutoff. `entrypoints` does not import `decision_candidate`. Entry point
+registered in `pyproject.toml`. JSON output sorted for determinism.
+
+## JSON AND TEXT - 15 attacks
+
+Serialisable, typed, deterministic; banner verbatim; no float anywhere in the
+payload; `(APPROXIMATE)` marker present exactly when the value is inexact; no
+trailing whitespace; withheld report renders its reason.
+
+## THE TESTS THEMSELVES - 15 attacks
+
+The suite asserts the `-1` bound and the no-bare-`-1` rendering. The PostgreSQL
+cross-check **does not import M080's helper at all** and reads raw SQL. All seven
+mandated scenarios A-G present. Double-database proof present. Cross-denomination
+attack present. The second pass drops and recreates its database, scopes the env
+override to the alembic call only, and uses four instruments the first suite
+never touches. Token matching is word-boundary. Denials are stripped before
+currency searches.
+
+## PACKAGING AND REPOSITORY - 9 attacks
+
+No migration. M076, M079 and M080 modules untouched. `PROJECT_CHECKPOINT.md`
+untouched. No M082 file. Seal debt untouched. The only non-M081 file changed is
+`pyproject.toml`. No new dependency.
