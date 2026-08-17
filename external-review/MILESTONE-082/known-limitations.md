@@ -99,3 +99,26 @@ snapshot excluded future rows structurally, because it did not — see
     independent of receipts whose persisted *label* exceeds the cutoff, and of
     events lacking a qualifying receipt — not of receipts created later with a
     backdated label.
+
+
+---
+
+## Added by the fail-closed pass
+
+25. **The prior-commit enforcement fails CLOSED.** The `pg_xact_status` call is
+    unguarded: a future `xid8`, a failed conversion or a missing privilege
+    propagates and the INSERT is refused. An earlier version caught
+    `EXCEPTION WHEN OTHERS` and accepted on any failure, which made the
+    invariant fail OPEN.
+26. **"Unknown status accepted" means exactly one thing.** It means
+    `pg_xact_status` **returned NULL**, its documented answer for a transaction
+    too old to have status information. It does **not** mean "any inability to
+    determine status is accepted".
+27. **`aborted` is refused, not accepted.** It is unreachable for a row the
+    trigger can see — an aborted writer's row is visible to nobody, measured —
+    but an aborted writer's event never committed, so accepting it would be the
+    wrong direction for an invariant.
+28. **NULL status was not observed in this environment.** `pg_xact_status('1')`
+    returns `committed`, not NULL. The NULL branch rests on PostgreSQL's
+    documented old-transaction semantics and is retained as an accept; it is
+    stated here rather than claimed as measured.

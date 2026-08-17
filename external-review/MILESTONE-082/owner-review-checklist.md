@@ -90,3 +90,15 @@
 - **Reading the trigger as authenticating the receipt.** It authenticates the *event's* prior commit and nothing else.
 - **Calling the table immutable.** It is row-level UPDATE/DELETE immutable under the installed trigger; `TRUNCATE` succeeds.
 - **Calling the view a snapshot.** Repeated evaluation at the same cutoff can return more.
+
+
+---
+
+## Added by the fail-closed pass
+
+| # | Call | Why |
+|---|---|---|
+| 20 | **Remove the exception handler entirely rather than narrow it** | `pg_xact_status` already returns NULL for the documented old-transaction case, so no handler was ever needed for it. Nothing else warranted catching. |
+| 21 | **Catch no SQLSTATE at all** | No specific documented exception was found that genuinely needs handling, and inventing one would be worse than propagating. |
+| 22 | **Refuse on `aborted` as well as `in progress`** | Unreachable for a visible row, but an aborted writer's event never committed. Refusing costs nothing and is the safe direction. |
+| 23 | **Keep NULL as an accept** | A live transaction always has its CLOG, so NULL cannot be an in-progress writer. Stated as documented semantics, not as something measured — NULL was not reproducible here. |

@@ -214,3 +214,46 @@ frozen-module preservation, migration up/down/up, M076 migration isolation).
 The sweep tool's own first run was wrong: it scanned `.venv` and reported 91
 "active" hits, 83 of them `mypy`, `sqlalchemy` and `psycopg` discussing
 type-variable and range upper bounds. Recorded rather than quietly fixed.
+
+
+---
+
+# Fail-closed pass - final measured figures
+
+| Suite | Hardening pass | **Fail-closed pass** |
+|---|---|---|
+| M082 unit | 40 | **40** |
+| M082 PostgreSQL integration | 40 | **44** |
+| M082 fresh second pass | 4 | **4** |
+| M076-M082 compatibility chain | 532 | **536** |
+
+Four new PostgreSQL tests:
+
+| Test | Owner attack |
+|---|---|
+| `test_an_unexpected_checker_error_fails_closed` | **8** — forced error in the status-check path, with a control proving the cause |
+| `test_the_trigger_body_contains_no_broad_exception_handler` | 8, secondary — reads the INSTALLED `pg_proc` body |
+| `test_a_frozen_event_row_is_still_accepted` | 6 — `VACUUM FREEZE`d event |
+| `test_an_aborted_writers_event_is_never_visible_so_cannot_be_attested` | 7 — aborted writer semantics defined by measurement |
+
+## Migration verification
+
+| Check | Result |
+|---|---|
+| `upgrade head` | table present, **0 rows**, triggers 2, functions 2 |
+| `downgrade -1` | table gone, triggers 0, functions 0 |
+| `upgrade head` again | table present, **0 rows**, triggers 2, functions 2 |
+
+## Static gates
+
+`compileall` clean · `ruff check` passed · `ruff format --check` 613 files ·
+`mypy` 312 source files · architecture exit 0 · negative fixture exit 1 ·
+secret scan **0 findings**.
+
+> One lint finding, fixed rather than suppressed: `S106`, a hardcoded password
+> for the throwaway probe role. Replaced with `secrets.token_urlsafe(18)`
+> generated per run and passed as a bound parameter. **No `# noqa` added.**
+
+> **A sequencing error of my own:** I ran the focused M082 suite while the full
+> regression was still using the same database, and got 11 spurious failures.
+> Re-run after the regression completed. The collision was mine, not the code's.

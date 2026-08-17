@@ -108,6 +108,30 @@ ordering comparison **falsely refuses** a concurrent committed writer that holds
 a higher xid. The trigger instead asks whether the writing transaction is still
 `in progress`, which is correct in every case measured.
 
+## Does the enforcement fail closed?
+
+**Yes, now.** The status call is unguarded, so any checker failure propagates and
+the INSERT is refused.
+
+### CORRECTED: the enforcement used to FAIL OPEN
+
+The first version of the trigger wrapped the status call in
+`EXCEPTION WHEN OTHERS` and treated any failure as an unknown status, which was
+then **accepted**. Executed demonstration: a role without `EXECUTE` on
+`pg_xact_status` raises `permission denied for function pg_xact_status`, and the
+handler converted that into an accept. For an invariant, unexpected failure of
+the checker must never become permission to insert.
+
+Two different unknowns, now kept apart:
+
+| Situation | Behaviour |
+|---|---|
+| `pg_xact_status` **returns NULL** (documented old-transaction answer) | accepted — a live transaction always has its CLOG |
+| the checker **fails** (future `xid8`, failed conversion, missing privilege) | **refused — fails closed** |
+| status `in progress` | refused |
+| status `aborted` | refused — unreachable for a visible row, but never accepted |
+| status `committed` | accepted |
+
 ## What is NOT database-enforced
 
 `system_received_at`, `attested_by` and `attester_version` are **unauthenticated

@@ -105,6 +105,7 @@ consuming this authority.
 | Owner 3 | a stale upper-bound claim survived in the migration; the first sweep never searched `migrations/` |
 | Owner 4 | a persisted row did not prove the causal claim — a same-transaction direct SQL INSERT forged one |
 | Owner 5 | the label cutoff is not a stable snapshot; a later backdated label changes the same cutoff |
+| Owner 6 | the prior-commit trigger caught `EXCEPTION WHEN OTHERS` and **failed open** — any checker error became permission to insert |
 | R01 | the concurrent-loser path crashed with a nested unit of work instead of yielding |
 | R02 | this branch's migration broke frozen M076's reversibility test (test-only; re-verified in full) |
 
@@ -112,7 +113,8 @@ consuming this authority.
 
 | File | What it is |
 |---|---|
-| `owner-review-hardening-pass.md` | **start here** — findings 3, 4 and 5, reproduced and corrected |
+| `owner-review-fail-closed-pass.md` | **start here** — finding 6, the fail-open enforcement, reproduced and corrected |
+| `owner-review-hardening-pass.md` | findings 3, 4 and 5 |
 | `owner-review-correction-pass.md` | the previous pass — findings 1 and 2 |
 | `reality-gate.md` | which claim level this reaches, and the two levels it no longer claims |
 | `transaction-timing-evidence.md` | the executed commit-gap leak; why commit time is unavailable |

@@ -9,6 +9,7 @@ external-review/MILESTONE-082/hostile-implementation-review.md
 external-review/MILESTONE-082/known-limitations.md
 external-review/MILESTONE-082/owner-review-checklist.md
 external-review/MILESTONE-082/owner-review-correction-pass.md
+external-review/MILESTONE-082/owner-review-fail-closed-pass.md
 external-review/MILESTONE-082/owner-review-hardening-pass.md
 external-review/MILESTONE-082/reality-gate.md
 external-review/MILESTONE-082/scope-and-design-snapshot.md

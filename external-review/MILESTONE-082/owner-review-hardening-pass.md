@@ -95,10 +95,21 @@ Measured across every case the Owner named:
 
 `xid` is 32-bit; `pg_xact_status` takes `xid8`. The trigger promotes `xmin` into
 the current xid8 epoch. That is exact for the only case being tested, because a
-transaction still in progress is necessarily in the current epoch. An unknown
-status (an xid too old for CLOG retention) is treated as **not** in progress and
-accepted: a live transaction always has its CLOG present, so "too old to know"
-can only mean "committed long ago".
+transaction still in progress is necessarily in the current epoch.
+
+> **⚠ CORRECTED BY OWNER FINDING 6.** This paragraph originally continued: "An
+> unknown status ... is treated as **not** in progress and accepted", and the
+> implementation achieved that with `EXCEPTION WHEN OTHERS`. That conflated two
+> different things and made the invariant **FAIL OPEN**. The distinction now
+> enforced:
+>
+> - **`pg_xact_status` RETURNS NULL** — its documented answer for a transaction
+>   too old to have status information. Accepted; a live transaction always has
+>   its CLOG.
+> - **THE CHECKER FAILS** — a future `xid8`, a failed conversion, a missing
+>   privilege. **Fails closed**: the error propagates and the INSERT is refused.
+>
+> See `owner-review-fail-closed-pass.md`.
 
 ### DECISION: OPTION A - database-enforced prior-transaction existence
 

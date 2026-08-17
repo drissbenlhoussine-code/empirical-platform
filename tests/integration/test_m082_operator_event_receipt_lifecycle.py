@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 import time
 from collections.abc import Iterator
@@ -1051,3 +1052,163 @@ def test_a_later_forward_labelled_receipt_does_not_change_the_same_cutoff(
     after = _report(config, cutoff)
     assert after == before
     assert _rendered(after) == _rendered(before)
+
+
+# --------------------------------------------------------------------------
+# OWNER REVIEW FINDING 6 - the enforcement must FAIL CLOSED
+# --------------------------------------------------------------------------
+
+
+# Generated per run rather than hardcoded: a literal here is both a lint finding
+# and a bad habit to leave in a repository, even for a throwaway role.
+_PROBE_ROLE_PASSWORD = secrets.token_urlsafe(18)
+
+_DROP_PROBE_ROLE = text(
+    """
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'm082_failclosed_probe') THEN
+        -- DROP ROLE refuses while the role still holds grants, and DROP OWNED BY
+        -- has no IF EXISTS, so both need this guard. Found by executing the
+        -- cleanup, not by reading documentation.
+        DROP OWNED BY m082_failclosed_probe CASCADE;
+        DROP ROLE m082_failclosed_probe;
+    END IF;
+END $$
+"""
+)
+
+
+def test_an_unexpected_checker_error_fails_closed(clean_tables: Engine, engine: Engine) -> None:
+    """OWNER MANDATORY ATTACK 8, and the point of finding 6.
+
+    An earlier version wrapped the status call in `EXCEPTION WHEN OTHERS` and
+    treated ANY failure as an unknown status, which was then ACCEPTED. That made
+    the invariant FAIL OPEN: an unexpected error in the checker became
+    permission to insert.
+
+    This drives a real error through the enforcement path by revoking EXECUTE on
+    `pg_xact_status` from the inserting role. The event here is genuinely
+    PRIOR-COMMITTED, so without the error the INSERT would be accepted -- which
+    is exactly what makes the control at the end meaningful rather than
+    decorative.
+    """
+    config = _config()
+    _append(config, gid="EV-FAILCLOSED", pos="POS-FAILCLOSED")
+
+    with engine.begin() as conn:
+        conn.execute(_DROP_PROBE_ROLE)
+        conn.execute(
+            text("CREATE ROLE m082_failclosed_probe LOGIN PASSWORD :pw").bindparams(
+                pw=_PROBE_ROLE_PASSWORD
+            )
+        )
+        conn.execute(text("GRANT USAGE ON SCHEMA public TO m082_failclosed_probe"))
+        conn.execute(
+            text("GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO m082_failclosed_probe")
+        )
+
+    probe_engine = sa.create_engine(
+        _config()
+        .sqlalchemy_url()
+        .set(username="m082_failclosed_probe", password=_PROBE_ROLE_PASSWORD)
+    )
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("REVOKE EXECUTE ON FUNCTION pg_xact_status(xid8) FROM PUBLIC"))
+        try:
+            with pytest.raises(sa.exc.ProgrammingError, match="permission denied for function"):
+                with probe_engine.begin() as conn:
+                    conn.execute(
+                        _RAW_RECEIPT_SQL,
+                        _raw_receipt(
+                            "RC-FAILCLOSED", "EV-FAILCLOSED", datetime(2026, 2, 1, tzinfo=UTC)
+                        ),
+                    )
+            assert _receipts(config) == (), "the enforcement must FAIL CLOSED, not fail open"
+        finally:
+            with engine.begin() as conn:
+                conn.execute(text("GRANT EXECUTE ON FUNCTION pg_xact_status(xid8) TO PUBLIC"))
+
+        # CONTROL: the identical INSERT succeeds once the checker can run, which
+        # proves the refusal above came from the checker error and nothing else.
+        with probe_engine.begin() as conn:
+            conn.execute(
+                _RAW_RECEIPT_SQL,
+                _raw_receipt("RC-FAILCLOSED", "EV-FAILCLOSED", datetime(2026, 2, 1, tzinfo=UTC)),
+            )
+        assert len(_receipts(config)) == 1
+    finally:
+        probe_engine.dispose()
+        with engine.begin() as conn:
+            conn.execute(_DROP_PROBE_ROLE)
+
+
+def test_the_trigger_body_contains_no_broad_exception_handler(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """A grep is not enough on its own, but the INSTALLED body is worth asserting.
+
+    The behavioural proof is the test above. This reads what PostgreSQL actually
+    stored, so a future edit cannot reintroduce the swallow silently.
+    """
+    with engine.begin() as conn:
+        body = conn.execute(
+            text(
+                "SELECT prosrc FROM pg_proc "
+                "WHERE proname = 'operator_event_receipt_requires_prior_commit'"
+            )
+        ).scalar_one()
+    executable = "\n".join(line for line in body.splitlines() if not line.strip().startswith("--"))
+    upper = executable.upper()
+    # `RAISE EXCEPTION` is the refusal itself and must stay. What must NOT exist
+    # is an exception HANDLER around the status call.
+    assert "WHEN OTHERS" not in upper
+    assert "EXCEPTION WHEN" not in upper
+    assert "pg_xact_status" in executable
+    assert "RAISE EXCEPTION" in upper, "the refusal must still be raised"
+
+
+def test_a_frozen_event_row_is_still_accepted(clean_tables: Engine, engine: Engine) -> None:
+    """OWNER ATTACK 6. VACUUM FREEZE must not turn a valid event into a refusal."""
+    config = _config()
+    _append(config, gid="EV-FROZEN", pos="POS-FROZEN")
+    with engine.connect() as conn:
+        conn.execution_options(isolation_level="AUTOCOMMIT")
+        conn.execute(text("VACUUM FREEZE operator_position_event"))
+    receipt = _attest(config, "RC-FROZEN", "EV-FROZEN")
+    assert receipt.event_governance_id == "EV-FROZEN"
+    assert len(_receipts(config)) == 1
+
+
+def test_an_aborted_writers_event_is_never_visible_so_cannot_be_attested(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER ATTACK 7 - define the aborted case honestly rather than assume it.
+
+    Measured: an aborted writer's row is visible to NOBODY, so the trigger can
+    never see one and `aborted` is unreachable for a visible row. The trigger
+    refuses on `aborted` anyway, because an aborted writer's event never
+    committed -- accepting it would be the wrong direction for an invariant.
+    """
+    config = _config()
+    with engine.connect() as conn:
+        tx = conn.begin()
+        conn.execute(_RAW_EVENT_SQL, _raw_event("EV-ABORTED", "POS-ABORTED"))
+        tx.rollback()
+
+    with engine.begin() as conn:
+        visible = conn.execute(
+            text("SELECT count(*) FROM operator_position_event WHERE governance_id='EV-ABORTED'")
+        ).scalar_one()
+    assert visible == 0, "an aborted writer's row must be visible to nobody"
+
+    # And the foreign key, not the status check, is what speaks for a row that
+    # does not exist at all.
+    with pytest.raises(sa.exc.IntegrityError):
+        with engine.begin() as conn:
+            conn.execute(
+                _RAW_RECEIPT_SQL,
+                _raw_receipt("RC-ABORTED", "EV-ABORTED", datetime(2026, 2, 1, tzinfo=UTC)),
+            )
+    assert _receipts(config) == ()

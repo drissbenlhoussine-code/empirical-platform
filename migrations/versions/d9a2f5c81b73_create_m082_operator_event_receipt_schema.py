@@ -34,9 +34,16 @@ TWO TRIGGERS, AND EACH ENFORCES EXACTLY ONE NARROW THING.
    CONCURRENT transaction with a HIGHER xid committed before we read, which a
    plain xid ordering comparison would.
 
-   An unknown status (an xid too old for CLOG retention) is treated as NOT in
-   progress, and therefore accepted: a transaction still in progress always has
-   its CLOG present, so "too old to know" can only mean "committed long ago".
+   `pg_xact_status` RETURNING NULL -- its documented answer for a transaction
+   too old to have status information -- is treated as not-in-progress and
+   accepted: a live transaction always has its CLOG present, so "too old to
+   know" can only mean "committed long ago".
+
+   That is the ONLY unknown that is accepted. A CHECKER FAILURE is different and
+   is NOT accepted: the status call is deliberately unguarded, so a future xid8,
+   a failed conversion or a missing privilege PROPAGATES and the INSERT fails
+   closed. Owner review finding 6 -- an earlier version caught EXCEPTION WHEN
+   OTHERS here and turned every such failure into permission to insert.
 
 WHAT THIS STILL DOES NOT ENFORCE, stated so no reader over-reads it: the
 receipt's `system_received_at`, `attested_by` and `attester_version` are
@@ -102,18 +109,33 @@ BEGIN
               - pg_current_xact_id()::xid::text::numeric)
              + event_xmin::text::numeric;
 
-    BEGIN
-        writer_status := pg_xact_status(probe::text::xid8);
-    EXCEPTION WHEN OTHERS THEN
-        -- Unknown means too old to have CLOG, which cannot be in progress.
-        writer_status := NULL;
-    END;
+    -- NO EXCEPTION HANDLER. Owner review finding 6: an earlier version wrapped
+    -- this call in EXCEPTION WHEN OTHERS and treated any failure as an unknown
+    -- status, which was then ACCEPTED. That made the enforcement FAIL OPEN --
+    -- any unexpected error in the checker became permission to insert, which is
+    -- the opposite of what an invariant must do. Executed demonstration: a role
+    -- lacking EXECUTE on pg_xact_status raises "permission denied for function
+    -- pg_xact_status", and the old handler converted that into an accept.
+    --
+    -- pg_xact_status returns NULL by itself for a transaction too old to have
+    -- status information, so the documented old-xid case never needed a handler.
+    -- Anything else it raises -- a future xid8, a failed conversion, a missing
+    -- privilege -- now PROPAGATES and the INSERT fails closed.
+    writer_status := pg_xact_status(probe::text::xid8);
 
-    IF writer_status = 'in progress' THEN
+    -- 'in progress': the writer is our own transaction or a subtransaction of
+    --   it, since MVCC never shows another transaction's uncommitted rows.
+    -- 'aborted': unreachable for a row we can see -- an aborted writer's row is
+    --   visible to nobody, measured -- but refused rather than accepted,
+    --   because an aborted writer's event never committed at all.
+    -- 'committed': the event came from a prior transaction. Accept.
+    -- NULL: documented old-transaction semantics; a live transaction always has
+    --   its CLOG, so this cannot be an in-progress writer. Accept.
+    IF writer_status IN ('in progress', 'aborted') THEN
         RAISE EXCEPTION
             'operator_event_receipt requires a PRIOR COMMITTED event: % was '
-            'written by the current transaction, so no receipt can attest it',
-            NEW.event_governance_id;
+            'written by a transaction that is % , so no receipt can attest it',
+            NEW.event_governance_id, writer_status;
     END IF;
 
     RETURN NEW;
