@@ -46,6 +46,13 @@ removes that, and it remains mandatory.
 THE CLOCK IS INJECTED so the backward-clock attack the Owner mandated can be
 executed rather than argued. Production wiring passes nothing and gets
 `datetime.now(UTC)`.
+
+EVERY RELATION IS SCHEMA-QUALIFIED (owner review finding 8). An unqualified name
+resolves through the caller's `search_path`, and `pg_temp` precedes `public` in
+the default one. A non-superuser proved the consequence against the prior-commit
+trigger: a committed decoy row in a temp relation of the same name let a receipt
+attest an event that was still in progress in `public`. These statements were
+equally exposed, so they are qualified too.
 """
 
 from __future__ import annotations
@@ -118,7 +125,8 @@ class PostgresOperatorEventReceiptRepository:
             # can only observe the event if the event's transaction has already
             # COMMITTED. Everything the receipt claims rests on this read.
             rows = work.execute(
-                "SELECT governance_id FROM operator_position_event WHERE governance_id = :gid",
+                "SELECT governance_id FROM public.operator_position_event "
+                "WHERE governance_id = :gid",
                 {"gid": event_governance_id},
             )
             if not list(rows):
@@ -144,7 +152,7 @@ class PostgresOperatorEventReceiptRepository:
             )
             try:
                 work.execute(
-                    "INSERT INTO operator_event_receipt "
+                    "INSERT INTO public.operator_event_receipt "
                     "(receipt_governance_id, event_governance_id, system_received_at, "
                     "attested_by, attester_version) VALUES "
                     "(:receipt_governance_id, :event_governance_id, :system_received_at, "
@@ -189,7 +197,7 @@ class PostgresOperatorEventReceiptRepository:
             rows = list(
                 work.execute(
                     "SELECT receipt_governance_id, event_governance_id, system_received_at, "
-                    "attested_by, attester_version FROM operator_event_receipt "
+                    "attested_by, attester_version FROM public.operator_event_receipt "
                     "WHERE event_governance_id = :gid",
                     {"gid": event_governance_id},
                 )
@@ -198,11 +206,36 @@ class PostgresOperatorEventReceiptRepository:
             return None
         return _row_to_receipt(rows[0])
 
+    def list_labelled_by(self, receipt_label_cutoff: datetime) -> tuple[OperatorEventReceipt, ...]:
+        """Only receipts whose label is at or before the cutoff.
+
+        THE CUTOFF IS APPLIED IN SQL (owner review finding 9). `list_all` +
+        domain filtering was structurally sound only INSIDE the pure builder,
+        after every current row had already been materialised into a domain
+        object. That is where it broke: a receipt labelled 2099 carrying a blank
+        `attested_by` raised `ValueError` while a 2027 report was being built,
+        so a row the artifact must not be able to see decided whether the
+        artifact existed at all. Rows beyond the cutoff are now never fetched.
+        """
+        if receipt_label_cutoff.tzinfo is None or receipt_label_cutoff.utcoffset() is None:
+            raise ValueError(
+                "receipt_label_cutoff must be timezone-aware; a naive datetime has no instant"
+            )
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                "SELECT receipt_governance_id, event_governance_id, system_received_at, "
+                "attested_by, attester_version FROM public.operator_event_receipt "
+                "WHERE system_received_at <= :cutoff "
+                "ORDER BY system_received_at, event_governance_id",
+                {"cutoff": receipt_label_cutoff},
+            )
+            return tuple(_row_to_receipt(row) for row in rows)
+
     def list_all(self) -> tuple[OperatorEventReceipt, ...]:
         with self._service.unit_of_work() as work:
             rows = work.execute(
                 "SELECT receipt_governance_id, event_governance_id, system_received_at, "
-                "attested_by, attester_version FROM operator_event_receipt "
+                "attested_by, attester_version FROM public.operator_event_receipt "
                 "ORDER BY system_received_at, event_governance_id"
             )
             return tuple(_row_to_receipt(row) for row in rows)

@@ -7,6 +7,11 @@ the view cannot see -- see Owner review finding 1.
 The heading says RECEIPT-LABEL-CUTOFF VIEW, not "snapshot": Owner review finding
 5 established that repeated evaluation at the same cutoff can legitimately
 return more, because a label can be backdated.
+
+EVERY RENDERED FIELD COMES FROM THE RECEIPT ROW. No position, no instrument, no
+payload of any kind -- owner review finding 7 proved that resolving those from
+the current M076 row let a post-attestation UPDATE change the artifact while the
+receipt stood still.
 """
 
 from __future__ import annotations
@@ -35,14 +40,12 @@ def render_attested_evidence_report_text(report: AttestedEvidenceReport) -> str:
     lines.append("  this view cannot say how many events it excluded, and does not guess")
     lines.append("  re-evaluating this same cutoff later can return MORE: a label can be backdated")
     for entry in report.entries:
-        lines.append(
-            f"    {entry.instrument_symbol} event={entry.event_governance_id} "
-            f"position={entry.position_governance_id}"
-        )
+        lines.append(f"    receipt={entry.receipt_governance_id} event={entry.event_governance_id}")
         lines.append(
             f"      system_received_at={entry.system_received_at.isoformat()} "
-            f"attested_by={entry.attested_by} "
-            "(system-assigned label, NOT a bound on commit time)"
+            f"attested_by={entry.attested_by} attester_version={entry.attester_version} "
+            "(label applied on the sanctioned attest path; unauthenticated as a "
+            "persisted value; NOT a bound on commit time)"
         )
     for limitation in report.limitations:
         lines.append(f"  {limitation}")
@@ -56,11 +59,11 @@ def render_attested_evidence_report_json(report: AttestedEvidenceReport) -> dict
         "attested_count": report.attested_count,
         "entries": [
             {
+                "receipt_governance_id": entry.receipt_governance_id,
                 "event_governance_id": entry.event_governance_id,
-                "position_governance_id": entry.position_governance_id,
-                "instrument_symbol": entry.instrument_symbol,
                 "system_received_at": entry.system_received_at.isoformat(),
                 "attested_by": entry.attested_by,
+                "attester_version": entry.attester_version,
             }
             for entry in report.entries
         ],

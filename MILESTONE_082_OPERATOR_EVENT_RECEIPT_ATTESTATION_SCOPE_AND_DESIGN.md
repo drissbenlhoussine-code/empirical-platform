@@ -32,7 +32,10 @@
 > `--receipt-label-cutoff`.
 
 
-## Status: DESIGN CANDIDATE - NOT IMPLEMENTED, NOT OWNER FROZEN
+## Status: ACTIVE DESIGN OF THE IMPLEMENTED CANDIDATE - NOT OWNER FROZEN
+
+*(Corrected by Owner finding 11: this said "NOT IMPLEMENTED" while serving as the
+active design of an implemented candidate under review.)*
 
 ---
 
@@ -599,3 +602,77 @@ that would reopen finding 4 one layer down.
 
 Narrowed everywhere to **row-level UPDATE/DELETE under the installed trigger**.
 `TRUNCATE` succeeds, and a test proves it.
+
+
+---
+
+## Amended by the Owner correction mission (findings 7-11)
+
+Five further findings were reproduced by execution against `699d7f9` before any
+change. Where earlier sections conflict with this one, **this section wins**.
+
+### Finding 7 - the receipt did not bind the event payload
+
+A receipt was created for `EV-MUTATE`; the M076 row was then changed by direct
+SQL from `POS-ORIGINAL`/`AAPL` to `POS-MUTATED`/`ZZZZ`. The receipt identity and
+label were unchanged, **and the report changed** - it resolved position and
+instrument from the *current* M076 row. M076 carries **zero** user-defined
+triggers, so nothing made that row immutable, and this milestone's own source
+nevertheless called it immutable.
+
+**Candidates ranked.**
+
+| | Candidate | Authority gained | Cost | Verdict |
+|---|---|---|---|---|
+| **A** | **receipt-only: attest the event IDENTITY, drop payload enrichment** | none beyond what is already proved | the artifact stops showing instrument/position | **SELECTED** |
+| B | capture the payload into the receipt row by trigger | a NEW claim: "payload as of receipt time" | new columns, more trigger surface, and it *strengthens* M082 - which this mission forbids | rejected |
+| C | make M076 rows immutable once a receipt exists | payload stability | alters a **frozen** milestone's table behaviour and its downgrade path | rejected |
+
+A is the smallest honest design, and it is the only one that does not add a
+claim. It also **collapses findings 9 and 10**: with no ledger read there is no
+malformed-row exposure and no split-read race.
+
+M082 therefore states plainly: **it does not attest the payload of the M076
+event, current or historical.**
+
+### Finding 8 - `pg_temp` shadowing bypassed the prior-commit trigger
+
+A role with `rolsuper`, `rolcreatedb` and `rolcreaterole` all false created a
+TEMP relation named `operator_position_event`, committed a decoy row into it,
+and then in a second transaction inserted the real event and its receipt. The
+trigger's **unqualified** read resolved `pg_temp` ahead of `public`; the receipt
+inserted, and afterwards `event xmin = receipt xmin` - one transaction.
+
+Every relation and function in the trigger is now schema-qualified, the function
+carries `SET search_path = pg_catalog, public`, and all four repository
+statements are qualified as well.
+
+### Finding 9 - malformed future tails reached the report
+
+A 2099 receipt with a database-accepted blank `attested_by` made a 2027 report
+raise `ValueError`; an unreceipted 2099 event with a `NUMERIC NaN` price made it
+raise `InvalidOperation`. The cutoff is now applied **in SQL**, four `CHECK`
+constraints enforce non-empty receipt identity and metadata at the write
+boundary, and the ledger is not read at all.
+
+### Finding 10 - two non-atomic reads
+
+`ledger.list_all()` then `receipts.list_all()`, with an event and receipt
+committing between them, produced `MissingAttestedEventError`. One store, one
+cutoff-narrowed query. `MissingAttestedEventError` no longer exists.
+
+### Fail-closed hardening - explicit allowlist
+
+`committed` and a documented `NULL` accept; **everything else refuses**,
+including `in progress` and `aborted`. The previous denylist would have accepted
+any future status value.
+
+### The claim M082 now makes
+
+> A persisted M082 receipt binds a stable receipt identity to an exact M076
+> event governance identity whose real public-table row was visible as coming
+> from a prior committed transaction at receipt insertion. The receipt label is
+> not commit time, trusted wall-clock truth, historical knowledge time, or proof
+> of availability at an arbitrary cutoff.
+>
+> **M082 does not attest the current or historical payload of that M076 event.**

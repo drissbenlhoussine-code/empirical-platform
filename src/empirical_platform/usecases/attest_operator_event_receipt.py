@@ -1,4 +1,4 @@
-"""MILESTONE-082 attestation command and attested-snapshot query."""
+"""MILESTONE-082 attestation command and receipt-label-cutoff view query."""
 
 from __future__ import annotations
 
@@ -12,9 +12,6 @@ from empirical_platform.decision_candidate.operator_event_receipt import (
 )
 from empirical_platform.decision_candidate.operator_event_receipt_repository import (
     OperatorEventReceiptRepository,
-)
-from empirical_platform.decision_candidate.operator_position_ledger_repository import (
-    OperatorPositionLedgerRepository,
 )
 
 __all__ = [
@@ -92,28 +89,32 @@ class GetAttestedEvidenceReportQuery:
 
 
 class GetAttestedEvidenceReportHandler:
-    """Builds the receipt-cutoff snapshot from the M082 receipts.
+    """Builds the receipt-label-cutoff view from ONE read of ONE store.
 
-    The ledger is read only to resolve the detail of events that a qualifying
-    receipt already names. The domain builder is receipts-first, so no ledger
-    row without such a receipt can reach the artifact -- see Owner review
-    finding 1, which retracted the earlier ledger-first construction.
+    NO LEDGER DEPENDENCY (owner review findings 7 and 10). This handler used to
+    call `ledger.list_all()` and then `receipts.list_all()`. Two consequences,
+    both executed:
+
+      * the artifact resolved position and instrument from the CURRENT M076 row,
+        so mutating that row after attestation changed the report while the
+        receipt stayed identical;
+      * the two reads were not atomic. An event and its receipt committing
+        between them produced a `MissingAttestedEventError` -- an "unreachable"
+        inconsistency during ordinary sanctioned concurrency.
+
+    One store, one query, narrowed by the cutoff in SQL. Neither failure has a
+    mechanism left.
     """
 
-    __slots__ = ("_ledger", "_receipts")
+    __slots__ = ("_receipts",)
 
     def __init__(
-        self,
-        *,
-        operator_position_ledger_repository: OperatorPositionLedgerRepository,
-        operator_event_receipt_repository: OperatorEventReceiptRepository,
+        self, *, operator_event_receipt_repository: OperatorEventReceiptRepository
     ) -> None:
-        self._ledger = operator_position_ledger_repository
         self._receipts = operator_event_receipt_repository
 
     def handle(self, query: GetAttestedEvidenceReportQuery) -> AttestedEvidenceReport:
         return build_attested_evidence_report(
-            events=self._ledger.list_all(),
-            receipts=self._receipts.list_all(),
+            receipts=self._receipts.list_labelled_by(query.receipt_label_cutoff),
             receipt_label_cutoff=query.receipt_label_cutoff,
         )

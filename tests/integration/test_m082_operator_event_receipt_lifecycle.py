@@ -32,7 +32,6 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from empirical_platform.decision_candidate.operator_event_receipt import (
-    build_attested_evidence_report,
     events_with_receipt_labelled_by,
 )
 from empirical_platform.decision_candidate.operator_position_ledger import (
@@ -45,6 +44,10 @@ from empirical_platform.shared.persistence.postgres import PostgresPersistenceSe
 from empirical_platform.shared.persistence.postgres_repositories.operator_event_receipt_repository import (  # noqa: E501
     PostgresOperatorEventReceiptRepository,
     UnknownOperatorEventError,
+)
+from empirical_platform.usecases.attest_operator_event_receipt import (
+    GetAttestedEvidenceReportHandler,
+    GetAttestedEvidenceReportQuery,
 )
 from empirical_platform.usecases.attested_evidence_io import (
     render_attested_evidence_report_json,
@@ -181,9 +184,16 @@ def _receipts(config: PostgreSQLConfigSnapshot):  # noqa: ANN202
 
 
 def _report(config: PostgreSQLConfigSnapshot, cutoff: datetime):  # noqa: ANN202
-    return build_attested_evidence_report(
-        events=_events(config), receipts=_receipts(config), receipt_label_cutoff=cutoff
-    )
+    """Through the REAL handler: one store, one cutoff-narrowed query.
+
+    Owner findings 7 and 10 removed the ledger from this path entirely, so the
+    helper no longer reads events at all.
+    """
+    with postgres_repository_runtime(config) as runtime:
+        handler = GetAttestedEvidenceReportHandler(
+            operator_event_receipt_repository=runtime.operator_event_receipts
+        )
+        return handler.handle(GetAttestedEvidenceReportQuery(receipt_label_cutoff=cutoff))
 
 
 def _rendered(report) -> tuple[str, str]:  # noqa: ANN001
@@ -519,7 +529,9 @@ def test_the_rendered_report_states_the_causal_claim_and_the_retraction(
     report = _report(config, datetime.now(UTC) + timedelta(days=1))
     text_out = render_attested_evidence_report_text(report)
     payload = render_attested_evidence_report_json(report)
-    assert "system-assigned label, NOT a bound on commit time" in text_out
+    assert "unauthenticated as a persisted value" in text_out
+    assert "NOT a bound on commit time" in text_out
+    assert "DOES NOT ATTEST THE PAYLOAD" in json.dumps(payload)
     assert "cannot say how many events it excluded" in text_out
     assert "re-evaluating this same cutoff later can return MORE" in text_out
     assert "RETRACTED" in payload["banner"]
@@ -1068,6 +1080,35 @@ def test_a_later_forward_labelled_receipt_does_not_change_the_same_cutoff(
 # construction rather than by hoping.
 _PROBE_ROLE_PASSWORD = secrets.token_hex(24)
 
+_SHADOW_ROLE = "m082_shadow_probe"
+
+# Written out literally rather than interpolated: the role name is a constant,
+# and a literal keeps the SQL-injection lint honest instead of suppressed.
+_DROP_SHADOW_ROLE = text(
+    """
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'm082_shadow_probe') THEN
+        DROP OWNED BY m082_shadow_probe CASCADE;
+        DROP ROLE m082_shadow_probe;
+    END IF;
+END $$
+"""
+)
+
+_RAW_EVENT_SQL_QUALIFIED = text(
+    "INSERT INTO public.operator_position_event (runtime_id, governance_id, "
+    "position_governance_id, instrument_symbol, event_kind, quantity, "
+    "asserted_price, event_timestamp, recorded_at) "
+    "VALUES (:rt, :gid, :pos, 'FAKE', 'OPENED', 1, 100, :t, :t)"
+)
+
+_RAW_RECEIPT_SQL_QUALIFIED = text(
+    "INSERT INTO public.operator_event_receipt (receipt_governance_id, "
+    "event_governance_id, system_received_at, attested_by, attester_version) "
+    "VALUES (:rid, :gid, :ts, :by, :ver)"
+)
+
 _DROP_PROBE_ROLE = text(
     """
 DO $$
@@ -1215,3 +1256,340 @@ def test_an_aborted_writers_event_is_never_visible_so_cannot_be_attested(
                 _raw_receipt("RC-ABORTED", "EV-ABORTED", datetime(2026, 2, 1, tzinfo=UTC)),
             )
     assert _receipts(config) == ()
+
+
+# --------------------------------------------------------------------------
+# OWNER REVIEW FINDINGS 7-11
+# --------------------------------------------------------------------------
+
+
+def test_a_payload_change_after_the_receipt_cannot_move_the_artifact(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 7, the attack that decided the correction.
+
+    Reproduced against the pre-correction head: a receipt was created for
+    EV-MUTATE, the M076 row was then changed through direct SQL from
+    POS-ORIGINAL/AAPL to POS-MUTATED/ZZZZ, and the report CHANGED while the
+    receipt identity and label stayed exactly the same. M076 carries zero
+    user-defined triggers, so nothing made that row immutable.
+
+    The artifact is now receipt-only, so the mutation has nothing to reach.
+    """
+    config = _config()
+    _append(config, gid="EV-MUTATE", pos="POS-ORIGINAL", symbol="AAPL")
+    _attest(config, "RC-MUTATE", "EV-MUTATE")
+    cutoff = datetime.now(UTC) + timedelta(days=1)
+
+    before = _report(config, cutoff)
+    before_rendered = _rendered(before)
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE public.operator_position_event "
+                "SET position_governance_id='POS-MUTATED', instrument_symbol='ZZZZ' "
+                "WHERE governance_id='EV-MUTATE'"
+            )
+        )
+        mutated = conn.execute(
+            text(
+                "SELECT position_governance_id FROM public.operator_position_event "
+                "WHERE governance_id='EV-MUTATE'"
+            )
+        ).scalar_one()
+    assert mutated == "POS-MUTATED", "the M076 row must really have changed"
+
+    after = _report(config, cutoff)
+    assert after == before
+    assert _rendered(after) == before_rendered
+    for leak in ("POS-ORIGINAL", "POS-MUTATED", "AAPL", "ZZZZ"):
+        for rendering in _rendered(after):
+            assert leak not in rendering, leak
+
+
+def test_m076_has_no_user_defined_immutability_trigger(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """The premise of finding 7, asserted so the limitation cannot drift.
+
+    If M076 ever gains real immutability enforcement this test fails, and the
+    artifact's "does not attest the payload" limitation can be revisited
+    deliberately rather than by assumption.
+    """
+    with engine.begin() as conn:
+        count = conn.execute(
+            text(
+                "SELECT count(*) FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
+                "WHERE c.relname = 'operator_position_event' AND NOT t.tgisinternal"
+            )
+        ).scalar_one()
+    assert count == 0
+    joined = " ".join(_report(_config(), datetime.now(UTC)).limitations)
+    assert "DOES NOT ATTEST THE PAYLOAD" in joined
+
+
+def test_a_non_superuser_cannot_shadow_the_event_table_through_pg_temp(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 8 - the schema-qualification bypass.
+
+    Reproduced against the pre-correction head by a role with rolsuper,
+    rolcreatedb and rolcreaterole all false: it created a TEMP relation named
+    `operator_position_event`, COMMITTED a decoy row into it in an earlier
+    transaction, then in a second transaction inserted the real event and its
+    receipt. The trigger's UNQUALIFIED read resolved pg_temp ahead of public,
+    the receipt inserted, and afterwards the event and the receipt shared one
+    xmin -- the very thing the trigger exists to refuse.
+    """
+    with engine.begin() as conn:
+        conn.execute(_DROP_SHADOW_ROLE)
+        conn.execute(
+            text(
+                f"CREATE ROLE {_SHADOW_ROLE} LOGIN PASSWORD '{_PROBE_ROLE_PASSWORD}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE"
+            )
+        )
+        conn.execute(text(f"GRANT USAGE, CREATE ON SCHEMA public TO {_SHADOW_ROLE}"))
+        conn.execute(text(f"GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA public TO {_SHADOW_ROLE}"))
+        privileges = conn.execute(
+            text(
+                "SELECT rolsuper OR rolcreatedb OR rolcreaterole FROM pg_roles "
+                "WHERE rolname = 'm082_shadow_probe'"
+            )
+        ).scalar_one()
+    assert privileges is False, "the attack must run as a genuinely unprivileged role"
+
+    shadow_engine = sa.create_engine(
+        _config().sqlalchemy_url().set(username=_SHADOW_ROLE, password=_PROBE_ROLE_PASSWORD)
+    )
+    try:
+        with shadow_engine.connect() as conn:
+            # transaction 1: the decoy is COMMITTED, so it looks prior-committed
+            tx = conn.begin()
+            conn.execute(text("CREATE TEMP TABLE operator_position_event (governance_id text)"))
+            conn.execute(text("INSERT INTO operator_position_event VALUES ('EV-SHADOW')"))
+            tx.commit()
+
+            # transaction 2: the REAL event is written here, so it is in progress
+            tx = conn.begin()
+            conn.execute(_RAW_EVENT_SQL_QUALIFIED, _raw_event("EV-SHADOW", "POS-SHADOW"))
+            with pytest.raises(sa.exc.ProgrammingError, match="PRIOR COMMITTED event"):
+                conn.execute(
+                    _RAW_RECEIPT_SQL_QUALIFIED,
+                    _raw_receipt("RC-SHADOW", "EV-SHADOW", datetime(2026, 2, 1, tzinfo=UTC)),
+                )
+            tx.rollback()
+    finally:
+        shadow_engine.dispose()
+        with engine.begin() as conn:
+            conn.execute(_DROP_SHADOW_ROLE)
+
+    assert _receipts(_config()) == ()
+
+
+def test_the_control_case_still_accepts_a_genuinely_prior_committed_event(
+    clean_tables: Engine,
+) -> None:
+    """Schema-qualification must not break the legitimate path."""
+    config = _config()
+    _append(config, gid="EV-QUAL", pos="POS-QUAL")
+    receipt = _attest(config, "RC-QUAL", "EV-QUAL")
+    assert receipt.event_governance_id == "EV-QUAL"
+    assert [e.event_governance_id for e in _report(config, datetime.now(UTC)).entries] == [
+        "EV-QUAL"
+    ]
+
+
+def test_a_malformed_receipt_after_the_cutoff_cannot_break_an_earlier_report(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 9a.
+
+    Reproduced: a receipt labelled 2099 carrying a database-accepted BLANK
+    attested_by made a 2027 report raise ValueError. A row the artifact must not
+    be able to see decided whether the artifact existed at all.
+
+    Two independent corrections now apply: a CHECK constraint refuses the blank
+    at the write boundary, and the cutoff is applied in SQL so the row is never
+    fetched even if one existed.
+    """
+    config = _config()
+    _append(config, gid="EV-OK9", pos="POS-OK9")
+    _attest_at(config, "RC-OK9", "EV-OK9", datetime(2026, 6, 1, tzinfo=UTC))
+    cutoff = datetime(2027, 1, 1, tzinfo=UTC)
+    baseline = _report(config, cutoff)
+
+    _append(config, gid="EV-BLANK", pos="POS-BLANK")
+    with pytest.raises(
+        sa.exc.IntegrityError, match="ck_operator_event_receipt_attested_by_present"
+    ):
+        with engine.begin() as conn:
+            conn.execute(
+                _RAW_RECEIPT_SQL_QUALIFIED,
+                _raw_receipt("RC-BLANK", "EV-BLANK", datetime(2099, 1, 1, tzinfo=UTC), by=""),
+            )
+
+    # And a WELL-FORMED far-future receipt is fetched by nothing.
+    _attest_at(config, "RC-FUT", "EV-BLANK", datetime(2099, 1, 1, tzinfo=UTC))
+    after = _report(config, cutoff)
+    assert after == baseline
+    assert _rendered(after) == _rendered(baseline)
+
+
+def test_an_unreceipted_malformed_future_event_cannot_reach_the_report(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 9b.
+
+    Reproduced: an unreceipted 2099 event carrying a database-accepted NUMERIC
+    NaN price made the report raise InvalidOperation. The report no longer reads
+    the ledger at all, so no M076 row -- malformed or not -- can reach it.
+    """
+    config = _config()
+    _append(config, gid="EV-OK9B", pos="POS-OK9B")
+    _attest_at(config, "RC-OK9B", "EV-OK9B", datetime(2026, 6, 1, tzinfo=UTC))
+    cutoff = datetime(2027, 1, 1, tzinfo=UTC)
+    baseline = _report(config, cutoff)
+
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO public.operator_position_event (runtime_id, governance_id, "
+                "position_governance_id, instrument_symbol, event_kind, quantity, "
+                "asserted_price, event_timestamp, recorded_at) VALUES "
+                "('rt-NAN','EV-NAN','POS-NAN','NAN','OPENED',1,'NaN','2099-01-01Z','2099-01-01Z')"
+            )
+        )
+    after = _report(config, cutoff)
+    assert after == baseline
+    assert _rendered(after) == _rendered(baseline)
+    assert "EV-NAN" not in _rendered(after)[0]
+
+
+def test_an_event_and_receipt_committing_at_the_former_read_boundary_is_consistent(
+    clean_tables: Engine,
+) -> None:
+    """OWNER FINDING 10 - the split-read race, made deterministic.
+
+    Reproduced: `ledger.list_all()` returned, an event and its receipt then
+    committed, `receipts.list_all()` returned the new receipt, and the builder
+    raised MissingAttestedEventError -- an "unreachable" inconsistency during
+    ordinary sanctioned concurrency.
+
+    There is one store and one query now, so the boundary no longer exists. The
+    report must return a valid bounded result, never raise.
+    """
+    config = _config()
+    _append(config, gid="EV-R1", pos="POS-R1")
+    _attest_at(config, "RC-R1", "EV-R1", datetime(2026, 6, 1, tzinfo=UTC))
+    cutoff = datetime(2026, 7, 1, tzinfo=UTC)
+
+    # Commit a fresh event AND its receipt exactly where the old read boundary was.
+    _append(config, gid="EV-R2", pos="POS-R2")
+    _attest_at(config, "RC-R2", "EV-R2", datetime(2026, 6, 15, tzinfo=UTC))
+
+    report = _report(config, cutoff)
+    assert [e.event_governance_id for e in report.entries] == ["EV-R1", "EV-R2"]
+    assert report.attested_count == 2
+
+
+def test_an_unexpected_writer_status_value_fails_closed(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """The allowlist, asserted on the INSTALLED function body.
+
+    The previous form refused only 'in progress' and 'aborted', so any future or
+    unexpected non-NULL status would have been ACCEPTED. Only 'committed' and a
+    NULL old-status now accept; everything else refuses.
+    """
+    with engine.begin() as conn:
+        body = conn.execute(
+            text(
+                "SELECT prosrc FROM pg_proc "
+                "WHERE proname = 'operator_event_receipt_requires_prior_commit'"
+            )
+        ).scalar_one()
+    executable = "\n".join(line for line in body.splitlines() if not line.strip().startswith("--"))
+    assert "IS NULL OR writer_status = 'committed'" in executable
+    assert "RETURN NEW" in executable
+    assert "RAISE EXCEPTION" in executable
+    # the old denylist form must be gone
+    assert "IN ('in progress', 'aborted')" not in executable
+    assert "EXCEPTION WHEN" not in executable.upper()
+
+
+def test_the_trigger_and_repository_qualify_every_relation(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 8, structural. No unqualified authority-relevant relation."""
+    with engine.begin() as conn:
+        body = conn.execute(
+            text(
+                "SELECT prosrc FROM pg_proc "
+                "WHERE proname = 'operator_event_receipt_requires_prior_commit'"
+            )
+        ).scalar_one()
+        config_setting = conn.execute(
+            text(
+                "SELECT proconfig FROM pg_proc "
+                "WHERE proname = 'operator_event_receipt_requires_prior_commit'"
+            )
+        ).scalar_one()
+    assert "public.operator_position_event" in body
+    assert "pg_catalog.pg_xact_status" in body
+    assert "pg_catalog.pg_current_xact_id" in body
+    assert config_setting is not None and any("search_path" in c for c in config_setting)
+
+    from empirical_platform.shared.persistence.postgres_repositories import (
+        operator_event_receipt_repository as module,
+    )
+
+    source = Path(module.__file__ or "").read_text(encoding="utf-8")
+    for unqualified in (
+        "FROM operator_position_event",
+        "FROM operator_event_receipt",
+        "INTO operator_event_receipt",
+    ):
+        assert unqualified not in source, unqualified
+
+
+def test_text_and_json_expose_exactly_the_same_corrected_authority(
+    clean_tables: Engine,
+) -> None:
+    config = _config()
+    _append(config, gid="EV-PAR", pos="POS-PAR")
+    _attest(config, "RC-PAR", "EV-PAR")
+    report = _report(config, datetime.now(UTC) + timedelta(days=1))
+    text_out, payload_json = _rendered(report)
+    payload = render_attested_evidence_report_json(report)
+
+    assert set(payload["entries"][0]) == {
+        "receipt_governance_id",
+        "event_governance_id",
+        "system_received_at",
+        "attested_by",
+        "attester_version",
+    }
+    for entry in payload["entries"]:
+        assert entry["receipt_governance_id"] in text_out
+        assert entry["event_governance_id"] in text_out
+    assert payload["banner"] in json.loads(payload_json)["banner"]
+    assert list(payload["limitations"]) == list(report.limitations)
+
+
+def test_receipt_identity_needed_for_future_watermarking_is_preserved(
+    clean_tables: Engine,
+) -> None:
+    """A future M083 must be able to bind to receipt identities.
+
+    The correction removed payload, not identity: every entry still carries its
+    receipt_governance_id and the event identity it names.
+    """
+    config = _config()
+    _append(config, gid="EV-WM", pos="POS-WM")
+    receipt = _attest(config, "RC-WM", "EV-WM")
+    entry = _report(config, datetime.now(UTC) + timedelta(days=1)).entries[0]
+    assert entry.receipt_governance_id == receipt.receipt_governance_id == "RC-WM"
+    assert entry.event_governance_id == "EV-WM"
+    assert entry.attester_version == receipt.attester_version

@@ -133,9 +133,7 @@ def _state(config: PostgreSQLConfigSnapshot, cutoff: datetime):  # noqa: ANN202
         events = runtime.operator_position_ledger.list_all()
         receipts = runtime.operator_event_receipts.list_all()
     return (
-        build_attested_evidence_report(
-            events=events, receipts=receipts, receipt_label_cutoff=cutoff
-        ),
+        build_attested_evidence_report(receipts=receipts, receipt_label_cutoff=cutoff),
         events,
         receipts,
     )

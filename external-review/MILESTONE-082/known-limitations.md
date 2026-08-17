@@ -122,3 +122,33 @@ snapshot excluded future rows structurally, because it did not — see
     returns `committed`, not NULL. The NULL branch rests on PostgreSQL's
     documented old-transaction semantics and is retained as an accept; it is
     stated here rather than claimed as measured.
+
+
+---
+
+## Added by the Owner correction mission (findings 7-11)
+
+29. **M082 does not attest the event PAYLOAD, current or historical.** M076
+    carries zero user-defined immutability triggers, so its row can be updated
+    after a receipt exists. Executed: an `UPDATE` changed the earlier artifact
+    while the receipt identity and label stood still. The artifact is now
+    receipt-only and emits no payload field at all.
+30. **What a receipt binds is identity.** A stable receipt identity to an exact
+    M076 event governance identity whose real `public` row was visible as coming
+    from a prior committed transaction at receipt insertion.
+31. **`system_received_at`, `attested_by` and `attester_version` are
+    application-assigned on the sanctioned `attest()` path and unauthenticated
+    as persisted values.** The database enforces the prior-committed origin of
+    the referenced event and nothing else about these three.
+32. **Every authority-relevant relation is schema-qualified.** An unqualified
+    name resolves through the caller's `search_path`, and `pg_temp` precedes
+    `public`. A non-superuser used exactly that to attest an in-progress event.
+33. **The cutoff is applied in SQL.** Rows beyond it are never fetched, so a
+    malformed far-future row cannot decide whether an earlier-cutoff artifact can
+    be built.
+34. **The status test is an explicit allowlist.** `committed` and a documented
+    `NULL` accept; everything else refuses. The previous denylist would have
+    accepted any future status value.
+35. **The report reads one store through one query.** The split ledger/receipt
+    read that raised `MissingAttestedEventError` during ordinary concurrency has
+    no mechanism left.

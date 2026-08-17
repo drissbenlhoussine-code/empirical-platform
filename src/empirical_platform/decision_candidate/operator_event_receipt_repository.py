@@ -7,6 +7,7 @@ database trigger is the other half.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from empirical_platform.decision_candidate.operator_event_receipt import OperatorEventReceipt
@@ -41,9 +42,20 @@ class OperatorEventReceiptRepository(Protocol):
         """The receipt for one event, or None if it has never been attested."""
         ...
 
+    def list_labelled_by(self, receipt_label_cutoff: datetime) -> tuple[OperatorEventReceipt, ...]:
+        """Only receipts labelled at or before the cutoff, narrowed BY THE STORE.
+
+        Implementations MUST apply the cutoff in the query, not after mapping.
+        A row beyond the cutoff must never be fetched, mapped or validated --
+        owner review finding 9, where a malformed far-future row decided whether
+        an earlier-cutoff report could be built at all.
+        """
+        ...
+
     def list_all(self) -> tuple[OperatorEventReceipt, ...]:
         """Every receipt, ordered by (system_received_at, event_governance_id).
 
-        Deterministic ordering only. This is NOT an ordering authority.
+        Deterministic ordering only. This is NOT an ordering authority. The
+        authoritative report uses `list_labelled_by`, never this.
         """
         ...

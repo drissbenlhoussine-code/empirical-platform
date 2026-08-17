@@ -19,8 +19,8 @@ import pytest
 
 from empirical_platform.decision_candidate.operator_event_receipt import (
     ATTESTED_EVIDENCE_BANNER,
+    AttestedEventEntry,
     AttestedEvidenceReport,
-    MissingAttestedEventError,
     OperatorEventReceipt,
     build_attested_evidence_report,
     events_with_receipt_labelled_by,
@@ -97,8 +97,14 @@ def report(
     *,
     cutoff_day: int,
 ) -> AttestedEvidenceReport:
+    """`events` is accepted and DELIBERATELY IGNORED.
+
+    The signature is kept so the finding-1 non-interference tests still read as
+    written, and so a reader can see that supplying events changes nothing. The
+    artifact is receipt-only after Owner finding 7.
+    """
+    _ = tuple(events)
     return build_attested_evidence_report(
-        events=tuple(events),
         receipts=tuple(receipts),
         receipt_label_cutoff=BASE + timedelta(days=cutoff_day),
     )
@@ -157,6 +163,16 @@ def test_the_report_carries_no_future_tail_count() -> None:
     )
     fields = set(type(rep).__dataclass_fields__)
     assert fields == {"receipt_label_cutoff", "attested_count", "entries", "limitations"}
+    entry_fields = set(AttestedEventEntry.__dataclass_fields__)
+    assert entry_fields == {
+        "receipt_governance_id",
+        "event_governance_id",
+        "system_received_at",
+        "attested_by",
+        "attester_version",
+    }
+    for payload in ("position_governance_id", "instrument_symbol", "asserted_price"):
+        assert payload not in entry_fields, payload
     for banned in ("attested_after_cutoff_count", "unattested_count", "excluded_count"):
         assert banned not in fields
         assert banned not in render_attested_evidence_report_json(rep)
@@ -196,9 +212,23 @@ def test_the_cutoff_is_inclusive(cutoff_day: int, expected: bool) -> None:
     ) is expected
 
 
-def test_a_receipt_for_an_unsupplied_event_is_refused_not_skipped() -> None:
-    with pytest.raises(MissingAttestedEventError, match="was not supplied"):
-        report([], [receipt(1, received_day=5)], cutoff_day=10)
+def test_a_receipt_needs_no_event_inventory_at_all() -> None:
+    """OWNER FINDING 7 + 10. The builder takes receipts and nothing else.
+
+    The previous version raised MissingAttestedEventError when a receipt named
+    an event the caller had not supplied -- which is exactly what happened
+    during ordinary concurrency, because the two inventories were read
+    separately. With no event parameter there is no such failure mode.
+    """
+    import inspect
+
+    assert "events" not in inspect.signature(build_attested_evidence_report).parameters
+    rep = build_attested_evidence_report(
+        receipts=(receipt(1, received_day=5),),
+        receipt_label_cutoff=BASE + timedelta(days=10),
+    )
+    assert [e.event_governance_id for e in rep.entries] == ["EVT-1"]
+    assert rep.entries[0].receipt_governance_id == "RCPT-1"
 
 
 # --------------------------------------------------------------------------
@@ -259,7 +289,7 @@ def test_the_banner_states_the_causal_claim_and_the_retraction() -> None:
 def test_the_limitations_retract_the_bound_and_deny_the_m079_replacement() -> None:
     rep = report([], [], cutoff_day=10)
     joined = " ".join(rep.limitations)
-    assert len(rep.limitations) == 17
+    assert len(rep.limitations) == 19
     assert "RETRACTED CLAIM" in joined
     assert "CAUSAL only" in joined
     assert "does NOT replace M079's recorded_at" in joined
@@ -271,6 +301,9 @@ def test_the_limitations_retract_the_bound_and_deny_the_m079_replacement() -> No
     assert "committed by a PRIOR transaction" in joined
     assert "UNAUTHENTICATED LABELS" in joined
     assert "ROW-LEVEL UPDATE/DELETE ONLY" in joined
+    assert "DOES NOT ATTEST THE PAYLOAD" in joined
+    assert "APPLICATION-ASSIGNED on the sanctioned" in joined
+    assert "UNAUTHENTICATED as a persisted value" in joined
 
 
 def test_events_with_receipt_labelled_by_never_reads_recorded_at() -> None:
@@ -289,7 +322,11 @@ def test_the_old_overclaiming_names_are_gone() -> None:
     """The renames are part of the correction, not cosmetic."""
     import empirical_platform.decision_candidate.operator_event_receipt as module
 
-    for withdrawn in ("attested_known_by", "AttestedEvidenceStatus"):
+    for withdrawn in (
+        "attested_known_by",
+        "AttestedEvidenceStatus",
+        "MissingAttestedEventError",
+    ):
         assert not hasattr(module, withdrawn), withdrawn
         assert withdrawn not in module.__all__
     assert "attested_as_of" not in AttestedEvidenceReport.__dataclass_fields__
@@ -352,9 +389,7 @@ def test_entry_order_does_not_depend_on_input_order() -> None:
 
 def test_a_naive_cutoff_is_refused_everywhere() -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
-        build_attested_evidence_report(
-            events=(), receipts=(), receipt_label_cutoff=datetime(2026, 1, 1)
-        )
+        build_attested_evidence_report(receipts=(), receipt_label_cutoff=datetime(2026, 1, 1))
     with pytest.raises(ValueError, match="timezone-aware"):
         events_with_receipt_labelled_by((), (), datetime(2026, 1, 1))
     with pytest.raises(ValueError, match="timezone-aware"):
@@ -422,7 +457,7 @@ def test_an_empty_snapshot_still_carries_every_limitation() -> None:
     rep = report([], [], cutoff_day=10)
     assert rep.entries == ()
     assert rep.attested_count == 0
-    assert len(rep.limitations) == 17
+    assert len(rep.limitations) == 19
     assert any("CAUSAL only" in lim for lim in rep.limitations)
     assert any("RETRACTED CLAIM" in lim for lim in rep.limitations)
     assert any("track_commit_timestamp" in lim for lim in rep.limitations)

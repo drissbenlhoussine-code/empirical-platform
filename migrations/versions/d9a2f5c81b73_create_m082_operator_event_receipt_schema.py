@@ -68,33 +68,40 @@ depends_on: None = None
 _TIMESTAMPTZ = sa.DateTime(timezone=True)
 
 _IMMUTABILITY_FUNCTION = """
-CREATE OR REPLACE FUNCTION operator_event_receipt_immutable()
+CREATE OR REPLACE FUNCTION public.operator_event_receipt_immutable()
 RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION
         'operator_event_receipt is append-only: % is not permitted', TG_OP;
 END;
 $$ LANGUAGE plpgsql
+SET search_path = pg_catalog, public
 """
 
 _IMMUTABILITY_TRIGGER = """
 CREATE TRIGGER operator_event_receipt_immutable_trigger
-BEFORE UPDATE OR DELETE ON operator_event_receipt
-FOR EACH ROW EXECUTE FUNCTION operator_event_receipt_immutable()
+BEFORE UPDATE OR DELETE ON public.operator_event_receipt
+FOR EACH ROW EXECUTE FUNCTION public.operator_event_receipt_immutable()
 """
 
 # Owner review finding 4. The FK alone accepts an event inserted earlier in the
 # SAME transaction, because it is visible to that transaction. This refuses it.
 _PRIOR_COMMIT_FUNCTION = """
-CREATE OR REPLACE FUNCTION operator_event_receipt_requires_prior_commit()
+CREATE OR REPLACE FUNCTION public.operator_event_receipt_requires_prior_commit()
 RETURNS trigger AS $$
 DECLARE
     event_xmin xid;
     probe numeric;
     writer_status text;
 BEGIN
+    -- SCHEMA-QUALIFIED (owner review finding 8). This read was previously
+    -- unqualified, so a caller could CREATE TEMP TABLE operator_position_event,
+    -- COMMIT a decoy row into it, and the trigger would resolve pg_temp ahead of
+    -- public. Executed by a role with rolsuper/rolcreatedb/rolcreaterole all
+    -- false: the receipt inserted, and after commit the event and the receipt
+    -- shared one xmin -- the same transaction the trigger exists to refuse.
     SELECT e.xmin INTO event_xmin
-      FROM operator_position_event e
+      FROM public.operator_position_event e
      WHERE e.governance_id = NEW.event_governance_id;
 
     IF NOT FOUND THEN
@@ -105,47 +112,48 @@ BEGIN
     -- Promote the 32-bit xmin into the current xid8 epoch. A transaction that
     -- is still in progress is necessarily in the current epoch, so this is
     -- exact for the only case being tested.
-    probe := (pg_current_xact_id()::text::numeric
-              - pg_current_xact_id()::xid::text::numeric)
+    probe := (pg_catalog.pg_current_xact_id()::text::numeric
+              - pg_catalog.pg_current_xact_id()::xid::text::numeric)
              + event_xmin::text::numeric;
 
-    -- NO EXCEPTION HANDLER. Owner review finding 6: an earlier version wrapped
+    -- NO EXCEPTION HANDLER (owner review finding 6). An earlier version wrapped
     -- this call in EXCEPTION WHEN OTHERS and treated any failure as an unknown
-    -- status, which was then ACCEPTED. That made the enforcement FAIL OPEN --
-    -- any unexpected error in the checker became permission to insert, which is
-    -- the opposite of what an invariant must do. Executed demonstration: a role
-    -- lacking EXECUTE on pg_xact_status raises "permission denied for function
-    -- pg_xact_status", and the old handler converted that into an accept.
-    --
-    -- pg_xact_status returns NULL by itself for a transaction too old to have
-    -- status information, so the documented old-xid case never needed a handler.
-    -- Anything else it raises -- a future xid8, a failed conversion, a missing
-    -- privilege -- now PROPAGATES and the INSERT fails closed.
-    writer_status := pg_xact_status(probe::text::xid8);
+    -- status, which was then ACCEPTED -- the enforcement FAILED OPEN. Executed
+    -- demonstration: a role lacking EXECUTE on pg_xact_status raises
+    -- "permission denied for function pg_xact_status", and the old handler
+    -- converted that into an accept. Any error now PROPAGATES.
+    writer_status := pg_catalog.pg_xact_status(probe::text::xid8);
 
-    -- 'in progress': the writer is our own transaction or a subtransaction of
-    --   it, since MVCC never shows another transaction's uncommitted rows.
-    -- 'aborted': unreachable for a row we can see -- an aborted writer's row is
-    --   visible to nobody, measured -- but refused rather than accepted,
-    --   because an aborted writer's event never committed at all.
-    -- 'committed': the event came from a prior transaction. Accept.
-    -- NULL: documented old-transaction semantics; a live transaction always has
-    --   its CLOG, so this cannot be an in-progress writer. Accept.
-    IF writer_status IN ('in progress', 'aborted') THEN
-        RAISE EXCEPTION
-            'operator_event_receipt requires a PRIOR COMMITTED event: % was '
-            'written by a transaction that is % , so no receipt can attest it',
-            NEW.event_governance_id, writer_status;
+    -- EXPLICIT ALLOWLIST (owner review, fail-closed hardening). The previous
+    -- form refused only 'in progress' and 'aborted', so any future or unexpected
+    -- non-NULL status value would have been ACCEPTED. Only two outcomes are
+    -- permitted, and everything else is refused:
+    --
+    --   'committed' -> the event came from a prior transaction. Accept.
+    --   NULL        -> pg_xact_status's documented answer for a transaction too
+    --                  old to have status information. A live transaction always
+    --                  has its CLOG, so this cannot be an in-progress writer.
+    --                  Accept, under exactly that limitation and no wider one.
+    --   anything else, including 'in progress' and 'aborted' -> REFUSE.
+    IF writer_status IS NULL OR writer_status = 'committed' THEN
+        RETURN NEW;
     END IF;
 
-    RETURN NEW;
+    RAISE EXCEPTION
+        'operator_event_receipt requires a PRIOR COMMITTED event: % was written '
+        'by a transaction whose status is %, so no receipt can attest it',
+        NEW.event_governance_id, writer_status;
 END $$ LANGUAGE plpgsql
+-- A pinned, minimal search_path: the function must not resolve anything through
+-- a caller-controlled path. Every relation and function above is qualified as
+-- well, so this is defence in depth rather than the only barrier.
+SET search_path = pg_catalog, public
 """
 
 _PRIOR_COMMIT_TRIGGER = """
 CREATE TRIGGER operator_event_receipt_requires_prior_commit_trigger
-BEFORE INSERT ON operator_event_receipt
-FOR EACH ROW EXECUTE FUNCTION operator_event_receipt_requires_prior_commit()
+BEFORE INSERT ON public.operator_event_receipt
+FOR EACH ROW EXECUTE FUNCTION public.operator_event_receipt_requires_prior_commit()
 """
 
 
@@ -171,6 +179,26 @@ def upgrade() -> None:
         sa.Column("attested_by", sa.String(length=64), nullable=False),
         sa.Column("attester_version", sa.String(length=32), nullable=False),
         sa.UniqueConstraint("event_governance_id", name="uq_operator_event_receipt_event"),
+        # Owner review finding 9. Without these the database accepted a receipt
+        # with a BLANK attested_by, which the domain then refused while
+        # CONSTRUCTING THE REPORT -- so a malformed row labelled far in the
+        # future made an earlier-cutoff report raise instead of ignoring it.
+        # The invariant belongs where the row is written, not where it is read.
+        sa.CheckConstraint(
+            "btrim(receipt_governance_id) <> ''",
+            name="ck_operator_event_receipt_receipt_id_present",
+        ),
+        sa.CheckConstraint(
+            "btrim(event_governance_id) <> ''",
+            name="ck_operator_event_receipt_event_id_present",
+        ),
+        sa.CheckConstraint(
+            "btrim(attested_by) <> ''", name="ck_operator_event_receipt_attested_by_present"
+        ),
+        sa.CheckConstraint(
+            "btrim(attester_version) <> ''",
+            name="ck_operator_event_receipt_attester_version_present",
+        ),
         sa.ForeignKeyConstraint(
             ["event_governance_id"],
             ["operator_position_event.governance_id"],
@@ -193,12 +221,13 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(
         "DROP TRIGGER IF EXISTS operator_event_receipt_requires_prior_commit_trigger "
-        "ON operator_event_receipt"
+        "ON public.operator_event_receipt"
     )
     op.execute(
-        "DROP TRIGGER IF EXISTS operator_event_receipt_immutable_trigger ON operator_event_receipt"
+        "DROP TRIGGER IF EXISTS operator_event_receipt_immutable_trigger "
+        "ON public.operator_event_receipt"
     )
     op.drop_index("ix_operator_event_receipt_received_at", table_name="operator_event_receipt")
     op.drop_table("operator_event_receipt")
-    op.execute("DROP FUNCTION IF EXISTS operator_event_receipt_immutable()")
-    op.execute("DROP FUNCTION IF EXISTS operator_event_receipt_requires_prior_commit()")
+    op.execute("DROP FUNCTION IF EXISTS public.operator_event_receipt_immutable()")
+    op.execute("DROP FUNCTION IF EXISTS public.operator_event_receipt_requires_prior_commit()")

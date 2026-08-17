@@ -1,8 +1,12 @@
-"""MILESTONE-082 CLI. Read-only: no attestation path is reachable from here.
+"""MILESTONE-082 receipt-label-cutoff view CLI.
+
+Read-only: no attestation path is reachable from here.
 
 The flag is `--receipt-label-cutoff`, RENAMED from `--attested-as-of` by Owner
-review finding 2: "as of" claimed a point-in-time knowledge stance the
-system-assigned label cannot support.
+review finding 2: "as of" claimed a point-in-time knowledge stance the label
+cannot support. This module emits a VIEW, never a snapshot, and it reads the
+receipt store alone -- the M076 ledger is not a dependency of this entry point
+(owner review findings 7 and 10).
 """
 
 from __future__ import annotations
@@ -24,7 +28,7 @@ from empirical_platform.usecases.attested_evidence_io import (
 )
 
 _USAGE = (
-    "usage: empirical-platform-attested-evidence-snapshot [--json] "
+    "usage: empirical-platform-receipt-label-cutoff-view [--json] "
     "--receipt-label-cutoff <ISO-8601 with offset>"
 )
 
@@ -62,7 +66,6 @@ def main() -> None:
     config = resolve_foundation_config().postgresql
     with postgres_repository_runtime(config) as runtime:
         handler = GetAttestedEvidenceReportHandler(
-            operator_position_ledger_repository=runtime.operator_position_ledger,
             operator_event_receipt_repository=runtime.operator_event_receipts,
         )
         entry_point = QueryEntryPoint(handler)

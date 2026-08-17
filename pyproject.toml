@@ -123,7 +123,7 @@ empirical-platform-audit-follow-through = "empirical_platform.entrypoints.audit_
 empirical-platform-operator-evidence-snapshot = "empirical_platform.entrypoints.get_operator_evidence_snapshot:main"
 empirical-platform-asserted-round-trip = "empirical_platform.entrypoints.get_asserted_round_trip_report:main"
 empirical-platform-asserted-round-trip-ratio = "empirical_platform.entrypoints.get_asserted_round_trip_ratio_report:main"
-empirical-platform-attested-evidence-snapshot = "empirical_platform.entrypoints.get_attested_evidence_report:main"
+empirical-platform-receipt-label-cutoff-view = "empirical_platform.entrypoints.get_attested_evidence_report:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

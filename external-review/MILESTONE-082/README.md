@@ -14,7 +14,17 @@ Base `master` `28a1053`.
 > Read `owner-review-correction-pass.md` before anything else — it reproduces
 > both defects by execution and records exactly what the milestone now claims.
 
-## What M082 claims, after the correction
+## What M082 claims, after every correction
+
+> A persisted M082 receipt binds a stable receipt identity to an exact M076
+> event governance identity whose real public-table row was visible as coming
+> from a prior committed transaction at receipt insertion. The receipt label is
+> not commit time, trusted wall-clock truth, historical knowledge time, or proof
+> of availability at an arbitrary cutoff.
+>
+> **M082 does not attest the current or historical payload of that M076 event.**
+
+## The earlier statement of the causal claim
 
 **A causal fact, and nothing more:**
 
@@ -106,6 +116,11 @@ consuming this authority.
 | Owner 4 | a persisted row did not prove the causal claim — a same-transaction direct SQL INSERT forged one |
 | Owner 5 | the label cutoff is not a stable snapshot; a later backdated label changes the same cutoff |
 | Owner 6 | the prior-commit trigger caught `EXCEPTION WHEN OTHERS` and **failed open** — any checker error became permission to insert |
+| Owner 7 | the receipt did **not** bind the event payload — a post-attestation `UPDATE` changed the artifact while the receipt stood still, and M076 has zero immutability triggers |
+| Owner 8 | a non-superuser shadowed `operator_position_event` through `pg_temp` and attested an in-progress event |
+| Owner 9 | malformed far-future rows reached the report and made an earlier-cutoff report **raise** |
+| Owner 10 | two non-atomic reads produced `MissingAttestedEventError` during ordinary concurrency |
+| Owner 11 | stale/contradictory claim surfaces, including active "snapshot" naming in the CLI |
 | R01 | the concurrent-loser path crashed with a nested unit of work instead of yielding |
 | R02 | this branch's migration broke frozen M076's reversibility test (test-only; re-verified in full) |
 
@@ -113,7 +128,8 @@ consuming this authority.
 
 | File | What it is |
 |---|---|
-| `owner-review-fail-closed-pass.md` | **start here** — finding 6, the fail-open enforcement, reproduced and corrected |
+| `owner-correction-mission-findings-7-11.md` | **start here** — findings 7–11, reproduced, ranked and corrected |
+| `owner-review-fail-closed-pass.md` | finding 6, the fail-open enforcement |
 | `owner-review-hardening-pass.md` | findings 3, 4 and 5 |
 | `owner-review-correction-pass.md` | the previous pass — findings 1 and 2 |
 | `reality-gate.md` | which claim level this reaches, and the two levels it no longer claims |
