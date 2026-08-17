@@ -32,6 +32,9 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from empirical_platform.decision_candidate.operator_event_receipt import (
+    BLANK_CHARACTERS as _FROZEN_BLANKS,
+)
+from empirical_platform.decision_candidate.operator_event_receipt import (
     events_with_receipt_labelled_by,
 )
 from empirical_platform.decision_candidate.operator_position_ledger import (
@@ -1599,16 +1602,10 @@ def test_receipt_identity_needed_for_future_watermarking_is_preserved(
 # OWNER REVIEW FINDINGS 12-14
 # --------------------------------------------------------------------------
 
-_BLANK_CASES = [
-    ("empty", ""),
-    ("space", " "),
-    ("tab", "\t"),
-    ("newline", "\n"),
-    ("cr", "\r"),
-    ("formfeed", "\f"),
-    ("vtab", "\v"),
-    ("nbsp", " "),
-]
+# OWNER FINDING 16. Every one of the 29 characters Python 3.13's bare
+# `str.strip()` removes, plus the empty string. Derived from BLANK_CHARACTERS
+# rather than retyped, so the cases cannot drift from the frozen set.
+_BLANK_CASES = [("empty", "")] + [(f"U+{ord(c):04X}", c) for c in sorted(_FROZEN_BLANKS)]
 
 
 @pytest.mark.parametrize(("label", "blank"), _BLANK_CASES)
@@ -1676,25 +1673,34 @@ def test_the_database_and_the_domain_share_one_blank_definition(
     Asserted character by character against the LIVE database, so the two
     definitions cannot drift apart silently.
     """
-    from empirical_platform.decision_candidate.operator_event_receipt import BLANK_CHARACTERS
+    complete = {chr(c) for c in range(0x110000) if chr(c) and not chr(c).strip()}
+    assert set(_FROZEN_BLANKS) == complete, "the frozen set is not the complete strip() set"
+    assert len(_FROZEN_BLANKS) == 29
 
-    for _label, blank in _BLANK_CASES:
-        python_blank = not blank.strip(BLANK_CHARACTERS)
-        with engine.begin() as conn:
-            database_accepts = conn.execute(
-                text("SELECT btrim(:v, :chars) <> ''"),
-                {"v": blank, "chars": BLANK_CHARACTERS},
-            ).scalar_one()
-        assert python_blank is True
-        assert database_accepts is False, f"database accepted {blank!r} which Python calls blank"
+    # Parity is asserted against the INSTALLED constraint definitions read back
+    # from pg_constraint, NOT against a btrim expression this test invents --
+    # otherwise the test would prove only that it agrees with itself.
+    with engine.begin() as conn:
+        installed = dict(
+            conn.execute(
+                text(
+                    "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
+                    "WHERE conname LIKE 'ck_operator_event_receipt%'"
+                )
+            ).all()
+        )
+    assert len(installed) == 4, installed
+    for definition in installed.values():
+        for blank in _FROZEN_BLANKS:
+            assert blank in definition, f"installed CHECK omits U+{ord(blank):04X}"
 
-    for ok in ("x", " x ", "\tx\t"):
+    for ok in ("x", " x ", "\tx\t", "v", "valve"):
         with engine.begin() as conn:
-            database_accepts = conn.execute(
-                text("SELECT btrim(:v, :chars) <> ''"), {"v": ok, "chars": BLANK_CHARACTERS}
+            survives = conn.execute(
+                text("SELECT btrim(:v, :chars) <> ''"), {"v": ok, "chars": _FROZEN_BLANKS}
             ).scalar_one()
-        assert database_accepts is True
-        assert ok.strip(BLANK_CHARACTERS) != ""
+        assert survives is True, ok
+        assert ok.strip() != ""
 
 
 def test_no_rendering_claims_sanctioned_path_provenance_for_a_row(
@@ -1764,3 +1770,67 @@ def test_a_backward_clock_attestation_leaves_no_later_label_claim(
     assert "UNATTESTED GAP" in joined
     assert "numerically EARLIER or later" in joined
     assert "never retroactive historical authority" in joined
+
+
+def test_the_sanctioned_command_and_domain_reject_every_blank(clean_tables: Engine) -> None:
+    """OWNER FINDING 16 - the application boundary, not only the database.
+
+    The database CHECKs are one half. `AttestOperatorEventReceiptCommand` and
+    `OperatorEventReceipt` must refuse the same 29 characters, so a caller
+    cannot reach persistence with one in the first place.
+    """
+    from empirical_platform.decision_candidate.operator_event_receipt import OperatorEventReceipt
+    from empirical_platform.usecases.attest_operator_event_receipt import (
+        AttestOperatorEventReceiptCommand,
+    )
+
+    for blank in ["", *sorted(_FROZEN_BLANKS)]:
+        with pytest.raises(ValueError, match="must be non-empty"):
+            AttestOperatorEventReceiptCommand(
+                receipt_governance_id=blank, event_governance_id="EV", attested_by="a"
+            )
+        with pytest.raises(ValueError, match="must be non-empty"):
+            AttestOperatorEventReceiptCommand(
+                receipt_governance_id="RC", event_governance_id=blank, attested_by="a"
+            )
+        with pytest.raises(ValueError, match="must be non-empty"):
+            AttestOperatorEventReceiptCommand(
+                receipt_governance_id="RC", event_governance_id="EV", attested_by=blank
+            )
+        with pytest.raises(ValueError, match="must be non-empty"):
+            OperatorEventReceipt(
+                receipt_governance_id="RC",
+                event_governance_id="EV",
+                system_received_at=datetime(2026, 1, 1, tzinfo=UTC),
+                attested_by="a",
+                attester_version=blank,
+            )
+
+    # Controls: the letter v and padded identifiers must still construct.
+    for ok in ("v", "valve", " padded "):
+        AttestOperatorEventReceiptCommand(
+            receipt_governance_id=ok, event_governance_id="EV", attested_by=ok
+        )
+
+
+def test_no_active_surface_claims_sanctioned_provenance_without_qualification(
+    clean_tables: Engine,
+) -> None:
+    """OWNER FINDING 17 - application-clock wording needs an explicit qualifier.
+
+    Any active mention of an application clock or application constant must sit
+    under an explicit ON THE SANCTIONED attest() PATH qualification, and generic
+    persisted rows must be described as UNAUTHENTICATED PROVENANCE.
+    """
+    config = _config()
+    _append(config, gid="EV-CLAIM", pos="POS-CLAIM")
+    _attest(config, "RC-CLAIM", "EV-CLAIM")
+    report = _report(config, datetime.now(UTC) + timedelta(days=1))
+    text_out, payload_json = _rendered(report)
+    joined = " ".join(report.limitations)
+
+    for surface in (text_out, payload_json, joined):
+        assert "UNAUTHENTICATED PROVENANCE" in surface
+    assert "sanctioned attest() path" in joined or "SANCTIONED attest() PATH" in joined
+    # No unqualified per-entry provenance assertion may survive.
+    assert "applied on the sanctioned attest path" not in text_out

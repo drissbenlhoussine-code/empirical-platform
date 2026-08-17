@@ -719,3 +719,24 @@ unattested" and "only a LATER label" are retracted.
 > prior committed transaction at receipt insertion. It does not attest event
 > payload, wall-clock chronology, commit time, historical availability or the
 > provenance of persisted metadata labels.
+
+
+---
+
+## GLOBAL SUPERSESSION NOTICE (owner findings 16-18)
+
+Where any section above conflicts with
+`external-review/MILESTONE-082/owner-correction-mission-findings-16-18.md`,
+**that file wins**. In particular:
+
+* the blank invariant is the **complete Python 3.13 `str.strip()` set, all 29
+  codepoints** - the earlier seven-character set is **RETRACTED**, because it
+  made the database and the domain agree by weakening Python rather than by
+  mirroring it;
+* application-clock and application-constant wording is valid only under an
+  explicit **ON THE SANCTIONED `attest()` PATH** qualification, and generic
+  persisted rows carry **UNAUTHENTICATED PROVENANCE**;
+* the console command is `empirical-platform-receipt-label-cutoff-view` and the
+  flag is `--receipt-label-cutoff`.
+
+Older text is preserved deliberately; nothing above has been deleted.

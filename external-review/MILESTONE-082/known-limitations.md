@@ -165,12 +165,12 @@ snapshot excluded future rows structurally, because it did not — see
 
 ## Added by the Owner correction mission (findings 12-15)
 
-36. **"Blank" is an explicitly enumerated, shared character set.** The database
+36. **RETRACTED AND REPLACED BY ITEM 42.** *(Original text:)* "Blank" is an explicitly enumerated, shared character set. The database
     and the domain use `BLANK_CHARACTERS` verbatim and are asserted equal against
     the live database. Neither engine's native whitespace notion could be made to
     match the other's: PostgreSQL's `[:space:]` excludes vertical tab and NBSP,
     and Python's `str.strip()` covers far more of Unicode.
-37. **Exotic Unicode whitespace outside that set is accepted by both sides.**
+37. **RETRACTED AND REPLACED BY ITEM 42.** *(Original text:)* Exotic Unicode whitespace outside that set is accepted by both sides.
     Stated rather than hidden. Agreement is the property that matters: the
     database is the write boundary and the domain must never reject what the
     database stored.
@@ -190,3 +190,22 @@ snapshot excluded future rows structurally, because it did not — see
     own clock model.
 41. **A legacy event may later be explicitly attested**, creating only current
     causal receipt authority - never retroactive historical authority.
+
+
+---
+
+## Added by the Owner correction mission (findings 16-18)
+
+42. **"Blank" is the COMPLETE Python 3.13 `str.strip()` set - all 29
+    codepoints.** Items 36 and 37 are retracted: the earlier seven-character set
+    made the two sides agree by WEAKENING Python, so `U+2003 EM SPACE` and
+    twenty other blanks would have been accepted by both. The domain uses bare
+    `str.strip()`; the migration carries a frozen raw literal because a
+    migration is history and must not import mutable application code; a test
+    asserts the two agree against the INSTALLED constraint definitions.
+43. **Both boundaries refuse all 29.** The database CHECKs and the sanctioned
+    command/domain construction path, proved by 120 executed CHECK attacks and
+    the same 30 cases through construction.
+44. **Application-clock and application-constant wording appears only under an
+    explicit ON THE SANCTIONED `attest()` PATH qualification.** Generic persisted
+    rows are UNAUTHENTICATED PROVENANCE.

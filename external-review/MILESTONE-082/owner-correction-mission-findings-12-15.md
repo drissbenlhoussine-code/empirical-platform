@@ -1,6 +1,11 @@
 # M082 - Owner Correction Mission, Findings 12-15
 
-**THIS IS THE AUTHORITATIVE LATEST CORRECTION.** Every other file in this
+> **⚠ SUPERSEDED by `owner-correction-mission-findings-16-18.md`.** In
+> particular its Finding 12 resolution NARROWED the Python blank invariant to
+> seven characters; Owner finding 16 restored the complete 29-character set.
+> Kept visible as the record of what was believed at the time.
+
+**(Historical) THIS WAS THE AUTHORITATIVE LATEST CORRECTION.** Every other file in this
 package describes an earlier candidate. Where they conflict with this one, this
 one wins.
 

@@ -412,3 +412,59 @@ figures for the current head. Measured with the working tree clean.
 > substitution ran before the edit that was meant to replace them. Two separate
 > self-referential-stamp mistakes in one file, immediately after correcting
 > Owner finding 15 about exactly this drift.
+
+
+---
+
+# AUTHORITATIVE FINAL SECTION — Owner correction mission, findings 16–18
+
+**Everything above this line, including the previous "authoritative final
+section", describes an EARLIER candidate.** Measured with the working tree clean.
+
+| | |
+|---|---|
+| HEAD | the commit containing this file — SHA reported in the delivery report and on PR #12 |
+| base master | `28a10530dbc295fedacfa89c8aef246b35a0b86e` |
+| PostgreSQL | **16.13** |
+| console command | **`empirical-platform-receipt-label-cutoff-view`** |
+
+## Focused suites
+
+| Suite | Result |
+|---|---|
+| M082 unit | **40 passed** |
+| M082 PostgreSQL lifecycle | **181 passed** |
+| M082 fresh second pass | **4 passed** |
+| M076–M082 compatibility chain | **673 passed** |
+
+The lifecycle suite grew from 91 to 181 because the blank attack is now
+parametrised over **30 cases × 4 persisted columns = 120 executed CHECK
+attacks**, plus the sanctioned command/domain rejection and provenance sweeps.
+
+## Migration up / down / up
+
+```
+after up     table=yes rows=0 triggers=2 functions=2 checks=4
+after down   table=NO  rows=None triggers=0 functions=0 checks=0
+after up#2   table=yes rows=0 triggers=2 functions=2 checks=4
+```
+
+## Full regression vs master `28a1053`
+
+| Mode | Baseline | Candidate | Failing-ID diff |
+|---|---|---|---|
+| PostgreSQL **on** | 24 failed, 2704 passed, 14 skipped, 44 errors | 24 failed, **2929** passed, 14 skipped, 44 errors | **EMPTY** — 68 ids each side |
+| PostgreSQL **off** | 8 failed, 2285 passed, 481 skipped, 12 errors | 8 failed, **2327** passed, 664 skipped, 12 errors | **EMPTY** — 20 ids each side |
+
+**+225 passing with PostgreSQL on, +42 with it off. Zero new failures.**
+
+## Static, security and build
+
+`compileall` clean · `ruff check` passed · `ruff format --check` 613 files ·
+`mypy` 312 source files · architecture exit 0 · negative fixture exit 1 ·
+secret scan **0 findings**. **No suppressions.**
+
+## CI
+
+Reported in the delivery report and on PR #12. A commit cannot contain the id of
+the run it triggers.

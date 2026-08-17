@@ -65,6 +65,28 @@ down_revision: str | None = "b7e1c4a95d38"
 branch_labels: None = None
 depends_on: None = None
 
+# FROZEN LITERAL, owner finding 16: the complete Python 3.13 str.strip()
+# whitespace set, all 29 codepoints. A migration is history and must NOT import
+# mutable application code, so this is written out rather than derived. A test
+# asserts it still agrees with BLANK_CHARACTERS on every one of the 29.
+#
+# RAW strings: these escapes are for PostgreSQL's E'' parser, not Python's. A
+# non-raw literal would have Python decode them first and hand PostgreSQL the
+# actual control characters instead of the escape text.
+_BLANK_SQL = (
+    r"\x09\x0A\x0B\x0C\x0D\x1C"
+    r"\x1D\x1E\x1F\x20\u0085\u00A0"
+    r"\u1680\u2000\u2001\u2002\u2003\u2004"
+    r"\u2005\u2006\u2007\u2008\u2009\u200A"
+    r"\u2028\u2029\u202F\u205F\u3000"
+)
+
+
+def _not_blank(column: str) -> str:
+    """The blank CHECK for one column, using the frozen 29-character set."""
+    return f"btrim({column}, E'{_BLANK_SQL}') <> ''"
+
+
 _TIMESTAMPTZ = sa.DateTime(timezone=True)
 
 _IMMUTABILITY_FUNCTION = """
@@ -192,20 +214,29 @@ def upgrade() -> None:
         # way, btrim('valve', set) returned 'alve' -- the constraint would have
         # stripped a real letter out of legitimate identifiers. Caught only by
         # running the per-character test over all four columns.
+        #
+        # OWNER FINDING 16. The set is now the COMPLETE Python 3.13 str.strip()
+        # whitespace set, all 29 codepoints, written as a FROZEN LITERAL. An
+        # earlier version used only seven characters, which made the two sides
+        # agree by WEAKENING Python rather than by mirroring it.
+        #
+        # The literal is frozen here on purpose: a migration is history and must
+        # not import mutable application code. A test asserts this installed
+        # constraint and BLANK_CHARACTERS still agree on all 29.
         sa.CheckConstraint(
-            "btrim(receipt_governance_id, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
+            _not_blank("receipt_governance_id"),
             name="ck_operator_event_receipt_receipt_id_present",
         ),
         sa.CheckConstraint(
-            "btrim(event_governance_id, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
+            _not_blank("event_governance_id"),
             name="ck_operator_event_receipt_event_id_present",
         ),
         sa.CheckConstraint(
-            "btrim(attested_by, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
+            _not_blank("attested_by"),
             name="ck_operator_event_receipt_attested_by_present",
         ),
         sa.CheckConstraint(
-            "btrim(attester_version, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
+            _not_blank("attester_version"),
             name="ck_operator_event_receipt_attester_version_present",
         ),
         sa.ForeignKeyConstraint(

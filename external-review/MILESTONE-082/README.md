@@ -130,6 +130,9 @@ consuming this authority.
 | Owner 13 | metadata provenance overclaimed — the text renderer asserted sanctioned-path origin for forgeable rows |
 | Owner 14 | crash/reconciliation language reintroduced clock chronology and contradicted itself |
 | Owner 15 | the versioned evidence package was not reconciled to the current candidate |
+| Owner 16 | the blank invariant had been **weakened** to seven characters rather than restored to Python's full 29 |
+| Owner 17 | provenance wording still needed an explicit sanctioned-path qualifier |
+| Owner 18 | active evidence surfaces needed reconciling to the real latest correction |
 | R01 | the concurrent-loser path crashed with a nested unit of work instead of yielding |
 | R02 | this branch's migration broke frozen M076's reversibility test (test-only; re-verified in full) |
 
@@ -137,7 +140,8 @@ consuming this authority.
 
 | File | What it is |
 |---|---|
-| `owner-correction-mission-findings-12-15.md` | **START HERE — authoritative latest.** Findings 12–15 |
+| `owner-correction-mission-findings-16-18.md` | **START HERE — authoritative latest.** Findings 16–18 |
+| `owner-correction-mission-findings-12-15.md` | findings 12–15 |
 | `owner-correction-mission-findings-7-11.md` | findings 7–11 |
 | `owner-review-fail-closed-pass.md` | finding 6, the fail-open enforcement |
 | `owner-review-hardening-pass.md` | findings 3, 4 and 5 |

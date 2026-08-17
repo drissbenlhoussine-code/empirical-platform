@@ -122,25 +122,37 @@ from empirical_platform.decision_candidate.operator_position_ledger import (
     OperatorAssertedPositionEvent,
 )
 
-# OWNER FINDING 12. The database and this module must classify EXACTLY the same
-# strings as blank, or a row the write boundary accepted can crash the read.
-# Executed against PostgreSQL 16.13, `btrim(v) <> ''` rejected only space and
-# empty: tab, newline, CR, formfeed, vertical tab and NBSP all PASSED the CHECK
-# while Python's bare `str.strip()` called every one of them blank. A tab-only
-# `attested_by` therefore persisted as an authoritative receipt and then raised
-# ValueError while the artifact was being built.
+# OWNER FINDINGS 12 AND 16. The database and this module must classify EXACTLY
+# the same strings as blank, or a row the write boundary accepted can crash the
+# read. Executed against PostgreSQL 16.13, `btrim(v) <> ''` rejected only space
+# and empty: tab, newline, CR, formfeed, vertical tab and NBSP all PASSED the
+# CHECK while Python called them blank. A tab-only `attested_by` therefore
+# persisted as an authoritative receipt and then raised ValueError while the
+# artifact was being built.
 #
-# Neither engine can be made to agree with the other's NATIVE notion of
-# whitespace: PostgreSQL's `[:space:]` excludes vertical tab and NBSP, and
-# Python's `str.strip()` covers far more of Unicode than any simple SQL
-# expression. So the definition is an EXPLICIT, ENUMERATED, SHARED set, used
-# verbatim on both sides and asserted equal by test.
+# RETRACTED (owner finding 16). The first correction NARROWED this module to a
+# seven-character set so the two sides would agree. That weakened the Python
+# invariant instead of restoring it: U+2003 EM SPACE and twenty other blanks
+# would then have been accepted by both. The invariant is now the COMPLETE
+# Python 3.13 `str.strip()` set, frozen explicitly and mirrored in the database.
 #
-# The deliberate consequence, stated rather than hidden: an exotic Unicode
-# whitespace character outside this set is accepted by BOTH sides. That is
-# agreement, which is the property that matters here -- the database is the
-# write boundary, and the domain must never reject what the database stored.
-BLANK_CHARACTERS = " \t\n\r\f\v\u00a0"
+# All 29 codepoints, derived by enumerating every `chr(c)` for which
+# `not chr(c).strip()` holds on Python 3.13:
+#
+#   U+0009 U+000A U+000B U+000C U+000D U+001C U+001D U+001E U+001F U+0020
+#   U+0085 U+00A0 U+1680 U+2000 U+2001 U+2002 U+2003 U+2004 U+2005 U+2006
+#   U+2007 U+2008 U+2009 U+200A U+2028 U+2029 U+202F U+205F U+3000
+#
+# This module keeps using bare `str.strip()`, which IS the invariant. The frozen
+# tuple exists so the migration can mirror it and a test can prove the two agree
+# on every one of the 29 - it is not a second, competing definition.
+BLANK_CHARACTERS = (
+    "\x09\x0a\x0b\x0c\x0d\x1c"
+    "\x1d\x1e\x1f\x20\u0085\u00a0"
+    "\u1680\u2000\u2001\u2002\u2003\u2004"
+    "\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
 
 __all__ = [
     "BLANK_CHARACTERS",
@@ -175,7 +187,7 @@ class OperatorEventReceipt:
             ("attested_by", self.attested_by),
             ("attester_version", self.attester_version),
         ):
-            if not value.strip(BLANK_CHARACTERS):
+            if not value.strip():
                 raise ValueError(f"{label} must be non-empty")
         # A naive datetime has no instant, so it cannot label anything.
         if self.system_received_at.tzinfo is None or self.system_received_at.utcoffset() is None:
