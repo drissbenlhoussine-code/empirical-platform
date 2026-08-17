@@ -401,4 +401,14 @@ figures for the current head. Measured with the working tree clean.
 
 | Head | Run | Result |
 |---|---|---|
-| `ef4224441431b7a5aae869ec18ab485d763d0d9f` | `<CI_RUN>` | `<CI_RESULT>` |
+| the commit containing this file | reported in the delivery report and on PR #12 | reported there |
+
+> A CI run id cannot exist before the commit that triggers it, so it cannot be
+> written into that same commit. It is reported alongside the head SHA rather
+> than fabricated here.
+>
+> **Recorded, not hidden:** an earlier version of this row carried a stale hash
+> and two unfilled `<CI_RUN>` / `<CI_RESULT>` placeholders, because my token
+> substitution ran before the edit that was meant to replace them. Two separate
+> self-referential-stamp mistakes in one file, immediately after correcting
+> Owner finding 15 about exactly this drift.
