@@ -2,7 +2,10 @@
 
 Everything here was **executed**. Nothing is argued.
 
-Old head `17d9f0d`. One correction commit, same branch, same PR (#12).
+Old head `17d9f0d`. **Two** correction commits, same branch, same PR (#12):
+`6337ba4` (the fail-closed fix) and `8415939` (repair of a defect `6337ba4`
+introduced). The mission asked for one commit if possible; it was not possible,
+and the reason is recorded below rather than hidden by an amend.
 
 ---
 
@@ -126,7 +129,69 @@ edit cannot reintroduce the swallow silently.
 
 ---
 
-## Three probe errors of my own, recorded
+## The defect I introduced, and the wrong diagnosis I gave
+
+This is the part of the pass worth the most scrutiny, so it is recorded as a
+sequence rather than as a footnote.
+
+### The causal sequence
+
+```
+  1. 6337ba4  fail-closed correction committed
+                 |
+                 |  in the SAME edit, an S106 lint finding (hardcoded probe-role
+                 |  password) was fixed by generating one with secrets and passing
+                 |  it as a bind parameter
+                 v
+  2.          DEFECT INTRODUCED
+                 CREATE ROLE ... LOGIN PASSWORD :pw
+                 CREATE ROLE is a UTILITY STATEMENT. PostgreSQL will not accept a
+                 bind parameter in one:
+                   psycopg.errors.SyntaxError: syntax error at or near "$1"
+                   LINE 1: CREATE ROLE m082_failclosed_probe LOGIN PASSWORD $1::VARCHAR
+                 v
+  3.          INCORRECT DIAGNOSIS
+                 The focused suite was run while the full regression still held the
+                 same database. It returned 11 failures. I attributed them ENTIRELY
+                 to that collision.
+                 The collision was real. It was also MASKING the defect above, and I
+                 stopped at the first plausible explanation instead of confirming it
+                 with a clean re-run.
+                 v
+  4.          FULL REGRESSION EXPOSED IT
+                 PostgreSQL-on: 25 failed vs baseline 24, diff 69 vs 68 ids,
+                 exactly one extra entry:
+                   > FAILED tests/integration/test_m082_operator_event_receipt_lifecycle.py::test_an_unexpected_checker_error_fails_closed
+                 v
+  5. 8415939  REPAIR
+                 secrets.token_hex(24) interpolated directly. Hex cannot contain a
+                 quote, so interpolation is safe BY CONSTRUCTION rather than by
+                 hoping. S106 stays clean; no suppression was added.
+                 v
+  6.          CLEAN RE-VERIFICATION
+                 M082 PostgreSQL suite: 44 passed, in isolation, at 8415939
+                 Full regression: 24 failed / 2792 passed / 44 errors, PostgreSQL on
+                                   8 failed / 2327 passed / 12 errors, PostgreSQL off
+                 Failing-ID diff: EMPTY in both modes (68 and 20 ids)
+```
+
+### What this says about the method
+
+The defect was **not** caught by any of the twelve mandated attacks, nor by the
+focused suite, nor by reading the code. It was caught by the one check that
+compares the whole suite against a baseline and diffs exact test identities.
+
+A single extra failing ID was the entire signal. Had I compared **counts**
+instead of **identities**, 25-vs-24 would still have been visible — but had I
+skipped the full regression on the grounds that "the change is small and the
+focused suite passes", the broken commit would have gone to Owner review
+claiming a fail-closed guarantee that its own regression test could not execute.
+
+The interim figures reported mid-pass were measured **before** the `secrets`
+edit and therefore described neither commit. `validation-results.md` now carries
+figures re-measured at `8415939`, with that error stated in place.
+
+## Three further probe errors of my own, recorded
 
 1. I asserted `"EXCEPTION" not in` the installed function body — which fails on
    the trigger's own `RAISE EXCEPTION`, the refusal that must stay. Narrowed to

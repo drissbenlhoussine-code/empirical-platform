@@ -42,7 +42,11 @@ New tests added by this pass, all against real PostgreSQL unless noted:
 | `test_the_old_overclaiming_names_are_gone` (unit) | the renames are load-bearing |
 | `test_a_receipt_for_an_unsupplied_event_is_refused_not_skipped` (unit) | a missing referent is a fault, not an absence |
 
-## Full regression, candidate vs master baseline `28a1053`
+## Full regression, CORRECTION-PASS candidate vs master baseline `28a1053`
+
+> These are the **correction-pass** figures (head `5be05bd`), retained as
+> history. The figures for the final head `8415939` are in the fail-closed
+> section at the end of this file.
 
 Measured by checking out the baseline SHA in the **same working tree** against
 the **same PostgreSQL instance**, then diffing sorted failing-test-id lists.
@@ -220,12 +224,51 @@ type-variable and range upper bounds. Recorded rather than quietly fixed.
 
 # Fail-closed pass - final measured figures
 
-| Suite | Hardening pass | **Fail-closed pass** |
+> **⚠ THESE FIGURES WERE RE-MEASURED AT THE FINAL HEAD `8415939`.**
+>
+> An earlier version of this section reported the same numbers, but they had
+> been measured **before** the `secrets` edit that introduced the `CREATE ROLE`
+> defect — so they described neither the broken intermediate `6337ba4` nor the
+> repaired final `8415939`. Reporting them as final was an evidence-consistency
+> error, and it is corrected here rather than quietly overwritten. See
+> `owner-review-fail-closed-pass.md` for the full causal sequence.
+>
+> Every figure below was taken with the working tree clean and identical to
+> `841593946353f43cb3b75e5983b6f81e707a910a`.
+
+| Suite | Hardening pass | **Fail-closed pass, measured at `8415939`** |
 |---|---|---|
-| M082 unit | 40 | **40** |
-| M082 PostgreSQL integration | 40 | **44** |
-| M082 fresh second pass | 4 | **4** |
-| M076-M082 compatibility chain | 532 | **536** |
+| M082 unit | 40 | **40 passed** |
+| M082 PostgreSQL integration | 40 | **44 passed** |
+| M082 fresh second pass | 4 | **4 passed** |
+| M076-M082 compatibility chain | 532 | **536 passed** |
+
+## Full regression at `8415939`, candidate vs master baseline `28a1053`
+
+Same working tree, same PostgreSQL instance, sorted failing-test-id lists diffed.
+
+| Mode | Baseline `28a1053` | Candidate `8415939` | Failing-ID diff |
+|---|---|---|---|
+| PostgreSQL **on** | 24 failed, 2704 passed, 14 skipped, 44 errors | 24 failed, **2792** passed, 14 skipped, 44 errors | **empty** - 68 ids each side |
+| PostgreSQL **off** | 8 failed, 2285 passed, 481 skipped, 12 errors | 8 failed, **2327** passed, 527 skipped, 12 errors | **empty** - 20 ids each side |
+
+> **The regression run that mattered most is the one that FAILED.** Against the
+> broken intermediate `6337ba4` the PostgreSQL-on run returned **25 failed** and
+> a diff of **69 vs 68 ids**, with exactly one extra entry:
+>
+> ```
+> > FAILED tests/integration/test_m082_operator_event_receipt_lifecycle.py::test_an_unexpected_checker_error_fails_closed
+> ```
+>
+> That single line is what exposed the `CREATE ROLE` defect after it had already
+> been misdiagnosed as a database-suite collision. The empty diff above is from
+> the re-run at `8415939`.
+
+## CI
+
+| Head | Run | Result |
+|---|---|---|
+| `8415939` | `32013982326` | **success**, 14/14 steps green |
 
 Four new PostgreSQL tests:
 
@@ -251,9 +294,19 @@ Four new PostgreSQL tests:
 secret scan **0 findings**.
 
 > One lint finding, fixed rather than suppressed: `S106`, a hardcoded password
-> for the throwaway probe role. Replaced with `secrets.token_urlsafe(18)`
-> generated per run and passed as a bound parameter. **No `# noqa` added.**
+> for the throwaway probe role.
+>
+> **⚠ SUPERSEDED — this described the BROKEN INTERMEDIATE `6337ba4`.** That fix
+> used `secrets.token_urlsafe(18)` passed as a **bound parameter**, and a bound
+> parameter is exactly what `CREATE ROLE` cannot take. The final implementation
+> at `8415939` uses **`secrets.token_hex(24)` interpolated directly** — hex
+> cannot contain a quote, so interpolation is safe by construction. `S106`
+> remains clean and **no `# noqa` was added** in either version.
 
 > **A sequencing error of my own:** I ran the focused M082 suite while the full
 > regression was still using the same database, and got 11 spurious failures.
-> Re-run after the regression completed. The collision was mine, not the code's.
+>
+> **⚠ That explanation was INCOMPLETE, and the incompleteness mattered.** The
+> collision was real, but it was masking a defect I had introduced in the same
+> edit — see the causal sequence in `owner-review-fail-closed-pass.md`. The full
+> regression caught it as one extra failing ID.
