@@ -1061,7 +1061,12 @@ def test_a_later_forward_labelled_receipt_does_not_change_the_same_cutoff(
 
 # Generated per run rather than hardcoded: a literal here is both a lint finding
 # and a bad habit to leave in a repository, even for a throwaway role.
-_PROBE_ROLE_PASSWORD = secrets.token_urlsafe(18)
+#
+# token_hex, not token_urlsafe: CREATE ROLE is a utility statement and PostgreSQL
+# will NOT accept a bind parameter in it, so this value has to be interpolated.
+# Hex cannot contain a quote, which makes interpolation safe here by
+# construction rather than by hoping.
+_PROBE_ROLE_PASSWORD = secrets.token_hex(24)
 
 _DROP_PROBE_ROLE = text(
     """
@@ -1099,9 +1104,7 @@ def test_an_unexpected_checker_error_fails_closed(clean_tables: Engine, engine: 
     with engine.begin() as conn:
         conn.execute(_DROP_PROBE_ROLE)
         conn.execute(
-            text("CREATE ROLE m082_failclosed_probe LOGIN PASSWORD :pw").bindparams(
-                pw=_PROBE_ROLE_PASSWORD
-            )
+            text(f"CREATE ROLE m082_failclosed_probe LOGIN PASSWORD '{_PROBE_ROLE_PASSWORD}'")
         )
         conn.execute(text("GRANT USAGE ON SCHEMA public TO m082_failclosed_probe"))
         conn.execute(
