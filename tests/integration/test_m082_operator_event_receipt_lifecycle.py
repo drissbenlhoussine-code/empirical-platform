@@ -529,8 +529,8 @@ def test_the_rendered_report_states_the_causal_claim_and_the_retraction(
     report = _report(config, datetime.now(UTC) + timedelta(days=1))
     text_out = render_attested_evidence_report_text(report)
     payload = render_attested_evidence_report_json(report)
-    assert "unauthenticated as a persisted value" in text_out
-    assert "NOT a bound on commit time" in text_out
+    assert "UNAUTHENTICATED PROVENANCE" in text_out
+    assert "DOES NOT prove the event was durably committed" in text_out
     assert "DOES NOT ATTEST THE PAYLOAD" in json.dumps(payload)
     assert "cannot say how many events it excluded" in text_out
     assert "re-evaluating this same cutoff later can return MORE" in text_out
@@ -1593,3 +1593,174 @@ def test_receipt_identity_needed_for_future_watermarking_is_preserved(
     assert entry.receipt_governance_id == receipt.receipt_governance_id == "RC-WM"
     assert entry.event_governance_id == "EV-WM"
     assert entry.attester_version == receipt.attester_version
+
+
+# --------------------------------------------------------------------------
+# OWNER REVIEW FINDINGS 12-14
+# --------------------------------------------------------------------------
+
+_BLANK_CASES = [
+    ("empty", ""),
+    ("space", " "),
+    ("tab", "\t"),
+    ("newline", "\n"),
+    ("cr", "\r"),
+    ("formfeed", "\f"),
+    ("vtab", "\v"),
+    ("nbsp", " "),
+]
+
+
+@pytest.mark.parametrize(("label", "blank"), _BLANK_CASES)
+@pytest.mark.parametrize(
+    "column", ["receipt_governance_id", "event_governance_id", "attested_by", "attester_version"]
+)
+def test_direct_sql_cannot_persist_a_blank_receipt_field(
+    clean_tables: Engine, engine: Engine, column: str, label: str, blank: str
+) -> None:
+    """OWNER FINDING 12 - every constrained field, every blank character.
+
+    Reproduced: `btrim(v) <> ''` strips only ordinary spaces, so tab, newline,
+    CR, formfeed, vertical tab and NBSP all PASSED the CHECK while Python called
+    them blank. A tab-only `attested_by` persisted as an authoritative receipt
+    and then raised ValueError while the report was being built.
+
+    The event_governance_id case is written through raw SQL with a matching M076
+    referent so the FOREIGN KEY cannot mask the CHECK.
+    """
+    config = _config()
+    values = {
+        "rid": "RC-BLANKTEST",
+        "gid": "EV-BLANKTEST",
+        "ts": datetime(2026, 4, 1, tzinfo=UTC),
+        "by": "attester",
+        "ver": "M082.1",
+    }
+    if column == "event_governance_id":
+        # The referent must exist under the blank id, or the FK would answer first.
+        with engine.begin() as conn:
+            conn.execute(_RAW_EVENT_SQL_QUALIFIED, _raw_event(blank, "POS-BLANKTEST"))
+        values["gid"] = blank
+    else:
+        _append(config, gid="EV-BLANKTEST", pos="POS-BLANKTEST")
+        values[
+            {"receipt_governance_id": "rid", "attested_by": "by", "attester_version": "ver"}[column]
+        ] = blank
+
+    with pytest.raises(sa.exc.IntegrityError, match="ck_operator_event_receipt"):
+        with engine.begin() as conn:
+            conn.execute(_RAW_RECEIPT_SQL_QUALIFIED, values)
+    assert _receipts(config) == ()
+
+
+def test_a_well_formed_direct_sql_receipt_still_persists(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """The control: strengthening the CHECKs must not reject legitimate rows."""
+    config = _config()
+    _append(config, gid="EV-WELL", pos="POS-WELL")
+    with engine.begin() as conn:
+        conn.execute(
+            _RAW_RECEIPT_SQL_QUALIFIED,
+            _raw_receipt("RC-WELL", "EV-WELL", datetime(2026, 4, 1, tzinfo=UTC), by=" padded "),
+        )
+    assert len(_receipts(config)) == 1
+    assert _report(config, datetime(2030, 1, 1, tzinfo=UTC)).attested_count == 1
+
+
+def test_the_database_and_the_domain_share_one_blank_definition(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 12, the invariant itself.
+
+    Asserted character by character against the LIVE database, so the two
+    definitions cannot drift apart silently.
+    """
+    from empirical_platform.decision_candidate.operator_event_receipt import BLANK_CHARACTERS
+
+    for _label, blank in _BLANK_CASES:
+        python_blank = not blank.strip(BLANK_CHARACTERS)
+        with engine.begin() as conn:
+            database_accepts = conn.execute(
+                text("SELECT btrim(:v, :chars) <> ''"),
+                {"v": blank, "chars": BLANK_CHARACTERS},
+            ).scalar_one()
+        assert python_blank is True
+        assert database_accepts is False, f"database accepted {blank!r} which Python calls blank"
+
+    for ok in ("x", " x ", "\tx\t"):
+        with engine.begin() as conn:
+            database_accepts = conn.execute(
+                text("SELECT btrim(:v, :chars) <> ''"), {"v": ok, "chars": BLANK_CHARACTERS}
+            ).scalar_one()
+        assert database_accepts is True
+        assert ok.strip(BLANK_CHARACTERS) != ""
+
+
+def test_no_rendering_claims_sanctioned_path_provenance_for_a_row(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 13 - forged metadata through direct SQL.
+
+    Reproduced: a direct SQL receipt for a genuinely prior-committed event was
+    accepted (by design) carrying FORGED-BY-DIRECT-SQL and FORGED-VERSION, and
+    the TEXT renderer nevertheless stated the label was "applied on the
+    sanctioned attest path". JSON never made that assertion, so the claimed
+    text/JSON parity was incomplete too.
+    """
+    config = _config()
+    _append(config, gid="EV-PROV", pos="POS-PROV")
+    with engine.begin() as conn:
+        conn.execute(
+            _RAW_RECEIPT_SQL_QUALIFIED,
+            _raw_receipt(
+                "RC-PROV",
+                "EV-PROV",
+                datetime(2026, 4, 1, tzinfo=UTC),
+                by="FORGED-BY-DIRECT-SQL",
+                ver="FORGED-VERSION",
+            ),
+        )
+    report = _report(config, datetime(2030, 1, 1, tzinfo=UTC))
+    entry = report.entries[0]
+    assert entry.attested_by == "FORGED-BY-DIRECT-SQL"
+    assert entry.attester_version == "FORGED-VERSION"
+
+    text_out, payload_json = _rendered(report)
+    for claim in ("applied on the sanctioned attest path", "on the sanctioned attest path"):
+        assert claim not in text_out, claim
+        assert claim not in payload_json, claim
+    assert "UNAUTHENTICATED PROVENANCE" in text_out
+    # Both renderings must carry the same narrow authority, not one of them only.
+    assert "UNAUTHENTICATED PROVENANCE" in payload_json
+    assert "FORGED-BY-DIRECT-SQL" in text_out and "FORGED-BY-DIRECT-SQL" in payload_json
+
+
+def test_a_backward_clock_attestation_leaves_no_later_label_claim(
+    clean_tables: Engine,
+) -> None:
+    """OWNER FINDING 14 - the chronology claim is false and must be gone.
+
+    Executed through the sanctioned repository path AFTER the event committed:
+    the label is 1999, numerically far earlier than the commit. Any active
+    statement that a later attestation can carry "only a LATER label" is
+    therefore false.
+    """
+    config = _config()
+    _append(config, gid="EV-CHRON", pos="POS-CHRON")
+    receipt = _attest_at(
+        config, "RC-CHRON", "EV-CHRON", datetime(1999, 1, 1, tzinfo=UTC), by="CALLER-CONTROLLED"
+    )
+    assert receipt.system_received_at.year == 1999
+    assert receipt.attested_by == "CALLER-CONTROLLED"
+
+    report = _report(config, datetime(2030, 1, 1, tzinfo=UTC))
+    text_out, payload_json = _rendered(report)
+    joined = " ".join(report.limitations)
+    for withdrawn in ("LATER label", "later true instant", "permanently unattested"):
+        for surface in (joined, text_out, payload_json):
+            if withdrawn in surface:
+                assert "RETRACTED" in surface, withdrawn
+    assert "UNATTESTED GAP" in joined
+    assert "numerically EARLIER or later" in joined
+    assert "never retroactive historical authority" in joined

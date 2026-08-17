@@ -12,6 +12,14 @@ EVERY RENDERED FIELD COMES FROM THE RECEIPT ROW. No position, no instrument, no
 payload of any kind -- owner review finding 7 proved that resolving those from
 the current M076 row let a post-attestation UPDATE change the artifact while the
 receipt stood still.
+
+NEITHER RENDERER ASSERTS SANCTIONED-PATH PROVENANCE FOR ANY INDIVIDUAL ROW
+(owner review finding 13). The text renderer previously said each entry's label
+was "applied on the sanctioned attest path" -- a claim it cannot authenticate. A
+direct SQL receipt for a genuinely prior-committed event is deliberately
+accepted, and it carried FORGED-BY-DIRECT-SQL and FORGED-VERSION straight into
+that sentence. JSON never made the assertion, so the claimed text/JSON parity was
+incomplete as well. Both now say the same thing: provenance is unauthenticated.
 """
 
 from __future__ import annotations
@@ -44,8 +52,8 @@ def render_attested_evidence_report_text(report: AttestedEvidenceReport) -> str:
         lines.append(
             f"      system_received_at={entry.system_received_at.isoformat()} "
             f"attested_by={entry.attested_by} attester_version={entry.attester_version} "
-            "(label applied on the sanctioned attest path; unauthenticated as a "
-            "persisted value; NOT a bound on commit time)"
+            "(UNAUTHENTICATED PROVENANCE: nothing here proves this row came "
+            "through attest(); direct SQL may supply any allowed value)"
         )
     for limitation in report.limitations:
         lines.append(f"  {limitation}")

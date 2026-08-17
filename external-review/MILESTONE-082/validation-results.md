@@ -1,5 +1,12 @@
 # M082 - Validation Results
 
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-12-15.md`**. Where this file conflicts
+> with it, that file wins. Nothing here is deleted: it is the record of what was
+> believed at the time, including the parts that were wrong.
+
+
 > **⚠ Superseded numbers below are from the previous pass.** The final authority
 > hardening pass re-ran everything; its figures are in the "Hardening pass"
 > section at the end of this file.
@@ -310,3 +317,80 @@ secret scan **0 findings**.
 > collision was real, but it was masking a defect I had introduced in the same
 > edit — see the causal sequence in `owner-review-fail-closed-pass.md`. The full
 > regression caught it as one extra failing ID.
+
+---
+
+# AUTHORITATIVE FINAL SECTION — Owner correction mission, findings 12–15
+
+**Everything above this line describes an EARLIER candidate.** These are the
+figures for the current head. Measured with the working tree clean.
+
+| | |
+|---|---|
+| HEAD | **`ef4224441431b7a5aae869ec18ab485d763d0d9f`** |
+| base master | `28a10530dbc295fedacfa89c8aef246b35a0b86e` |
+| PostgreSQL | **16.13** |
+| console command | **`empirical-platform-receipt-label-cutoff-view`** |
+
+> **RETRACTED / SUPERSEDED above:** `8415939` is **not** the final head; the old
+> console entry point `empirical-platform-attested-evidence-snapshot` and the old
+> flag `--attested-as-of` are **withdrawn**; the "true receipt-cutoff snapshot"
+> framing is **withdrawn** (owner findings 5 and 11).
+
+## Focused suites
+
+| Suite | Result |
+|---|---|
+| M082 unit | **40 passed** |
+| M082 PostgreSQL lifecycle | **91 passed** |
+| M082 fresh second pass | **4 passed** |
+| M076–M082 compatibility chain | **583 passed** |
+
+## Migration up / down / up
+
+| Check | Result |
+|---|---|
+| `upgrade head` | table present, **0 rows**, triggers **2**, functions **2**, CHECK constraints **4** |
+| `downgrade -1` | table gone, triggers 0, functions 0, checks 0 |
+| `upgrade head` again | table present, **0 rows**, triggers 2, functions 2, checks 4 |
+
+## M076 isolation
+
+| Check | Result |
+|---|---|
+| M082 migration removed → `alembic heads` | `b7e1c4a95d38 (head)` |
+| M076 reversibility test in isolation | **1 passed** |
+| full M076 suite with M082 present | **16 passed** |
+
+## Full regression vs master `28a1053`
+
+| Mode | Baseline | Candidate | Failing-ID diff |
+|---|---|---|---|
+| PostgreSQL **on** | 24 failed, 2704 passed, 14 skipped, 44 errors | 24 failed, **2839** passed, 14 skipped, 44 errors | **EMPTY** — 68 ids each side |
+| PostgreSQL **off** | 8 failed, 2285 passed, 481 skipped, 12 errors | 8 failed, **2327** passed, 574 skipped, 12 errors | **EMPTY** — 20 ids each side |
+
+**+135 passing with PostgreSQL on, +42 with it off. Zero new failures.**
+
+## Static, security and build
+
+| Gate | Result |
+|---|---|
+| `compileall src tests tools migrations` | clean |
+| `ruff check .` | All checks passed |
+| `ruff format --check .` | 613 files already formatted |
+| `python -m mypy` | Success, 312 source files |
+| architecture checker | exit 0 |
+| negative architecture fixture | exit 1 |
+| `pip-audit` | ran, no known vulnerabilities |
+| secret scan | **0 findings** |
+| `python -m build` | sdist + wheel |
+| clean-venv wheel import | OK |
+| console entry point in wheel | **`empirical-platform-receipt-label-cutoff-view`** |
+
+**No suppressions anywhere.**
+
+## CI
+
+| Head | Run | Result |
+|---|---|---|
+| `ef4224441431b7a5aae869ec18ab485d763d0d9f` | `<CI_RUN>` | `<CI_RESULT>` |

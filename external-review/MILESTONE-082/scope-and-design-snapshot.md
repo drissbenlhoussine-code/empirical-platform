@@ -1,5 +1,12 @@
 # MILESTONE-082 - Operator Event Receipt Attestation - Scope and Design
 
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-12-15.md`**. Where this file conflicts
+> with it, that file wins. Nothing here is deleted: it is the record of what was
+> believed at the time, including the parts that were wrong.
+
+
 > **⚠ CORRECTED AFTER OWNER REVIEW — READ THIS FIRST.**
 >
 > Two conclusions recorded below are **RETRACTED**. They are left in place, not

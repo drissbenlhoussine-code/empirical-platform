@@ -1,5 +1,12 @@
 # M082 - Reality Gate
 
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-12-15.md`**. Where this file conflicts
+> with it, that file wins. Nothing here is deleted: it is the record of what was
+> believed at the time, including the parts that were wrong.
+
+
 > **⚠ CORRECTED AFTER OWNER REVIEW.** Two claims that stood in the first version
 > of this file are **RETRACTED**. Both are quoted below rather than deleted, so
 > the original reasoning and its failure remain readable.

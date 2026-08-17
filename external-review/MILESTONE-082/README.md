@@ -76,7 +76,12 @@ ATTACK B - a new event added after W, in DB-A only
 The banner's own sentence *"Nothing attested after the cutoff influences any
 figure below"* was false.
 
-## What replaced it: a true receipt-cutoff snapshot
+## What replaced it: a receipt-label-cutoff VIEW
+
+> **⚠ RETRACTED heading.** This section was headed "a true receipt-cutoff
+> **snapshot**". Owner finding 5 established the artifact is not a snapshot, and
+> finding 11 required the word gone from active headings. Kept visible here
+> rather than deleted.
 
 The artifact is now built **from receipts** labelled at or before the cutoff.
 A later receipt and an unreceipted event are **structurally unreachable** — no
@@ -121,6 +126,10 @@ consuming this authority.
 | Owner 9 | malformed far-future rows reached the report and made an earlier-cutoff report **raise** |
 | Owner 10 | two non-atomic reads produced `MissingAttestedEventError` during ordinary concurrency |
 | Owner 11 | stale/contradictory claim surfaces, including active "snapshot" naming in the CLI |
+| Owner 12 | database and domain disagreed on "blank" — six whitespace characters passed the CHECK and then crashed the report |
+| Owner 13 | metadata provenance overclaimed — the text renderer asserted sanctioned-path origin for forgeable rows |
+| Owner 14 | crash/reconciliation language reintroduced clock chronology and contradicted itself |
+| Owner 15 | the versioned evidence package was not reconciled to the current candidate |
 | R01 | the concurrent-loser path crashed with a nested unit of work instead of yielding |
 | R02 | this branch's migration broke frozen M076's reversibility test (test-only; re-verified in full) |
 
@@ -128,7 +137,8 @@ consuming this authority.
 
 | File | What it is |
 |---|---|
-| `owner-correction-mission-findings-7-11.md` | **start here** — findings 7–11, reproduced, ranked and corrected |
+| `owner-correction-mission-findings-12-15.md` | **START HERE — authoritative latest.** Findings 12–15 |
+| `owner-correction-mission-findings-7-11.md` | findings 7–11 |
 | `owner-review-fail-closed-pass.md` | finding 6, the fail-open enforcement |
 | `owner-review-hardening-pass.md` | findings 3, 4 and 5 |
 | `owner-review-correction-pass.md` | the previous pass — findings 1 and 2 |
@@ -141,7 +151,7 @@ consuming this authority.
 | `focused-re-review.md` | the R01 correction re-attacked in its changed area |
 | `fresh-second-verification-pass.md` | separate database, different events, reversed attestation order |
 | `validation-results.md` | every gate, and the baseline-vs-candidate failing-ID diff |
-| `known-limitations.md` | 19 items, with the retracted ones quoted |
+| `known-limitations.md` | every limitation, with the retracted ones quoted |
 | `owner-review-checklist.md` | the judgment calls, stated so they can be overruled |
 | `changed-files.txt` | every file this branch touches |
 

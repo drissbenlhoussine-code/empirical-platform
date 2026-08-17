@@ -1,5 +1,12 @@
 # M082 - Owner Correction Mission, Findings 7-11
 
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-12-15.md`**. Where this file conflicts
+> with it, that file wins. Nothing here is deleted: it is the record of what was
+> believed at the time, including the parts that were wrong.
+
+
 Everything here was **executed**. Nothing is argued.
 
 Old head `699d7f9`. Same branch, same PR (#12).

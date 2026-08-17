@@ -302,8 +302,9 @@ def test_the_limitations_retract_the_bound_and_deny_the_m079_replacement() -> No
     assert "UNAUTHENTICATED LABELS" in joined
     assert "ROW-LEVEL UPDATE/DELETE ONLY" in joined
     assert "DOES NOT ATTEST THE PAYLOAD" in joined
-    assert "APPLICATION-ASSIGNED on the sanctioned" in joined
-    assert "UNAUTHENTICATED as a persisted value" in joined
+    assert "CALLER-SUPPLIED and passed through unchanged" in joined
+    assert "UNAUTHENTICATED PROVENANCE" in joined
+    assert "no individual row can be described as having come through" in joined
 
 
 def test_events_with_receipt_labelled_by_never_reads_recorded_at() -> None:

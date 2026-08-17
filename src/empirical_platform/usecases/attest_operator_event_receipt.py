@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from empirical_platform.decision_candidate.operator_event_receipt import (
+    BLANK_CHARACTERS,
     AttestedEvidenceReport,
     OperatorEventReceipt,
     build_attested_evidence_report,
@@ -42,7 +43,7 @@ class AttestOperatorEventReceiptCommand:
             ("event_governance_id", self.event_governance_id),
             ("attested_by", self.attested_by),
         ):
-            if not value.strip():
+            if not value.strip(BLANK_CHARACTERS):
                 raise ValueError(f"{label} must be non-empty")
 
 

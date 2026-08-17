@@ -1,5 +1,12 @@
 # M082 - Owner Review Checklist
 
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-12-15.md`**. Where this file conflicts
+> with it, that file wins. Nothing here is deleted: it is the record of what was
+> believed at the time, including the parts that were wrong.
+
+
 > **⚠ Rewritten after the Owner review correction pass.** Two calls in the first
 > version — that the label was an upper bound, and that the artifact was a
 > point-in-time snapshot — were **wrong**, not merely debatable. They are listed

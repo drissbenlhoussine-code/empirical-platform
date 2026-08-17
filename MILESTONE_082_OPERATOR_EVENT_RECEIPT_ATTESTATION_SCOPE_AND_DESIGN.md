@@ -28,7 +28,7 @@
 > NOT replace M079's `recorded_at` firewall.**
 >
 > Renames that followed: `attested_known_by` → `events_with_receipt_labelled_by`,
-> `attested_as_of` → `receipt_label_cutoff`, `--attested-as-of` →
+> `attested_as_of` → `receipt_label_cutoff`, `--attested-as-of *(SUPERSEDED - now `--receipt-label-cutoff`)*` →
 > `--receipt-label-cutoff`.
 
 
@@ -487,7 +487,13 @@ Plus the immutability trigger of §19. No change to any existing table.
 ## 24. CLI And Usecase
 
 One additive query entry point,
-`empirical-platform-attested-evidence-snapshot`, requiring `--attested-as-of`
+`empirical-platform-attested-evidence-snapshot
+
+> **⚠ SUPERSEDED (owner finding 11).** The console command above is
+> withdrawn. The current command is exactly
+> `empirical-platform-receipt-label-cutoff-view`, and the flag is
+> `--receipt-label-cutoff`. Old text kept visible.
+`, requiring `--attested-as-of`
 with **no default**, plus `--json`.
 
 Attestation itself is a usecase (`AttestOperatorEventReceiptHandler`) rather
@@ -676,3 +682,40 @@ any future status value.
 > of availability at an arbitrary cutoff.
 >
 > **M082 does not attest the current or historical payload of that M076 event.**
+
+
+---
+
+## Amended again by the Owner correction mission (findings 12-15)
+
+**Finding 12.** The database and the domain disagreed on "blank". `btrim(v) <> ''`
+strips only ordinary spaces, so tab, newline, CR, formfeed, vertical tab and NBSP
+all passed the CHECK while Python called them blank; a tab-only `attested_by`
+persisted and then crashed the report. Candidates were ranked and only one was
+achievable: **an explicitly enumerated set shared verbatim by both sides**,
+because PostgreSQL's `[:space:]` excludes vertical tab and NBSP while Python's
+`str.strip()` covers far more of Unicode. `BLANK_CHARACTERS` is defined once and
+asserted equal against the live database.
+
+**Finding 13.** Metadata provenance is now stated exactly: on the sanctioned
+path `system_received_at` comes from the host clock after read-back,
+`attester_version` from an application constant, and `attested_by` is
+**caller-supplied and passed through unchanged**. As persisted values all three
+have **unauthenticated provenance**, and no individual row is described as having
+come through `attest()`.
+
+**Finding 14.** A crash after event commit but before receipt insertion leaves an
+**unattested gap**; a later explicit attestation proves only its own causal
+ordering and its label may be numerically **earlier** or later. "Permanently
+unattested" and "only a LATER label" are retracted.
+
+**Finding 15.** Every superseded evidence file carries a top-level notice, and
+`validation-results.md` carries an authoritative final section.
+
+### The claim, in its final wording
+
+> A persisted receipt binds a stable receipt identity to an exact M076 event
+> governance identity whose real `public` row was observed as originating from a
+> prior committed transaction at receipt insertion. It does not attest event
+> payload, wall-clock chronology, commit time, historical availability or the
+> provenance of persisted metadata labels.

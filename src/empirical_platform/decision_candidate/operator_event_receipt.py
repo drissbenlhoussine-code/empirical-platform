@@ -122,7 +122,28 @@ from empirical_platform.decision_candidate.operator_position_ledger import (
     OperatorAssertedPositionEvent,
 )
 
+# OWNER FINDING 12. The database and this module must classify EXACTLY the same
+# strings as blank, or a row the write boundary accepted can crash the read.
+# Executed against PostgreSQL 16.13, `btrim(v) <> ''` rejected only space and
+# empty: tab, newline, CR, formfeed, vertical tab and NBSP all PASSED the CHECK
+# while Python's bare `str.strip()` called every one of them blank. A tab-only
+# `attested_by` therefore persisted as an authoritative receipt and then raised
+# ValueError while the artifact was being built.
+#
+# Neither engine can be made to agree with the other's NATIVE notion of
+# whitespace: PostgreSQL's `[:space:]` excludes vertical tab and NBSP, and
+# Python's `str.strip()` covers far more of Unicode than any simple SQL
+# expression. So the definition is an EXPLICIT, ENUMERATED, SHARED set, used
+# verbatim on both sides and asserted equal by test.
+#
+# The deliberate consequence, stated rather than hidden: an exotic Unicode
+# whitespace character outside this set is accepted by BOTH sides. That is
+# agreement, which is the property that matters here -- the database is the
+# write boundary, and the domain must never reject what the database stored.
+BLANK_CHARACTERS = " \t\n\r\f\v\u00a0"
+
 __all__ = [
+    "BLANK_CHARACTERS",
     "ATTESTED_EVIDENCE_BANNER",
     "AttestedEvidenceReport",
     "AttestedEventEntry",
@@ -154,7 +175,7 @@ class OperatorEventReceipt:
             ("attested_by", self.attested_by),
             ("attester_version", self.attester_version),
         ):
-            if not value.strip():
+            if not value.strip(BLANK_CHARACTERS):
                 raise ValueError(f"{label} must be non-empty")
         # A naive datetime has no instant, so it cannot label anything.
         if self.system_received_at.tzinfo is None or self.system_received_at.utcoffset() is None:
@@ -180,13 +201,18 @@ ATTESTED_EVIDENCE_BANNER = (
     "What a receipt PROVES is CAUSAL and clock-independent: the attestation "
     "process read the event back from COMMITTED persistence, and only then "
     "created the receipt. "
-    "What it does NOT prove is any wall-clock fact. system_received_at is "
-    "APPLICATION-ASSIGNED ON THE SANCTIONED attest() PATH, and UNAUTHENTICATED "
-    "AS A PERSISTED VALUE: the database enforces that the referenced event came "
-    "from a PRIOR COMMITTED transaction, but it does not authenticate the label, "
-    "the attester name or the attester version. The host clock can also be "
-    "wrong, adjusted or moved BACKWARD, so a label at or before the cutoff DOES "
-    "NOT prove the event was durably committed by that cutoff in real time. "
+    "What it does NOT prove is any wall-clock fact, and it does not prove where "
+    "the three metadata fields came from. ON THE SANCTIONED attest() PATH: "
+    "system_received_at comes from the application host clock after read-back, "
+    "attester_version from an application constant, and attested_by is "
+    "CALLER-SUPPLIED and passed through unchanged. AS PERSISTED VALUES all three "
+    "have UNAUTHENTICATED PROVENANCE -- a direct SQL receipt for a genuinely "
+    "prior-committed event is deliberately accepted, and may carry any allowed "
+    "value in any of the three. NO INDIVIDUAL ROW HERE CAN BE SAID TO HAVE COME "
+    "THROUGH attest(), because the database does not prove that. The host clock "
+    "can also be wrong, adjusted or moved BACKWARD, so a label at or before the "
+    "cutoff DOES NOT prove the event was durably committed by that cutoff in "
+    "real time. "
     "RETRACTED: an earlier version of this report claimed the label was an "
     "upper bound on commit time and that the report could never OVERSTATE what "
     "was known. Both claims are withdrawn -- they are false under a backward "
@@ -304,10 +330,15 @@ _LIMITATIONS = (
     "row can be updated after a receipt exists; executed, an UPDATE changed the "
     "earlier report while the receipt identity and label were unchanged. No "
     "payload field is emitted here at all",
-    "limitation: system_received_at is APPLICATION-ASSIGNED on the sanctioned "
-    "attest() path and UNAUTHENTICATED as a persisted value. attested_by and "
-    "attester_version are the same. The database enforces the PRIOR COMMITTED "
-    "origin of the referenced event and nothing else about these three fields",
+    "limitation: the three metadata fields have DIFFERENT origins on the "
+    "sanctioned attest() path and the SAME unauthenticated status once "
+    "persisted. system_received_at is taken from the application host clock "
+    "AFTER read-back; attester_version is an application constant; attested_by "
+    "is CALLER-SUPPLIED and passed through unchanged. As persisted values all "
+    "three have UNAUTHENTICATED PROVENANCE: a direct SQL receipt for a genuinely "
+    "prior-committed event is accepted by design and may carry arbitrary allowed "
+    "values, and no individual row can be described as having come through "
+    "attest() -- the database does not prove that",
     "limitation: RETRACTED CLAIM. Earlier versions of this artifact said "
     "system_received_at was an UPPER BOUND on the event's commit time, and that "
     "the report could never OVERSTATE what was known. Both are withdrawn. The "
@@ -357,17 +388,25 @@ _LIMITATIONS = (
     "such a row from one attest() produced",
     "limitation: this view CANNOT report how much evidence it excluded. A count "
     "of what it cannot see would itself be future-aware, so none is offered",
-    "limitation: an event absent from this view is NOT attested by M082. "
-    "That absence is NEVER filled in from recorded_at, event_timestamp, a "
-    "migration time or any other guess. Such an event remains a valid M076 "
-    "operator assertion carrying no M082 authority",
+    "limitation: an event absent from this view is NOT attested by M082. The "
+    "migration performs NO backfill and no historical receipt time is invented. "
+    "A legacy event may later be explicitly attested, but that creates only "
+    "CURRENT causal receipt authority -- never retroactive historical authority, "
+    "and never a reconstruction of when the event was originally knowable",
     "limitation: the M076 recording path is unchanged and still reachable, so "
     "M082 does NOT claim that all events carry receipt authority. Only events "
     "possessing a receipt are eligible for M082-authoritative analysis",
-    "limitation: a crash between the event's commit and its attestation leaves "
-    "the event permanently unattested. That honest absence is preferred to a "
-    "fabricated instant, and a later reconciliation may only assign a LATER "
-    "label, never a guessed historical one",
+    "limitation: a crash after the event commits but before the receipt is "
+    "inserted leaves an UNATTESTED GAP. The event remains unattested unless and "
+    "until a later explicit attestation succeeds. That later attestation proves "
+    "only its own causal ordering -- read-back before receipt insertion. Its "
+    "label is still untrusted and may be numerically EARLIER or later; it does "
+    "not reconstruct the original commit time or any historical knowledge time. "
+    "RETRACTED: earlier versions said the event was PERMANENTLY unattested and "
+    "that a later reconciliation could assign only a LATER label. The first "
+    "contradicts the second, and the second is false under this module's own "
+    "clock model -- executed, the sanctioned path produced a 1999 label for an "
+    "event that had just committed",
     "limitation: this report emits NO monetary value, NO ratio, NO aggregate "
     "and NO performance figure of any kind",
 )

@@ -179,24 +179,33 @@ def upgrade() -> None:
         sa.Column("attested_by", sa.String(length=64), nullable=False),
         sa.Column("attester_version", sa.String(length=32), nullable=False),
         sa.UniqueConstraint("event_governance_id", name="uq_operator_event_receipt_event"),
-        # Owner review finding 9. Without these the database accepted a receipt
-        # with a BLANK attested_by, which the domain then refused while
-        # CONSTRUCTING THE REPORT -- so a malformed row labelled far in the
-        # future made an earlier-cutoff report raise instead of ignoring it.
-        # The invariant belongs where the row is written, not where it is read.
+        # Owner review finding 9, CORRECTED BY FINDING 12. The first version used
+        # btrim(col) <> '', whose default strips ONLY ordinary spaces: tab,
+        # newline, CR, formfeed, vertical tab and NBSP all passed while Python
+        # called them blank, so a tab-only attested_by persisted and then crashed
+        # the report. The character set below is the SAME ENUMERATED SET as
+        # `BLANK_CHARACTERS` in decision_candidate/operator_event_receipt.py, and
+        # a test asserts the two agree character by character.
+        #
+        # \x0B, NOT \v: PostgreSQL's E'' syntax has no \v escape, so E'\v'
+        # yields the LETTER v (ascii 118), not vertical tab (11). Written that
+        # way, btrim('valve', set) returned 'alve' -- the constraint would have
+        # stripped a real letter out of legitimate identifiers. Caught only by
+        # running the per-character test over all four columns.
         sa.CheckConstraint(
-            "btrim(receipt_governance_id) <> ''",
+            "btrim(receipt_governance_id, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
             name="ck_operator_event_receipt_receipt_id_present",
         ),
         sa.CheckConstraint(
-            "btrim(event_governance_id) <> ''",
+            "btrim(event_governance_id, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
             name="ck_operator_event_receipt_event_id_present",
         ),
         sa.CheckConstraint(
-            "btrim(attested_by) <> ''", name="ck_operator_event_receipt_attested_by_present"
+            "btrim(attested_by, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
+            name="ck_operator_event_receipt_attested_by_present",
         ),
         sa.CheckConstraint(
-            "btrim(attester_version) <> ''",
+            "btrim(attester_version, E' \\t\\n\\r\\f\\x0B\\u00a0') <> ''",
             name="ck_operator_event_receipt_attester_version_present",
         ),
         sa.ForeignKeyConstraint(

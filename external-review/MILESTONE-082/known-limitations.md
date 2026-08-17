@@ -1,5 +1,12 @@
 # M082 - Known Limitations
 
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-12-15.md`**. Where this file conflicts
+> with it, that file wins. Nothing here is deleted: it is the record of what was
+> believed at the time, including the parts that were wrong.
+
+
 > **⚠ CORRECTED AFTER OWNER REVIEW.** Items 1, 2 and 10 of the first version are
 > **RETRACTED**; they are quoted at the bottom rather than deleted.
 
@@ -152,3 +159,34 @@ snapshot excluded future rows structurally, because it did not — see
 35. **The report reads one store through one query.** The split ledger/receipt
     read that raised `MissingAttestedEventError` during ordinary concurrency has
     no mechanism left.
+
+
+---
+
+## Added by the Owner correction mission (findings 12-15)
+
+36. **"Blank" is an explicitly enumerated, shared character set.** The database
+    and the domain use `BLANK_CHARACTERS` verbatim and are asserted equal against
+    the live database. Neither engine's native whitespace notion could be made to
+    match the other's: PostgreSQL's `[:space:]` excludes vertical tab and NBSP,
+    and Python's `str.strip()` covers far more of Unicode.
+37. **Exotic Unicode whitespace outside that set is accepted by both sides.**
+    Stated rather than hidden. Agreement is the property that matters: the
+    database is the write boundary and the domain must never reject what the
+    database stored.
+38. **The three metadata fields have different sanctioned-path origins and the
+    same persisted status.** `system_received_at` from the host clock after
+    read-back, `attester_version` from an application constant, `attested_by`
+    **caller-supplied and passed through unchanged** - and all three
+    **unauthenticated as persisted values**.
+39. **No individual persisted receipt can be said to have come through
+    `attest()`.** The database does not prove that, and neither renderer claims
+    it.
+40. **A crash after event commit but before receipt insertion leaves an
+    unattested gap**, not a permanent state. A later explicit attestation proves
+    only its own causal ordering, and its label may be numerically **earlier** or
+    later. RETRACTED: "permanently unattested" and "only a LATER label" - the
+    two contradicted each other and the second is false under this milestone's
+    own clock model.
+41. **A legacy event may later be explicitly attested**, creating only current
+    causal receipt authority - never retroactive historical authority.
