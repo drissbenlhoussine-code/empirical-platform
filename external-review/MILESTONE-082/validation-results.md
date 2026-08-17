@@ -327,11 +327,19 @@ figures for the current head. Measured with the working tree clean.
 
 | | |
 |---|---|
-| HEAD | **`ef4224441431b7a5aae869ec18ab485d763d0d9f`** |
+| HEAD | **the commit containing this file** — see below |
 | base master | `28a10530dbc295fedacfa89c8aef246b35a0b86e` |
 | PostgreSQL | **16.13** |
 | console command | **`empirical-platform-receipt-label-cutoff-view`** |
 
+> **On naming the head.** An earlier draft of this section hard-coded a commit
+> hash, which went stale the moment the commit was amended — the same
+> evidence-drift class as Owner finding 15, reproduced by me one paragraph after
+> writing the fix for it. A commit cannot contain its own hash, so this section
+> identifies the head as "the commit containing this file" and the exact SHA is
+> reported in the delivery report and on PR #12. The figures below were measured
+> with the working tree clean and identical to that commit's tree.
+>
 > **RETRACTED / SUPERSEDED above:** `8415939` is **not** the final head; the old
 > console entry point `empirical-platform-attested-evidence-snapshot` and the old
 > flag `--attested-as-of` are **withdrawn**; the "true receipt-cutoff snapshot"
