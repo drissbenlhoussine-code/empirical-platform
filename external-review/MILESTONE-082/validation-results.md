@@ -568,3 +568,80 @@ docstring-stripped AST: **IDENTICAL** in all five.
 
 Reported in the delivery report. A commit cannot contain the id of the run it
 triggers, and the PR body is updated separately after the push and after CI.
+
+---
+
+## Owner residual claim-surface correction — findings 22–23
+
+Executed on the corrected working tree, starting head `9b487d1`, base `master`
+`28a1053`. Full detail in `owner-correction-mission-findings-22-23.md`.
+
+| Gate | Result |
+|---|---|
+| M082 unit suite | 40 collected, **40 passed** |
+| M082 PostgreSQL lifecycle | 188 collected, **188 passed** (was 187: −1 replaced sweep, +2 new) |
+| Fresh second pass, schema dropped and re-upgraded | **188 passed** |
+| `test_m082_operator_event_receipt_second_pass.py` | **4 passed** |
+| M076–M082 chain, 13 integration files | **312 passed** |
+| M076–M082 chain, unit surface | **357 passed** |
+| Migration up → down → up | clean |
+| Installed trim set per CHECK | 29 characters each, all four |
+| `git diff --check` | clean |
+| `compileall` | clean |
+| `ruff format --check` | 613 files formatted |
+| `ruff check` | all checks passed |
+| `mypy src` | no issues, 311 source files |
+| `tools/check_architecture.py .` | exit 0 |
+| Negative architecture fixture | exit 1, as required |
+| Secret scan | **1137 targets** at the new head (1136 at `9b487d1`), **0 findings** |
+
+### Suppressions — the exact delta-scoped claim
+
+**"No suppressions anywhere" is RETRACTED as false.** Measured as
+`git diff master` restricted to `src`, `migrations`, `tests`, `tools`:
+
+| Scope | Count |
+|---|---|
+| Production + migration | **2** (one `pragma: no cover` on an unreachable defensive branch; one `noqa: E501` on a long import) |
+| Tests | **16** (11 `noqa` — 7 `ANN202`, 2 `BLE001`, 1 `E501`, 1 `ANN001` — and 5 `type: ignore`) |
+| **M082 delta total** | **18** |
+| Introduced by findings 22–23 | **0** |
+| Repository-wide pre-existing baseline | 872 occurrences, untouched |
+
+No suppression silences a failing gate, and no test is skipped or xfailed.
+
+### Negative controls, both executed
+
+* **Claim sweep, paragraph-locality.** The exact phrase finding 22 removed from
+  §23 — `The system_received_at column records the attestation instant.` — is
+  appended to the real design file in its own paragraph. The sweep catches it and
+  the file is restored in a `finally` block.
+* **The control discriminates.** With the exemption temporarily made
+  **file-scoped**, the same control reports
+  `AssertionError: the sweep did NOT catch an injected unscoped claim / assert []`
+  — the weakness the Owner named, demonstrated rather than asserted. Restored,
+  both sweep tests pass.
+
+### Regression comparison, baseline re-derived in the same working tree
+
+| Run | Result | Failing ids |
+|---|---|---|
+| Baseline `9b487d1`, PG-ON | 24 failed, 2935 passed, 14 skipped, 44 errors | 68 |
+| Corrected, PG-ON | 24 failed, 2936 passed, 14 skipped, 44 errors | 68 |
+| Baseline `9b487d1`, PG-OFF | 8 failed, 2329 passed, 668 skipped, 12 errors | 20 |
+| Corrected, PG-OFF | 8 failed, 2330 passed, 668 skipped, 12 errors | 20 |
+
+**Both sorted failing-ID diffs are EMPTY.**
+
+### Production behaviour diff
+
+Only one production file changed (`usecases/attest_operator_event_receipt.py`,
+docstring only) and `migrations/` is **byte-identical** to `9b487d1`.
+Docstring-stripped AST comparison: **IDENTICAL**.
+`PRODUCTION BEHAVIOUR DIFF: EMPTY`. The Finding-21 per-column control tests are
+untouched.
+
+## CI
+
+Reported in the delivery report. A commit cannot contain the id of the run it
+triggers, and the PR body is updated separately after the push and after CI.

@@ -4,12 +4,13 @@
 
 > **⚠ READ THIS FIRST — NAVIGATION.**
 > The authoritative latest correction is
-> **`owner-correction-mission-findings-20-21.md`**. Read it before anything
+> **`owner-correction-mission-findings-22-23.md`**. Read it before anything
 > else. Every other file in this package, including the ones the older banners
 > below tell you to read first, describes an **earlier candidate** and carries
 > its own superseded notice.
 >
-> *(Superseded banner, kept visible:)* the authoritative latest correction was
+> *(Superseded banners, kept visible:)* the authoritative latest correction was
+> `owner-correction-mission-findings-20-21.md`, and before it
 > `owner-correction-mission-findings-16-18.md`.
 >
 > *(Superseded banner, kept visible:)* Hardened after a second Owner review —
@@ -50,6 +51,11 @@ Base `master` `28a1053`.
 > design**, may carry any allowed value in all three fields, and is mapped into
 > the same domain type. **No individual row can be said to have come through
 > `attest()`.**
+>
+> **And `system_received_at` is a LABEL, not a time at which anything happened.**
+> On the sanctioned path the clock **CALL** is issued causally after the
+> read-back; **the value it returns proves no wall-clock chronology** — not the
+> observation's real time, not a bound, not an ordering against anything else.
 
 ## The earlier statement of the causal claim
 

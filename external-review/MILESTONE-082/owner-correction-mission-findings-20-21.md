@@ -1,8 +1,16 @@
 # M082 — Owner Final Micro-Correction Mission — Findings 20–21
 
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-22-23.md`**. Where this file conflicts
+> with it, that file wins. Two figures in it are corrected there: the
+> secret-scan target count (1135 → **1136** at `9b487d1`) and the claim that
+> there are no suppressions anywhere, which is **retracted as false**.
+
 **Status: `CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW`. Not merged, not frozen.**
 
-This is the **authoritative latest correction** in this package. Every other file
+*(Superseded banner, kept visible:)* This is the **authoritative latest
+correction** in this package. Every other file
 describes an earlier candidate and carries its own superseded notice. Nothing is
 deleted anywhere: incorrect earlier conclusions are kept visible as RETRACTED or
 SUPERSEDED.

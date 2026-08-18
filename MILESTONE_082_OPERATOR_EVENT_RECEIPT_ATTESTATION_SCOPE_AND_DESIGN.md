@@ -77,8 +77,9 @@ Repository truth agrees with the expected starting state in every field.
 | M | any system receipt identity or sequence? | **none** - no `receipt`, `watermark`, `bigserial`, `IDENTITY` or `nextval` in any migration |
 | N | any knowledge watermark on decisions/sessions? | **none** |
 
-M079's own frozen docstring already says `recorded_at` "is an operator-supplied
-field, not a system-assigned immutable" one. M082 is the milestone that supplies
+M079's own frozen docstring already says of `recorded_at` that it "is an
+operator-supplied field, not a system-assigned immutable" one — a quotation of
+M079 about `recorded_at`, not an M082 claim about any M082 column. M082 is the milestone that supplies
 what that sentence admits is missing.
 
 ## 3. Exact Pre-M082 Gap Proof
@@ -208,43 +209,60 @@ Scored 1-5. For risk rows, **5 = low risk**.
 **MILESTONE-082 - Operator Event Receipt Attestation.**
 
 An **additive, append-only sidecar** that records, for an M076 event, that the
-platform's persistence boundary **observed the event already durably committed**
-at the instant recorded in `system_received_at`.
+platform's persistence boundary **observed the event already durably committed**,
+and carries `system_received_at` as a **LABEL** beside that observation.
 
-*(Corrected by Owner finding 20: this said "at a system-assigned instant".
-"System-assigned" asserts an origin the database does not prove for a persisted
-row. `system_received_at` is a LABEL; see §12 for the path distinction.)*
+SWEEP VOCABULARY (a rule, naming the banned wording in order to ban it):
+`system_received_at` is a LABEL, never a *receipt instant* or an *attestation
+instant*. **ON THE SANCTIONED `attest()` PATH** the clock CALL that produces it
+occurs **causally after** the read-back; the **value it returns proves no
+wall-clock chronology whatsoever**. **AS A GENERIC PERSISTED VALUE** it has
+**UNAUTHENTICATED PROVENANCE**.
+
+*(Corrected by Owner findings 20 and 22: this said "at a system-assigned
+instant", then "at the instant recorded in `system_received_at`". Both treat the
+label as a real instant at which the observation occurred. See §12.)*
 
 The receipt is written in a **second transaction, after the event's transaction
 has committed**, and only after the receipt writer has **read the event back**.
 
 ### Why this is sound where the in-transaction model leaks
 
-Because the receipt instant is taken strictly **after** the event is durably
-committed:
+Because the **clock CALL** is issued strictly **after** the read-back that
+proves the event durably committed. That ordering is **causal** — program order
+plus PostgreSQL transaction visibility — and it holds no matter what the clock
+returns. The **returned value** carries none of that ordering.
 
-```
-RETRACTED (owner review finding 2) - the inequality below is NOT proved and is
-false under a backward host clock. Kept verbatim as the original reasoning.
+> **⚠ RETRACTED IN FULL (owner review finding 2; scope corrected by finding 22).**
+> Everything from the inequality to the end of this block is **withdrawn**. The
+> earlier retraction notice scoped itself to "the inequality below" only, leaving
+> the implication, the "proved by execution" claim and the "can never overstate"
+> claim standing as active text. They are all false under a backward host clock.
+> Kept verbatim, inside this block, as the original reasoning:
+>
+> ```
+> commit_time(event)  <  system_received_at(receipt)
+> ```
+>
+> *"Therefore:"*
+>
+> ```
+> system_received_at <= K   IMPLIES   the event was durably committed by K
+> ```
+>
+> *"**Proved by execution**, using the same pause that broke the in-transaction
+> model: with `K` chosen during the uncommitted window, the post-commit receipt
+> query at `K` correctly returns **nothing**.*
+>
+> *The converse does **not** hold, and that asymmetry is the design: an event
+> committed just before `K` but receipted just after `K` is **excluded**. The
+> error direction is **conservative** - M082 may understate what was known, and
+> can never overstate it. A false negative is a safe direction for a knowledge
+> claim; a false positive is exactly the M079-style leak."*
 
-commit_time(event)  <  system_received_at(receipt)
-```
-
-Therefore:
-
-```
-system_received_at <= K   IMPLIES   the event was durably committed by K
-```
-
-**Proved by execution**, using the same pause that broke the in-transaction
-model: with `K` chosen during the uncommitted window, the post-commit receipt
-query at `K` correctly returns **nothing**.
-
-The converse does **not** hold, and that asymmetry is the design: an event
-committed just before `K` but receipted just after `K` is **excluded**. The
-error direction is **conservative** - M082 may *understate* what was known, and
-can never *overstate* it. A false negative is a safe direction for a knowledge
-claim; a false positive is exactly the M079-style leak.
+What survives is the causal statement above, and nothing numerical. A cutoff
+comparison against `system_received_at` selects **by label**; it establishes no
+knowledge time and no durability at any real instant.
 
 ## 9. Rejected Alternatives
 
@@ -280,14 +298,26 @@ milestone exists to fix.
 M082 introduces **one** new authority and is precise about its level:
 
 > The platform's persistence boundary **observed** that this M076 event was
-> **already durably committed** at `system_received_at`, measured by the
-> **application host clock** of the process performing the attestation.
+> **already durably committed**, and the receipt carries `system_received_at`
+> as a **LABEL** beside that observation.
+>
+> **ON THE SANCTIONED `attest()` PATH** the **application host clock** of the
+> attesting process is CALLED **causally after** the read-back. The **value that
+> call returns establishes no wall-clock chronology** — not the observation's
+> real time, not an upper bound, not an ordering against any other event.
+>
+> **AS A GENERIC PERSISTED VALUE** `system_received_at` has **UNAUTHENTICATED
+> PROVENANCE**: a direct SQL receipt for a genuinely prior-committed event is
+> accepted by design and may carry any allowed label, so **no individual row can
+> be said to have come through `attest()`**.
 
-> **⚠ QUALIFIED (owner finding 17).** The sentence above holds **ON THE
-> SANCTIONED `attest()` PATH** only. As a persisted value `system_received_at`
-> has **UNAUTHENTICATED PROVENANCE** — a direct SQL receipt for a genuinely
-> prior-committed event is accepted by design and may carry any allowed label,
-> so no individual row can be said to have come through `attest()`.
+> **⚠ SUPERSEDED (owner findings 17 and 22).** This authority statement
+> previously read *"already durably committed **at** `system_received_at`,
+> measured by the application host clock of the process performing the
+> attestation"*, with the path qualification in a separate following block. It
+> asserted that the observation happened **at** the labelled instant and that a
+> persisted label was measured by that clock. Both are withdrawn; the corrected
+> statement above is the active one.
 
 ## 11. Clock Authority
 
@@ -297,11 +327,17 @@ clock and not an external time service. **AS A PERSISTED VALUE** the label has
 **UNAUTHENTICATED PROVENANCE** and nothing proves which clock, if any, produced
 it.
 
-Chosen over the database clock deliberately: the receipt must be taken *after*
-the read-back that proves durability, and a value taken in the attesting process
-after that read is unambiguous about ordering, whereas a database-side `now()`
-in the receipt transaction would re-open a "which clock, relative to what"
-question for no benefit.
+Chosen over the database clock deliberately: the clock CALL must be issued
+*after* the read-back that proves durability, and a call issued in the attesting
+process after that read has **unambiguous CAUSAL ordering**, whereas a
+database-side `now()` in the receipt transaction would re-open a "which clock,
+relative to what" question for no benefit.
+
+> **⚠ SUPERSEDED (owner finding 22).** This previously said *"a value taken in
+> the attesting process after that read is unambiguous about ordering"*. The
+> **call** is ordered; the **value** is not. A backward clock returns a number
+> that contradicts the ordering the call had — executed in
+> `test_a_backward_clock_breaks_the_wall_clock_implication`.
 
 **Honest limits, stated rather than narrated away:** **on the sanctioned
 `attest()` path** the host clock can be wrong, can be adjusted, can move
@@ -322,8 +358,15 @@ A receipt asserts, and asserts only:
 
 - an M076 event with this `event_governance_id` was **read back as committed**
   by the attesting process;
-- at `system_received_at`, which **on the sanctioned `attest()` path** is taken
-  from the application host clock **after** that read;
+- and the receipt carries `system_received_at` as a **LABEL**. **ON THE
+  SANCTIONED `attest()` PATH** the application-host-clock CALL that produced it
+  was issued **causally after** that read-back; **the value returned proves no
+  wall-clock chronology**, and **AS A GENERIC PERSISTED VALUE** the label has
+  **UNAUTHENTICATED PROVENANCE**;
+  *(Superseded by owner finding 22: this read "at `system_received_at`, which on
+  the sanctioned `attest()` path is taken from the application host clock after
+  that read" — "at" asserted the read-back occurred at the labelled instant, and
+  "taken after" attributed the call's ordering to the value.)*
 - **⚠ RETRACTED (owner finding 17):** "through the attesting pathway named in
   `attested_by`". `attested_by` is caller-supplied on the sanctioned path and
   **unauthenticated as a persisted value**; it names nothing the database
@@ -341,14 +384,20 @@ ON THE SANCTIONED attest() PATH ONLY:
     caller-supplied and passed through unchanged.
 ```
 
-No sentence anywhere in this document may describe a stored receipt's metadata
-as system-assigned, clock-derived or constant-derived without that
-qualification. A direct SQL receipt for a genuinely prior-committed event is
-accepted **by design** and is mapped into exactly the same domain type.
+SWEEP VOCABULARY (a rule, not a claim). No sentence anywhere in this document
+may describe a stored receipt's metadata as system-assigned, clock-derived or
+constant-derived without that qualification, and none may call
+`system_received_at` a receipt instant or an attestation instant. A direct SQL
+receipt for a genuinely prior-committed event is accepted **by design** and is
+mapped into exactly the same domain type.
 
 It does **not** assert that the operator's claim is true, that a trade occurred,
-that `recorded_at` is honest, or that the event was durably visible at any
-instant *earlier* than `system_received_at`.
+that `recorded_at` is honest, or anything at all about **when** the event became
+durably visible in real time.
+
+*(Superseded by owner finding 22: the sentence above ended "durably visible at
+any instant *earlier* than `system_received_at`", which treats the label as a
+wall-clock instant that a real event time can be compared against.)*
 
 ## 13. Receipt Versus Commit Semantics
 
@@ -377,8 +426,10 @@ integrity error, which the repository surfaces as "already attested" rather than
 as a fault.
 
 Because §6 proved assignment order is not commit order, M082 emits **no
-ordering authority** beyond the receipt instants themselves, and its
-deterministic ordering is `(system_received_at, event_governance_id)`.
+ordering authority** beyond the receipt LABELS themselves, and its
+deterministic ordering is `(system_received_at, event_governance_id)` — chosen
+for **determinism only**, not as a claim about the order in which anything
+happened.
 
 ## 15. Transaction Model
 
@@ -386,13 +437,19 @@ deterministic ordering is `(system_received_at, event_governance_id)`.
 
 | Model | Benefit | Cost |
 |---|---|---|
-| one transaction | no event-without-receipt partial commit | **receipt instant precedes commit - the proved leak** |
-| **two transactions** | receipt is taken only after durable commit; the leak is structurally impossible | a crash between phases leaves an event permanently unreceipted |
+| one transaction | no event-without-receipt partial commit | **the receipt LABEL is assigned before the commit - the proved leak** |
+| **two transactions** | the receipt is written only after the read-back proves durable commit; the leak is structurally impossible | a crash between phases leaves the event unreceipted until a later attestation |
 
 The two-transaction cost is **accepted deliberately**, because an unreceipted
 event is an *honest absence*, whereas a pre-commit receipt is a *false
-presence*. Absence is recoverable later by an honest, clearly-later receipt;
-a fabricated historical instant is not recoverable at all.
+presence*. Absence is recoverable later by an honest later attestation, which
+carries its own causal claim; a fabricated historical label is not recoverable
+at all.
+
+*(Superseded by owner finding 22: this said absence is recoverable "by an honest,
+**clearly-later** receipt". A later attestation's label may be numerically
+EARLIER — executed, the sanctioned path produced a 1999 label for an event that
+had just committed. Only the causal claim is recovered, never a chronology.)*
 
 ## 16. Crash And Failure Model
 
@@ -401,10 +458,22 @@ a fabricated historical instant is not recoverable at all.
 | crash after event commit, before receipt | event exists, **no receipt**. Honest state, never fabricated |
 | crash during receipt transaction | receipt transaction rolls back; event still unreceipted |
 | receipt attempted for a missing event | **refused** - the read-back finds nothing, and the FK would refuse anyway |
-| attestation retried later | permitted; the receipt records the **later, true** instant |
+| attestation retried later | permitted; the receipt records **its own causal claim** — read-back before receipt insertion — and a LABEL that proves no chronology |
 
-**A later reconciliation may assign a later receipt instant. It may never assign
-a guessed historical one.**
+**A later reconciliation proves only its own causal ordering. It may never
+manufacture a historical claim.**
+
+> **⚠ RETRACTED (owner findings 14 and 22).** The two statements this section
+> previously made are withdrawn and kept here verbatim:
+>
+> *"attestation retried later | permitted; the receipt records the **later,
+> true** instant"* and *"**A later reconciliation may assign a later receipt
+> instant. It may never assign a guessed historical one.**"*
+>
+> Both assert that a later attestation's label is numerically later. It need not
+> be: the host clock can move backward, and the executed sanctioned path produced
+> a **1999** label for an event that had just committed. The domain module's own
+> limitations already retracted this; the design had not.
 
 ## 17. Legacy-Event Semantics
 
@@ -515,9 +584,14 @@ and is a **future authorized milestone**, not a side effect of this one.
 |---|---|---|
 | `receipt_governance_id` | `String(64)` PK | receipt identity |
 | `event_governance_id` | `String(64)` **UNIQUE**, FK -> `operator_position_event.governance_id` **ON DELETE RESTRICT** | exactly one receipt per event; the FK refuses a receipt for a missing event |
-| `system_received_at` | `TIMESTAMPTZ NOT NULL` | the attestation instant |
-| `attested_by` | `String(64) NOT NULL` | the pathway that attested |
-| `attester_version` | `String(32) NOT NULL` | which writer produced it |
+| `system_received_at` | `TIMESTAMPTZ NOT NULL` | a **LABEL**. Sanctioned path: the clock CALL is issued causally after read-back; the returned value proves no wall-clock chronology. **Generic persisted value: UNAUTHENTICATED PROVENANCE** |
+| `attested_by` | `String(64) NOT NULL` | a recorded string. Sanctioned path: caller-supplied, passed through unchanged. **Generic persisted value: UNAUTHENTICATED PROVENANCE** — it names no pathway the database proves |
+| `attester_version` | `String(32) NOT NULL` | a recorded string. Sanctioned path: an application constant. **Generic persisted value: UNAUTHENTICATED PROVENANCE** — it identifies no writer the database proves |
+
+*(Superseded by owner finding 22: these three columns were described as "the
+attestation instant", "the pathway that attested" and "which writer produced
+it". All three assert an origin, and the first treats the label as a real
+instant.)*
 
 `ON DELETE RESTRICT`, never `CASCADE`: M076 is append-only, but if a row were
 ever removed, the receipt evidence must **not** silently vanish with it.
@@ -551,8 +625,12 @@ Attestation is **idempotent by event**. A retry after a successful attestation
 returns the existing receipt unchanged and creates no second authority; the
 `UNIQUE` constraint makes that structural rather than advisory.
 
-A retry after a *failed* attestation creates the receipt with the **later** true
-instant.
+A retry after a *failed* attestation creates the receipt with whatever label
+its own clock CALL returns. That label may be numerically earlier or later than
+anything else in the table; only the causal claim is created.
+
+*(Superseded by owner finding 22: this said the retry creates the receipt "with
+the **later** true instant".)*
 
 ## 27. Failure And Absence Vocabulary
 
@@ -764,7 +842,8 @@ come through `attest()`.
 module: `OperatorEventReceipt`, `AttestedEventEntry`,
 `events_with_receipt_labelled_by`, the repository port, the PostgreSQL adapter,
 the migration and §8, §11, §13, §22 and §30 of this document all still described
-the label as **system-assigned**, generically. Every one is now either removed or
+the label as **system-assigned** (quoted here as the defect, not asserted),
+generically. Every one is now either removed or
 placed under an explicit **ON THE SANCTIONED `attest()` PATH** qualification, and
 a test now sweeps the **source files** rather than only the rendered output.
 Separately, the four-constraint control claim was **overstated**: the controls

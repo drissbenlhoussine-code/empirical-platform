@@ -26,10 +26,19 @@ __all__ = [
 class AttestOperatorEventReceiptCommand:
     """Attest one already-committed M076 event.
 
-    There is DELIBERATELY no timestamp parameter. The attestation instant is
-    taken by the persistence boundary AFTER it reads the event back as
-    committed; letting a caller supply it would recreate exactly the
-    operator-supplied-time weakness this milestone exists to close.
+    There is DELIBERATELY no timestamp parameter. ON THE SANCTIONED attest()
+    PATH the persistence boundary issues the clock CALL that produces the LABEL
+    only AFTER it reads the event back as committed; letting a caller supply it
+    would recreate exactly the operator-supplied-time weakness this milestone
+    exists to close.
+
+    That ordering is CAUSAL and applies to the call, not to the value: the label
+    the call returns proves no wall-clock chronology, and AS A GENERIC PERSISTED
+    VALUE it has UNAUTHENTICATED PROVENANCE.
+
+    SUPERSEDED (owner finding 22): this said "the attestation instant is taken
+    by the persistence boundary AFTER it reads the event back", naming the label
+    an instant and attributing the call's ordering to the value.
     """
 
     receipt_governance_id: str

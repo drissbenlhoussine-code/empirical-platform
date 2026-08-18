@@ -232,7 +232,15 @@ def test_scenario_a_normal_attested_event(clean_tables: Engine) -> None:
 def test_a_lying_recorded_at_cannot_influence_the_receipt(
     clean_tables: Engine, label: str, recorded_day: int
 ) -> None:
-    """Scenarios B and C, and scenario D: the receipt stays system-controlled."""
+    """Scenarios B and C, and scenario D: recorded_at cannot reach the label.
+
+    SUPERSEDED (owner finding 23): this said "the receipt stays
+    system-controlled", a generic origin claim. Nothing here shows the receipt
+    is system-controlled; what is asserted is narrower and is what the test
+    actually drives -- an operator-supplied recorded_at, however absurd, does
+    not appear in and does not move the receipt's label ON THE SANCTIONED
+    attest() PATH. A direct SQL receipt is not system-controlled at all.
+    """
     config = _config()
     _append(config, gid=f"EV-{label}", pos=f"POS-{label}", recorded_day=recorded_day)
     before = datetime.now(UTC)
@@ -241,7 +249,10 @@ def test_a_lying_recorded_at_cannot_influence_the_receipt(
     lie = _T0 + timedelta(days=recorded_day)
     assert receipt.system_received_at != lie
     assert receipt.system_received_at >= before
-    # The receipt reflects system authority, not the operator's claim.
+    # ON THE SANCTIONED attest() PATH the label came from this process's own
+    # clock CALL, not from the operator's claim. This is a property of THIS
+    # path, not of persisted rows in general.
+    # SUPERSEDED (owner finding 23): "the receipt reflects system authority".
     assert abs((receipt.system_received_at - datetime.now(UTC)).total_seconds()) < 60
 
 
@@ -353,8 +364,10 @@ def test_the_commit_gap_cannot_make_an_uncommitted_event_appear_available(
 
     A transaction inserts an event and PAUSES before committing. K is chosen
     during the pause, when the row is invisible to every reader. After commit
-    the event is attested. The receipt instant must fall AFTER K, so the
-    historical query at K excludes it.
+    the event is attested. The receipt's LABEL, produced by a clock CALL issued
+    after the commit, falls after K here, so the cutoff query at K excludes it.
+    That is a LABEL-SELECTION outcome under this test's own clock, not a proof
+    that any label must be later than any real instant.
     """
     config = _config()
     box: dict[str, object] = {}
@@ -1928,9 +1941,10 @@ def test_no_active_surface_claims_sanctioned_provenance_without_qualification(
 
 
 # OWNER FINDING 20. The sweep above reads only RENDERED OUTPUT, which is why it
-# passed while the domain module itself still called the label "SYSTEM-ASSIGNED".
-# These are the M082 source files whose ACTIVE prose makes claims about where a
-# receipt's metadata came from.
+# passed while the domain module itself still used the origin wording quoted
+# below as the defect: "SYSTEM-ASSIGNED".
+# OWNER FINDING 23 widened it again: the design, the README and the
+# authoritative correction report are claim surfaces too, and so are these tests.
 _M082_ACTIVE_SOURCES = (
     "src/empirical_platform/decision_candidate/operator_event_receipt.py",
     "src/empirical_platform/decision_candidate/operator_event_receipt_repository.py",
@@ -1942,10 +1956,50 @@ _M082_ACTIVE_SOURCES = (
     "migrations/versions/d9a2f5c81b73_create_m082_operator_event_receipt_schema.py",
 )
 
-# Phrases that assert an ORIGIN for a persisted value. Each must either be gone
-# or sit under an explicit sanctioned-path qualification in the same file.
-_ORIGIN_PHRASES = ("system-assigned", "system assigned")
+# OWNER FINDING 23, item 4. The claim sweep must also cover the active design,
+# the current README, the authoritative latest correction report, and the active
+# M082 tests -- including this file.
+_M082_ACTIVE_CLAIM_SURFACES = (
+    *_M082_ACTIVE_SOURCES,
+    "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md",
+    "external-review/MILESTONE-082/README.md",
+    "external-review/MILESTONE-082/owner-correction-mission-findings-22-23.md",
+    "tests/integration/test_m082_operator_event_receipt_lifecycle.py",
+    "tests/integration/test_m082_operator_event_receipt_second_pass.py",
+    "tests/unit/test_decision_candidate_operator_event_receipt.py",
+)
+
+# SWEEP VOCABULARY (declarations, not claims). Phrases that assert an ORIGIN for
+# a persisted value, or that treat the LABEL as a real instant at which
+# something happened.
+_ORIGIN_PHRASES = (
+    "system-assigned",
+    "system assigned",
+    "system-controlled",
+    "system controlled",
+    "reflects system authority",
+    "receipt instant",
+    "attestation instant",
+    "true instant",
+)
 _SANCTIONED_MARKERS = ("SANCTIONED attest() PATH", "sanctioned attest() path", "SANCTIONED PATH")
+
+# A marker scopes its OWN PARAGRAPH. "reproduced"/"pre-correction" mark blocks
+# that quote a defect as executed evidence; "sweep vocabulary" marks the
+# declarations above, which name the phrases in order to ban them.
+_SCOPING_MARKERS = (
+    "retracted",
+    "superseded",
+    "withdrawn",
+    "qualified",
+    "corrected by owner finding",
+    "reproduced",
+    "pre-correction",
+    "sweep vocabulary",
+    "as the defect",
+)
+# Quoting M079's own frozen admission about `recorded_at` is not an M082 claim.
+_NOT_AN_M082_CLAIM = ("recorded_at", "operator-supplied")
 
 
 def _repo_root() -> Path:
@@ -1956,54 +2010,95 @@ def _repo_root() -> Path:
     raise AssertionError("repository root not found")
 
 
-def _generic_origin_offenders(root: Path) -> list[str]:
-    """Active lines asserting an ORIGIN for a persisted value.
+def _paragraph_scoped_offenders(root: Path, surfaces: tuple[str, ...]) -> list[str]:
+    """Active lines making a banned claim, with PARAGRAPH-LOCAL exemption.
 
-    A RETRACTED/SUPERSEDED marker governs its OWN PARAGRAPH, not just its own
-    line, so the retracted text quoted underneath it stays visible without
-    tripping the sweep. A blank line -- or a bare `#` in a comment block -- ends
-    the paragraph, so an unmarked claim further down is still caught.
+    OWNER FINDING 23. The exemption is deliberately NOT file-scoped: a marker
+    anywhere in the file used to excuse an unmarked claim hundreds of lines away.
+    A marker now governs only until the paragraph ends.
+
+    Paragraph rules, derived from the three file shapes actually swept:
+      * a blank line ends a paragraph -- except inside a fenced block, where
+        blank lines are content;
+      * a bare `#`, `\"\"\"` or `>` ends one in comment blocks and docstrings;
+      * a markdown blockquote is continuous: a `> **RETRACTED**` banner scopes
+        the whole quote, so `>`-prefixed lines never reset the marker;
+      * a fenced block INHERITS the marker state of the paragraph that
+        introduced it, which is how quoted defect evidence stays visible.
     """
     offenders: list[str] = []
-    for relative in _M082_ACTIVE_SOURCES:
+    for relative in surfaces:
         path = root / relative
         assert path.exists(), relative
-        retracting = False
+        marked = False
+        in_fence = False
+        exempt_paragraph = False
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             stripped = line.strip()
-            if stripped in ("", "#", '"""'):
-                retracting = False
             lowered = line.lower()
-            if "retracted" in lowered or "superseded" in lowered:
-                retracting = True
+
+            if stripped.startswith("```"):
+                in_fence = not in_fence
+            elif not in_fence:
+                if stripped == "" or stripped in ("#", '"""'):
+                    marked = False
+                    exempt_paragraph = False
+                elif stripped.startswith(">") and stripped != ">":
+                    pass  # blockquote continues its banner's scope
+            if any(m in lowered for m in _SCOPING_MARKERS):
+                marked = True
+            if any(a in lowered for a in _NOT_AN_M082_CLAIM):
+                exempt_paragraph = True
+
             if not any(phrase in lowered for phrase in _ORIGIN_PHRASES):
                 continue
-            # Quoting M079's own frozen admission about `recorded_at` is not an
-            # M082 claim about M082 metadata.
-            if "recorded_at" in lowered or "operator-supplied" in lowered:
+            if marked or exempt_paragraph:
                 continue
-            if retracting:
-                continue
-            offenders.append(f"{relative}:{number}: {stripped}")
+            offenders.append(f"{relative}:{number}: {stripped[:120]}")
     return offenders
 
 
-def test_no_m082_source_file_asserts_generic_metadata_origin() -> None:
-    """OWNER FINDING 20 - the active-claim sweep must reach the source, not only
-    the rendered artifact.
+def test_no_active_m082_claim_surface_asserts_origin_or_instant() -> None:
+    """OWNER FINDINGS 20 AND 23 - the executable claim sweep.
 
-    REPRODUCED against the pre-correction head: the rendered-output sweep passed
-    while `operator_event_receipt.py` still said `system_received_at` "is a
-    SYSTEM-ASSIGNED LABEL taken from the application host clock after the
-    read-back" in the docstring of `OperatorEventReceipt` -- the generic type a
-    DIRECT SQL row is mapped into.
+    REPRODUCED against the pre-correction head `9b487d1`: the sweep covered only
+    source files, so the ACTIVE DESIGN still said the receipt "instant" is taken
+    after the commit (§8), described `system_received_at` as "the attestation
+    instant" and `attested_by` as "the pathway that attested" (§23), and these
+    very tests still said "the receipt stays system-controlled" and "the receipt
+    reflects system authority".
 
-    "System-assigned" is an origin claim, and the database proves no origin for
-    an arbitrary persisted row. Every surviving use must be a quotation of M079's
-    own frozen `recorded_at` wording or an explicitly marked retraction.
+    Banned: any origin claim for a persisted value, and any wording that turns
+    the LABEL into a real instant. Survivors must sit inside a PARAGRAPH-LOCAL
+    retraction, supersession or quoted-evidence block.
     """
-    offenders = _generic_origin_offenders(_repo_root())
-    assert not offenders, "generic origin claim survives:\n" + "\n".join(offenders)
+    offenders = _paragraph_scoped_offenders(_repo_root(), _M082_ACTIVE_CLAIM_SURFACES)
+    assert not offenders, "unscoped origin/instant claim survives:\n" + "\n".join(offenders)
+
+
+def test_the_claim_sweep_is_paragraph_local_not_file_scoped() -> None:
+    """OWNER FINDING 23 - executed negative control for the sweep itself.
+
+    A file-scoped exemption would pass anything once the file mentioned a
+    retraction. A surviving design phrase is appended to a real swept file, far
+    below its existing markers and in its OWN paragraph; the sweep must catch it,
+    and must go quiet again when it is removed.
+    """
+    root = _repo_root()
+    design = root / "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md"
+    original = design.read_text(encoding="utf-8")
+    assert not _paragraph_scoped_offenders(root, (design.name,)), "design is not clean to start"
+    # The exact phrase owner finding 22 removed from section 23,
+    # quoted here as the defect rather than asserted.
+    injected = original + "\n\nThe `system_received_at` column records the attestation instant.\n"
+    try:
+        design.write_text(injected, encoding="utf-8")
+        caught = _paragraph_scoped_offenders(root, (design.name,))
+        assert caught, "the sweep did NOT catch an injected unscoped claim"
+        assert any("attestation instant" in line for line in caught), caught
+    finally:
+        design.write_text(original, encoding="utf-8")
+    assert not _paragraph_scoped_offenders(root, (design.name,)), "design not restored"
 
 
 def test_every_sanctioned_path_origin_claim_is_explicitly_qualified() -> None:

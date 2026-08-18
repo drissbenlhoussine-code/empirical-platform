@@ -425,10 +425,13 @@ def test_blank_identities_are_refused(blank: str) -> None:
 
 
 def test_the_command_has_no_timestamp_parameter() -> None:
-    """CLAIM: a caller cannot supply the attestation instant.
+    """CLAIM: a caller cannot supply the receipt LABEL through the command.
 
     Letting them would recreate the operator-supplied-time weakness this
-    milestone exists to close.
+    milestone exists to close. This constrains the SANCTIONED attest() PATH
+    only; direct SQL can still write any allowed label.
+
+    SUPERSEDED (owner finding 23): this said "the attestation instant".
     """
     fields = set(AttestOperatorEventReceiptCommand.__dataclass_fields__)
     assert fields == {"receipt_governance_id", "event_governance_id", "attested_by"}
