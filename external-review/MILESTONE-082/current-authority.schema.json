@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "M082 canonical authority contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "milestone", "authority_version", "title", "proves", "does_not_prove",
+    "metadata_authority", "cutoff_semantics", "database_enforcement",
+    "structural_limitations", "intended_future_use"
+  ],
+  "properties": {
+    "milestone": {"const": "M082"},
+    "authority_version": {"type": "integer", "minimum": 1},
+    "title": {"const": "Operator Event Receipt Identity Attestation"},
+    "proves": {
+      "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,
+      "items": {"enum": [
+        "stable_receipt_identity",
+        "exact_m076_event_governance_identity_binding",
+        "referenced_public_event_row_originated_from_a_prior_committed_transaction_at_receipt_insertion"
+      ]}
+    },
+    "does_not_prove": {
+      "type": "array", "minItems": 7, "maxItems": 7, "uniqueItems": true,
+      "items": {"enum": [
+        "event_payload",
+        "commit_time",
+        "wall_clock_chronology",
+        "historical_availability",
+        "availability_to_an_arbitrary_reader_at_an_arbitrary_cutoff",
+        "persisted_metadata_provenance",
+        "sanctioned_attest_path_origin_for_an_arbitrary_persisted_receipt"
+      ]}
+    },
+    "metadata_authority": {
+      "type": "object", "additionalProperties": false,
+      "required": ["generic_persisted_value", "sanctioned_attest_path"],
+      "properties": {
+        "generic_persisted_value": {"const": "UNAUTHENTICATED_PROVENANCE"},
+        "sanctioned_attest_path": {
+          "type": "object", "additionalProperties": false,
+          "required": ["system_received_at", "attester_version", "attested_by"],
+          "properties": {
+            "system_received_at": {"const": "application_clock_call_issued_causally_after_committed_read_back"},
+            "attester_version": {"const": "application_constant"},
+            "attested_by": {"const": "caller_supplied_and_passed_through"}
+          }
+        }
+      }
+    },
+    "cutoff_semantics": {
+      "type": "object", "additionalProperties": false,
+      "required": ["type", "historical_knowledge_authority", "future_tail_counts", "event_payload_enrichment"],
+      "properties": {
+        "type": {"const": "RECEIPT_LABEL_FILTER_ONLY"},
+        "historical_knowledge_authority": {"const": false},
+        "future_tail_counts": {"const": false},
+        "event_payload_enrichment": {"const": false}
+      }
+    },
+    "database_enforcement": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "event_foreign_key", "prior_committed_transaction_origin", "one_receipt_per_event",
+        "event_delete_restricted", "row_update_delete_immutability",
+        "non_blank_identity_and_metadata", "metadata_provenance", "wall_clock_chronology"
+      ],
+      "properties": {
+        "event_foreign_key": {"const": true},
+        "prior_committed_transaction_origin": {"const": true},
+        "one_receipt_per_event": {"const": true},
+        "event_delete_restricted": {"const": true},
+        "row_update_delete_immutability": {"const": true},
+        "non_blank_identity_and_metadata": {"const": true},
+        "metadata_provenance": {"const": false},
+        "wall_clock_chronology": {"const": false}
+      }
+    },
+    "structural_limitations": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9_]+$"}
+    },
+    "intended_future_use": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z0-9_]+$"}
+    }
+  }
+}

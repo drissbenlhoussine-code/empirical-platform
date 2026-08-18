@@ -1,140 +1,56 @@
-"""MILESTONE-082 -- Operator Event Receipt Attestation.
+"""MILESTONE-082 -- Operator Event Receipt Identity Attestation.
 
-WHAT THIS EXISTS TO FIX.
+WHAT A RECEIPT PROVES, AND ONLY THIS. The attestation process READ THE EVENT
+BACK from committed persistence, and only THEN created the receipt. That
+ordering is guaranteed by program order plus PostgreSQL transaction visibility:
+`attest` runs in a transaction of its own, so it can observe the event only if
+the event's transaction has already committed. The claim is CAUSAL and holds no
+matter what any clock says.
 
-QUOTED FROM M079: its own frozen docstring admits that `recorded_at` "is an
-operator-supplied field, not a system-assigned immutable" one.
+A receipt therefore binds a stable receipt identity to one exact M076 event
+governance identity whose real `public` row originated from a prior committed
+transaction at receipt insertion.
 
-Measured against real PostgreSQL, an ordinary permitted caller can persist an M076 event
-with `recorded_at` of last year, next year, 1999, 2999, or before its own
-`event_timestamp` -- all five persist, and the table carries no
-database-generated column at all. So M079/M080/M081 are sound GIVEN
-`recorded_at`, but `recorded_at` is not an independent knowledge authority.
+WHAT IT DOES NOT PROVE. Not the event payload, current or historical. Not the
+commit time. Not any wall-clock chronology. Not historical availability. Not
+availability to an arbitrary reader at an arbitrary cutoff. Not the provenance
+of persisted metadata. Not that an arbitrary persisted row came through
+`attest()`.
 
-WHAT A RECEIPT ASSERTS, AND ONLY THIS -- A CAUSAL FACT:
+METADATA PROVENANCE. As generic persisted values, `system_received_at`,
+`attested_by` and `attester_version` have UNAUTHENTICATED PROVENANCE: a direct
+SQL caller with write access can insert a receipt for an already-committed event
+carrying any allowed value, and this module cannot tell it apart. ON THE
+SANCTIONED `attest()` PATH ONLY, the clock call producing `system_received_at`
+is issued causally after the read-back, `attester_version` is an application
+constant, and `attested_by` is caller-supplied and passed through unchanged.
 
-    the attestation process READ THIS EVENT BACK from committed persistence,
-    and only THEN created this receipt.
+CUTOFF SEMANTICS. The artifact is a RECEIPT-LABEL FILTER and nothing more. It is
+built FROM RECEIPTS whose label is at or before the cutoff, never from the
+current ledger inventory, so a receipt labelled after the cutoff and an event
+with no such receipt are structurally unreachable. It is not a point-in-time
+reconstruction: a label can be backdated, so repeated evaluation at the same
+cutoff can legitimately change, and the view deliberately reports no count of
+what it excluded.
 
-That ordering is guaranteed by program order plus PostgreSQL transaction
-visibility: `attest` runs in a transaction of its own, so it can observe the
-event only if the event's transaction has already committed. It holds no matter
-what any clock says.
-
-`system_received_at` is a LABEL recorded alongside that causal fact. It is NOT
-a proven bound on the event's commit time -- see the retraction below.
-
-THE AUTHORITY DISTINCTION THAT GOVERNS EVERY METADATA SENTENCE IN THIS MODULE
-(owner finding 20):
-
-    GENERIC PERSISTED VALUE:
-        UNAUTHENTICATED PROVENANCE.
-    ON THE SANCTIONED attest() PATH ONLY:
-        system_received_at is obtained from the application host clock after
-        read-back; attester_version is an application constant; attested_by is
-        caller-supplied and passed through unchanged.
-
-**RETRACTED (owner finding 20).** This docstring, the `OperatorEventReceipt`
-docstring, the `AttestedEventEntry` docstring and `events_with_receipt_labelled_by`
-all called the label "SYSTEM-ASSIGNED", generically and with no path
-qualification. "System-assigned" asserts an ORIGIN, and the database proves no
-origin for an arbitrary persisted row: a direct SQL receipt is mapped into the
-same types and may carry any allowed value in any of the three fields.
-
-============================================================================
-RETRACTED BY OWNER REVIEW (M082 owner review, finding 2)
-============================================================================
-
-An earlier version of this module claimed (RETRACTED text, quoted so the
-original reasoning stays readable -- every line of the indented block below is
-WITHDRAWN and asserts nothing):
-
-    RETRACTED: commit_time(event) < system_received_at(receipt)
-    RETRACTED: therefore system_received_at <= W  IMPLIES  durably committed by W
-
-and that M082 "can never OVERSTATE" what was known by W. That claim is
-**RETRACTED**. It was never proved, and it is false whenever the application
-host clock is wrong or moves backward -- a possibility this module's own
-limitations already admitted, so the two statements could not both be true.
-
-Executed counter-example: an event commits, is read back successfully, and the
-attesting clock then returns an instant EARLIER than the read-back. The receipt
-carries that earlier label. A historical query at a W between the two reports
-the event as attested by W, although at real wall-clock W the event had not
-committed. Causal ordering is not numerical wall-clock ordering when the clock
-can jump.
-
-What survives is the causal claim, which does not depend on the clock at all.
-
-WHAT IS THEREFORE NOT CLAIMED. Not the commit time (PostgreSQL's
-`track_commit_timestamp` is off and `pg_xact_commit_timestamp` errors here, so
-commit-time authority is unavailable and is not faked). Not an upper bound on
-the commit time. Not wall-clock truth. Not that comparing the label to an
-arbitrary historical instant W proves durable availability at W.
-
-CONSEQUENCE, STATED PLAINLY: **M082 does NOT replace M079's `recorded_at`
-firewall.** It supplies a smaller true primitive -- causal receipt attestation
--- instead of a larger false one. Binding an evaluation to receipt identities or
-an explicitly persisted receipt set, rather than reconstructing wall-clock
-availability afterwards, is a separate future milestone and is not started.
-
-WHY THE TWO-PHASE MODEL IS STILL THE POINT. A receipt written INSIDE the
-ingesting transaction has no causal claim at all, and this was proved by
-execution: a transaction assigned its timestamp, paused, and a cutoff K was
-chosen during the pause while the row was invisible to every reader. After
-commit, a historical query `assigned_at <= K` returned the row. The second
-transaction plus read-back is what makes the causal claim true.
-
-THIS IS A RECEIPT-LABEL-CUTOFF VIEW, NOT A HISTORICAL SNAPSHOT (owner review,
-findings 1 and 5). It is built FROM RECEIPTS whose label is at or before the
-cutoff, never from the current ledger inventory. A receipt labelled after the
-cutoff, and an event that has no such receipt, are structurally unreachable: no
-entry, no count and no ordering position can be derived from them.
-
-REMOVED, and RETRACTED with the design that emitted them: an earlier version
-built the artifact from `ledger.list_all()` and emitted ATTESTED_AFTER_CUTOFF,
-NO_SYSTEM_RECEIPT_EVIDENCE and `attested_after_cutoff_count`; that made the
-output depend on rows created after the cutoff.
-
-The view deliberately does NOT know how much evidence it excluded, and no
-replacement count is offered.
-
-But it is NOT a stable point-in-time reconstruction, and calling it a "snapshot"
-would overclaim. Because a label may be backdated (finding 2), a receipt created
-LATER can carry a label at or before the cutoff and therefore appear in a
-re-evaluation of the SAME cutoff. Executed: the same cutoff returned one entry,
-then two, after a later attestation ran with a backward clock. What the view IS:
-
-    a predicate over the labels in the CURRENT persisted receipt set.
-
-What it is NOT: a reconstruction of which receipts existed at real wall-clock W.
-Repeated evaluation at the same cutoff can legitimately change. No hidden
-creation timestamp was added to paper over this -- that would simply reopen the
-same authority problem one layer down.
-
-WHAT THE DATABASE ENFORCES, AND WHAT IT DOES NOT (owner review, finding 4). A
-BEFORE INSERT trigger refuses a receipt whose referenced event was written by
-the CURRENT transaction, so the causal claim now holds for every persisted row
-and not merely for rows produced through `attest()`. Before that trigger existed
-a direct SQL caller could open one transaction, insert an event, insert a
-matching receipt, and commit -- the foreign key was satisfied because the event
-was visible to that same transaction -- producing a receipt for an event that
-had never independently committed. That was reproduced before being fixed.
-
-Still NOT enforced, and this must not be over-read: `system_received_at`,
-`attested_by` and `attester_version` are UNAUTHENTICATED LABELS. A direct SQL
-caller with write access can insert a receipt for an ALREADY COMMITTED event
-carrying any label, any attester name and any version, and this report cannot
-distinguish it from one `attest()` produced. Row immutability is likewise narrow:
-row-level UPDATE/DELETE under the installed trigger only, not TRUNCATE, not DROP
-TRIGGER, not DROP TABLE, not a superuser.
+WHAT THE DATABASE ENFORCES. A BEFORE INSERT trigger refuses a receipt whose
+referenced event was written by the current transaction, so the causal claim
+holds for every persisted row rather than only for rows produced through
+`attest()`. Row immutability is row-level UPDATE/DELETE only -- not TRUNCATE,
+not DROP, not a superuser.
 
 LEGACY EVENTS ARE NEVER BACKFILLED. A receipt is never manufactured from
 `recorded_at`, `event_timestamp` or a migration time. An event without a receipt
-simply does not appear, and remains a perfectly valid M076 operator assertion
-that carries no M082 authority.
+simply does not appear and remains a valid M076 operator assertion carrying no
+M082 authority.
 
-M079, M080 and M081 are untouched and do NOT consume this authority.
+M079, M080 and M081 are untouched and do NOT consume this authority; M082 does
+not replace M079's `recorded_at` firewall.
+
+The canonical, machine-readable statement of this authority is
+external-review/MILESTONE-082/current-authority.json. Every earlier version of
+this docstring, including its retractions and reproduced defects, is preserved
+in the historical record of that package.
 """
 
 from __future__ import annotations
@@ -266,7 +182,7 @@ ATTESTED_EVIDENCE_BANNER = (
     "value in any of the three. NO INDIVIDUAL ROW HERE CAN BE SAID TO HAVE COME "
     "THROUGH attest(), because the database does not prove that. The host clock "
     "can also be wrong, adjusted or moved BACKWARD, so a label at or before the "
-    "cutoff DOES NOT prove the event was durably committed by that cutoff in "  # BANNED-TERM
+    "cutoff DOES NOT prove the event was durably committed by that cutoff in "
     "real time. "
     "RETRACTED: an earlier version of this report claimed the label was an "
     "upper bound on commit time and that the report could never OVERSTATE what "
@@ -409,7 +325,7 @@ _LIMITATIONS = (
     "executed backward-clock attack produces a receipt labelled before the "
     "event's real commit chronology",
     "limitation: comparing the label to an arbitrary historical instant W does "
-    "NOT prove the event was durably committed by W in real time. The cutoff "  # BANNED-TERM
+    "NOT prove the event was durably committed by W in real time. The cutoff "
     "here is a LABEL comparison, not a knowledge-time proof",
     "limitation: CONSEQUENTLY M082 does NOT replace M079's recorded_at "
     "firewall. M079, M080 and M081 continue to filter the operator-supplied "
@@ -434,7 +350,7 @@ _LIMITATIONS = (
     "limitation: this is a RECEIPT-LABEL-CUTOFF VIEW built ONLY from receipts "
     "labelled at or before the cutoff. Receipts labelled after it, and events "
     "with no such receipt, are structurally unreachable and contribute nothing",
-    "limitation: it is NOT a stable point-in-time snapshot. The cutoff is a "  # BANNED-TERM
+    "limitation: it is NOT a stable point-in-time snapshot. The cutoff is a "
     "predicate over the labels in the CURRENT persisted receipt set, not a "
     "reconstruction of which receipts existed at that instant in real time. "
     "Because a label can be backdated, a receipt created LATER can carry a "

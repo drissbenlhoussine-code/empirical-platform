@@ -1,230 +1,66 @@
-# MILESTONE-082 - Operator Event Receipt Attestation - External Review Package
+# MILESTONE-082 — Operator Event Receipt Identity Attestation — Review Package
 
-**Status: CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
+**Status: FINAL_CLOSURE_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
 
-> **⚠ READ THIS FIRST — NAVIGATION.**
-> The authoritative latest correction is
-> **`owner-correction-mission-finding-27.md`**. Read it before anything
-> else. Every other file in this package, including the ones the older banners
-> below tell you to read first, describes an **earlier candidate** and carries
-> its own superseded notice.
+> **⚠ START HERE — [`current-authority.md`](current-authority.md).**
 >
-> *(Superseded banners, kept visible:)* the authoritative latest correction was
-> `owner-correction-mission-finding-26.md`, before it
-> `owner-correction-mission-findings-24-25.md`, before it
-> `owner-correction-mission-findings-22-23.md`, before it
-> `owner-correction-mission-findings-20-21.md`, and before it
-> `owner-correction-mission-findings-16-18.md`.
+> That document is the **single active statement** of what this milestone
+> establishes. It is generated deterministically from
+> [`current-authority.json`](current-authority.json), which is the canonical,
+> machine-readable, schema-validated contract.
 >
-> *(Superseded banner, kept visible:)* Hardened after a second Owner review —
-> a stale upper-bound claim in the migration; a persisted row that did not prove
-> the causal claim against a direct same-transaction SQL INSERT; and a label
-> cutoff that is not a stable snapshot.
+> Nothing else in this package carries authority.
 
 Base `master` `28a1053`.
 
-> *(Superseded banner, kept visible.)* This package was corrected after Owner
-> review; two claims are RETRACTED. It said to read
-> `owner-review-correction-pass.md` before anything else — that pointer is now
-> **out of date**; see the navigation notice above. It reproduces
-> both defects by execution and records exactly what the milestone now claims.
+## How this package is organised
 
-## What M082 claims, after every correction
+Every file is classified exactly once in
+[`authority-surface-manifest.json`](authority-surface-manifest.json), and that
+classification is enforced by test, not by convention.
 
-> A persisted M082 receipt binds a stable receipt identity to an exact M076
-> event governance identity whose real public-table row was visible as coming
-> from a prior committed transaction at receipt insertion. The receipt label is
-> not commit time, trusted wall-clock truth, historical knowledge time, or proof
-> of availability at an arbitrary cutoff.
->
-> **M082 does not attest the current or historical payload of that M076 event.**
->
-> **And it does not attest the provenance of a persisted metadata label:**
->
-> ```
-> GENERIC PERSISTED VALUE:
->     UNAUTHENTICATED PROVENANCE.
-> ON THE SANCTIONED attest() PATH ONLY:
->     system_received_at is obtained from the application host clock after
->     read-back; attester_version is an application constant; attested_by is
->     caller-supplied and passed through unchanged.
-> ```
->
-> A direct SQL receipt for a genuinely prior-committed event is accepted **by
-> design**, may carry any allowed value in all three fields, and is mapped into
-> the same domain type. **No individual row can be said to have come through
-> `attest()`.**
->
-> **And `system_received_at` is a LABEL, not a time at which anything happened.**
-> On the sanctioned path the clock **CALL** is issued causally after the
-> read-back; **the value it returns proves no wall-clock chronology** — not the
-> observation's real time, not a bound, not an ordering against anything else.
+| Class | Meaning | Files |
+|---|---|---|
+| `CURRENT_AUTHORITY` | what M082 claims **now** | the canonical contract, its schema, the generated document, and the current design |
+| `CURRENT_VALIDATION_EVIDENCE` | how that claim was checked at this head | this README, the manifest, changed-files, validation results, the closure report |
+| `HISTORICAL_RECORD` | earlier reasoning, preserved unedited | every earlier review and correction report, and the archived legacy design |
 
-## The earlier statement of the causal claim
+Historical files each carry a top-level notice saying they are not current
+authority. They are never imported, rendered, or validated as truth. They are
+kept because deleting a withdrawn conclusion would hide how the milestone got
+here.
 
-**A causal fact, and nothing more:**
+## The claim, in one sentence
 
-    the attestation process READ THIS EVENT BACK from committed persistence,
-    and only THEN created this receipt.
+A persisted receipt binds a stable receipt identity to one exact M076 event
+governance identity whose real `public` row originated from a **prior committed
+transaction** at receipt insertion. It does not attest event payload, commit
+time, wall-clock chronology, historical availability, or the provenance of
+persisted metadata.
 
-That holds by program order plus PostgreSQL transaction visibility, and **it
-does not depend on any clock**.
+The exact, enumerated version of that sentence — including every non-claim — is
+in the canonical contract.
 
-> **⚠ SUPERSEDED (Owner finding 20).** The next sentence, kept verbatim, said:
-> *"`system_received_at` is a **system-assigned label** recorded beside that
-> fact."* "System-assigned" asserts an origin the database does not prove for a
-> persisted row. It is a **label** recorded beside that fact, with
-> **unauthenticated provenance** as a stored value; see the authority
-> distinction above.
-
-## What M082 no longer claims
-
-**RETRACTED — the wall-clock upper bound.** The first version claimed
-`commit_time(event) < system_received_at`, therefore `system_received_at <= W`
-implies durable commit by `W`, and that M082 "can never overstate". Executed
-counter-example, real PostgreSQL:
-
-```
-real commit (wall clock) : 15:12:55.926191
-receipt label            : 15:02:55.926191   <- host clock moved BACK ten minutes
-cutoff (between them)    : 15:07:55.926191
-
-snapshot at the cutoff includes the event : True
-```
-
-The event was **not** committed at that real instant, yet it is listed. The
-module's own limitations had already admitted the clock "can move backward", so
-the two statements could never both be true — and nothing had proved the bound.
-
-**The honest consequence, stated rather than buried: M082 does NOT replace
-M079's `recorded_at` firewall.** A smaller true primitive beats a stronger false
-one. Binding an evaluation to receipt identities, or to an explicitly persisted
-receipt set captured at decision time, is a future milestone. It is not started.
-
-**RETRACTED — "point-in-time historical snapshot".** The artifact was built from
-the CURRENT ledger, so rows created after the cutoff changed the historical
-output. The status names in the reproduced defect output below are all REMOVED.
-Two databases with identical evidence at `W`:
-
-```
-REPRODUCED DEFECT OUTPUT. Every status name below is REMOVED.
-
-ATTACK A - a receipt created after W, in DB-A only
-  DB-A : ATTESTED_AFTER_CUTOFF     DB-B : NO_SYSTEM_RECEIPT_EVIDENCE
-  after_cutoff_count A=1 B=0       unattested_count A=0 B=1
-
-ATTACK B - a new event added after W, in DB-A only
-  entry count A=3 B=2
-  future event id / position / symbol leaked into the historical text : True / True / True
-```
-
-The banner's own sentence *"Nothing attested after the cutoff influences any
-figure below"* was false.
-
-## What replaced it: a receipt-label-cutoff VIEW
-
-> **⚠ RETRACTED heading.** This section was headed "a true receipt-cutoff
-> **snapshot**". Owner finding 5 established the artifact is not a snapshot, and
-> finding 11 required the word gone from active headings. Kept visible here
-> rather than deleted.
-
-The artifact is now built **from receipts** labelled at or before the cutoff.
-A later receipt and an unreceipted event are **structurally unreachable** — no
-entry, no count, no ordering position. These names are REMOVED and not
-replaced: `ATTESTED_AFTER_CUTOFF`, `NO_SYSTEM_RECEIPT_EVIDENCE`, the whole  <!-- QUOTED-DEFECT -->
-status enum, `attested_after_cutoff_count` and `unattested_count`. The view  <!-- QUOTED-DEFECT -->
-deliberately **cannot say how much it excluded**, and its own text says so.
-
-Re-run after the correction: **full object, full text and full JSON identical**
-on both sides of both attacks.
-
-## Names are claims, so three of them changed
-
-Every name in the left column is REMOVED; it was renamed to the right column.
-| Old (REMOVED) | New |
-|---|---|
-| `attested_known_by` | `events_with_receipt_labelled_by` |  <!-- QUOTED-DEFECT -->
-| `attested_as_of` | `receipt_label_cutoff` |  <!-- QUOTED-DEFECT -->
-| `--attested-as-of` | `--receipt-label-cutoff` |  <!-- QUOTED-DEFECT -->
-
-## What survived the correction untouched
-
-The two-transaction model and the executed commit-gap proof that forced it; the
-refusal to enable or fake commit timestamps; the refusal to treat a sequence as
-commit order; the empty-table migration and the legacy-backfill prohibition; the
-append-only schema, immutability trigger and FK `RESTRICT`; idempotency,
-concurrency and the R01 fix; and M079/M080/M081, byte-identical and still not
-consuming this authority.
-
-## Defects, all found by execution
-
-Each row states a defect as REPRODUCED, not as a current property.
-| # | Defect (reproduced, then corrected) |
-|---|---|
-| Owner 1 | historical snapshot leaked future receipts and future events |  <!-- QUOTED-DEFECT -->
-| Owner 2 | the wall-clock upper bound was unproved and false under a backward clock |
-| Owner 3 | a stale upper-bound claim survived in the migration; the first sweep never searched `migrations/` |
-| Owner 4 | a persisted row did not prove the causal claim — a same-transaction direct SQL INSERT forged one |
-| Owner 5 | the label cutoff is not a stable snapshot; a later backdated label changes the same cutoff |
-| Owner 6 | the prior-commit trigger caught `EXCEPTION WHEN OTHERS` and **failed open** — any checker error became permission to insert |
-| Owner 7 | the receipt did **not** bind the event payload — a post-attestation `UPDATE` changed the artifact while the receipt stood still, and M076 has zero immutability triggers |
-| Owner 8 | a non-superuser shadowed `operator_position_event` through `pg_temp` and attested an in-progress event |
-| Owner 9 | malformed far-future rows reached the report and made an earlier-cutoff report **raise** |
-| Owner 10 | two non-atomic reads produced `MissingAttestedEventError` during ordinary concurrency |  <!-- QUOTED-DEFECT -->
-| Owner 11 | stale/contradictory claim surfaces, including active "snapshot" naming in the CLI |
-| Owner 12 | database and domain disagreed on "blank" — six whitespace characters passed the CHECK and then crashed the report |
-| Owner 13 | metadata provenance overclaimed — the text renderer asserted sanctioned-path origin for forgeable rows |
-| Owner 14 | crash/reconciliation language reintroduced clock chronology and contradicted itself |
-| Owner 15 | the versioned evidence package was not reconciled to the current candidate |
-| Owner 16 | the blank invariant had been **weakened** to seven characters rather than restored to Python's full 29 |
-| Owner 17 | provenance wording still needed an explicit sanctioned-path qualifier |
-| Owner 18 | active evidence surfaces needed reconciling to the real latest correction |
-| R01 | the concurrent-loser path crashed with a nested unit of work instead of yielding |
-| R02 | this branch's migration broke frozen M076's reversibility test (test-only; re-verified in full) |
-
-## Read in this order
+## Where to look
 
 | File | What it is |
 |---|---|
-| `owner-correction-mission-finding-27.md` | **START HERE — authoritative latest.** Finding 27 |
-| `owner-correction-mission-finding-26.md` | finding 26 *(superseded)* |
-| `owner-correction-mission-findings-24-25.md` | findings 24–25 *(superseded)* |
-| `owner-correction-mission-findings-22-23.md` | findings 22–23 *(superseded)* |
-| `owner-correction-mission-findings-20-21.md` | findings 20–21 *(superseded)* |
-| `owner-correction-mission-findings-16-18.md` | findings 16–18 *(superseded)* |
-| `owner-correction-mission-findings-12-15.md` | findings 12–15 |
-| `owner-correction-mission-findings-7-11.md` | findings 7–11 |
-| `owner-review-fail-closed-pass.md` | finding 6, the fail-open enforcement |
-| `owner-review-hardening-pass.md` | findings 3, 4 and 5 |
-| `owner-review-correction-pass.md` | the previous pass — findings 1 and 2 |
-| `reality-gate.md` | which claim level this reaches, and the two levels it no longer claims |
-| `transaction-timing-evidence.md` | the executed commit-gap leak; why commit time is unavailable |
-| `scope-and-design-snapshot.md` | the design, the eight candidates, the rejected alternatives |
-| `hostile-design-review.md` | 207 attacks, 11 findings, all corrected before any code |
-| `hostile-implementation-review.md` | 263 executed attacks; R01 and R02 |
-| `concurrency-evidence.md` | the four-attester race, before and after R01 |
-| `focused-re-review.md` | the R01 correction re-attacked in its changed area |
-| `fresh-second-verification-pass.md` | separate database, different events, reversed attestation order |
-| `validation-results.md` | every gate, and the baseline-vs-candidate failing-ID diff |
-| `known-limitations.md` | every limitation, with the retracted ones quoted |
-| `owner-review-checklist.md` | the judgment calls, stated so they can be overruled |
-| `changed-files.txt` | every file this branch touches |
+| `current-authority.md` | **START HERE.** The active authority, generated |
+| `current-authority.json` | the canonical contract |
+| `current-authority.schema.json` | the closed schema that contract must satisfy |
+| `authority-surface-manifest.json` | the classification of every M082 document |
+| `owner-final-closure-candidate.md` | the closure mission's delivery report |
+| `validation-results.md` | executed gates at this head |
+| `changed-files.txt` | the exact `master..head` file list |
+| `history/` | the archived legacy design, byte-identical, with its checksum |
 
-Files predating the correction carry a visible retraction notice at the top.
-Nothing was deleted.
+## What replaced the previous validation approach
 
-## Nothing here is erased
+Earlier candidates validated authority by scanning English prose for banned
+phrases and exempting it with banners, paragraph rules, negation parsing and
+inline annotations. Findings 20 through 28 each defeated that mechanism, and its
+green results proved only that its grammar accepted the text.
 
-My own probe errors are recorded beside the attacks they broke. Three matter:
-
-- a `recorded_at` substring search that flagged the artifact's own limitation
-  text denying it;
-- a forbidden-token search for `"upper bound"` that failed on the artifact's own
-  **retraction** of that claim — the identical mistake, made twice;
-- a re-run of Attack A that reported a difference after the fix, because *my
-  probe* let the two databases take different wall-clock labels. That same
-  weakness is why the original double-database test compared only a projection
-  of the entries — **and that is exactly why it passed while the leak was live.**
-
-A test that fails for the wrong reason misleads as much as one that passes for
-the wrong reason. The second kind is what the Owner had to catch.
+It is retired. Authority is now a small closed contract, and validation is
+structural: schema conformance, closed identifier sets, byte-exact rendering,
+manifest completeness, and runtime output that cannot exceed the contract.

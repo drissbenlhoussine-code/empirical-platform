@@ -1,0 +1,54 @@
+{
+  "byte_identical_archives": {
+    "external-review/MILESTONE-082/history/MILESTONE_082_SCOPE_AND_DESIGN_at_f61f14b.md": {
+      "bytes": 46733,
+      "notice_governed_by": "external-review/MILESTONE-082/history/README.md",
+      "original_path": "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md",
+      "sha256": "4112b1b1da560739827a042f48e5a72c49ec66e4e7c524f88fe89a9656c85e9b",
+      "source_commit": "f61f14b15fb5caa5bebc89abef2bca65cecd0318"
+    }
+  },
+  "classifications": {
+    "CURRENT_AUTHORITY": [
+      "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md",
+      "external-review/MILESTONE-082/current-authority.json",
+      "external-review/MILESTONE-082/current-authority.md",
+      "external-review/MILESTONE-082/current-authority.schema.json"
+    ],
+    "CURRENT_VALIDATION_EVIDENCE": [
+      "external-review/MILESTONE-082/README.md",
+      "external-review/MILESTONE-082/authority-surface-manifest.json",
+      "external-review/MILESTONE-082/changed-files.txt",
+      "external-review/MILESTONE-082/owner-final-closure-candidate.md",
+      "external-review/MILESTONE-082/validation-results.md"
+    ],
+    "HISTORICAL_RECORD": [
+      "external-review/MILESTONE-082/concurrency-evidence.md",
+      "external-review/MILESTONE-082/focused-re-review.md",
+      "external-review/MILESTONE-082/fresh-second-verification-pass.md",
+      "external-review/MILESTONE-082/history/MILESTONE_082_SCOPE_AND_DESIGN_at_f61f14b.md",
+      "external-review/MILESTONE-082/history/README.md",
+      "external-review/MILESTONE-082/history/validation-results-through-finding-27.md",
+      "external-review/MILESTONE-082/hostile-design-review.md",
+      "external-review/MILESTONE-082/hostile-implementation-review.md",
+      "external-review/MILESTONE-082/known-limitations.md",
+      "external-review/MILESTONE-082/owner-correction-mission-finding-26.md",
+      "external-review/MILESTONE-082/owner-correction-mission-finding-27.md",
+      "external-review/MILESTONE-082/owner-correction-mission-findings-12-15.md",
+      "external-review/MILESTONE-082/owner-correction-mission-findings-16-18.md",
+      "external-review/MILESTONE-082/owner-correction-mission-findings-20-21.md",
+      "external-review/MILESTONE-082/owner-correction-mission-findings-22-23.md",
+      "external-review/MILESTONE-082/owner-correction-mission-findings-24-25.md",
+      "external-review/MILESTONE-082/owner-correction-mission-findings-7-11.md",
+      "external-review/MILESTONE-082/owner-review-checklist.md",
+      "external-review/MILESTONE-082/owner-review-correction-pass.md",
+      "external-review/MILESTONE-082/owner-review-fail-closed-pass.md",
+      "external-review/MILESTONE-082/owner-review-hardening-pass.md",
+      "external-review/MILESTONE-082/reality-gate.md",
+      "external-review/MILESTONE-082/scope-and-design-snapshot.md",
+      "external-review/MILESTONE-082/transaction-timing-evidence.md"
+    ]
+  },
+  "manifest_version": 1,
+  "milestone": "M082"
+}

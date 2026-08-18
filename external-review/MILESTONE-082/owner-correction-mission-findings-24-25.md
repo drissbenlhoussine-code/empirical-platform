@@ -1,3 +1,13 @@
+> **HISTORICAL RECORD — NOT CURRENT M082 AUTHORITY**
+>
+> This file records earlier reasoning, earlier conclusions and reproduced
+> defects. Some of what it says was true only of an earlier candidate, and
+> some of it is explicitly withdrawn. It is preserved so the history stays
+> readable; it is not imported, rendered or validated as current truth.
+>
+> The single active statement of M082 authority is
+> [`current-authority.md`](current-authority.md).
+
 # MILESTONE-082 — Owner Narrow Correction Mission — Findings 24–25
 
 **Status: CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
