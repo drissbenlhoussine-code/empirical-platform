@@ -78,7 +78,7 @@ Repository truth agrees with the expected starting state in every field.
 | N | any knowledge watermark on decisions/sessions? | **none** |
 
 M079's own frozen docstring already says of `recorded_at` that it "is an
-operator-supplied field, not a system-assigned immutable" one — a quotation of
+operator-supplied field, not a system-assigned immutable" one — a quotation of  <!-- QUOTED-DEFECT -->
 M079 about `recorded_at`, not an M082 claim about any M082 column. M082 is the milestone that supplies
 what that sentence admits is missing.
 
@@ -219,7 +219,7 @@ occurs **causally after** the read-back; the **value it returns proves no
 wall-clock chronology whatsoever**. **AS A GENERIC PERSISTED VALUE** it has
 **UNAUTHENTICATED PROVENANCE**.
 
-*(Corrected by Owner findings 20 and 22: this said "at a system-assigned
+*(Corrected by Owner findings 20 and 22: this said "at a system-assigned  <!-- QUOTED-DEFECT -->
 instant", then "at the instant recorded in `system_received_at`". Both treat the
 label as a real instant at which the observation occurred. See §12.)*
 
@@ -280,7 +280,7 @@ the natural M083, not M082.
 **D - combined receipt + sequence. REJECTED**: the sequence adds a misreading
 hazard and no capability, per §6.
 
-**E - system-assigned `recorded_at` inside M076. REJECTED.** It would mutate a
+**E - system-assigned `recorded_at` inside M076. REJECTED.** It would mutate a  <!-- QUOTED-DEFECT -->
 frozen dataclass, a frozen table and a frozen repository contract, and would
 silently change the meaning of every historical M079/M080/M081 statement. The
 mission's own instruction is that this needs extraordinary justification;
@@ -348,7 +348,7 @@ administrator could influence it. M082 says **a label**, never *true time* or
 assigned by the system at all. It is not a trusted timestamping service and
 makes no cryptographic claim.
 
-*(Corrected by Owner finding 20: this said "M082 says **system-assigned**",
+*(Corrected by Owner finding 20: this said "M082 says **system-assigned**",  <!-- QUOTED-DEFECT -->
 which is an origin claim for every persisted row, not only for rows the
 sanctioned path produced.)*
 
@@ -559,19 +559,19 @@ not hidden.
 > **⚠ RETAINED VERBATIM AS THE ORIGINAL, WITHDRAWN REASONING (locally rescoped
 > by owner finding 24).** EVERYTHING IN THIS BLOCKQUOTE IS WITHDRAWN. It was
 > previously left outside any quote, so its snapshot and durable-commit claims
-> read as active. `attested_known_by` no longer exists; it was renamed
+> read as active. `attested_known_by` no longer exists; it was renamed  <!-- QUOTED-DEFECT -->
 > `events_with_receipt_labelled_by`.
 >
 > *(Withdrawn text begins.)*
 >
-> M082 exposes an attested knowledge snapshot at a cutoff `W`:
+> M082 exposes an attested knowledge snapshot at a cutoff `W`:  <!-- QUOTED-DEFECT -->
 >
 > ```
-> attested_known_by(events, receipts, W)
+> attested_known_by(events, receipts, W)  <!-- QUOTED-DEFECT -->
 >   = events whose receipt exists and whose system_received_at <= W
 > ```
 >
-> Sound direction: every event returned **was durably committed by `W`**.
+> Sound direction: every event returned **was durably committed by `W`**.  <!-- QUOTED-DEFECT -->
 > Conservative direction: an event may be omitted although it had committed by
 > `W`, if its receipt came later. Both are stated on every report.
 >
@@ -627,7 +627,7 @@ and is a **future authorized milestone**, not a side effect of this one.
 | `attester_version` | `String(32) NOT NULL` | a recorded string. Sanctioned path: an application constant. **Generic persisted value: UNAUTHENTICATED PROVENANCE** — it identifies no writer the database proves |
 
 *(Superseded by owner finding 22: these three columns were described as "the
-attestation instant", "the pathway that attested" and "which writer produced
+attestation instant", "the pathway that attested" and "which writer produced  <!-- QUOTED-DEFECT -->
 it". All three assert an origin, and the first treats the label as a real
 instant.)*
 
@@ -677,7 +677,7 @@ its own clock CALL returns. That label may be numerically earlier or later than
 anything else in the table; only the causal claim is created.
 
 *(Superseded by owner finding 22: this said the retry creates the receipt "with
-the **later** true instant".)*
+the **later** true instant".)*  <!-- QUOTED-DEFECT -->
 
 ## 27. Failure And Absence Vocabulary
 
@@ -856,9 +856,9 @@ boundary, and the ledger is not read at all.
 
 ### Finding 10 - two non-atomic reads
 
-`MissingAttestedEventError` is REMOVED; it is named here only to record what
+`MissingAttestedEventError` is REMOVED; it is named here only to record what  <!-- QUOTED-DEFECT -->
 was deleted. `ledger.list_all()` then `receipts.list_all()`, with an event and
-receipt committing between them, produced `MissingAttestedEventError`. One
+receipt committing between them, produced `MissingAttestedEventError`. One  <!-- QUOTED-DEFECT -->
 store, one cutoff-narrowed query replaced both reads.
 
 ### Fail-closed hardening - explicit allowlist
@@ -902,7 +902,7 @@ come through `attest()`.
 module: `OperatorEventReceipt`, `AttestedEventEntry`,
 `events_with_receipt_labelled_by`, the repository port, the PostgreSQL adapter,
 the migration and §8, §11, §13, §22 and §30 of this document all still described
-the label as **system-assigned** (quoted here as the defect, not asserted),
+the label as **system-assigned** (quoted here as the defect, not asserted),  <!-- QUOTED-DEFECT -->
 generically. Every one is now either removed or
 placed under an explicit **ON THE SANCTIONED `attest()` PATH** qualification, and
 a test now sweeps the **source files** rather than only the rendered output.

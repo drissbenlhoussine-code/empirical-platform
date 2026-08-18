@@ -49,12 +49,12 @@ therefore evidence about the sweep, not about the document.
 
 | § | Reproduced defect | Correction |
 |---|---|---|
-| 13 | `RETRACTED` banner was a blockquote; the withdrawn "upper bound witness" text sat **outside** it as plain active paragraphs | whole withdrawn block moved **inside** the banner's blockquote, wrapped in explicit *(Withdrawn text begins/ends.)* markers, and a **WHAT IS TRUE INSTEAD** paragraph added |
-| 17 | `NO_SYSTEM_RECEIPT_EVIDENCE` stated as current behaviour, with **no marker at all** | active text now says the event is **structurally absent**; the removed status name is quoted inside a `SUPERSEDED` blockquote |
-| 20 | `RETAINED VERBATIM ... WITHDRAWN REASONING:` was a one-line marker; the snapshot and "durably committed by `W`" paragraphs that followed were unmarked | entire retained block moved inside one blockquote under its own banner |
-| 21 | `SUPERSEDED` blockquote followed by plain active text still using `attested_as_of` and "snapshot" | original text moved inside a blockquote carrying its own repeated banner |
+| 13 | `RETRACTED` banner was a blockquote; the withdrawn "upper bound witness" text sat **outside** it as plain active paragraphs | whole withdrawn block moved **inside** the banner's blockquote, wrapped in explicit *(Withdrawn text begins/ends.)* markers, and a **WHAT IS TRUE INSTEAD** paragraph added |  <!-- QUOTED-DEFECT -->
+| 17 | `NO_SYSTEM_RECEIPT_EVIDENCE` stated as current behaviour, with **no marker at all** | active text now says the event is **structurally absent**; the removed status name is quoted inside a `SUPERSEDED` blockquote |  <!-- QUOTED-DEFECT -->
+| 20 | `RETAINED VERBATIM ... WITHDRAWN REASONING:` was a one-line marker; the snapshot and "durably committed by `W`" paragraphs that followed were unmarked | entire retained block moved inside one blockquote under its own banner |  <!-- QUOTED-DEFECT -->
+| 21 | `SUPERSEDED` blockquote followed by plain active text still using `attested_as_of` and "snapshot" | original text moved inside a blockquote carrying its own repeated banner |  <!-- QUOTED-DEFECT -->
 | 24 | **malformed preservation** — the code span opened before the banner and closed after it, so the banner was swallowed into a broken span and the withdrawn command/flag rendered as active | code span repaired; active text now names only the current command and flag; withdrawn names quoted inside a blockquote |
-| 27 | removed status table (`ATTESTED`, `NO_SYSTEM_RECEIPT_EVIDENCE`, `ATTESTED_AFTER_CUTOFF`) fully active, no marker | active text states the artifact emits **no status vocabulary at all**; table quoted inside a `SUPERSEDED` blockquote |
+| 27 | removed status table (`ATTESTED`, `NO_SYSTEM_RECEIPT_EVIDENCE`, `ATTESTED_AFTER_CUTOFF`) fully active, no marker | active text states the artifact emits **no status vocabulary at all**; table quoted inside a `SUPERSEDED` blockquote |  <!-- QUOTED-DEFECT -->
 
 A global banner is not scoping. Every preserved false block is now blockquoted
 under one explicit banner that begins in the same block.
@@ -65,16 +65,16 @@ Five families, all lowercased before matching:
 
 | Family — sweep vocabulary, banned phrases named in order to ban them | Members | Negation allowed? |
 |---|---|---|
-| origin / label-as-instant *(existing)* | `system-assigned`, `system assigned`, `system-controlled`, `system controlled`, `reflects system authority`, `receipt instant`, `attestation instant`, `true instant` | no |
-| upper bound / commit-by-label | `upper bound witness`, `upper-bound witness`, `durably committed by`, `implies durable commit`, `commit_time(event) <` | **yes** |
-| historical / knowledge snapshot | `knowledge snapshot`, `historical snapshot`, `point-in-time snapshot`, `attested snapshot`, `snapshot at a cutoff` | **yes** |
-| removed status names | `attested_after_cutoff`, `no_system_receipt_evidence`, `unattested_count` | no |
-| removed API / CLI names | `attested_as_of`, `attested-as-of`, `attested_known_by`, `attested-evidence-snapshot`, `missingattestedeventerror` | no |
+| origin / label-as-instant *(existing)* | `system-assigned`, `system assigned`, `system-controlled`, `system controlled`, `reflects system authority`, `receipt instant`, `attestation instant`, `true instant` | no |  <!-- QUOTED-DEFECT -->
+| upper bound / commit-by-label | `upper bound witness`, `upper-bound witness`, `durably committed by`, `implies durable commit`, `commit_time(event) <` | **yes** |  <!-- QUOTED-DEFECT -->
+| historical / knowledge snapshot | `knowledge snapshot`, `historical snapshot`, `point-in-time snapshot`, `attested snapshot`, `snapshot at a cutoff` | **yes** |  <!-- QUOTED-DEFECT -->
+| removed status names | `attested_after_cutoff`, `no_system_receipt_evidence`, `unattested_count` | no |  <!-- QUOTED-DEFECT -->
+| removed API / CLI names | `attested_as_of`, `attested-as-of`, `attested_known_by`, `attested-evidence-snapshot`, `missingattestedeventerror` | no |  <!-- QUOTED-DEFECT -->
 
 **Why two families accept negation.** Both banned phrases quoted in this
 paragraph are named as sweep vocabulary, not asserted. For the assertive
-families the corrected wording *is* the same words denied — "M082 is **NOT** a historical snapshot" has
-to stay sayable while "M082 exposes a historical snapshot" must not. A line
+families the corrected wording *is* the same words denied — "M082 is **NOT** a historical snapshot" has  <!-- QUOTED-DEFECT -->
+to stay sayable while "M082 exposes a historical snapshot" must not. A line  <!-- QUOTED-DEFECT -->
 whose only hits are assertive-family and which carries a negator
 (`not `, `n't`, `never`, `no longer`, `cannot`, `no such`, `nothing`) is not an
 offender. **Removed names get no such pass**: a deleted contract may be named
@@ -92,9 +92,9 @@ removed and the file must go quiet.
 
 | # | Injected — banned phrase, quoted as the defect | Caught on |
 |---|---|---|
-| 1 | ``​`system_received_at` is an upper bound witness on the commit time.`` | `upper bound witness` |
-| 2 | `An event with no receipt reports NO_SYSTEM_RECEIPT_EVIDENCE.` | `no_system_receipt_evidence` |
-| 3 | `The command takes --attested-as-of and emits a historical snapshot.` | `attested-as-of` |
+| 1 | ``​`system_received_at` is an upper bound witness on the commit time.`` | `upper bound witness` |  <!-- QUOTED-DEFECT -->
+| 2 | `An event with no receipt reports NO_SYSTEM_RECEIPT_EVIDENCE.` | `no_system_receipt_evidence` |  <!-- QUOTED-DEFECT -->
+| 3 | `The command takes --attested-as-of and emits a historical snapshot.` | `attested-as-of` |  <!-- QUOTED-DEFECT -->
 
 All three caught, all three restored, file clean afterwards.
 

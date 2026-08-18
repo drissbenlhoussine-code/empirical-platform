@@ -593,7 +593,7 @@ Executed on the corrected working tree, starting head `9b487d1`, base `master`
 | `mypy src` | no issues, 311 source files |
 | `tools/check_architecture.py .` | exit 0 |
 | Negative architecture fixture | exit 1, as required |
-| Secret scan | **1138 targets** at the new head (1137 at `fc550f7`, 1136 at `9b487d1`), **0 findings** |
+| Secret scan | **1139 targets** at the new head (1138 at `b879147`, 1137 at `fc550f7`, 1136 at `9b487d1`), **0 findings** |
 
 ### Suppressions — the exact delta-scoped claim
 
@@ -692,3 +692,40 @@ active design in its own unmarked paragraph, each caught, each restored:
 `upper bound witness`, `NO_SYSTEM_RECEIPT_EVIDENCE`, `--attested-as-of`.
 An anti-vacuity probe blinded one family and confirmed the matching control
 **fails** when the sweep cannot see the phrase.
+
+---
+
+## Owner finding 26 correction
+
+Full detail: `owner-correction-mission-finding-26.md` (authoritative latest).
+
+**Scope:** documentation and tests only. `migrations/` byte-identical to
+`b879147` — no migration edit was required. Production changes are comment- and
+docstring-only, with the **emitted artifact text proven identical by evaluating
+`ATTESTED_EVIDENCE_BANNER`, `_LIMITATIONS` and `BLANK_CHARACTERS` in both
+versions and comparing values**, not merely by reading the diff.
+
+Six laundering bypasses were reproduced against `b879147` and the exemption
+model was rebuilt on structural rules: banner-governed blockquote runs,
+banner-governed fenced blocks, paragraphs whose **first** line is a banner,
+banner lines themselves, explicit **line-local** annotations, and negation that
+**grammatically governs** the phrase it exempts. The paragraph-wide
+`recorded_at` / `operator-supplied` exception is deleted.
+
+| Gate | Result |
+|---|---|
+| M082 unit | 40 collected, **40 passed** |
+| M082 PostgreSQL lifecycle | 192 collected, **192 passed** |
+| M082 fresh second pass | 4 collected, **4 passed** |
+| Complete claim-sweep suite | 7 collected, **7 passed** |
+| M076–M082 compatibility chain | **474 passed** |
+| `compileall` / `ruff format --check` / `ruff check` | OK / 613 files / all passed |
+| `mypy src` | no issues in 311 source files |
+| architecture / negative fixture | exit 0 / exit 1 |
+| `python -m build` | wheel built |
+| `git diff --check` | clean |
+
+**Six negative controls**, all caught independently. **Five positive controls**,
+all accepted. **Anti-vacuity probe on both new rules**: weakening negation to
+"any negator on the line" launders attack 2; weakening the banner to "any
+substring" launders attack 4; restoring each rule catches each again.

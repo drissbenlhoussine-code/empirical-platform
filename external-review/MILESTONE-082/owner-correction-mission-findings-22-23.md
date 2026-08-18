@@ -23,7 +23,7 @@ swept, and it still treated the LABEL as a real instant at which something
 happened. The block below is quoted as the defect, not asserted:
 ```
 §8   "at the instant recorded in `system_received_at`"
-§8   "Because the receipt instant is taken strictly **after** the event is
+§8   "Because the receipt instant is taken strictly **after** the event is  <!-- QUOTED-DEFECT -->
       durably committed"
 §10  "already durably committed **at** `system_received_at`, measured by the
       **application host clock** of the process performing the attestation"
@@ -32,15 +32,15 @@ happened. The block below is quoted as the defect, not asserted:
 §12  "at `system_received_at`, which on the sanctioned `attest()` path is taken
       from the application host clock **after** that read"
 §12  "durably visible at any instant *earlier* than `system_received_at`"
-§14  "beyond the receipt instants themselves"
-§15  "receipt instant precedes commit"
+§14  "beyond the receipt instants themselves"  <!-- QUOTED-DEFECT -->
+§15  "receipt instant precedes commit"  <!-- QUOTED-DEFECT -->
 §15  "recoverable later by an honest, clearly-later receipt"
 §16  "the receipt records the **later, true** instant"
-§16  "A later reconciliation may assign a later receipt instant."
-§23  "`system_received_at` … the attestation instant"
+§16  "A later reconciliation may assign a later receipt instant."  <!-- QUOTED-DEFECT -->
+§23  "`system_received_at` … the attestation instant"  <!-- QUOTED-DEFECT -->
 §23  "`attested_by` … the pathway that attested"
 §23  "`attester_version` … which writer produced it"
-§26  "creates the receipt with the **later** true instant"
+§26  "creates the receipt with the **later** true instant"  <!-- QUOTED-DEFECT -->
 ```
 
 ### The scoping defect, which is the more serious half
@@ -64,8 +64,8 @@ limitations had already retracted them by name**.
 
 Applied throughout, and stated once in §12 as the governing rule.
 SWEEP VOCABULARY — the bullets below name the banned wording in order to ban it:
-* `system_received_at` is a **LABEL** — never a *receipt instant*, never an
-  *attestation instant*;
+* `system_received_at` is a **LABEL** — never a *receipt instant*, never an  <!-- QUOTED-DEFECT -->
+  *attestation instant*;  <!-- QUOTED-DEFECT -->
 * **ON THE SANCTIONED `attest()` PATH** the clock **CALL** is issued **causally
   after** the read-back — the call is ordered, by program order plus PostgreSQL
   transaction visibility;
@@ -90,21 +90,21 @@ not an M082 claim about an M082 column.
 Both lines below are quoted as the defect, not asserted:
 ```
 tests/integration/test_m082_operator_event_receipt_lifecycle.py:235:
-    """Scenarios B and C, and scenario D: the receipt stays system-controlled."""
+    """Scenarios B and C, and scenario D: the receipt stays system-controlled."""  <!-- QUOTED-DEFECT -->
 tests/integration/test_m082_operator_event_receipt_lifecycle.py:244:
-    # The receipt reflects system authority, not the operator's claim.
+    # The receipt reflects system authority, not the operator's claim.  <!-- QUOTED-DEFECT -->
 ```
 
 Both are generic origin claims. Neither is what the test drives: the test writes
 through `attest()` and shows only that an operator-supplied `recorded_at`,
 however absurd, does not reach the label **on that path**. A direct SQL receipt
-is not system-controlled at all, and this suite proves elsewhere that one is
+is not system-controlled at all, and this suite proves elsewhere that one is  <!-- QUOTED-DEFECT -->
 accepted by design.
 
 Two equivalents were found by the same sweep and corrected with them; both are
-quoted here as the defect: the pause-window docstring's *"The receipt instant
+quoted here as the defect: the pause-window docstring's *"The receipt instant  <!-- QUOTED-DEFECT -->
 must fall AFTER K"*, and the unit suite's *"a caller cannot supply the
-attestation instant"*.
+attestation instant"*.  <!-- QUOTED-DEFECT -->
 
 Each is replaced by the narrower true statement, with the withdrawn wording kept
 in a `SUPERSEDED (owner finding 23)` line beside it.
@@ -147,14 +147,14 @@ A **surviving design phrase** — the exact wording finding 22 removed from §23
 is appended to the real design file, far below every existing marker and in its
 own paragraph. Quoted as the defect:
 ```
-The `system_received_at` column records the attestation instant.
+The `system_received_at` column records the attestation instant.  <!-- QUOTED-DEFECT -->
 ```
 
 The sweep must catch it, and must go quiet again when it is removed. Executed
 result: with the phrase injected, the sweep reports the following, quoted here
 as the defect and not asserted:
 ```
-MILESTONE_082_..._SCOPE_AND_DESIGN.md:<n>: The `system_received_at` column records the attestation instant.
+MILESTONE_082_..._SCOPE_AND_DESIGN.md:<n>: The `system_received_at` column records the attestation instant.  <!-- QUOTED-DEFECT -->
 ```
 
 and the design is restored in a `finally` block, verified clean afterwards by

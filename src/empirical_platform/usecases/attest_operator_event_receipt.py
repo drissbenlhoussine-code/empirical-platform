@@ -109,7 +109,7 @@ class GetAttestedEvidenceReportHandler:
         receipt stayed identical;
       * the two reads were not atomic. An event and its receipt committing
         between them produced a since-REMOVED type,
-        `MissingAttestedEventError` -- an "unreachable" inconsistency during
+        `MissingAttestedEventError` -- an "unreachable" inconsistency during  (QUOTED-DEFECT)
         ordinary sanctioned concurrency.
 
     One store, one query, narrowed by the cutoff in SQL. Neither failure has a

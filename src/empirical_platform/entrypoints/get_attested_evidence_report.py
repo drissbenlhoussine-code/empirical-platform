@@ -2,7 +2,7 @@
 
 Read-only: no attestation path is reachable from here.
 
-The flag is `--receipt-label-cutoff`, RENAMED from `--attested-as-of` by Owner
+The flag is `--receipt-label-cutoff`, RENAMED from `--attested-as-of` by Owner  (QUOTED-DEFECT)
 review finding 2: "as of" claimed a point-in-time knowledge stance the label
 cannot support. This module emits a VIEW, never a snapshot, and it reads the
 receipt store alone -- the M076 ledger is not a dependency of this entry point

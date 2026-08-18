@@ -173,7 +173,11 @@ def test_the_report_carries_no_future_tail_count() -> None:
     }
     for payload in ("position_governance_id", "instrument_symbol", "asserted_price"):
         assert payload not in entry_fields, payload
-    for banned in ("attested_after_cutoff_count", "unattested_count", "excluded_count"):
+    for banned in (
+        "attested_after_cutoff_count",  # BANNED-TERM
+        "unattested_count",  # BANNED-TERM
+        "excluded_count",
+    ):  # BANNED-TERM
         assert banned not in fields
         assert banned not in render_attested_evidence_report_json(rep)
     assert rep.attested_count == len(rep.entries)
@@ -216,7 +220,7 @@ def test_a_receipt_needs_no_event_inventory_at_all() -> None:
     """OWNER FINDING 7 + 10. The builder takes receipts and nothing else.
 
     The previous version raised a since-REMOVED type,
-    MissingAttestedEventError, when a receipt named an event it was not given,
+    MissingAttestedEventError, when a receipt named an event it was not given,  (QUOTED-DEFECT)
     is exactly what happened during ordinary concurrency, because the two
     inventories were read separately. With no event parameter there is no such
     failure mode.
@@ -256,11 +260,11 @@ def test_no_artifact_surface_claims_an_upper_bound_or_a_knowledge_time() -> None
     rep = report([event(1)], [receipt(1, received_day=5)], cutoff_day=10)
     text, payload = rendered(rep)
     for withdrawn in (
-        "upper bound witness",
-        "UPPER BOUND WITNESS",
+        "upper bound witness",  # BANNED-TERM
+        "UPPER BOUND WITNESS",  # BANNED-TERM
         "can never OVERSTATE",
         "one-directional guarantee",
-        "durably committed by the cutoff",
+        "durably committed by the cutoff",  # BANNED-TERM
     ):
         assert withdrawn not in text, withdrawn
         assert withdrawn not in payload, withdrawn
@@ -271,7 +275,7 @@ def test_the_banner_states_the_causal_claim_and_the_retraction() -> None:
         "What a receipt PROVES is CAUSAL and clock-independent",
         "read the event back from COMMITTED persistence",
         "moved BACKWARD",
-        "DOES NOT prove the event was durably committed by that cutoff",
+        "DOES NOT prove the event was durably committed by that cutoff",  # BANNED-TERM
         "RETRACTED",
         "does NOT replace M079's recorded_at firewall",
         "RECEIPT-LABEL-CUTOFF VIEW",
@@ -297,7 +301,7 @@ def test_the_limitations_retract_the_bound_and_deny_the_m079_replacement() -> No
     assert "track_commit_timestamp" in joined
     assert "no monotonicity is enforced" in joined
     assert "CANNOT report how much evidence it excluded" in joined
-    assert "NOT a stable point-in-time snapshot" in joined
+    assert "NOT a stable point-in-time snapshot" in joined  # BANNED-TERM
     assert "REPEATED EVALUATION AT THE SAME CUTOFF CAN CHANGE" in joined
     assert "committed by a PRIOR transaction" in joined
     assert "UNAUTHENTICATED LABELS" in joined
@@ -325,14 +329,16 @@ def test_the_old_overclaiming_names_are_gone() -> None:
     import empirical_platform.decision_candidate.operator_event_receipt as module
 
     for withdrawn in (
-        "attested_known_by",
+        "attested_known_by",  # BANNED-TERM
         "AttestedEvidenceStatus",
-        "MissingAttestedEventError",
+        "MissingAttestedEventError",  # BANNED-TERM
     ):
         assert not hasattr(module, withdrawn), withdrawn
         assert withdrawn not in module.__all__
-    assert "attested_as_of" not in AttestedEvidenceReport.__dataclass_fields__
-    assert "attested_as_of" not in GetAttestedEvidenceReportQuery.__dataclass_fields__
+    assert "attested_as_of" not in AttestedEvidenceReport.__dataclass_fields__  # BANNED-TERM
+    assert (
+        "attested_as_of" not in GetAttestedEvidenceReportQuery.__dataclass_fields__  # BANNED-TERM
+    )  # BANNED-TERM
 
 
 # --------------------------------------------------------------------------

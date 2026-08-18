@@ -1,7 +1,7 @@
 """MILESTONE-082 -- Operator Event Receipt Attestation.
 
 WHAT THIS EXISTS TO FIX. M079's own frozen docstring admits that `recorded_at`
-"is an operator-supplied field, not a system-assigned immutable" one. Measured
+"is an operator-supplied field, not a system-assigned immutable" one. Measured  (QUOTED-DEFECT)
 against real PostgreSQL, an ordinary permitted caller can persist an M076 event
 with `recorded_at` of last year, next year, 1999, 2999, or before its own
 `event_timestamp` -- all five persist, and the table carries no
@@ -89,8 +89,8 @@ cutoff, and an event that has no such receipt, are structurally unreachable: no
 entry, no count and no ordering position can be derived from them.
 **RETRACTED**, and the names below are REMOVED rather than current: an earlier
 version built the artifact from `ledger.list_all()` and emitted
-ATTESTED_AFTER_CUTOFF, NO_SYSTEM_RECEIPT_EVIDENCE and
-`attested_after_cutoff_count`; that made the output depend on rows created after
+ATTESTED_AFTER_CUTOFF, NO_SYSTEM_RECEIPT_EVIDENCE and  (QUOTED-DEFECT)
+`attested_after_cutoff_count`; that made the output depend on rows created after  (QUOTED-DEFECT)
 the cutoff. The view deliberately does NOT know how much evidence it excluded,
 and no replacement count is offered.
 
@@ -261,7 +261,7 @@ ATTESTED_EVIDENCE_BANNER = (
     "value in any of the three. NO INDIVIDUAL ROW HERE CAN BE SAID TO HAVE COME "
     "THROUGH attest(), because the database does not prove that. The host clock "
     "can also be wrong, adjusted or moved BACKWARD, so a label at or before the "
-    "cutoff DOES NOT prove the event was durably committed by that cutoff in "
+    "cutoff DOES NOT prove the event was durably committed by that cutoff in "  # BANNED-TERM
     "real time. "
     "RETRACTED: an earlier version of this report claimed the label was an "
     "upper bound on commit time and that the report could never OVERSTATE what "
@@ -333,8 +333,8 @@ class AttestedEventEntry:
 class AttestedEvidenceReport:
     """The receipt-label-cutoff view.
 
-    There is DELIBERATELY no `attested_after_cutoff_count` and no
-    `unattested_count`. Both were future-aware: they counted rows that exist
+    There is DELIBERATELY no `attested_after_cutoff_count` and no  (QUOTED-DEFECT)
+    `unattested_count`. Both were future-aware: they counted rows that exist  (QUOTED-DEFECT)
     only in the present-day store. See the module docstring's retraction.
     """
 
@@ -404,7 +404,7 @@ _LIMITATIONS = (
     "executed backward-clock attack produces a receipt labelled before the "
     "event's real commit chronology",
     "limitation: comparing the label to an arbitrary historical instant W does "
-    "NOT prove the event was durably committed by W in real time. The cutoff "
+    "NOT prove the event was durably committed by W in real time. The cutoff "  # BANNED-TERM
     "here is a LABEL comparison, not a knowledge-time proof",
     "limitation: CONSEQUENTLY M082 does NOT replace M079's recorded_at "
     "firewall. M079, M080 and M081 continue to filter the operator-supplied "
@@ -429,7 +429,7 @@ _LIMITATIONS = (
     "limitation: this is a RECEIPT-LABEL-CUTOFF VIEW built ONLY from receipts "
     "labelled at or before the cutoff. Receipts labelled after it, and events "
     "with no such receipt, are structurally unreachable and contribute nothing",
-    "limitation: it is NOT a stable point-in-time snapshot. The cutoff is a "
+    "limitation: it is NOT a stable point-in-time snapshot. The cutoff is a "  # BANNED-TERM
     "predicate over the labels in the CURRENT persisted receipt set, not a "
     "reconstruction of which receipts existed at that instant in real time. "
     "Because a label can be backdated, a receipt created LATER can carry a "
@@ -484,8 +484,8 @@ def build_attested_evidence_report(
         current M076 row, so a payload change after attestation cannot move it;
       * finding 10 -- there is no second inventory to read, so the split
         ledger/receipt read that produced a since-REMOVED type,
-        MissingAttestedEventError, during ordinary concurrency cannot occur;
-      * `MissingAttestedEventError` is REMOVED with it, because nothing here can
+        MissingAttestedEventError, during ordinary concurrency cannot occur;  (QUOTED-DEFECT)
+      * `MissingAttestedEventError` is REMOVED with it, because nothing here can  (QUOTED-DEFECT)
         reference an event it was not given.
 
     Callers pass receipts already narrowed by the cutoff where the persistence

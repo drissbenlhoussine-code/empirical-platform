@@ -4,12 +4,13 @@
 
 > **⚠ READ THIS FIRST — NAVIGATION.**
 > The authoritative latest correction is
-> **`owner-correction-mission-findings-24-25.md`**. Read it before anything
+> **`owner-correction-mission-finding-26.md`**. Read it before anything
 > else. Every other file in this package, including the ones the older banners
 > below tell you to read first, describes an **earlier candidate** and carries
 > its own superseded notice.
 >
 > *(Superseded banners, kept visible:)* the authoritative latest correction was
+> `owner-correction-mission-findings-24-25.md`, before it
 > `owner-correction-mission-findings-22-23.md`, before it
 > `owner-correction-mission-findings-20-21.md`, and before it
 > `owner-correction-mission-findings-16-18.md`.
@@ -129,8 +130,8 @@ figure below"* was false.
 The artifact is now built **from receipts** labelled at or before the cutoff.
 A later receipt and an unreceipted event are **structurally unreachable** — no
 entry, no count, no ordering position. These names are REMOVED and not
-replaced: `ATTESTED_AFTER_CUTOFF`, `NO_SYSTEM_RECEIPT_EVIDENCE`, the whole
-status enum, `attested_after_cutoff_count` and `unattested_count`. The view
+replaced: `ATTESTED_AFTER_CUTOFF`, `NO_SYSTEM_RECEIPT_EVIDENCE`, the whole  <!-- QUOTED-DEFECT -->
+status enum, `attested_after_cutoff_count` and `unattested_count`. The view  <!-- QUOTED-DEFECT -->
 deliberately **cannot say how much it excluded**, and its own text says so.
 
 Re-run after the correction: **full object, full text and full JSON identical**
@@ -141,9 +142,9 @@ on both sides of both attacks.
 Every name in the left column is REMOVED; it was renamed to the right column.
 | Old (REMOVED) | New |
 |---|---|
-| `attested_known_by` | `events_with_receipt_labelled_by` |
-| `attested_as_of` | `receipt_label_cutoff` |
-| `--attested-as-of` | `--receipt-label-cutoff` |
+| `attested_known_by` | `events_with_receipt_labelled_by` |  <!-- QUOTED-DEFECT -->
+| `attested_as_of` | `receipt_label_cutoff` |  <!-- QUOTED-DEFECT -->
+| `--attested-as-of` | `--receipt-label-cutoff` |  <!-- QUOTED-DEFECT -->
 
 ## What survived the correction untouched
 
@@ -159,7 +160,7 @@ consuming this authority.
 Each row states a defect as REPRODUCED, not as a current property.
 | # | Defect (reproduced, then corrected) |
 |---|---|
-| Owner 1 | historical snapshot leaked future receipts and future events |
+| Owner 1 | historical snapshot leaked future receipts and future events |  <!-- QUOTED-DEFECT -->
 | Owner 2 | the wall-clock upper bound was unproved and false under a backward clock |
 | Owner 3 | a stale upper-bound claim survived in the migration; the first sweep never searched `migrations/` |
 | Owner 4 | a persisted row did not prove the causal claim — a same-transaction direct SQL INSERT forged one |
@@ -168,7 +169,7 @@ Each row states a defect as REPRODUCED, not as a current property.
 | Owner 7 | the receipt did **not** bind the event payload — a post-attestation `UPDATE` changed the artifact while the receipt stood still, and M076 has zero immutability triggers |
 | Owner 8 | a non-superuser shadowed `operator_position_event` through `pg_temp` and attested an in-progress event |
 | Owner 9 | malformed far-future rows reached the report and made an earlier-cutoff report **raise** |
-| Owner 10 | two non-atomic reads produced `MissingAttestedEventError` during ordinary concurrency |
+| Owner 10 | two non-atomic reads produced `MissingAttestedEventError` during ordinary concurrency |  <!-- QUOTED-DEFECT -->
 | Owner 11 | stale/contradictory claim surfaces, including active "snapshot" naming in the CLI |
 | Owner 12 | database and domain disagreed on "blank" — six whitespace characters passed the CHECK and then crashed the report |
 | Owner 13 | metadata provenance overclaimed — the text renderer asserted sanctioned-path origin for forgeable rows |
@@ -184,7 +185,8 @@ Each row states a defect as REPRODUCED, not as a current property.
 
 | File | What it is |
 |---|---|
-| `owner-correction-mission-findings-24-25.md` | **START HERE — authoritative latest.** Findings 24–25 |
+| `owner-correction-mission-finding-26.md` | **START HERE — authoritative latest.** Finding 26 |
+| `owner-correction-mission-findings-24-25.md` | findings 24–25 *(superseded)* |
 | `owner-correction-mission-findings-22-23.md` | findings 22–23 *(superseded)* |
 | `owner-correction-mission-findings-20-21.md` | findings 20–21 *(superseded)* |
 | `owner-correction-mission-findings-16-18.md` | findings 16–18 *(superseded)* |
