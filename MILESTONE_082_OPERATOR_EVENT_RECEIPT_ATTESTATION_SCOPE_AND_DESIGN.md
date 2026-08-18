@@ -68,8 +68,8 @@ unedited, at:
 external-review/MILESTONE-082/history/MILESTONE_082_SCOPE_AND_DESIGN_at_f61f14b.md
   source commit : f61f14b15fb5caa5bebc89abef2bca65cecd0318
   original path : MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md
-  bytes         : 46733
-  sha256        : 4112b1b1da560739827a042f48e5a72c49ec66e4e7c524f88fe89a9656c85e9b
+  bytes (LF)    : 46733
+  sha256 (LF)   : 4112b1b1da560739827a042f48e5a72c49ec66e4e7c524f88fe89a9656c85e9b
 ```
 
 That archive is historical record. It is not current authority, and nothing

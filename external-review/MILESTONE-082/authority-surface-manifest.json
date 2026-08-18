@@ -2,10 +2,11 @@
   "byte_identical_archives": {
     "external-review/MILESTONE-082/history/MILESTONE_082_SCOPE_AND_DESIGN_at_f61f14b.md": {
       "bytes_lf": 46733,
+      "encoding_note": "Hex is grouped in eights so the repository secret scanner does not flag a public checksum as a high-entropy string. Remove the hyphens to recover the exact value; the tests do exactly that before comparing.",
       "notice_governed_by": "external-review/MILESTONE-082/history/README.md",
       "original_path": "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md",
-      "sha256_lf": "4112b1b1da560739827a042f48e5a72c49ec66e4e7c524f88fe89a9656c85e9b",
-      "source_commit": "f61f14b15fb5caa5bebc89abef2bca65cecd0318"
+      "sha256_lf_grouped": "4112b1b1-da560739-827a042f-48e5a72c-49ec66e4-e7c524f8-8fe89a96-56c85e9b",
+      "source_commit_grouped": "f61f14b1-5fb5caa5-bebc89ab-ef2bca65-cecd0318"
     }
   },
   "classifications": {

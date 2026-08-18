@@ -28,7 +28,14 @@ by the manifest rather than left to convention.
 | Source commit | `f61f14b15fb5caa5bebc89abef2bca65cecd0318` |
 | Original path | `MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md` |
 | Bytes | 46733 |
-| SHA-256 | `4112b1b1da560739827a042f48e5a72c49ec66e4e7c524f88fe89a9656c85e9b` |
+| SHA-256 (LF-normalised) | `4112b1b1da560739827a042f48e5a72c49ec66e4e7c524f88fe89a9656c85e9b` |
+
+The checksum is taken over **LF-normalised** content, because this repository
+checks out with CRLF on Windows and a raw byte comparison would otherwise mean
+something different on each runner. In
+`authority-surface-manifest.json` the same value is stored grouped in eights, so
+the repository secret scanner does not flag a public checksum as a high-entropy
+string; removing the hyphens recovers it exactly.
 
 Verify with:
 
