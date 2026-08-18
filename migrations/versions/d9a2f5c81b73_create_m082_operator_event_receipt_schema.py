@@ -187,8 +187,12 @@ def upgrade() -> None:
         # retry idempotent structurally rather than by convention, and what
         # resolves two concurrent attesters for the same event.
         sa.Column("event_governance_id", sa.String(length=64), nullable=False),
-        # The attestation LABEL, assigned by the application host clock after
-        # the event was read back as committed.
+        # The attestation LABEL. ON THE SANCTIONED attest() PATH it is assigned
+        # from the application host clock after the event was read back as
+        # committed. AS A PERSISTED VALUE it has UNAUTHENTICATED PROVENANCE:
+        # a direct SQL receipt for a genuinely prior-committed event is accepted
+        # by design and may carry any allowed value here, so no individual row
+        # can be said to have come through attest().
         #
         # RETRACTED (Owner review finding 2): this comment previously called it
         # an "UPPER BOUND WITNESS on the event's commit time". It is not. The
@@ -196,8 +200,10 @@ def upgrade() -> None:
         # backward-clock attack produces a label preceding the event's real
         # commit. This column is a system-assigned label and bounds nothing.
         sa.Column("system_received_at", _TIMESTAMPTZ, nullable=False),
-        # Recorded strings describing the pathway. Neither is an authority in
-        # itself; both exist so a reader can tell what produced the receipt.
+        # Recorded strings. ON THE SANCTIONED attest() PATH attested_by is
+        # CALLER-SUPPLIED and passed through unchanged, and attester_version is
+        # an application constant. AS PERSISTED VALUES both have UNAUTHENTICATED
+        # PROVENANCE and neither is an authority about what produced the row.
         sa.Column("attested_by", sa.String(length=64), nullable=False),
         sa.Column("attester_version", sa.String(length=32), nullable=False),
         sa.UniqueConstraint("event_governance_id", name="uq_operator_event_receipt_event"),

@@ -72,7 +72,10 @@ provenance assertion.
 * This file is the authoritative latest correction and `README.md` points here.
 * Older correction files remain, each carrying its superseded notice.
 * No self-hash and no future CI run id is written into its own commit - a commit
-  cannot contain either. Both are reported in the delivery report and on PR #12.
+  cannot contain either. Both are reported in the delivery report. The PR body
+  is updated separately, AFTER the push and after CI concludes, because neither
+  value exists at commit time; until that update lands, this file makes no claim
+  about what PR #12 currently says.
 
 ---
 

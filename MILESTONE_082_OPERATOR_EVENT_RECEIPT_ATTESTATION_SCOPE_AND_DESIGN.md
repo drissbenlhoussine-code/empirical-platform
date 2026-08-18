@@ -279,11 +279,19 @@ M082 introduces **one** new authority and is precise about its level:
 > **already durably committed** at `system_received_at`, measured by the
 > **application host clock** of the process performing the attestation.
 
+> **⚠ QUALIFIED (owner finding 17).** The sentence above holds **ON THE
+> SANCTIONED `attest()` PATH** only. As a persisted value `system_received_at`
+> has **UNAUTHENTICATED PROVENANCE** — a direct SQL receipt for a genuinely
+> prior-committed event is accepted by design and may carry any allowed label,
+> so no individual row can be said to have come through `attest()`.
+
 ## 11. Clock Authority
 
-The clock is the **application host clock** (`datetime.now(UTC)` in the
-attesting process), not the database server clock and not an external time
-service.
+**ON THE SANCTIONED `attest()` PATH** the clock is the **application host
+clock** (`datetime.now(UTC)` in the attesting process), not the database server
+clock and not an external time service. **AS A PERSISTED VALUE** the label has
+**UNAUTHENTICATED PROVENANCE** and nothing proves which clock, if any, produced
+it.
 
 Chosen over the database clock deliberately: the receipt must be taken *after*
 the read-back that proves durability, and a value taken in the attesting process
@@ -303,9 +311,12 @@ A receipt asserts, and asserts only:
 
 - an M076 event with this `event_governance_id` was **read back as committed**
   by the attesting process;
-- at `system_received_at`, taken from the application host clock **after** that
-  read;
-- through the attesting pathway named in `attested_by`.
+- at `system_received_at`, which **on the sanctioned `attest()` path** is taken
+  from the application host clock **after** that read;
+- **⚠ RETRACTED (owner finding 17):** "through the attesting pathway named in
+  `attested_by`". `attested_by` is caller-supplied on the sanctioned path and
+  **unauthenticated as a persisted value**; it names nothing the database
+  proves.
 
 It does **not** assert that the operator's claim is true, that a trade occurred,
 that `recorded_at` is honest, or that the event was durably visible at any

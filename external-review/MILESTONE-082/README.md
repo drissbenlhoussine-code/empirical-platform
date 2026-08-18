@@ -2,16 +2,24 @@
 
 **Status: CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
 
-> **⚠ Hardened after a second Owner review.** Three further findings are resolved:
-> a stale upper-bound claim that survived in the **migration**; a persisted row
-> that did **not** prove the causal claim against a direct same-transaction SQL
-> INSERT; and a label cutoff that is **not** a stable snapshot. Read
-> `owner-review-hardening-pass.md` first.
+> **⚠ READ THIS FIRST — NAVIGATION.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-16-18.md`**. Read it before anything
+> else. Every other file in this package, including the ones the older banners
+> below tell you to read first, describes an **earlier candidate** and carries
+> its own superseded notice.
+>
+> *(Superseded banner, kept visible:)* Hardened after a second Owner review —
+> a stale upper-bound claim in the migration; a persisted row that did not prove
+> the causal claim against a direct same-transaction SQL INSERT; and a label
+> cutoff that is not a stable snapshot.
 
 Base `master` `28a1053`.
 
-> **⚠ This package was corrected after Owner review. Two claims are RETRACTED.**
-> Read `owner-review-correction-pass.md` before anything else — it reproduces
+> *(Superseded banner, kept visible.)* This package was corrected after Owner
+> review; two claims are RETRACTED. It said to read
+> `owner-review-correction-pass.md` before anything else — that pointer is now
+> **out of date**; see the navigation notice above. It reproduces
 > both defects by execution and records exactly what the milestone now claims.
 
 ## What M082 claims, after every correction

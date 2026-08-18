@@ -468,3 +468,44 @@ secret scan **0 findings**. **No suppressions.**
 
 Reported in the delivery report and on PR #12. A commit cannot contain the id of
 the run it triggers.
+
+
+---
+
+# AUTHORITATIVE FINAL SECTION — Owner residual correction, findings 17–19
+
+**Supersedes every section above, including the previous "authoritative final
+section".** Measured with the working tree clean.
+
+| Suite | Result |
+|---|---|
+| M082 unit | **40 passed** |
+| M082 PostgreSQL lifecycle | **182 passed** |
+| M082 fresh second pass | **4 passed** |
+| M076–M082 compatibility chain | **674 passed** |
+
+| Mode | Baseline `28a1053` | Candidate | Failing-ID diff |
+|---|---|---|---|
+| PostgreSQL **on** | 24 failed, 2704 passed, 44 errors | 24 failed, **2930** passed, 44 errors | **EMPTY** — 68 ids each side |
+| PostgreSQL **off** | 8 failed, 2285 passed, 12 errors | 8 failed, **2327** passed, 12 errors | **EMPTY** — 20 ids each side |
+
+**Gates:** `compileall` clean · `ruff check` passed · `ruff format --check` 613
+files · `mypy` 312 source files · architecture exit 0 · negative fixture exit 1 ·
+secret scan **0 findings**. No suppressions.
+
+## Installed-constraint proof, strengthened
+
+Containment was not enough — a trim set with an **extra** character still
+contains all 29, so "contains" would have passed even with the `\v`-escape bug
+that once produced the letter `v`. Each installed CHECK's trim set is now
+extracted, resolved **by PostgreSQL itself**, and compared for **exact
+equality** with the frozen 29.
+
+**Negative control, executed:** injecting `\x76` (`v`) into the migration's set
+makes **both** the equality test and the `v`/`valve`/padded control test **fail**.
+The migration was restored immediately afterwards.
+
+## CI
+
+Reported in the delivery report. A commit cannot contain the id of the run it
+triggers, and the PR body is updated separately after the push and after CI.

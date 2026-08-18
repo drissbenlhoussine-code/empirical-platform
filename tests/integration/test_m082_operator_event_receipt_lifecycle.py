@@ -1690,17 +1690,69 @@ def test_the_database_and_the_domain_share_one_blank_definition(
             ).all()
         )
     assert len(installed) == 4, installed
-    for definition in installed.values():
-        for blank in _FROZEN_BLANKS:
-            assert blank in definition, f"installed CHECK omits U+{ord(blank):04X}"
 
-    for ok in ("x", " x ", "\tx\t", "v", "valve"):
+    # OWNER FINDING 18. Containment is not enough: a set with an EXTRA character
+    # still contains all 29, so "contains" would pass even if `v` had been added
+    # by the \v-escape bug. Each installed trim set is extracted and compared for
+    # EXACT EQUALITY with the expected 29.
+    for name, definition in installed.items():
+        trim_set = conn_trim_set(engine, definition)
+        assert trim_set == set(_FROZEN_BLANKS), (
+            f"{name}: installed trim set differs from the frozen set; "
+            f"extra={sorted(trim_set - set(_FROZEN_BLANKS))!r} "
+            f"missing={sorted(set(_FROZEN_BLANKS) - trim_set)!r}"
+        )
+        assert len(trim_set) == 29, name
+
+
+def conn_trim_set(engine: Engine, constraint_definition: str) -> set[str]:
+    """The literal character set a CHECK's btrim() actually trims.
+
+    Asked of PostgreSQL rather than parsed out of the text, so the answer is the
+    one the database itself resolves from the E'' escapes.
+    """
+    literal = constraint_definition.split("btrim(", 1)[1]
+    literal = literal[literal.index(",") + 1 : literal.rindex(") <>")].strip()
+    with engine.begin() as conn:
+        resolved = conn.execute(text(f"SELECT {literal}")).scalar_one()
+    return set(resolved)
+
+
+def test_every_installed_check_accepts_the_letter_v_and_padded_controls(
+    clean_tables: Engine, engine: Engine
+) -> None:
+    """OWNER FINDING 18 - controls driven through all four INSTALLED CHECKs.
+
+    `v` is the specific canary: PostgreSQL's E'' has no `\v` escape, so writing
+    the set that way once produced the LETTER v and btrim('valve') returned
+    'alve'. If an extra trim character is ever reintroduced, one of these four
+    inserts fails.
+    """
+    config = _config()
+    controls = ["v", "valve", " padded ", "\tvalve\t", "vvv"]
+    for index, control in enumerate(controls):
+        event_id = f"EV-CTRL{index}"
+        # PROBE NOTE: the event must COMMIT first. Writing both in one
+        # transaction is refused by the prior-commit trigger -- which is that
+        # guarantee working, not a constraint failure.
         with engine.begin() as conn:
-            survives = conn.execute(
-                text("SELECT btrim(:v, :chars) <> ''"), {"v": ok, "chars": _FROZEN_BLANKS}
-            ).scalar_one()
-        assert survives is True, ok
-        assert ok.strip() != ""
+            conn.execute(_RAW_EVENT_SQL_QUALIFIED, _raw_event(event_id, f"POS-CTRL{index}"))
+        with engine.begin() as conn:
+            # Every one of the four constrained columns carries the control.
+            conn.execute(
+                _RAW_RECEIPT_SQL_QUALIFIED,
+                {
+                    "rid": f"{control}-RC{index}",
+                    "gid": event_id,
+                    "ts": datetime(2026, 4, 1, tzinfo=UTC),
+                    "by": control,
+                    "ver": control,
+                },
+            )
+    stored = _receipts(config)
+    assert len(stored) == len(controls)
+    assert {r.attested_by for r in stored} == set(controls)
+    assert {r.attester_version for r in stored} == set(controls)
 
 
 def test_no_rendering_claims_sanctioned_path_provenance_for_a_row(
