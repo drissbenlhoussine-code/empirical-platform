@@ -219,11 +219,12 @@ def test_the_cutoff_is_inclusive(cutoff_day: int, expected: bool) -> None:
 def test_a_receipt_needs_no_event_inventory_at_all() -> None:
     """OWNER FINDING 7 + 10. The builder takes receipts and nothing else.
 
-    The previous version raised a since-REMOVED type,
-    MissingAttestedEventError, when a receipt named an event it was not given,  (QUOTED-DEFECT)
-    is exactly what happened during ordinary concurrency, because the two
-    inventories were read separately. With no event parameter there is no such
-    failure mode.
+    REMOVED type, named here only to record what was deleted:
+        MissingAttestedEventError. The previous version raised it when a receipt
+        named an event it was not given, which is exactly what happened during
+        ordinary concurrency, because the two inventories were read separately.
+
+        With no event parameter there is no such failure mode.
     """
     import inspect
 

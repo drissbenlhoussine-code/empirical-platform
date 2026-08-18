@@ -4,12 +4,13 @@
 
 > **⚠ READ THIS FIRST — NAVIGATION.**
 > The authoritative latest correction is
-> **`owner-correction-mission-finding-26.md`**. Read it before anything
+> **`owner-correction-mission-finding-27.md`**. Read it before anything
 > else. Every other file in this package, including the ones the older banners
 > below tell you to read first, describes an **earlier candidate** and carries
 > its own superseded notice.
 >
 > *(Superseded banners, kept visible:)* the authoritative latest correction was
+> `owner-correction-mission-finding-26.md`, before it
 > `owner-correction-mission-findings-24-25.md`, before it
 > `owner-correction-mission-findings-22-23.md`, before it
 > `owner-correction-mission-findings-20-21.md`, and before it
@@ -185,7 +186,8 @@ Each row states a defect as REPRODUCED, not as a current property.
 
 | File | What it is |
 |---|---|
-| `owner-correction-mission-finding-26.md` | **START HERE — authoritative latest.** Finding 26 |
+| `owner-correction-mission-finding-27.md` | **START HERE — authoritative latest.** Finding 27 |
+| `owner-correction-mission-finding-26.md` | finding 26 *(superseded)* |
 | `owner-correction-mission-findings-24-25.md` | findings 24–25 *(superseded)* |
 | `owner-correction-mission-findings-22-23.md` | findings 22–23 *(superseded)* |
 | `owner-correction-mission-findings-20-21.md` | findings 20–21 *(superseded)* |

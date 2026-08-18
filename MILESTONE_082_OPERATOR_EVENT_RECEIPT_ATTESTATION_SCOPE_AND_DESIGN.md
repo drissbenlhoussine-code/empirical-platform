@@ -588,13 +588,14 @@ not hidden.
 > is the **weaker** of the two in what it establishes about time — it does not
 > replace M079's `recorded_at` firewall. Original text kept verbatim below.
 
-> *(Withdrawn text begins — governed by the SUPERSEDED banner above, which is
-> repeated here so this block is scoped locally rather than by distance.)*
+> SUPERSEDED (owner review findings 2 and 5; locally rescoped by owner finding
+> 24; moved to the FIRST line of this quote by owner finding 27, because a
+> banner that is not the first line must never govern what precedes it).
+> EVERYTHING IN THIS BLOCKQUOTE IS WITHDRAWN. `attested_as_of` was **renamed**
+> `receipt_label_cutoff` and no longer exists, and M082 emits no snapshot of any
+> kind.
 >
-> **⚠ SUPERSEDED (owner review findings 2 and 5; locally rescoped by owner
-> finding 24).** EVERYTHING IN THIS BLOCKQUOTE IS WITHDRAWN. `attested_as_of`
-> was **renamed** `receipt_label_cutoff` and no longer exists, and M082 emits no
-> snapshot of any kind.
+> *(Withdrawn text begins.)*
 >
 > M079 remains the *operator-recorded* knowledge snapshot, filtering
 > `recorded_at <= K`. M082 adds a distinct *system-receipt-attested* snapshot,

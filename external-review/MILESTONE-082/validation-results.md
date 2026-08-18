@@ -593,7 +593,7 @@ Executed on the corrected working tree, starting head `9b487d1`, base `master`
 | `mypy src` | no issues, 311 source files |
 | `tools/check_architecture.py .` | exit 0 |
 | Negative architecture fixture | exit 1, as required |
-| Secret scan | **1139 targets** at the new head (1138 at `b879147`, 1137 at `fc550f7`, 1136 at `9b487d1`), **0 findings** |
+| Secret scan | **1140 targets** at the new head (1139 at `7ed953a`, 1138 at `b879147`, 1137 at `fc550f7`), **0 findings** |
 
 ### Suppressions — the exact delta-scoped claim
 
@@ -729,3 +729,41 @@ banner lines themselves, explicit **line-local** annotations, and negation that
 all accepted. **Anti-vacuity probe on both new rules**: weakening negation to
 "any negator on the line" launders attack 2; weakening the banner to "any
 substring" launders attack 4; restoring each rule catches each again.
+
+---
+
+## Owner finding 27 correction
+
+Full detail: `owner-correction-mission-finding-27.md` (authoritative latest).
+
+**SUPERSEDED — the finding-26 green sweep result.** Five exemption-grammar
+bypasses were executed against `7ed953a` and **all five returned zero
+offenders**. A sweep reporting zero proves only that its grammar accepted the
+surface. That has now been true three reviews running and is recorded, not
+smoothed over.
+
+The exemption grammar was tightened to match its documented contract: a
+blockquote is governed only when its **first** content line is a banner; the two
+annotation forms are exact (`# BANNED-TERM` as a real Python COMMENT token,
+`<!-- QUOTED-DEFECT -->` complete), and the undocumented `(QUOTED-DEFECT)`
+parenthetical is abolished as a marker — **17 occurrences across 5 files**, all
+re-scoped structurally; banner tokens must end on a boundary, so `REMOVEDLY` is
+prose; and negators are lexical tokens, so `not` inside `knot` governs nothing.
+
+| Gate | Result |
+|---|---|
+| M082 unit | 40 collected, **40 passed** |
+| M082 PostgreSQL lifecycle | 195 collected, **195 passed** |
+| M082 fresh second pass | 4 collected, **4 passed** |
+| Complete claim-sweep suite | 10 collected, **10 passed** |
+| M076–M082 compatibility chain | **477 passed** |
+| Migration up / down / up | clean (migrations byte-identical) |
+| `compileall` / `ruff format --check` / `ruff check` | OK / 613 files / all passed |
+| `mypy src` | no issues in 311 source files |
+| architecture / negative fixture | exit 0 / exit 1 |
+| dependency audit / build | no actionable finding / wheel built |
+
+**Five negative controls**, all caught independently. **Five positive controls**,
+all accepted, including the contrast that the same Python line *without* its
+comment token is caught. **Four anti-vacuity mutations — one per structural rule
+— each laundering its own attack when the rule is reverted.**

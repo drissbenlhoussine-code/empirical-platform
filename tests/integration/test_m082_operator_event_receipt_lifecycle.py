@@ -650,10 +650,12 @@ def test_a_receipt_created_after_the_cutoff_changes_nothing(
 ) -> None:
     """OWNER MANDATORY ATTACK A - future receipt non-interference.
 
-    Reproduced against the PRE-CORRECTION code, where DB-A reported
-    ATTESTED_AFTER_CUTOFF and DB-B reported NO_SYSTEM_RECEIPT_EVIDENCE, with  (QUOTED-DEFECT)
-    `attested_after_cutoff_count` differing 1 vs 0. Both databases must now be  (QUOTED-DEFECT)
-    indistinguishable at the cutoff.
+    REPRODUCED against the PRE-CORRECTION code: DB-A reported
+        ATTESTED_AFTER_CUTOFF and DB-B reported NO_SYSTEM_RECEIPT_EVIDENCE, with
+        `attested_after_cutoff_count` differing 1 vs 0 -- all three names since
+        removed.
+
+        Both databases must now be indistinguishable at the cutoff.
     """
     db_a, db_b = _config(), _config(second_database)
     pinned = datetime(2026, 5, 1, 12, 0, tzinfo=UTC)
@@ -1500,13 +1502,13 @@ def test_an_event_and_receipt_committing_at_the_former_read_boundary_is_consiste
 ) -> None:
     """OWNER FINDING 10 - the split-read race, made deterministic.
 
-    Reproduced: `ledger.list_all()` returned, an event and its receipt then
-    committed, `receipts.list_all()` returned the new receipt, and the builder
-    raised MissingAttestedEventError -- an "unreachable" inconsistency during  (QUOTED-DEFECT)
-    ordinary sanctioned concurrency.
+    REPRODUCED: `ledger.list_all()` returned, an event and its receipt then
+        committed, `receipts.list_all()` returned the new receipt, and the builder
+        raised MissingAttestedEventError -- a since-removed type -- an
+        "unreachable" inconsistency during ordinary sanctioned concurrency.
 
-    There is one store and one query now, so the boundary no longer exists. The
-    report must return a valid bounded result, never raise.
+        There is one store and one query now, so the boundary no longer exists. The
+        report must return a valid bounded result, never raise.
     """
     config = _config()
     _append(config, gid="EV-R1", pos="POS-R1")
@@ -1978,6 +1980,7 @@ _M082_ACTIVE_CLAIM_SURFACES = (
     "external-review/MILESTONE-082/owner-correction-mission-findings-22-23.md",
     "external-review/MILESTONE-082/owner-correction-mission-findings-24-25.md",
     "external-review/MILESTONE-082/owner-correction-mission-finding-26.md",
+    "external-review/MILESTONE-082/owner-correction-mission-finding-27.md",
     "tests/integration/test_m082_operator_event_receipt_lifecycle.py",
     "tests/integration/test_m082_operator_event_receipt_second_pass.py",
     "tests/unit/test_decision_candidate_operator_event_receipt.py",
@@ -2084,17 +2087,49 @@ _BANNER_TOKENS = (
 # for lines that must SPELL a banned term to ban it or to quote a defect: the
 # sweep's own vocabulary tuples, assertions that a term is absent, and tables
 # that list what was removed.
-_INLINE_MARKERS = ("BANNED-TERM", "QUOTED-DEFECT")
+# OWNER FINDING 27, rule 2. EXACTLY two annotation forms exist, and each must
+# appear in its own complete comment syntax. Bare `BANNED-TERM` or
+# `QUOTED-DEFECT` occurring as ordinary prose is NOT an annotation, and the
+# undocumented `(QUOTED-DEFECT)` parenthetical is no longer a third marker.
+_PYTHON_ANNOTATION = re.compile(r"#[ \t]*BANNED-TERM\b")
+_MARKDOWN_ANNOTATION = re.compile(r"<!--[ \t]*QUOTED-DEFECT[ \t]*-->")
 
 
-def _has_inline_marker(line: str) -> bool:
-    """True when the line carries an explicit line-local marker annotation.
+def _has_inline_marker(line: str, comment_lines: frozenset[int], number: int) -> bool:
+    """True when the line carries an explicit line-local annotation.
 
-    OWNER FINDING 26. Deliberately NOT a paragraph marker: an annotation here
-    exempts this line only. Written as `# BANNED-TERM` in Python and
-    `<!-- QUOTED-DEFECT -->` in Markdown, both invisible when rendered.
+    OWNER FINDINGS 26 AND 27. Deliberately NOT a paragraph marker: an annotation
+    exempts its own line only. Two forms, both exact:
+
+      * `# BANNED-TERM` -- and in Python it must be a REAL comment token, which
+        `comment_lines` establishes by tokenising the file, so the same text
+        inside a string literal does not annotate anything;
+      * `<!-- QUOTED-DEFECT -->` -- the complete Markdown comment.
     """
-    return any(marker in line for marker in _INLINE_MARKERS)
+    if _MARKDOWN_ANNOTATION.search(line):
+        return True
+    return bool(_PYTHON_ANNOTATION.search(line)) and number in comment_lines
+
+
+def _python_comment_lines(path: Path, text: str) -> frozenset[int]:
+    """Line numbers carrying a real Python COMMENT token.
+
+    OWNER FINDING 27. Substring matching would let `"# BANNED-TERM"` written
+    inside a string exempt its own line. Tokenising is the structural answer.
+    """
+    if path.suffix != ".py":
+        return frozenset()
+    import io
+    import tokenize
+
+    found: set[int] = set()
+    try:
+        for token in tokenize.generate_tokens(io.StringIO(text).readline):
+            if token.type == tokenize.COMMENT:
+                found.add(token.start[0])
+    except (tokenize.TokenError, IndentationError, SyntaxError):  # pragma: no cover
+        return frozenset()
+    return frozenset(found)
 
 
 _BANNER_DECORATION = "> #*-_=\u26a0\u2014([\"'` \t"
@@ -2103,12 +2138,25 @@ _BANNER_DECORATION = "> #*-_=\u26a0\u2014([\"'` \t"
 def _is_banner_line(line: str) -> bool:
     """True when the line is an explicit marker BANNER, not prose mentioning one.
 
-    OWNER FINDING 26. `This qualified design states ...` and `a removed field`
-    are ordinary prose and must NOT scope anything. A banner has to announce
-    itself: the token comes first, in upper case.
+        OWNER FINDING 26. `This qualified design states ...` and `a removed field`
+        are ordinary prose and must NOT scope anything. A banner has to announce
+        itself: the token comes first, in upper case.
+
+        OWNER FINDING 27, rule 3. The token must also END on a boundary, or a
+        prefix alone made a banner.
+
+    REPRODUCED, quoted not asserted: `REMOVEDLY M082 exposes a historical snapshot.`
+        was accepted as a banner because the line merely STARTED with `REMOVED`. A
+        banner token is now followed by end-of-line or a non-word character.
     """
     text = line.lstrip(_BANNER_DECORATION)
-    return any(text.startswith(token) for token in _BANNER_TOKENS)
+    for token in _BANNER_TOKENS:
+        if not text.startswith(token):
+            continue
+        rest = text[len(token) :]
+        if rest == "" or not (rest[0].isalnum() or rest[0] == "_"):
+            return True
+    return False
 
 
 # Only determiners and light adverbs may sit between a negator and the phrase it
@@ -2117,31 +2165,36 @@ _FILLER = frozenset(
     "a an the any some such merely just simply only even necessarily really truly"
     " itself at all".split()
 )
-_NEGATORS = ("not ", "n't ", "never ", "no longer ", "cannot ", "no ")
+# OWNER FINDING 27, rule 4. Negators are LEXICAL TOKENS. As bare substrings,
+# `not` matched inside `knot` and governed the claim after it.
+_NEGATORS = ("not", "n't", "never", "no longer", "cannot", "no")
+_NEGATOR_PATTERNS = tuple(
+    (negator, re.compile(rf"(?<![\w-]){re.escape(negator)}(?![\w-])")) for negator in _NEGATORS
+)
 
 
 def _negation_governs(lowered: str, phrase: str) -> bool:
     """True when a negator GRAMMATICALLY governs this occurrence of the phrase.
 
-    OWNER FINDING 26. Presence of a negator anywhere on the line used to exempt
-    the whole line, so `M082 exposes a historical snapshot, not merely a  (QUOTED-DEFECT)
-    label-selection view.` passed. The negator must now sit immediately before
-    the phrase with only determiners between them, which is what English
-    negation of a predicate actually looks like:
+        OWNER FINDING 26. Presence of a negator anywhere on the line used to
+        exempt the whole line. The negator must now sit immediately before the
+        phrase with only determiners between them, which is what English negation
+        of a predicate actually looks like.
 
-        "is NOT a historical snapshot"        -> governed, exempt
-        "exposes a historical snapshot, not"  -> NOT governed, offender  (QUOTED-DEFECT)
-        "NOTHING prevents ... a historical snapshot" -> NOT governed, offender  (QUOTED-DEFECT)
+    SWEEP VOCABULARY, quoted not asserted:
+            "is NOT a historical snapshot"        -> governed, exempt
+            "exposes a historical snapshot, not"  -> NOT governed, offender
+            "NOTHING prevents ... a historical snapshot" -> NOT governed, offender
     """
     index = lowered.find(phrase)
     while index != -1:
         before = lowered[:index]
         governed = False
-        for negator in _NEGATORS:
-            cut = before.rfind(negator)
-            if cut == -1:
+        for _negator, pattern in _NEGATOR_PATTERNS:
+            matches = list(pattern.finditer(before))
+            if not matches:
                 continue
-            between = [t for t in re.split(r"[^a-z0-9_-]+", before[cut + len(negator) :]) if t]
+            between = [t for t in re.split(r"[^a-z0-9_-]+", before[matches[-1].end() :]) if t]
             if all(token in _FILLER for token in between):
                 governed = True
                 break
@@ -2162,17 +2215,20 @@ def _repo_root() -> Path:
 def _governed_blocks(lines: list[str]) -> list[bool]:
     """Which lines sit inside an EXPLICIT banner-governed block.
 
-    OWNER FINDING 26. Only two structures scope more than their own line, and
-    both are explicit and visible in the rendered document:
+        OWNER FINDING 26. Only two structures scope more than their own line, and
+        both are explicit and visible in the rendered document:
 
-      * a markdown BLOCKQUOTE run (a maximal run of `>` lines) containing a
-        banner line -- the whole quote is withdrawn text;
-      * a FENCED block whose banner is the immediately preceding non-empty line,
-        or whose own first non-empty line is a banner -- quoted defect evidence.
+          * a markdown BLOCKQUOTE run (a maximal run of `>` lines) containing a
+            banner line -- the whole quote is withdrawn text;
+          * a FENCED block whose banner is the immediately preceding non-empty line,
+            or whose own first non-empty line is a banner -- quoted defect evidence.
 
-    A bare banner in running prose no longer scopes the sentences that follow
-    it, which is what let `This paragraph records a removed field from M079.` /
-    `M082 exposes a historical snapshot.` through as two lines of one paragraph.  (QUOTED-DEFECT)
+        A bare banner in running prose no longer scopes the sentences that follow
+        it.
+
+    REPRODUCED, quoted not asserted: `This paragraph records a removed field from
+        M079.` followed by `M082 exposes a historical snapshot.` passed as two lines
+        of one paragraph.
     """
     governed = [False] * len(lines)
 
@@ -2199,14 +2255,17 @@ def _governed_blocks(lines: list[str]) -> list[bool]:
             for k in range(start, index):
                 governed[k] = True
 
-    # Blockquote runs.
+    # Blockquote runs. OWNER FINDING 27, rule 1: the run is governed only when
+    # its FIRST non-empty content line is a banner. `any()` let a banner on the
+    # SECOND line retroactively exempt the false claim on the first.
     index = 0
     while index < len(lines):
         if lines[index].lstrip().startswith(">"):
             start = index
             while index < len(lines) and lines[index].lstrip().startswith(">"):
                 index += 1
-            if any(_is_banner_line(lines[k]) for k in range(start, index)):
+            first = next((lines[k] for k in range(start, index) if lines[k].lstrip("> \t")), "")
+            if _is_banner_line(first):
                 for k in range(start, index):
                     governed[k] = True
         else:
@@ -2251,14 +2310,20 @@ def _paragraph_scoped_offenders(root: Path, surfaces: tuple[str, ...]) -> list[s
     for relative in surfaces:
         path = root / relative
         assert path.exists(), relative
-        lines = path.read_text(encoding="utf-8").splitlines()
+        raw = path.read_text(encoding="utf-8")
+        lines = raw.splitlines()
         governed = _governed_blocks(lines)
+        comment_lines = _python_comment_lines(path, raw)
         for number, line in enumerate(lines, start=1):
             lowered = line.lower()
             hits = [phrase for phrase in _ALL_BANNED if phrase in lowered]
             if not hits:
                 continue
-            if governed[number - 1] or _is_banner_line(line) or _has_inline_marker(line):
+            if (
+                governed[number - 1]
+                or _is_banner_line(line)
+                or _has_inline_marker(line, comment_lines, number)
+            ):
                 continue
             if all(h in _NEGATED_FAMILIES for h in hits) and all(
                 _negation_governs(lowered, h) for h in hits
@@ -2491,6 +2556,189 @@ def test_weakening_either_structural_rule_breaks_its_control() -> None:
     finally:
         globals()["_is_banner_line"] = original_banner
     assert _sweep_design(root, _LAUNDERING_ATTACKS[3][1]), "attack 4 must be caught again"
+
+
+def _sweep_python(root: Path, injected: str) -> list[str]:
+    """Append one block to a real swept PYTHON surface and sweep it, then restore.
+
+    OWNER FINDING 27. The `# BANNED-TERM` form is deliberately Python-only: it is
+    honoured only where a real COMMENT token exists, so it must be exercised on a
+    `.py` surface, not inside a fenced block in Markdown.
+    """
+    unit = root / "tests/unit/test_decision_candidate_operator_event_receipt.py"
+    original = unit.read_text(encoding="utf-8")
+    try:
+        unit.write_text(f"{original}\n{injected}\n", encoding="utf-8")
+        return _paragraph_scoped_offenders(root, (str(unit.relative_to(root)),))
+    finally:
+        unit.write_text(original, encoding="utf-8")
+
+
+# SWEEP VOCABULARY. The five grammar bypasses owner finding 27 reproduced against
+# `7ed953a`, kept as permanent negative controls. Each must be caught on its own.
+_GRAMMAR_ATTACKS = (
+    (
+        "late banner governs an earlier false claim",
+        "> M082 exposes a historical snapshot.\n> RETRACTED: unrelated later statement.",
+        "historical snapshot",
+    ),
+    (
+        "raw Python marker name as ordinary prose",
+        "M082 exposes a historical snapshot while BANNED-TERM appears as ordinary prose.",
+        "historical snapshot",
+    ),
+    (
+        "raw Markdown marker name without its comment syntax",
+        "M082 exposes a historical snapshot while QUOTED-DEFECT appears as ordinary prose.",
+        "historical snapshot",
+    ),
+    (
+        "banner token prefix without a boundary",
+        "REMOVEDLY M082 exposes a historical snapshot.",
+        "historical snapshot",
+    ),
+    (
+        "negator substring inside another word",
+        "M082 exposes a knot historical snapshot.",
+        "historical snapshot",
+    ),
+)
+
+# SWEEP VOCABULARY. Wording that must stay acceptable under the exact grammar.
+_ACCEPTED_GRAMMAR = (
+    ("honest negation", "M082 is not a historical snapshot."),
+    (
+        "correctly LEADING retracted blockquote",
+        "> RETRACTED: M082 exposes a historical snapshot.\n> Kept visible rather than deleted.",
+    ),
+    (
+        "correctly leading governed fence",
+        "REPRODUCED defect output, quoted not asserted:\n```\n"
+        "M082 exposes a historical snapshot.\n```",
+    ),
+    (
+        "exact Markdown annotation",
+        "M082 exposes a historical snapshot.  <!-- QUOTED-DEFECT -->",
+    ),
+)
+
+
+def test_no_grammar_bypass_survives_the_exact_marker_contract() -> None:
+    """OWNER FINDING 27 - the five executed exemption-grammar bypasses.
+
+    REPRODUCED against `7ed953a`: all five returned ZERO offenders. A banner on the
+        SECOND line of a blockquote retroactively exempted the false claim on the
+        first; the bare words BANNED-TERM and QUOTED-DEFECT annotated a line without
+        their comment syntax; `REMOVEDLY` was a banner because the line merely
+        started with `REMOVED`; and `not` matched inside `knot`.
+    """
+    root = _repo_root()
+    assert not _paragraph_scoped_offenders(root, _M082_ACTIVE_CLAIM_SURFACES), "not clean to start"
+    for name, injected, expected in _GRAMMAR_ATTACKS:
+        caught = _sweep_design(root, injected)
+        assert caught, f"GRAMMAR BYPASS, not caught: {name}"
+        assert any(expected in line for line in caught), (name, expected, caught)
+    assert not _paragraph_scoped_offenders(root, _M082_ACTIVE_CLAIM_SURFACES), "not restored"
+
+
+def test_the_exact_marker_contract_still_accepts_documented_forms() -> None:
+    """OWNER FINDING 27 - positive controls for the exact grammar.
+
+    Tightening the grammar must not make the documented forms unusable.
+    """
+    root = _repo_root()
+    for name, injected in _ACCEPTED_GRAMMAR:
+        assert not _sweep_design(root, injected), f"documented form rejected: {name}"
+
+    # The Python annotation is exercised on a PYTHON surface, and the same line
+    # WITHOUT its comment token must still be caught -- that contrast is what
+    # makes the annotation a grammar rather than a substring.
+    assert not _sweep_python(root, '_B = "historical snapshot"  # BANNED-TERM'), (  # BANNED-TERM
+        "exact Python annotation rejected"
+    )
+    assert _sweep_python(root, '_B = "historical snapshot"'), (  # BANNED-TERM
+        "the same line without its comment token must be caught"
+    )
+
+
+def test_weakening_each_finding_27_rule_breaks_its_own_control() -> None:
+    """OWNER FINDING 27 - one anti-vacuity mutation per structural rule.
+
+    Each rule is reverted to its `7ed953a` behaviour in turn and the matching
+    attack must slip through again, then be caught once the rule is restored.
+    """
+    root = _repo_root()
+
+    def probe(index: int, name: str, replacement_name: str, replacement: object) -> None:
+        original = globals()[replacement_name]
+        try:
+            globals()[replacement_name] = replacement
+            assert not _sweep_design(root, _GRAMMAR_ATTACKS[index][1]), (
+                f"weakened {name} should have laundered attack {index + 1}"
+            )
+        finally:
+            globals()[replacement_name] = original
+        assert _sweep_design(root, _GRAMMAR_ATTACKS[index][1]), (
+            f"attack {index + 1} must be caught again once {name} is restored"
+        )
+
+    # Rule 3, banner boundary -> prefix match, as before finding 27.
+    probe(
+        3,
+        "the banner boundary rule",
+        "_is_banner_line",
+        lambda line: any(
+            line.lstrip(_BANNER_DECORATION).startswith(token) for token in _BANNER_TOKENS
+        ),
+    )
+    # Rule 2, exact annotation grammar -> bare substring, as before finding 27.
+    probe(
+        1,
+        "the exact annotation grammar",
+        "_has_inline_marker",
+        lambda line, comment_lines, number: any(
+            marker in line for marker in ("BANNED-TERM", "QUOTED-DEFECT")
+        ),
+    )
+    # Rule 4, negator lexical boundary -> substring match, as before finding 27.
+    original_patterns = globals()["_NEGATOR_PATTERNS"]
+    try:
+        globals()["_NEGATOR_PATTERNS"] = tuple(
+            (negator, re.compile(re.escape(negator))) for negator in _NEGATORS
+        )
+        assert not _sweep_design(root, _GRAMMAR_ATTACKS[4][1]), (
+            "weakened negator matching should have laundered attack 5"
+        )
+    finally:
+        globals()["_NEGATOR_PATTERNS"] = original_patterns
+    assert _sweep_design(root, _GRAMMAR_ATTACKS[4][1]), "attack 5 must be caught again"
+
+    # Rule 1, blockquote order -> any banner in the run, as before finding 27.
+    original_blocks = globals()["_governed_blocks"]
+
+    def any_banner_governs(lines: list[str]) -> list[bool]:
+        governed = original_blocks(lines)
+        index = 0
+        while index < len(lines):
+            if lines[index].lstrip().startswith(">"):
+                start = index
+                while index < len(lines) and lines[index].lstrip().startswith(">"):
+                    index += 1
+                if any(_is_banner_line(lines[k]) for k in range(start, index)):
+                    for k in range(start, index):
+                        governed[k] = True
+            else:
+                index += 1
+        return governed
+
+    try:
+        globals()["_governed_blocks"] = any_banner_governs
+        assert not _sweep_design(root, _GRAMMAR_ATTACKS[0][1]), (
+            "weakened blockquote-order rule should have laundered attack 1"
+        )
+    finally:
+        globals()["_governed_blocks"] = original_blocks
+    assert _sweep_design(root, _GRAMMAR_ATTACKS[0][1]), "attack 1 must be caught again"
 
 
 def test_every_sanctioned_path_origin_claim_is_explicitly_qualified() -> None:

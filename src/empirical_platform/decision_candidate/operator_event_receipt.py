@@ -1,8 +1,11 @@
 """MILESTONE-082 -- Operator Event Receipt Attestation.
 
-WHAT THIS EXISTS TO FIX. M079's own frozen docstring admits that `recorded_at`
-"is an operator-supplied field, not a system-assigned immutable" one. Measured  (QUOTED-DEFECT)
-against real PostgreSQL, an ordinary permitted caller can persist an M076 event
+WHAT THIS EXISTS TO FIX.
+
+QUOTED FROM M079: its own frozen docstring admits that `recorded_at` "is an
+operator-supplied field, not a system-assigned immutable" one.
+
+Measured against real PostgreSQL, an ordinary permitted caller can persist an M076 event
 with `recorded_at` of last year, next year, 1999, 2999, or before its own
 `event_timestamp` -- all five persist, and the table carries no
 database-generated column at all. So M079/M080/M081 are sound GIVEN
@@ -87,12 +90,14 @@ findings 1 and 5). It is built FROM RECEIPTS whose label is at or before the
 cutoff, never from the current ledger inventory. A receipt labelled after the
 cutoff, and an event that has no such receipt, are structurally unreachable: no
 entry, no count and no ordering position can be derived from them.
-**RETRACTED**, and the names below are REMOVED rather than current: an earlier
-version built the artifact from `ledger.list_all()` and emitted
-ATTESTED_AFTER_CUTOFF, NO_SYSTEM_RECEIPT_EVIDENCE and  (QUOTED-DEFECT)
-`attested_after_cutoff_count`; that made the output depend on rows created after  (QUOTED-DEFECT)
-the cutoff. The view deliberately does NOT know how much evidence it excluded,
-and no replacement count is offered.
+
+REMOVED, and RETRACTED with the design that emitted them: an earlier version
+built the artifact from `ledger.list_all()` and emitted ATTESTED_AFTER_CUTOFF,
+NO_SYSTEM_RECEIPT_EVIDENCE and `attested_after_cutoff_count`; that made the
+output depend on rows created after the cutoff.
+
+The view deliberately does NOT know how much evidence it excluded, and no
+replacement count is offered.
 
 But it is NOT a stable point-in-time reconstruction, and calling it a "snapshot"
 would overclaim. Because a label may be backdated (finding 2), a receipt created
@@ -333,8 +338,8 @@ class AttestedEventEntry:
 class AttestedEvidenceReport:
     """The receipt-label-cutoff view.
 
-    There is DELIBERATELY no `attested_after_cutoff_count` and no  (QUOTED-DEFECT)
-    `unattested_count`. Both were future-aware: they counted rows that exist  (QUOTED-DEFECT)
+    REMOVED, and deliberately not replaced: `attested_after_cutoff_count` and
+    `unattested_count`. Both were future-aware -- they counted rows that exist
     only in the present-day store. See the module docstring's retraction.
     """
 
@@ -483,10 +488,11 @@ def build_attested_evidence_report(
       * finding 7 -- the artifact no longer resolves any field from the mutable
         current M076 row, so a payload change after attestation cannot move it;
       * finding 10 -- there is no second inventory to read, so the split
-        ledger/receipt read that produced a since-REMOVED type,
-        MissingAttestedEventError, during ordinary concurrency cannot occur;  (QUOTED-DEFECT)
-      * `MissingAttestedEventError` is REMOVED with it, because nothing here can  (QUOTED-DEFECT)
-        reference an event it was not given.
+        ledger/receipt read that raised during ordinary concurrency cannot
+        occur.
+
+    REMOVED with that read: the `MissingAttestedEventError` type itself, because
+    nothing here can reference an event it was not given.
 
     Callers pass receipts already narrowed by the cutoff where the persistence
     layer can do it (see `list_labelled_by`); this filter stays as the domain's
