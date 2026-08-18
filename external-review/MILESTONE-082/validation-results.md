@@ -593,7 +593,7 @@ Executed on the corrected working tree, starting head `9b487d1`, base `master`
 | `mypy src` | no issues, 311 source files |
 | `tools/check_architecture.py .` | exit 0 |
 | Negative architecture fixture | exit 1, as required |
-| Secret scan | **1137 targets** at the new head (1136 at `9b487d1`), **0 findings** |
+| Secret scan | **1138 targets** at the new head (1137 at `fc550f7`, 1136 at `9b487d1`), **0 findings** |
 
 ### Suppressions — the exact delta-scoped claim
 
@@ -608,7 +608,19 @@ Executed on the corrected working tree, starting head `9b487d1`, base `master`
 | Introduced by findings 22–23 | **0** |
 | Repository-wide pre-existing baseline | 872 occurrences, untouched |
 
-No suppression silences a failing gate, and no test is skipped or xfailed.
+> **⚠ RETRACTED (owner finding 25).** The sentence that stood here read: *"No
+> suppression silences a failing gate, and no test is skipped or xfailed."* The
+> second half is **FALSE**. CI reports skipped tests, and both M082 PostgreSQL
+> fixtures call `pytest.skip()` when the explicit opt-in is absent — measured
+> PG-off, the two M082 PostgreSQL suites report **5 passed, 187 skipped**.
+
+No suppression silences a failing gate. **No M082 test is xfailed or
+unconditionally skipped** (measured: zero `xfail`, zero `skipif`, zero
+`@pytest.mark.skip` across the three M082 test files). PostgreSQL-dependent
+fixtures **conditionally skip** when explicit PostgreSQL opt-in is absent. **No
+failing finding is concealed by skip or xfail.** This statement is scoped to
+M082's own tests and does **not** deny that the repository at large, or any
+PG-off run, reports skips — both do.
 
 ### Negative controls, both executed
 
@@ -645,3 +657,38 @@ untouched.
 
 Reported in the delivery report. A commit cannot contain the id of the run it
 triggers, and the PR body is updated separately after the push and after CI.
+
+---
+
+## Owner findings 24–25 correction
+
+Full detail: `owner-correction-mission-findings-24-25.md` (authoritative latest).
+
+**Scope:** documentation and tests only. `migrations/` byte-identical to
+`fc550f7`; the two changed production files have an **empty behavior delta**,
+proven by comparing their docstring-stripped ASTs against `fc550f7` (both
+IDENTICAL).
+
+| Gate | Result |
+|---|---|
+| M082 unit | 40 collected, **40 passed** |
+| M082 PostgreSQL lifecycle | 189 collected, **189 passed** |
+| M082 fresh second pass | 4 collected, **4 passed** |
+| M076–M082 compatibility chain | **471 passed** |
+| Claim sweep + paragraph-locality + 3 new class controls | **4 passed** |
+| Migration up / down / up | `d9a2f5c81b73` → `b7e1c4a95d38` → `d9a2f5c81b73`, clean |
+| `compileall` / `ruff format --check` / `ruff check` | OK / 613 formatted / all passed |
+| `mypy src` | no issues in 311 source files |
+| architecture checker / `git diff --check` | clean / clean |
+| Secret scan | **1138 targets**, **0 findings** |
+
+**Sweep strengthened** from one banned family to five: origin/label-as-instant,
+upper-bound/commit-by-label, historical/knowledge snapshot, removed status
+names, removed API/CLI names. The two assertive families accept an honest
+negation; the two removed-name families do not.
+
+**Three executed negative controls**, each injected independently into the real
+active design in its own unmarked paragraph, each caught, each restored:
+`upper bound witness`, `NO_SYSTEM_RECEIPT_EVIDENCE`, `--attested-as-of`.
+An anti-vacuity probe blinded one family and confirmed the matching control
+**fails** when the sweep cannot see the phrase.

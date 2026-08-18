@@ -108,8 +108,9 @@ class GetAttestedEvidenceReportHandler:
         so mutating that row after attestation changed the report while the
         receipt stayed identical;
       * the two reads were not atomic. An event and its receipt committing
-        between them produced a `MissingAttestedEventError` -- an "unreachable"
-        inconsistency during ordinary sanctioned concurrency.
+        between them produced a since-REMOVED type,
+        `MissingAttestedEventError` -- an "unreachable" inconsistency during
+        ordinary sanctioned concurrency.
 
     One store, one query, narrowed by the cutoff in SQL. Neither failure has a
     mechanism left.

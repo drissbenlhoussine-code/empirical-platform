@@ -739,12 +739,13 @@ def test_a_backward_clock_breaks_the_wall_clock_implication(clean_tables: Engine
     and the real commit selects the event, although at real wall-clock W the
     event had not committed.
 
-    This is executed, not argued, and it is why the claim
+    This is executed, not argued, and it is why the RETRACTED claim quoted
+    next -- WITHDRAWN, asserted by nothing here -- fell:
 
-        system_received_at <= W  IMPLIES  durably committed by W
+        RETRACTED: system_received_at <= W  IMPLIES  durably committed by W
 
-    is RETRACTED. The CAUSAL claim -- the read-back preceded the receipt --
-    survives untouched, because it never depended on the clock.
+    The CAUSAL claim -- the read-back preceded the receipt -- survives
+    untouched, because it never depended on the clock.
     """
     config = _config()
     _append(config, gid="EV-CLK", pos="POS-CLK")
@@ -1964,6 +1965,7 @@ _M082_ACTIVE_CLAIM_SURFACES = (
     "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md",
     "external-review/MILESTONE-082/README.md",
     "external-review/MILESTONE-082/owner-correction-mission-findings-22-23.md",
+    "external-review/MILESTONE-082/owner-correction-mission-findings-24-25.md",
     "tests/integration/test_m082_operator_event_receipt_lifecycle.py",
     "tests/integration/test_m082_operator_event_receipt_second_pass.py",
     "tests/unit/test_decision_candidate_operator_event_receipt.py",
@@ -1982,6 +1984,60 @@ _ORIGIN_PHRASES = (
     "attestation instant",
     "true instant",
 )
+
+# OWNER FINDING 24. The origin/instant families above passed while the ACTIVE
+# design still carried three other withdrawn semantic classes. Each is banned
+# below in its own family, because each fails differently.
+#
+# ASSERTIVE families -- an honest NEGATION of the same words is the corrected
+# wording, so a negated line is not an offender. A denial must stay sayable; the
+# corresponding assertion must not.
+# sweep vocabulary (banned phrases, named here in order to ban them):
+_UPPER_BOUND_PHRASES = (
+    "upper bound witness",
+    "upper-bound witness",
+    "durably committed by",
+    "implies durable commit",
+    "commit_time(event) <",
+)
+# sweep vocabulary (banned phrases, named here in order to ban them):
+_SNAPSHOT_PHRASES = (
+    "knowledge snapshot",
+    "historical snapshot",
+    "point-in-time snapshot",
+    "attested snapshot",
+    "snapshot at a cutoff",
+)
+# REMOVED-NAME families -- negation is NOT enough. A name that no longer exists
+# anywhere in the emitted artifact may only appear under an explicit removal,
+# rename or retraction marker; naming it in an unmarked active paragraph
+# presents a deleted contract as current.
+# sweep vocabulary (banned, REMOVED names, listed in order to ban them):
+_REMOVED_STATUS_NAMES = (
+    "attested_after_cutoff",
+    "no_system_receipt_evidence",
+    "unattested_count",
+)
+# sweep vocabulary (banned, REMOVED names, listed in order to ban them):
+_REMOVED_API_NAMES = (
+    "attested_as_of",
+    "attested-as-of",
+    "attested_known_by",
+    "attested-evidence-snapshot",
+    "missingattestedeventerror",
+)
+_NEGATED_FAMILIES = _UPPER_BOUND_PHRASES + _SNAPSHOT_PHRASES
+_ALL_BANNED = (
+    _ORIGIN_PHRASES
+    + _UPPER_BOUND_PHRASES
+    + _SNAPSHOT_PHRASES
+    + _REMOVED_STATUS_NAMES
+    + _REMOVED_API_NAMES
+)
+
+# A denial of a banned claim is the CORRECTED wording, not an offence. This
+# applies ONLY to the assertive families; a removed name stays banned.
+_NEGATORS = ("not ", "n't", "never", "no longer", "cannot", "no such", "nothing")
 _SANCTIONED_MARKERS = ("SANCTIONED attest() PATH", "sanctioned attest() path", "SANCTIONED PATH")
 
 # A marker scopes its OWN PARAGRAPH. "reproduced"/"pre-correction" mark blocks
@@ -1997,6 +2053,12 @@ _SCOPING_MARKERS = (
     "pre-correction",
     "sweep vocabulary",
     "as the defect",
+    # OWNER FINDING 24. A removed name may be NAMED in order to say it is gone.
+    "removed",
+    "renamed",
+    "no longer exists",
+    "deliberately no",
+    "banned",
 )
 # Quoting M079's own frozen admission about `recorded_at` is not an M082 claim.
 _NOT_AN_M082_CLAIM = ("recorded_at", "operator-supplied")
@@ -2050,11 +2112,16 @@ def _paragraph_scoped_offenders(root: Path, surfaces: tuple[str, ...]) -> list[s
             if any(a in lowered for a in _NOT_AN_M082_CLAIM):
                 exempt_paragraph = True
 
-            if not any(phrase in lowered for phrase in _ORIGIN_PHRASES):
+            hits = [phrase for phrase in _ALL_BANNED if phrase in lowered]
+            if not hits:
                 continue
             if marked or exempt_paragraph:
                 continue
-            offenders.append(f"{relative}:{number}: {stripped[:120]}")
+            # OWNER FINDING 24. A line that DENIES an assertive banned claim is
+            # the corrected wording. Removed names get no such pass.
+            if all(h in _NEGATED_FAMILIES for h in hits) and any(n in lowered for n in _NEGATORS):
+                continue
+            offenders.append(f"{relative}:{number}: {hits[0]}: {stripped[:100]}")
     return offenders
 
 
@@ -2099,6 +2166,49 @@ def test_the_claim_sweep_is_paragraph_local_not_file_scoped() -> None:
     finally:
         design.write_text(original, encoding="utf-8")
     assert not _paragraph_scoped_offenders(root, (design.name,)), "design not restored"
+
+
+def test_the_sweep_catches_each_semantic_class_owner_finding_24_named() -> None:
+    """OWNER FINDING 24 - three independently injected, executed controls.
+
+    REPRODUCED first: at `fc550f7` this sweep reported ZERO offenders while the
+    active design still carried, entirely outside any locally scoped block, the
+    "upper bound witness" claim of section 13, the removed status name of
+    section 17, the removed CLI flag of section 24 and the withdrawn snapshot
+    reasoning of sections 20 and 21. A green result proved only that the
+    vocabulary was too narrow.
+
+    Each injection below is appended in its OWN unmarked paragraph, so nothing
+    but the phrase itself can be what the sweep reacts to. Each is removed
+    again, and the file must go quiet.
+    """
+    root = _repo_root()
+    design = root / "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md"
+    original = design.read_text(encoding="utf-8")
+    assert not _paragraph_scoped_offenders(root, (design.name,)), "design is not clean to start"
+
+    # (phrase injected, substring the sweep must report) -- the three classes
+    # owner finding 24 named, quoted here as the defect rather than asserted.
+    controls = (
+        (
+            "`system_received_at` is an upper bound witness on the commit time.",
+            "upper bound witness",
+        ),
+        (
+            "An event with no receipt reports NO_SYSTEM_RECEIPT_EVIDENCE.",
+            "no_system_receipt_evidence",
+        ),
+        ("The command takes --attested-as-of and emits a historical snapshot.", "attested-as-of"),
+    )
+    for injected, expected in controls:
+        try:
+            design.write_text(f"{original}\n\n{injected}\n", encoding="utf-8")
+            caught = _paragraph_scoped_offenders(root, (design.name,))
+            assert caught, f"the sweep did NOT catch: {injected}"
+            assert any(expected in line for line in caught), (expected, caught)
+        finally:
+            design.write_text(original, encoding="utf-8")
+        assert not _paragraph_scoped_offenders(root, (design.name,)), "design not restored"
 
 
 def test_every_sanctioned_path_origin_claim_is_explicitly_qualified() -> None:

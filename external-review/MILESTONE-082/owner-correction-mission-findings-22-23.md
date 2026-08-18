@@ -48,10 +48,11 @@ happened. The block below is quoted as the defect, not asserted:
 §8 carried a retraction notice that scoped itself to **"the inequality below"**.
 Everything after that fenced inequality — the implication, the "**Proved by
 execution**" claim and the "**can never overstate**" claim — sat **outside** the
-retraction and read as active text:
+retraction and read as active text (the reproduced defect is quoted next; it is
+WITHDRAWN and asserted by nothing here):
 
 ```
-system_received_at <= K   IMPLIES   the event was durably committed by K
+RETRACTED: system_received_at <= K   IMPLIES   the event was durably committed by K
 ```
 
 That is the claim `RETRACTION 2` withdrew at the top of the document, standing
@@ -193,9 +194,17 @@ delta-scoped truth, measured as `git diff master` restricted to `src`,
 | Introduced by findings 22–23 | **0** | `git diff 9b487d1 -- src migrations tests` contains no added suppression line |
 | Repository-wide pre-existing baseline | 872 | untouched by this branch |
 
+> **⚠ RETRACTED (owner finding 25).** This paragraph read: *"no suppression is
+> used to silence a failing gate, no test is skipped or xfailed, and findings
+> 22–23 add none"*. The skip/xfail half is **FALSE** — see
+> `owner-correction-mission-findings-24-25.md`.
+
 The honest claim is therefore: **no suppression is used to silence a failing
-gate, no test is skipped or xfailed, and findings 22–23 add none** — not "no
-suppressions anywhere".
+gate, no M082 test is xfailed or unconditionally skipped, PostgreSQL-dependent
+fixtures conditionally skip when explicit PostgreSQL opt-in is absent, no
+failing finding is concealed by skip or xfail, and findings 22–23 add no
+suppression** — not "no suppressions anywhere", and not a denial that the
+repository or a PG-off run reports skips.
 
 ---
 

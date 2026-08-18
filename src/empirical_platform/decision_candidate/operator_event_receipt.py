@@ -42,10 +42,12 @@ same types and may carry any allowed value in any of the three fields.
 RETRACTED BY OWNER REVIEW (M082 owner review, finding 2)
 ============================================================================
 
-An earlier version of this module claimed:
+An earlier version of this module claimed (RETRACTED text, quoted so the
+original reasoning stays readable -- every line of the indented block below is
+WITHDRAWN and asserts nothing):
 
-    commit_time(event) < system_received_at(receipt)
-    therefore system_received_at <= W  IMPLIES  durably committed by W
+    RETRACTED: commit_time(event) < system_received_at(receipt)
+    RETRACTED: therefore system_received_at <= W  IMPLIES  durably committed by W
 
 and that M082 "can never OVERSTATE" what was known by W. That claim is
 **RETRACTED**. It was never proved, and it is false whenever the application
@@ -84,12 +86,13 @@ THIS IS A RECEIPT-LABEL-CUTOFF VIEW, NOT A HISTORICAL SNAPSHOT (owner review,
 findings 1 and 5). It is built FROM RECEIPTS whose label is at or before the
 cutoff, never from the current ledger inventory. A receipt labelled after the
 cutoff, and an event that has no such receipt, are structurally unreachable: no
-entry, no count and no ordering position can be derived from them. An earlier
+entry, no count and no ordering position can be derived from them.
+**RETRACTED**, and the names below are REMOVED rather than current: an earlier
 version built the artifact from `ledger.list_all()` and emitted
 ATTESTED_AFTER_CUTOFF, NO_SYSTEM_RECEIPT_EVIDENCE and
 `attested_after_cutoff_count`; that made the output depend on rows created after
-the cutoff, and it is **RETRACTED**. The view deliberately does NOT know how
-much evidence it excluded, and no replacement count is offered.
+the cutoff. The view deliberately does NOT know how much evidence it excluded,
+and no replacement count is offered.
 
 But it is NOT a stable point-in-time reconstruction, and calling it a "snapshot"
 would overclaim. Because a label may be backdated (finding 2), a receipt created
@@ -480,9 +483,9 @@ def build_attested_evidence_report(
       * finding 7 -- the artifact no longer resolves any field from the mutable
         current M076 row, so a payload change after attestation cannot move it;
       * finding 10 -- there is no second inventory to read, so the split
-        ledger/receipt read that produced a MissingAttestedEventError during
-        ordinary sanctioned concurrency cannot occur;
-      * `MissingAttestedEventError` is gone with it, because nothing here can
+        ledger/receipt read that produced a since-REMOVED type,
+        MissingAttestedEventError, during ordinary concurrency cannot occur;
+      * `MissingAttestedEventError` is REMOVED with it, because nothing here can
         reference an event it was not given.
 
     Callers pass receipts already narrowed by the cutoff where the persistence

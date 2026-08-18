@@ -401,21 +401,33 @@ wall-clock instant that a real event time can be compared against.)*
 
 ## 13. Receipt Versus Commit Semantics
 
-> **⚠ RETRACTED (owner review finding 2).** The sentence below is withdrawn.
-> `system_received_at` bounds nothing; it is a LABEL whose provenance is
-> unauthenticated once persisted (corrected by Owner finding 20). Kept
-> verbatim as the original reasoning.
+> **⚠ RETRACTED IN FULL (owner review finding 2; locally rescoped by owner
+> finding 24).** EVERYTHING BETWEEN THIS BANNER AND THE NEXT SECTION HEADING IS
+> WITHDRAWN. `system_received_at` bounds nothing; it is a LABEL whose provenance
+> is unauthenticated once persisted (corrected by Owner finding 20). The
+> withdrawn text was previously left OUTSIDE this blockquote, so a
+> paragraph-local reader met the false claim as though it were active. It is now
+> quoted in place, verbatim, as the original reasoning and nothing more.
+>
+> *(Withdrawn text begins.)*
+>
+> `system_received_at` is an **upper bound witness** on the event's commit time,
+> never the commit time itself:
+>
+> ```
+> commit_time(event) < system_received_at    [known]
+> commit_time(event) = ?                     [NOT known, and not claimed]
+> ```
+>
+> M082 does not know when the event committed. It knows the event **had already
+> committed** by `system_received_at`.
+>
+> *(Withdrawn text ends.)*
 
-`system_received_at` is an **upper bound witness** on the event's commit time,
-never the commit time itself:
-
-```
-commit_time(event) < system_received_at    [known]
-commit_time(event) = ?                     [NOT known, and not claimed]
-```
-
-M082 does not know when the event committed. It knows the event **had already
-committed** by `system_received_at`.
+**WHAT IS TRUE INSTEAD.** M082 knows the event was **read back as committed**
+before the receipt was created. That ordering is causal and clock-independent.
+It yields no bound of any kind on the event's commit time, and the label is not
+a witness to it.
 
 ## 14. Concurrency Model
 
@@ -483,9 +495,17 @@ other guess.
 
 The migration creates the receipt table **empty**. It backfills nothing.
 
-An event with no receipt reports `NO_SYSTEM_RECEIPT_EVIDENCE`. It remains a
+An event with no receipt is **structurally absent** from the receipt-label-cutoff
+view: it contributes no entry, no count and no ordering position. It remains a
 perfectly valid M076 operator assertion; it simply carries no M082 authority.
 **Absence remains absence.**
+
+> **⚠ SUPERSEDED (owner review finding 1; locally rescoped by owner finding
+> 24).** THE SENTENCE QUOTED IN THIS BLOCKQUOTE IS WITHDRAWN. It read: "An event
+> with no receipt reports `NO_SYSTEM_RECEIPT_EVIDENCE`." That status was
+> **removed** when the artifact stopped reading the ledger — the view is built
+> from receipts alone and cannot enumerate what it does not hold, so it can
+> report no such state. The name no longer exists in any emitted output.
 
 ## 18. Bypass Semantics
 
@@ -536,18 +556,26 @@ not hidden.
 > `attested_known_by` was renamed `events_with_receipt_labelled_by` precisely
 > because "known by" asserted what the label cannot support.
 
-**RETAINED VERBATIM AS THE ORIGINAL, WITHDRAWN REASONING:**
-
-M082 exposes an attested knowledge snapshot at a cutoff `W`:
-
-```
-attested_known_by(events, receipts, W)
-  = events whose receipt exists and whose system_received_at <= W
-```
-
-Sound direction: every event returned **was durably committed by `W`**.
-Conservative direction: an event may be omitted although it had committed by `W`,
-if its receipt came later. Both are stated on every report.
+> **⚠ RETAINED VERBATIM AS THE ORIGINAL, WITHDRAWN REASONING (locally rescoped
+> by owner finding 24).** EVERYTHING IN THIS BLOCKQUOTE IS WITHDRAWN. It was
+> previously left outside any quote, so its snapshot and durable-commit claims
+> read as active. `attested_known_by` no longer exists; it was renamed
+> `events_with_receipt_labelled_by`.
+>
+> *(Withdrawn text begins.)*
+>
+> M082 exposes an attested knowledge snapshot at a cutoff `W`:
+>
+> ```
+> attested_known_by(events, receipts, W)
+>   = events whose receipt exists and whose system_received_at <= W
+> ```
+>
+> Sound direction: every event returned **was durably committed by `W`**.
+> Conservative direction: an event may be omitted although it had committed by
+> `W`, if its receipt came later. Both are stated on every report.
+>
+> *(Withdrawn text ends.)*
 
 ## 21. Interaction With M079
 
@@ -560,11 +588,21 @@ if its receipt came later. Both are stated on every report.
 > is the **weaker** of the two in what it establishes about time — it does not
 > replace M079's `recorded_at` firewall. Original text kept verbatim below.
 
-M079 remains the *operator-recorded* knowledge snapshot, filtering
-`recorded_at <= K`. M082 adds a distinct *system-receipt-attested* snapshot,
-filtering `system_received_at <= W`. These are two different products with two
-different authorities, and the vocabulary keeps them apart: M079 says
-`knowledge_as_of`, M082 says `attested_as_of`.
+> *(Withdrawn text begins — governed by the SUPERSEDED banner above, which is
+> repeated here so this block is scoped locally rather than by distance.)*
+>
+> **⚠ SUPERSEDED (owner review findings 2 and 5; locally rescoped by owner
+> finding 24).** EVERYTHING IN THIS BLOCKQUOTE IS WITHDRAWN. `attested_as_of`
+> was **renamed** `receipt_label_cutoff` and no longer exists, and M082 emits no
+> snapshot of any kind.
+>
+> M079 remains the *operator-recorded* knowledge snapshot, filtering
+> `recorded_at <= K`. M082 adds a distinct *system-receipt-attested* snapshot,
+> filtering `system_received_at <= W`. These are two different products with two
+> different authorities, and the vocabulary keeps them apart: M079 says
+> `knowledge_as_of`, M082 says `attested_as_of`.
+>
+> *(Withdrawn text ends.)*
 
 M082 does **not** reinterpret, wrap or silently strengthen any M079 output.
 
@@ -600,15 +638,24 @@ Plus the immutability trigger of §19. No change to any existing table.
 
 ## 24. CLI And Usecase
 
-One additive query entry point,
-`empirical-platform-attested-evidence-snapshot
+One additive query entry point, `empirical-platform-receipt-label-cutoff-view`,
+requiring `--receipt-label-cutoff` with **no default**, plus `--json`.
 
-> **⚠ SUPERSEDED (owner finding 11).** The console command above is
-> withdrawn. The current command is exactly
-> `empirical-platform-receipt-label-cutoff-view`, and the flag is
-> `--receipt-label-cutoff`. Old text kept visible.
-`, requiring `--attested-as-of`
-with **no default**, plus `--json`.
+> **⚠ SUPERSEDED (owner finding 11; malformed preservation repaired and locally
+> rescoped by owner finding 24).** EVERYTHING IN THIS BLOCKQUOTE IS WITHDRAWN.
+> The old console command and flag below were previously preserved with an
+> UNCLOSED code span — the opening backtick sat before this banner and its
+> closing backtick after it, so the banner itself was swallowed into a broken
+> span and the withdrawn names rendered as active text. Both names are
+> **removed**.
+>
+> *(Withdrawn text begins.)*
+>
+> One additive query entry point,
+> `empirical-platform-attested-evidence-snapshot`, requiring `--attested-as-of`
+> with **no default**, plus `--json`.
+>
+> *(Withdrawn text ends.)*
 
 Attestation itself is a usecase (`AttestOperatorEventReceiptHandler`) rather
 than a second copy of the M076 recording CLI, so the existing recording path is
@@ -634,13 +681,25 @@ the **later** true instant".)*
 
 ## 27. Failure And Absence Vocabulary
 
-| State | Meaning |
-|---|---|
-| `ATTESTED` | a receipt exists and `system_received_at <= W` |
-| `NO_SYSTEM_RECEIPT_EVIDENCE` | the event exists and has no receipt |
-| `ATTESTED_AFTER_CUTOFF` | a receipt exists but is later than `W` |
+The artifact emits **no status vocabulary at all**. It is built from receipts
+labelled at or before the cutoff; a receipt labelled after the cutoff, and an
+event with no such receipt, are structurally unreachable and therefore cannot be
+given a name. No state is ever inferred from `recorded_at`.
 
-No state is ever inferred from `recorded_at`.
+> **⚠ SUPERSEDED (owner review finding 1; locally rescoped by owner finding
+> 24).** EVERYTHING IN THIS BLOCKQUOTE IS WITHDRAWN. All three status names were
+> **removed** when the artifact stopped reading the ledger. The table below was
+> previously left active, so the removed names read as current contract.
+>
+> *(Withdrawn text begins.)*
+>
+> | State | Meaning |
+> |---|---|
+> | `ATTESTED` | a receipt exists and `system_received_at <= W` |
+> | `NO_SYSTEM_RECEIPT_EVIDENCE` | the event exists and has no receipt |
+> | `ATTESTED_AFTER_CUTOFF` | a receipt exists but is later than `W` |
+>
+> *(Withdrawn text ends.)*
 
 ## 28. Frozen-Contract Preservation
 
@@ -797,9 +856,10 @@ boundary, and the ledger is not read at all.
 
 ### Finding 10 - two non-atomic reads
 
-`ledger.list_all()` then `receipts.list_all()`, with an event and receipt
-committing between them, produced `MissingAttestedEventError`. One store, one
-cutoff-narrowed query. `MissingAttestedEventError` no longer exists.
+`MissingAttestedEventError` is REMOVED; it is named here only to record what
+was deleted. `ledger.list_all()` then `receipts.list_all()`, with an event and
+receipt committing between them, produced `MissingAttestedEventError`. One
+store, one cutoff-narrowed query replaced both reads.
 
 ### Fail-closed hardening - explicit allowlist
 

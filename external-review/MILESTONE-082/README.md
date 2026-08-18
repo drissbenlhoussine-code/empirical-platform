@@ -4,12 +4,13 @@
 
 > **⚠ READ THIS FIRST — NAVIGATION.**
 > The authoritative latest correction is
-> **`owner-correction-mission-findings-22-23.md`**. Read it before anything
+> **`owner-correction-mission-findings-24-25.md`**. Read it before anything
 > else. Every other file in this package, including the ones the older banners
 > below tell you to read first, describes an **earlier candidate** and carries
 > its own superseded notice.
 >
 > *(Superseded banners, kept visible:)* the authoritative latest correction was
+> `owner-correction-mission-findings-22-23.md`, before it
 > `owner-correction-mission-findings-20-21.md`, and before it
 > `owner-correction-mission-findings-16-18.md`.
 >
@@ -100,9 +101,12 @@ receipt set captured at decision time, is a future milestone. It is not started.
 
 **RETRACTED — "point-in-time historical snapshot".** The artifact was built from
 the CURRENT ledger, so rows created after the cutoff changed the historical
-output. Two databases with identical evidence at `W`:
+output. The status names in the reproduced defect output below are all REMOVED.
+Two databases with identical evidence at `W`:
 
 ```
+REPRODUCED DEFECT OUTPUT. Every status name below is REMOVED.
+
 ATTACK A - a receipt created after W, in DB-A only
   DB-A : ATTESTED_AFTER_CUTOFF     DB-B : NO_SYSTEM_RECEIPT_EVIDENCE
   after_cutoff_count A=1 B=0       unattested_count A=0 B=1
@@ -124,18 +128,18 @@ figure below"* was false.
 
 The artifact is now built **from receipts** labelled at or before the cutoff.
 A later receipt and an unreceipted event are **structurally unreachable** — no
-entry, no count, no ordering position. `ATTESTED_AFTER_CUTOFF`,
-`NO_SYSTEM_RECEIPT_EVIDENCE`, the whole status enum,
-`attested_after_cutoff_count` and `unattested_count` are gone and **not
-replaced**: the snapshot deliberately **cannot say how much it excluded**, and
-its own text says so.
+entry, no count, no ordering position. These names are REMOVED and not
+replaced: `ATTESTED_AFTER_CUTOFF`, `NO_SYSTEM_RECEIPT_EVIDENCE`, the whole
+status enum, `attested_after_cutoff_count` and `unattested_count`. The view
+deliberately **cannot say how much it excluded**, and its own text says so.
 
 Re-run after the correction: **full object, full text and full JSON identical**
 on both sides of both attacks.
 
 ## Names are claims, so three of them changed
 
-| Old | New |
+Every name in the left column is REMOVED; it was renamed to the right column.
+| Old (REMOVED) | New |
 |---|---|
 | `attested_known_by` | `events_with_receipt_labelled_by` |
 | `attested_as_of` | `receipt_label_cutoff` |
@@ -152,7 +156,8 @@ consuming this authority.
 
 ## Defects, all found by execution
 
-| # | Defect |
+Each row states a defect as REPRODUCED, not as a current property.
+| # | Defect (reproduced, then corrected) |
 |---|---|
 | Owner 1 | historical snapshot leaked future receipts and future events |
 | Owner 2 | the wall-clock upper bound was unproved and false under a backward clock |
@@ -179,7 +184,10 @@ consuming this authority.
 
 | File | What it is |
 |---|---|
-| `owner-correction-mission-findings-16-18.md` | **START HERE — authoritative latest.** Findings 16–18 |
+| `owner-correction-mission-findings-24-25.md` | **START HERE — authoritative latest.** Findings 24–25 |
+| `owner-correction-mission-findings-22-23.md` | findings 22–23 *(superseded)* |
+| `owner-correction-mission-findings-20-21.md` | findings 20–21 *(superseded)* |
+| `owner-correction-mission-findings-16-18.md` | findings 16–18 *(superseded)* |
 | `owner-correction-mission-findings-12-15.md` | findings 12–15 |
 | `owner-correction-mission-findings-7-11.md` | findings 7–11 |
 | `owner-review-fail-closed-pass.md` | finding 6, the fail-open enforcement |
