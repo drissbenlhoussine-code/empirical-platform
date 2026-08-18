@@ -9,6 +9,7 @@ external-review/MILESTONE-082/hostile-implementation-review.md
 external-review/MILESTONE-082/known-limitations.md
 external-review/MILESTONE-082/owner-correction-mission-findings-12-15.md
 external-review/MILESTONE-082/owner-correction-mission-findings-16-18.md
+external-review/MILESTONE-082/owner-correction-mission-findings-20-21.md
 external-review/MILESTONE-082/owner-correction-mission-findings-7-11.md
 external-review/MILESTONE-082/owner-review-checklist.md
 external-review/MILESTONE-082/owner-review-correction-pass.md

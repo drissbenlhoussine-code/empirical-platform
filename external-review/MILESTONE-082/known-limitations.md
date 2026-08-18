@@ -2,7 +2,7 @@
 
 > **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
 > The authoritative latest correction is
-> **`owner-correction-mission-findings-16-18.md`**. Where this file conflicts
+> **`owner-correction-mission-findings-20-21.md`**. Where this file conflicts
 > with it, that file wins. Nothing here is deleted: it is the record of what was
 > believed at the time, including the parts that were wrong.
 
@@ -21,8 +21,12 @@
 4. **M082 therefore does NOT replace M079's `recorded_at` firewall.** M079,
    M080 and M081 continue to filter operator-supplied `recorded_at` exactly as
    frozen. Adopting receipt authority downstream is a separate future milestone.
-5. **The clock is the application host clock.** It can be wrong, adjusted, or
-   moved backward, and a sufficiently privileged actor can influence it.
+5. **ON THE SANCTIONED `attest()` PATH the clock is the application host
+   clock.** It can be wrong, adjusted, or moved backward, and a sufficiently
+   privileged actor can influence it. **As a generic persisted value the label
+   has UNAUTHENTICATED PROVENANCE** — a stored row does not show that its label
+   came from that clock, or from any clock. *(Path qualification added by Owner
+   finding 20; the original sentence asserted the clock for every row.)*
 6. **No monotonicity is enforced and no cryptographic claim is made.** This is
    not a trusted timestamping service.
 7. **PostgreSQL commit timestamps are not used.** `track_commit_timestamp` is an

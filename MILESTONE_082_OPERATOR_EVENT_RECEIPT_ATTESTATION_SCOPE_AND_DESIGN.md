@@ -209,7 +209,11 @@ Scored 1-5. For risk rows, **5 = low risk**.
 
 An **additive, append-only sidecar** that records, for an M076 event, that the
 platform's persistence boundary **observed the event already durably committed**
-at a system-assigned instant.
+at the instant recorded in `system_received_at`.
+
+*(Corrected by Owner finding 20: this said "at a system-assigned instant".
+"System-assigned" asserts an origin the database does not prove for a persisted
+row. `system_received_at` is a LABEL; see §12 for the path distinction.)*
 
 The receipt is written in a **second transaction, after the event's transaction
 has committed**, and only after the receipt writer has **read the event back**.
@@ -299,11 +303,18 @@ after that read is unambiguous about ordering, whereas a database-side `now()`
 in the receipt transaction would re-open a "which clock, relative to what"
 question for no benefit.
 
-**Honest limits, stated rather than narrated away:** the host clock can be
-wrong, can be adjusted, can move backward under NTP correction, and a
-sufficiently privileged operator or administrator could influence it. M082 says
-**system-assigned**, never *true time* or *actual time*. It is not a trusted
-timestamping service and makes no cryptographic claim.
+**Honest limits, stated rather than narrated away:** **on the sanctioned
+`attest()` path** the host clock can be wrong, can be adjusted, can move
+backward under NTP correction, and a sufficiently privileged operator or
+administrator could influence it. M082 says **a label**, never *true time* or
+*actual time*, and as a **generic persisted value** the label has
+**unauthenticated provenance** — M082 does not claim any stored row's label was
+assigned by the system at all. It is not a trusted timestamping service and
+makes no cryptographic claim.
+
+*(Corrected by Owner finding 20: this said "M082 says **system-assigned**",
+which is an origin claim for every persisted row, not only for rows the
+sanctioned path produced.)*
 
 ## 12. Receipt Semantics
 
@@ -318,6 +329,23 @@ A receipt asserts, and asserts only:
   **unauthenticated as a persisted value**; it names nothing the database
   proves.
 
+**The authority distinction that governs every metadata sentence in this
+document (Owner finding 20):**
+
+```
+GENERIC PERSISTED VALUE:
+    UNAUTHENTICATED PROVENANCE.
+ON THE SANCTIONED attest() PATH ONLY:
+    system_received_at is obtained from the application host clock after
+    read-back; attester_version is an application constant; attested_by is
+    caller-supplied and passed through unchanged.
+```
+
+No sentence anywhere in this document may describe a stored receipt's metadata
+as system-assigned, clock-derived or constant-derived without that
+qualification. A direct SQL receipt for a genuinely prior-committed event is
+accepted **by design** and is mapped into exactly the same domain type.
+
 It does **not** assert that the operator's claim is true, that a trade occurred,
 that `recorded_at` is honest, or that the event was durably visible at any
 instant *earlier* than `system_received_at`.
@@ -325,7 +353,8 @@ instant *earlier* than `system_received_at`.
 ## 13. Receipt Versus Commit Semantics
 
 > **⚠ RETRACTED (owner review finding 2).** The sentence below is withdrawn.
-> `system_received_at` bounds nothing; it is a system-assigned label. Kept
+> `system_received_at` bounds nothing; it is a LABEL whose provenance is
+> unauthenticated once persisted (corrected by Owner finding 20). Kept
 > verbatim as the original reasoning.
 
 `system_received_at` is an **upper bound witness** on the event's commit time,
@@ -429,7 +458,7 @@ not hidden.
 > ```
 >
 > The only property this has is **label selection**: no entry can be derived
-> from a receipt whose system-assigned label is after the cutoff. It is **NOT**
+> from a receipt whose label is after the cutoff. It is **NOT**
 > a claim that the cutoff establishes real wall-clock knowledge time, and **NOT**
 > a claim that the selected events were durably committed or available by that
 > instant. A label can be backdated, so a receipt created later can still
@@ -548,9 +577,25 @@ not authorities in themselves.
 
 ## 30. What M082 Proves, And What It Does Not
 
-**Proves:** that the platform's persistence boundary observed the event already
-durably committed at a system-assigned instant, so `system_received_at <= W`
-implies durable commit by `W`.
+> **⚠ RETRACTED IN PLACE (Owner review finding 2, marked inline by finding 20).**
+> The original sentence is kept verbatim below because the document-level
+> RETRACTION 2 banner already withdraws it, but it sat unmarked in the one
+> section a reader consults for "what M082 proves":
+>
+> *"**Proves:** that the platform's persistence boundary observed the event
+> already durably committed at a system-assigned instant, so
+> `system_received_at <= W` implies durable commit by `W`."*
+>
+> Both halves are withdrawn. `system_received_at <= W` does **not** imply
+> durable commit by `W` — a backward host clock breaks it, executed in
+> `test_a_backward_clock_breaks_the_wall_clock_implication` — and
+> "system-assigned instant" asserts an origin the database does not prove for a
+> persisted row.
+
+**Proves, and only this:** that a persisted receipt binds a stable receipt
+identity to an exact M076 event governance identity whose real public row was
+observed as originating from a **prior committed transaction** at receipt
+insertion. That claim is causal and holds regardless of any clock.
 
 **Does NOT prove:** the event's commit time; wall-clock truth; that
 `recorded_at` is honest; that the operator's assertion is true; that any trade
@@ -714,6 +759,19 @@ path `system_received_at` comes from the host clock after read-back,
 **caller-supplied and passed through unchanged**. As persisted values all three
 have **unauthenticated provenance**, and no individual row is described as having
 come through `attest()`.
+
+**Findings 20 and 21.** The finding-13 sweep had not actually reached the domain
+module: `OperatorEventReceipt`, `AttestedEventEntry`,
+`events_with_receipt_labelled_by`, the repository port, the PostgreSQL adapter,
+the migration and §8, §11, §13, §22 and §30 of this document all still described
+the label as **system-assigned**, generically. Every one is now either removed or
+placed under an explicit **ON THE SANCTIONED `attest()` PATH** qualification, and
+a test now sweeps the **source files** rather than only the rendered output.
+Separately, the four-constraint control claim was **overstated**: the controls
+test built the receipt id as `f"{control}-RC{index}"` and never gave the event id
+a control at all, so under an injected extra trim character every receipt-id and
+event-id value still passed. Each of the four constrained columns now receives
+the exact control value independently.
 
 **Finding 14.** A crash after event commit but before receipt insertion leaves an
 **unattested gap**; a later explicit attestation proves only its own causal

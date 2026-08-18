@@ -29,9 +29,19 @@ class OperatorEventReceiptRepository(Protocol):
         causal: it holds regardless of any clock. Assigning a timestamp inside
         the ingesting transaction was proved to leak knowledge.
 
-        The `system_received_at` an implementation records is a SYSTEM-ASSIGNED
-        LABEL, NOT a proven bound on the event's commit time. Implementations
-        MUST NOT present it as one.
+        ON THE SANCTIONED attest() PATH the `system_received_at` an
+        implementation records is obtained from the application host clock after
+        the read-back, `attester_version` is an application constant, and
+        `attested_by` is caller-supplied and passed through unchanged. It is NOT
+        a proven bound on the event's commit time, and implementations MUST NOT
+        present it as one.
+
+        AS A GENERIC PERSISTED VALUE all three have UNAUTHENTICATED PROVENANCE.
+        A row this port never produced is mapped into the same type and cannot
+        be told apart, so no reader may infer an origin from a stored row.
+
+        RETRACTED (owner finding 20): this said the recorded label "is a
+        SYSTEM-ASSIGNED LABEL" without qualifying which path assigns it.
 
         Idempotent by event: a second call returns the existing receipt rather
         than creating a second authority.

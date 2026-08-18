@@ -4,10 +4,13 @@
 
 > **⚠ READ THIS FIRST — NAVIGATION.**
 > The authoritative latest correction is
-> **`owner-correction-mission-findings-16-18.md`**. Read it before anything
+> **`owner-correction-mission-findings-20-21.md`**. Read it before anything
 > else. Every other file in this package, including the ones the older banners
 > below tell you to read first, describes an **earlier candidate** and carries
 > its own superseded notice.
+>
+> *(Superseded banner, kept visible:)* the authoritative latest correction was
+> `owner-correction-mission-findings-16-18.md`.
 >
 > *(Superseded banner, kept visible:)* Hardened after a second Owner review —
 > a stale upper-bound claim in the migration; a persisted row that did not prove
@@ -31,6 +34,22 @@ Base `master` `28a1053`.
 > of availability at an arbitrary cutoff.
 >
 > **M082 does not attest the current or historical payload of that M076 event.**
+>
+> **And it does not attest the provenance of a persisted metadata label:**
+>
+> ```
+> GENERIC PERSISTED VALUE:
+>     UNAUTHENTICATED PROVENANCE.
+> ON THE SANCTIONED attest() PATH ONLY:
+>     system_received_at is obtained from the application host clock after
+>     read-back; attester_version is an application constant; attested_by is
+>     caller-supplied and passed through unchanged.
+> ```
+>
+> A direct SQL receipt for a genuinely prior-committed event is accepted **by
+> design**, may carry any allowed value in all three fields, and is mapped into
+> the same domain type. **No individual row can be said to have come through
+> `attest()`.**
 
 ## The earlier statement of the causal claim
 
@@ -40,8 +59,14 @@ Base `master` `28a1053`.
     and only THEN created this receipt.
 
 That holds by program order plus PostgreSQL transaction visibility, and **it
-does not depend on any clock**. `system_received_at` is a **system-assigned
-label** recorded beside that fact.
+does not depend on any clock**.
+
+> **⚠ SUPERSEDED (Owner finding 20).** The next sentence, kept verbatim, said:
+> *"`system_received_at` is a **system-assigned label** recorded beside that
+> fact."* "System-assigned" asserts an origin the database does not prove for a
+> persisted row. It is a **label** recorded beside that fact, with
+> **unauthenticated provenance** as a stored value; see the authority
+> distinction above.
 
 ## What M082 no longer claims
 

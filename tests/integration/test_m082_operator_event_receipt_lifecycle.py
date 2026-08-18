@@ -1718,41 +1718,80 @@ def conn_trim_set(engine: Engine, constraint_definition: str) -> set[str]:
     return set(resolved)
 
 
-def test_every_installed_check_accepts_the_letter_v_and_padded_controls(
-    clean_tables: Engine, engine: Engine
+# The four columns carrying an installed blank CHECK, and the accepted control
+# values each one must be able to hold on its own.
+_CONSTRAINED_COLUMNS = (
+    "receipt_governance_id",
+    "event_governance_id",
+    "attested_by",
+    "attester_version",
+)
+_ACCEPTED_CONTROLS = ("v", "valve", " padded ", "\tvalve\t", "vvv")
+
+
+@pytest.mark.parametrize("column", _CONSTRAINED_COLUMNS)
+def test_each_installed_check_accepts_every_control_in_its_own_column(
+    clean_tables: Engine, engine: Engine, column: str
 ) -> None:
-    """OWNER FINDING 18 - controls driven through all four INSTALLED CHECKs.
+    """OWNER FINDING 21 - one pure control per constrained column, separately.
 
     `v` is the specific canary: PostgreSQL's E'' has no `\v` escape, so writing
     the set that way once produced the LETTER v and btrim('valve') returned
-    'alve'. If an extra trim character is ever reintroduced, one of these four
-    inserts fails.
+    'alve'.
+
+    RETRACTED (owner finding 21). The earlier version of this test claimed the
+    controls were "driven through all four installed CHECK constraints". They
+    were not, and this was REPRODUCED against the pre-correction head with the
+    mutated set (frozen 29 + the letter v) resolved by PostgreSQL itself:
+
+        receipt_governance_id "v-RC0"    -> passes mutated CHECK = True
+        receipt_governance_id "vvv-RC4"  -> passes mutated CHECK = True
+        event_governance_id   "EV-CTRL0" -> passes mutated CHECK = True
+        attested_by           "v"        -> passes mutated CHECK = False
+
+    The receipt id was built as f"{control}-RC{index}", so the suffix kept it
+    non-empty after trimming, and the event id never received a control at all.
+    Every observed negative-control failure could only have come from
+    `attested_by` / `attester_version`.
+
+    Here EXACTLY ONE column carries the exact control value and the other three
+    carry ordinary valid values, so this parametrised case is the only one that
+    can detect an extra trim character in ITS column's CHECK.
     """
     config = _config()
-    controls = ["v", "valve", " padded ", "\tvalve\t", "vvv"]
-    for index, control in enumerate(controls):
-        event_id = f"EV-CTRL{index}"
-        # PROBE NOTE: the event must COMMIT first. Writing both in one
-        # transaction is refused by the prior-commit trigger -- which is that
-        # guarantee working, not a constraint failure.
+    other = _CONSTRAINED_COLUMNS.index(column)
+    for index, control in enumerate(_ACCEPTED_CONTROLS):
+        tag = f"{other}{index}"
+        values = {
+            "rid": control if column == "receipt_governance_id" else f"RC-IND{tag}",
+            "gid": control if column == "event_governance_id" else f"EV-IND{tag}",
+            "ts": datetime(2026, 4, 1, tzinfo=UTC),
+            "by": control if column == "attested_by" else "ordinary-attester",
+            "ver": control if column == "attester_version" else "M082.1",
+        }
+        # PROBE NOTE: the event must COMMIT FIRST, in its own transaction.
+        # Writing both in one transaction is refused by the prior-commit trigger
+        # -- which is that guarantee working, not a constraint failure. M076's
+        # own table places NO blank CHECK on governance_id (verified in
+        # b7e1c4a95d38), so every control below can legally exist as an event
+        # governance identity; none of the five is narrowed away.
         with engine.begin() as conn:
-            conn.execute(_RAW_EVENT_SQL_QUALIFIED, _raw_event(event_id, f"POS-CTRL{index}"))
+            conn.execute(_RAW_EVENT_SQL_QUALIFIED, _raw_event(str(values["gid"]), f"POS-IND{tag}"))
         with engine.begin() as conn:
-            # Every one of the four constrained columns carries the control.
-            conn.execute(
-                _RAW_RECEIPT_SQL_QUALIFIED,
-                {
-                    "rid": f"{control}-RC{index}",
-                    "gid": event_id,
-                    "ts": datetime(2026, 4, 1, tzinfo=UTC),
-                    "by": control,
-                    "ver": control,
-                },
-            )
+            conn.execute(_RAW_RECEIPT_SQL_QUALIFIED, values)
+
     stored = _receipts(config)
-    assert len(stored) == len(controls)
-    assert {r.attested_by for r in stored} == set(controls)
-    assert {r.attester_version for r in stored} == set(controls)
+    assert len(stored) == len(_ACCEPTED_CONTROLS)
+    held = {
+        "receipt_governance_id": {r.receipt_governance_id for r in stored},
+        "event_governance_id": {r.event_governance_id for r in stored},
+        "attested_by": {r.attested_by for r in stored},
+        "attester_version": {r.attester_version for r in stored},
+    }[column]
+    assert held == set(_ACCEPTED_CONTROLS), (
+        f"{column} did not hold every control verbatim: missing="
+        f"{sorted(set(_ACCEPTED_CONTROLS) - held)!r}"
+    )
 
 
 def test_no_rendering_claims_sanctioned_path_provenance_for_a_row(
@@ -1886,3 +1925,107 @@ def test_no_active_surface_claims_sanctioned_provenance_without_qualification(
     assert "sanctioned attest() path" in joined or "SANCTIONED attest() PATH" in joined
     # No unqualified per-entry provenance assertion may survive.
     assert "applied on the sanctioned attest path" not in text_out
+
+
+# OWNER FINDING 20. The sweep above reads only RENDERED OUTPUT, which is why it
+# passed while the domain module itself still called the label "SYSTEM-ASSIGNED".
+# These are the M082 source files whose ACTIVE prose makes claims about where a
+# receipt's metadata came from.
+_M082_ACTIVE_SOURCES = (
+    "src/empirical_platform/decision_candidate/operator_event_receipt.py",
+    "src/empirical_platform/decision_candidate/operator_event_receipt_repository.py",
+    "src/empirical_platform/shared/persistence/postgres_repositories/"
+    "operator_event_receipt_repository.py",
+    "src/empirical_platform/usecases/attest_operator_event_receipt.py",
+    "src/empirical_platform/usecases/attested_evidence_io.py",
+    "src/empirical_platform/entrypoints/get_attested_evidence_report.py",
+    "migrations/versions/d9a2f5c81b73_create_m082_operator_event_receipt_schema.py",
+)
+
+# Phrases that assert an ORIGIN for a persisted value. Each must either be gone
+# or sit under an explicit sanctioned-path qualification in the same file.
+_ORIGIN_PHRASES = ("system-assigned", "system assigned")
+_SANCTIONED_MARKERS = ("SANCTIONED attest() PATH", "sanctioned attest() path", "SANCTIONED PATH")
+
+
+def _repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    raise AssertionError("repository root not found")
+
+
+def _generic_origin_offenders(root: Path) -> list[str]:
+    """Active lines asserting an ORIGIN for a persisted value.
+
+    A RETRACTED/SUPERSEDED marker governs its OWN PARAGRAPH, not just its own
+    line, so the retracted text quoted underneath it stays visible without
+    tripping the sweep. A blank line -- or a bare `#` in a comment block -- ends
+    the paragraph, so an unmarked claim further down is still caught.
+    """
+    offenders: list[str] = []
+    for relative in _M082_ACTIVE_SOURCES:
+        path = root / relative
+        assert path.exists(), relative
+        retracting = False
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            stripped = line.strip()
+            if stripped in ("", "#", '"""'):
+                retracting = False
+            lowered = line.lower()
+            if "retracted" in lowered or "superseded" in lowered:
+                retracting = True
+            if not any(phrase in lowered for phrase in _ORIGIN_PHRASES):
+                continue
+            # Quoting M079's own frozen admission about `recorded_at` is not an
+            # M082 claim about M082 metadata.
+            if "recorded_at" in lowered or "operator-supplied" in lowered:
+                continue
+            if retracting:
+                continue
+            offenders.append(f"{relative}:{number}: {stripped}")
+    return offenders
+
+
+def test_no_m082_source_file_asserts_generic_metadata_origin() -> None:
+    """OWNER FINDING 20 - the active-claim sweep must reach the source, not only
+    the rendered artifact.
+
+    REPRODUCED against the pre-correction head: the rendered-output sweep passed
+    while `operator_event_receipt.py` still said `system_received_at` "is a
+    SYSTEM-ASSIGNED LABEL taken from the application host clock after the
+    read-back" in the docstring of `OperatorEventReceipt` -- the generic type a
+    DIRECT SQL row is mapped into.
+
+    "System-assigned" is an origin claim, and the database proves no origin for
+    an arbitrary persisted row. Every surviving use must be a quotation of M079's
+    own frozen `recorded_at` wording or an explicitly marked retraction.
+    """
+    offenders = _generic_origin_offenders(_repo_root())
+    assert not offenders, "generic origin claim survives:\n" + "\n".join(offenders)
+
+
+def test_every_sanctioned_path_origin_claim_is_explicitly_qualified() -> None:
+    """OWNER FINDING 20 - clock/constant language only under the qualification.
+
+    Any active mention of the application host clock or an application constant
+    in an M082 source file must sit in a file that also states the ON THE
+    SANCTIONED attest() PATH qualification and the UNAUTHENTICATED PROVENANCE of
+    a generic persisted value.
+    """
+    root = _repo_root()
+    for relative in _M082_ACTIVE_SOURCES:
+        text_body = (root / relative).read_text(encoding="utf-8")
+        lowered = text_body.lower()
+        mentions_origin = "application host clock" in lowered or "application constant" in lowered
+        if not mentions_origin:
+            continue
+        assert any(marker.lower() in lowered for marker in _SANCTIONED_MARKERS), (
+            f"{relative} names the application clock/constant without an "
+            f"ON THE SANCTIONED attest() PATH qualification"
+        )
+        assert "unauthenticated provenance" in lowered, (
+            f"{relative} names the application clock/constant without stating "
+            f"that a generic persisted value has UNAUTHENTICATED PROVENANCE"
+        )

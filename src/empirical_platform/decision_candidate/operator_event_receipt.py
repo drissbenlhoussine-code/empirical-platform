@@ -18,9 +18,25 @@ visibility: `attest` runs in a transaction of its own, so it can observe the
 event only if the event's transaction has already committed. It holds no matter
 what any clock says.
 
-`system_received_at` is a SYSTEM-ASSIGNED LABEL recorded alongside that causal
-fact. It is NOT a proven bound on the event's commit time -- see the retraction
-below.
+`system_received_at` is a LABEL recorded alongside that causal fact. It is NOT
+a proven bound on the event's commit time -- see the retraction below.
+
+THE AUTHORITY DISTINCTION THAT GOVERNS EVERY METADATA SENTENCE IN THIS MODULE
+(owner finding 20):
+
+    GENERIC PERSISTED VALUE:
+        UNAUTHENTICATED PROVENANCE.
+    ON THE SANCTIONED attest() PATH ONLY:
+        system_received_at is obtained from the application host clock after
+        read-back; attester_version is an application constant; attested_by is
+        caller-supplied and passed through unchanged.
+
+**RETRACTED (owner finding 20).** This docstring, the `OperatorEventReceipt`
+docstring, the `AttestedEventEntry` docstring and `events_with_receipt_labelled_by`
+all called the label "SYSTEM-ASSIGNED", generically and with no path
+qualification. "System-assigned" asserts an ORIGIN, and the database proves no
+origin for an arbitrary persisted row: a direct SQL receipt is mapped into the
+same types and may carry any allowed value in any of the three fields.
 
 ============================================================================
 RETRACTED BY OWNER REVIEW (M082 owner review, finding 2)
@@ -167,11 +183,30 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class OperatorEventReceipt:
-    """One system receipt attesting an M076 event was read back as committed.
+    """One receipt attesting an M076 event was read back as committed.
 
-    `system_received_at` is a SYSTEM-ASSIGNED LABEL taken from the application
-    host clock after the read-back. It is NOT a proven upper bound on the
-    event's commit time; see the module docstring's retraction.
+    THIS TYPE IS GENERIC. Every persisted receipt row is mapped into it,
+    including one a direct SQL caller inserted for an already-committed event,
+    so it must not describe how any of its own fields came to hold their values.
+
+    GENERIC PERSISTED VALUE: `system_received_at`, `attested_by` and
+    `attester_version` have UNAUTHENTICATED PROVENANCE. Nothing in the row, and
+    nothing the database enforces, shows that any of them came from the
+    application clock, an application constant, or the sanctioned `attest()`
+    path.
+
+    ON THE SANCTIONED attest() PATH ONLY: `system_received_at` is obtained from
+    the application host clock after the read-back; `attester_version` is an
+    application constant; `attested_by` is caller-supplied and passed through
+    unchanged.
+
+    On EVERY path the label is NOT a proven upper bound on the event's commit
+    time; see the module docstring's retraction.
+
+    RETRACTED (owner finding 20): this docstring said `system_received_at` "is a
+    SYSTEM-ASSIGNED LABEL taken from the application host clock after the
+    read-back", with no path qualification, while this very type is what a
+    direct-SQL row is mapped into.
     """
 
     receipt_governance_id: str
@@ -271,7 +306,13 @@ class AttestedEventEntry:
     M082 DOES NOT ATTEST THE PAYLOAD OF THE M076 EVENT, current or historical.
     It binds a stable receipt identity to an exact event governance identity.
 
-    No entry can be derived from a receipt whose system-assigned label is after
+    GENERIC PERSISTED VALUES. `system_received_at`, `attested_by` and
+    `attester_version` are reproduced from the row and carry UNAUTHENTICATED
+    PROVENANCE. This entry does NOT claim any of them came from the application
+    clock, an application constant, or the sanctioned `attest()` path -- the
+    database does not prove that for any individual row.
+
+    No entry can be derived from a receipt whose label is after
     `receipt_label_cutoff`. That is a LABEL-SELECTION property only. It is NOT a
     claim that the cutoff establishes real wall-clock knowledge time, nor that
     the selected events were durably available by that instant -- a label can be
@@ -309,7 +350,9 @@ def events_with_receipt_labelled_by(
 
     RENAMED from `attested_known_by` by Owner review finding 2. The old name
     asserted KNOWLEDGE at a time, which the label cannot support. This function
-    filters a system-assigned label; it does not establish what was knowable.
+    filters a PERSISTED LABEL of unauthenticated provenance; it does not
+    establish what was knowable, and it asserts nothing about where any label
+    came from.
 
     `recorded_at` is never read here -- this authority is separate from M079's,
     and neither is modified by the other.

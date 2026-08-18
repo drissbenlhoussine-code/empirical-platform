@@ -509,3 +509,62 @@ The migration was restored immediately afterwards.
 
 Reported in the delivery report. A commit cannot contain the id of the run it
 triggers, and the PR body is updated separately after the push and after CI.
+
+---
+
+## Owner final micro-correction mission — findings 20–21
+
+Executed on the corrected working tree, starting head `2ce4135`, base `master`
+`28a1053`. Full detail in `owner-correction-mission-findings-20-21.md`.
+
+| Gate | Result |
+|---|---|
+| M082 unit suite | 40 collected, **40 passed** |
+| M082 PostgreSQL lifecycle | 187 collected, **187 passed** (was 182: −1 replaced, +4 parametrised, +2 source sweeps) |
+| Fresh second pass, schema dropped and re-upgraded | **187 passed** |
+| `test_m082_operator_event_receipt_second_pass.py` | **4 passed** |
+| M076–M082 chain, 13 integration files | **311 passed** |
+| M076–M082 chain, unit surface | **357 passed** |
+| Migration up → down → up | clean |
+| Installed trim set per CHECK | `receipt_id`, `event_id`, `attested_by`, `attester_version` — **29 characters each** |
+| `git diff --check` | clean |
+| `compileall` | clean |
+| `ruff format --check` | 613 files formatted |
+| `ruff check` | all checks passed |
+| `mypy src` | no issues, 311 source files |
+| `tools/check_architecture.py .` | exit 0 |
+| Negative architecture fixture | exit 1, as required |
+| Secret scan | 1135 targets, **0 findings** |
+| Suppressions introduced | **none** |
+
+### Negative controls, both executed
+
+* **Source provenance sweep.** Pre-correction domain module restored from
+  `2ce4135` → `test_no_m082_source_file_asserts_generic_metadata_origin` FAILS
+  and names all four defects. Corrected module restored → passes.
+* **Installed trim set.** `r"\x76"` (letter `v`) appended to the migration's
+  frozen set → exact-set equality FAILS with `extra=['v']`, and **all four**
+  parametrised per-column control cases FAIL, each refused by its own named
+  CHECK constraint. Migration restored immediately; `grep -c x76` returns `0`.
+
+### Regression comparison, baseline re-derived in the same working tree
+
+| Run | Result | Failing ids |
+|---|---|---|
+| Baseline `2ce4135`, PG-ON | 24 failed, 2930 passed, 14 skipped, 44 errors | 68 |
+| Corrected, PG-ON | 24 failed, 2935 passed, 14 skipped, 44 errors | 68 |
+| Baseline `2ce4135`, PG-OFF | 8 failed, 2327 passed, 665 skipped, 12 errors | 20 |
+| Corrected, PG-OFF | 8 failed, 2329 passed, 668 skipped, 12 errors | 20 |
+
+**Both sorted failing-ID diffs are EMPTY.**
+
+### Production behaviour diff
+
+Every changed production and migration file compared against `2ce4135` as a
+docstring-stripped AST: **IDENTICAL** in all five.
+`NON-STRING/NON-COMMENT PRODUCTION BEHAVIOUR DIFF: EMPTY`.
+
+## CI
+
+Reported in the delivery report. A commit cannot contain the id of the run it
+triggers, and the PR body is updated separately after the push and after CI.

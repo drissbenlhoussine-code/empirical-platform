@@ -72,7 +72,7 @@ class GetAttestedEvidenceReportQuery:
     """The cutoff is required. Defaulting it would choose an epistemic stance.
 
     RENAMED from `attested_as_of` by Owner review finding 2. "As of" asserted a
-    point-in-time KNOWLEDGE claim the system-assigned label cannot support; this
+    point-in-time KNOWLEDGE claim the persisted label cannot support; this
     field selects receipts by their LABEL and nothing more.
     """
 

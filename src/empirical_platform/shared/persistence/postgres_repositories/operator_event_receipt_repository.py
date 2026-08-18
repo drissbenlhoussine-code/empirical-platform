@@ -36,7 +36,13 @@ made `system_received_at <= W` IMPLY the event was durably committed by W. It
 does not. `system_received_at` is a LABEL from `_clock`, and a backward or
 misconfigured host clock can produce a label earlier than the read-back it
 follows -- see `test_a_backward_clock_breaks_the_wall_clock_implication`. The
-label is system-assigned; it is not a proven bound.
+label comes from `_clock` ON THIS SANCTIONED PATH, and it is not a proven
+bound on any path. AS A PERSISTED VALUE it has UNAUTHENTICATED PROVENANCE: a
+receipt this adapter never wrote is mapped into the same type and cannot be
+distinguished from one it did.
+
+RETRACTED (owner finding 20): this said "the label is system-assigned", a
+generic origin claim the database does not support for an arbitrary row.
 
 Assigning the instant inside the ingesting transaction was separately PROVED to
 leak: a paused transaction's pre-commit timestamp made an invisible row appear

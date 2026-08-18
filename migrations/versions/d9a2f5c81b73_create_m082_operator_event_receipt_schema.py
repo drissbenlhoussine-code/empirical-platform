@@ -198,7 +198,11 @@ def upgrade() -> None:
         # an "UPPER BOUND WITNESS on the event's commit time". It is not. The
         # host clock can be wrong, adjusted or moved BACKWARD, and an executed
         # backward-clock attack produces a label preceding the event's real
-        # commit. This column is a system-assigned label and bounds nothing.
+        # commit. This column carries a LABEL and bounds nothing.
+        #
+        # RETRACTED (Owner finding 20): the retraction above previously ended
+        # "this column is a system-assigned label". "System-assigned" is itself
+        # a generic origin claim the database does not enforce for any row.
         sa.Column("system_received_at", _TIMESTAMPTZ, nullable=False),
         # Recorded strings. ON THE SANCTIONED attest() PATH attested_by is
         # CALLER-SUPPLIED and passed through unchanged, and attester_version is

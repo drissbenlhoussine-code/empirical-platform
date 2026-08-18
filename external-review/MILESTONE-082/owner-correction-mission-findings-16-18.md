@@ -1,8 +1,14 @@
 # M082 - Owner Correction Mission, Findings 16-18
 
-**THIS IS THE AUTHORITATIVE LATEST CORRECTION.** Every other file in this
-package, including `owner-correction-mission-findings-12-15.md`, describes an
-earlier candidate. Where they conflict with this one, this one wins.
+> **⚠ SUPERSEDED — this file describes an EARLIER candidate.**
+> The authoritative latest correction is
+> **`owner-correction-mission-findings-20-21.md`**. Where this file conflicts
+> with it, that file wins. Nothing here is deleted.
+
+*(Superseded banner, kept visible:)* **THIS IS THE AUTHORITATIVE LATEST
+CORRECTION.** Every other file in this package, including
+`owner-correction-mission-findings-12-15.md`, describes an earlier candidate.
+Where they conflict with this one, this one wins.
 
 Everything here was **executed**. Nothing is argued.
 
