@@ -6,9 +6,8 @@ RENAMED by Owner review finding 2: the flag is `--receipt-label-cutoff`, and
 the old `--attested-as-of` no longer exists, because "as of" claimed a
 point-in-time knowledge stance the label cannot support.
 
- This module emits a VIEW, never a snapshot, and it reads the
-receipt store alone -- the M076 ledger is not a dependency of this entry point
-(owner review findings 7 and 10).
+This module emits a VIEW, never a snapshot, and it reads the receipt store
+alone -- the M076 ledger is not a dependency of this entry point.
 """
 
 from __future__ import annotations

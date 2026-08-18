@@ -121,7 +121,9 @@ def test_the_manifest_classifies_every_m082_document_exactly_once() -> None:
     """OWNER CLOSURE ATTACKS E and F - no double classification, no orphan."""
     classified = _classified()
     on_disk = {
-        str(path.relative_to(ROOT))
+        # POSIX form: the manifest stores forward slashes, and `relative_to`
+        # yields backslashes on Windows.
+        path.relative_to(ROOT).as_posix()
         for path in PACKAGE.rglob("*")
         if path.is_file() and path.suffix in {".md", ".json", ".txt"}
     }
@@ -162,13 +164,24 @@ def test_every_historical_file_is_marked_as_historical() -> None:
         assert HISTORICAL_NOTICE in text, f"{name} carries no historical-record notice"
 
 
+def _normalised_archive_bytes(path: Path) -> bytes:
+    """Archive content with line endings normalised to LF.
+
+    The checksum has to be platform-independent: git checks this repository out
+    with CRLF on Windows, so raw bytes differ there while the stored content is
+    identical. Normalising is what makes "byte-identical to the file at
+    f61f14b" mean the same thing on every runner.
+    """
+    return path.read_bytes().replace(b"\r\n", b"\n")
+
+
 def test_every_byte_identical_archive_still_matches_its_recorded_checksum() -> None:
     import hashlib
 
     for name, record in _manifest().get("byte_identical_archives", {}).items():
-        data = (ROOT / name).read_bytes()
-        assert len(data) == record["bytes"], name
-        assert hashlib.sha256(data).hexdigest() == record["sha256"], name
+        data = _normalised_archive_bytes(ROOT / name)
+        assert len(data) == record["bytes_lf"], name
+        assert hashlib.sha256(data).hexdigest() == record["sha256_lf"], name
 
 
 def test_no_historical_file_is_imported_by_production_or_the_renderer() -> None:
@@ -201,7 +214,7 @@ def test_no_active_surface_contains_a_retired_annotation_token() -> None:
             *(ROOT / "tests").rglob("test_m082*.py"),
             *(ROOT / "tests").rglob("test_decision_candidate_operator_event_receipt.py"),
         ]
-        if str(path.relative_to(ROOT)) not in historical
+        if path.relative_to(ROOT).as_posix() not in historical
         # The enforcing suite must name the tokens it bans. Exempted by exact
         # path -- one file, listed here, not a pattern anything can satisfy.
         and path.resolve() != Path(__file__).resolve()
@@ -331,7 +344,7 @@ def test_corrupting_a_byte_identical_archive_is_caught() -> None:
     target = ROOT / name
     original = target.read_bytes()
     try:
-        target.write_bytes(original + b"\n")
+        target.write_bytes(original + b"extra")
         with pytest.raises(AssertionError):
             test_every_byte_identical_archive_still_matches_its_recorded_checksum()
     finally:
