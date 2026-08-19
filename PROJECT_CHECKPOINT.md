@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-081
+LATEST_FROZEN_MILESTONE=MILESTONE-082
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -768,8 +768,23 @@ M081_PROFITABILITY_CLAIM=NONE_MADE
 M081_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M081_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M082_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-082 -- recommendation only; not started as part of M081
+M082_SCOPE=Operator Event Receipt Identity Attestation (an additive, append-only receipt sidecar over frozen M076, where the attestation process READS THE EVENT BACK from committed persistence in a transaction of its own and only THEN inserts a receipt, so that a persisted receipt binds a STABLE RECEIPT IDENTITY to ONE EXACT M076 EVENT GOVERNANCE IDENTITY whose real public row ORIGINATED FROM A PRIOR COMMITTED TRANSACTION at receipt insertion; the claim is CAUSAL and holds regardless of any clock, and it does NOT prove the event payload current or historical, NOT the commit time, NOT any wall-clock chronology, NOT historical availability, NOT availability to an arbitrary reader at an arbitrary cutoff, NOT the provenance of persisted metadata, and NOT that an arbitrary persisted receipt came through the sanctioned attest() path; as GENERIC PERSISTED VALUES system_received_at, attested_by and attester_version have UNAUTHENTICATED PROVENANCE and a direct SQL receipt for a genuinely prior-committed event is accepted BY DESIGN carrying any allowed value, while ON THE SANCTIONED attest() PATH ONLY the application clock CALL producing system_received_at is issued causally after the committed read-back with the returned value proving no chronology, attester_version is an application constant and attested_by is caller-supplied and passed through unchanged; the cutoff is a RECEIPT-LABEL FILTER ONLY, carrying no historical knowledge authority, emitting no future-tail count and enriching no entry with event payload, and because a label can be backdated repeated evaluation at the same cutoff can legitimately change while the view deliberately reports no count of what it excluded; the database enforces the foreign key, prior-committed-transaction origin via a fail-closed BEFORE INSERT trigger, one receipt per event, ON DELETE RESTRICT, row-level UPDATE/DELETE immutability and non-blank identity and metadata over the complete 29-character Python str.strip set through four CHECK constraints, but enforces NEITHER metadata provenance NOR any wall-clock chronology, and row immutability does not cover TRUNCATE, DROP or a superuser; the authority is stated ONCE machine-readably in external-review/MILESTONE-082/current-authority.json against a closed schema with authority_version frozen at const 1, rendered deterministically to current-authority.md, so an unknown claim identifier is UNREPRESENTABLE; legacy events are NEVER backfilled; M082 does NOT replace M079's recorded_at firewall; zero new domain aggregate beyond the receipt, one new PostgreSQL table, one migration, and M070/M075/M076/M077/M078/M079/M080/M081 read-only and unmodified)
+M082_SCOPE_STATUS=APPROVED_AND_FROZEN
+M082_DESIGN_STATUS=APPROVED_AND_FROZEN
+M082_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M082_IMPLEMENTATION_COMMIT=e225d84 (final acceptance head; closure sequence 37e99a5, 8d575bb, 12c3b84, e225d84; 22 commits preserved, none squashed)
+M082_PULL_REQUEST=12
+M082_MERGE_COMMIT=2e211eae49515b6d58663ee7ededf6b768cb56ca
+M082_MACRO_REVIEW_STATUS=APPROVED_AFTER_TWENTY_EIGHT_OWNER_FINDINGS_EVERY_ONE_REMOVING_A_CLAIM
+M082_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M082_OWNER_FREEZE_COMMIT=PENDING
+M082_STATUS=APPROVED_AND_FROZEN
+M082_PROFITABILITY_CLAIM=NONE_MADE
+M082_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M082_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M083_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-083 -- recommendation only; not started as part of M082
 ```
 
 ## 3. Frozen Milestone Summary
@@ -3016,3 +3031,25 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-080 — recommendation only; not started as part of M079.
+
+## 118. MILESTONE-082 Owner Freeze
+
+**MILESTONE-082 - Operator Event Receipt Identity Attestation - is `APPROVED_AND_FROZEN`.** Owner approval was explicitly granted for exact candidate head `e225d84d88b4d91b160fd3f43f95333f241378e7`, with pull request #12 open and not merged, `master` at `28a10530dbc295fedacfa89c8aef246b35a0b86e`, both `verify` runs green on that exact SHA, and a clean working tree - all five identities re-resolved from git immediately before the merge rather than taken from the mission text. PR #12 was merged with a **true merge commit** `2e211eae49515b6d58663ee7ededf6b768cb56ca` carrying two parents; **all twenty-two commits are preserved and none was squashed, rebased or amended**. The freeze record is `MILESTONE_082_OPERATOR_EVENT_RECEIPT_IDENTITY_ATTESTATION_MACRO_MILESTONE_FREEZE.md`.
+
+**The narrow authority, preserved exactly and not strengthened by this freeze.** A persisted receipt binds a **stable receipt identity** to **one exact M076 event governance identity** whose real `public` row **originated from a prior committed transaction at receipt insertion**. The attestation process reads the event back from committed persistence in a transaction of its own and only then inserts the receipt, so the claim is **causal** and holds regardless of any clock. It does **NOT** prove the event payload current or historical, **NOT** the commit time, **NOT** any wall-clock chronology, **NOT** historical availability, **NOT** availability to an arbitrary reader at an arbitrary cutoff, **NOT** the provenance of persisted metadata, and **NOT** that an arbitrary persisted receipt came through the sanctioned `attest()` path. **M082 does NOT replace M079's `recorded_at` firewall**; it supplies a smaller true primitive instead of a larger false one.
+
+**Metadata provenance is unauthenticated as a generic persisted value.** `system_received_at`, `attested_by` and `attester_version` carry **UNAUTHENTICATED PROVENANCE** once persisted: a direct SQL caller with write access can insert a receipt for an already-committed event carrying any allowed value, and no renderer can tell it apart. That acceptance is **by design**. Only **ON THE SANCTIONED `attest()` PATH** is the clock CALL issued causally after the committed read-back - and **the value it returns proves no chronology** - with `attester_version` an application constant and `attested_by` caller-supplied and passed through unchanged.
+
+**The cutoff is a receipt-label filter and nothing more.** It carries no historical knowledge authority, emits no future-tail count and enriches no entry with event payload. Because a label can be backdated, **repeated evaluation at the same cutoff can legitimately change**, and the view deliberately reports no count of what it excluded because counting it would itself be future-aware.
+
+**Authority is not stated in prose.** It is stated once, machine-readably, in `external-review/MILESTONE-082/current-authority.json`, validated against a committed closed schema with `authority_version` frozen at `const: 1`, and rendered deterministically to `current-authority.md`. An unknown claim identifier is **unrepresentable**. Findings 20 through 28 produced **eight consecutive green prose sweeps, each defeated by the next review**; that pattern - not any single bypass - retired natural-language validation entirely, deleting 42 definitions and both annotation tokens with no replacement marker introduced.
+
+**Twenty-eight owner findings were resolved, and every one removed a claim rather than adding one.** All withdrawn conclusions are preserved visibly as retracted or superseded and are **not rewritten out of history**; `authority-surface-manifest.json` classifies every M082 document exactly once into a closed three-name class set, with zero files deleted.
+
+**Preservation:** MILESTONE-076 production code, MILESTONE-079, MILESTONE-080 and MILESTONE-081 are **byte-identical** across the merge and do not consume this authority. The M082 migration `d9a2f5c81b73` adds one table and performs **no backfill**; no existing table was altered and no existing repository method changed. The M062/M064/M065 CRLF seal debt was deliberately not repaired: M082 introduces no fixture, no dataset bundle and no byte seal, so the debt provably does not block it, and it continues to warrant its own authorization.
+
+**Freeze declaration:** `M082 MACRO MILESTONE APPROVED_AND_FROZEN`. `M082 APPROVED_AND_FROZEN`.
+
+**Status:** `APPROVED_AND_FROZEN`.
+
+**Next permitted action:** MILESTONE-083 — recommendation only; not started as part of M082.
