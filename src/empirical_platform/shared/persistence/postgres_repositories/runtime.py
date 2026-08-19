@@ -30,6 +30,9 @@ from empirical_platform.shared.persistence.postgres_repositories.historical_back
 from empirical_platform.shared.persistence.postgres_repositories.historical_portfolio_evidence_query_repository import (  # noqa: E501
     PostgresHistoricalPortfolioEvidenceQueryRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.operator_event_receipt_repository import (  # noqa: E501
+    PostgresOperatorEventReceiptRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.operator_position_event_repository import (  # noqa: E501
     PostgresOperatorPositionLedgerRepository,
 )
@@ -111,6 +114,7 @@ class PostgresRepositoryRuntime:
         "_portfolio_dependence_reports",
         "_research_sessions",
         "_historical_portfolio_evidence_query",
+        "_operator_event_receipts",
         "_operator_position_ledger",
     )
 
@@ -147,6 +151,7 @@ class PostgresRepositoryRuntime:
             PostgresHistoricalPortfolioEvidenceQueryRepository(service)
         )
         self._operator_position_ledger = PostgresOperatorPositionLedgerRepository(service)
+        self._operator_event_receipts = PostgresOperatorEventReceiptRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -243,6 +248,10 @@ class PostgresRepositoryRuntime:
     @property
     def operator_position_ledger(self) -> PostgresOperatorPositionLedgerRepository:
         return self._operator_position_ledger
+
+    @property
+    def operator_event_receipts(self) -> PostgresOperatorEventReceiptRepository:
+        return self._operator_event_receipts
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""

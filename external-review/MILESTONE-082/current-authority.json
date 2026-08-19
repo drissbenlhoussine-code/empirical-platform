@@ -1,0 +1,55 @@
+{
+  "milestone": "M082",
+  "authority_version": 1,
+  "title": "Operator Event Receipt Identity Attestation",
+  "proves": [
+    "stable_receipt_identity",
+    "exact_m076_event_governance_identity_binding",
+    "referenced_public_event_row_originated_from_a_prior_committed_transaction_at_receipt_insertion"
+  ],
+  "does_not_prove": [
+    "event_payload",
+    "commit_time",
+    "wall_clock_chronology",
+    "historical_availability",
+    "availability_to_an_arbitrary_reader_at_an_arbitrary_cutoff",
+    "persisted_metadata_provenance",
+    "sanctioned_attest_path_origin_for_an_arbitrary_persisted_receipt"
+  ],
+  "metadata_authority": {
+    "generic_persisted_value": "UNAUTHENTICATED_PROVENANCE",
+    "sanctioned_attest_path": {
+      "system_received_at": "application_clock_call_issued_causally_after_committed_read_back",
+      "attester_version": "application_constant",
+      "attested_by": "caller_supplied_and_passed_through"
+    }
+  },
+  "cutoff_semantics": {
+    "type": "RECEIPT_LABEL_FILTER_ONLY",
+    "historical_knowledge_authority": false,
+    "future_tail_counts": false,
+    "event_payload_enrichment": false
+  },
+  "database_enforcement": {
+    "event_foreign_key": true,
+    "prior_committed_transaction_origin": true,
+    "one_receipt_per_event": true,
+    "event_delete_restricted": true,
+    "row_update_delete_immutability": true,
+    "non_blank_identity_and_metadata": true,
+    "metadata_provenance": false,
+    "wall_clock_chronology": false
+  },
+  "structural_limitations": [
+    "row_update_delete_immutability_does_not_cover_truncate_drop_or_superuser",
+    "no_cryptographic_signature_and_no_monotonicity_enforcement",
+    "postgresql_commit_timestamps_are_unavailable_and_not_used",
+    "repeated_evaluation_at_the_same_cutoff_can_change_because_a_label_can_be_backdated",
+    "a_crash_between_event_commit_and_receipt_insertion_leaves_an_unattested_gap",
+    "the_view_cannot_report_how_much_evidence_it_excluded"
+  ],
+  "intended_future_use": [
+    "evidence_watermark_milestone_may_bind_an_evaluation_to_an_explicitly_persisted_receipt_set",
+    "m079_recorded_at_firewall_is_not_replaced_by_this_milestone"
+  ]
+}

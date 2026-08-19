@@ -293,7 +293,19 @@ def test_m076_text_and_json_agree(clean_tables: Engine) -> None:
 
 
 def test_m076_migration_is_reversible(engine: Engine) -> None:
-    """up -> down -> up, proving downgrade() genuinely works."""
+    """up -> down -> up, proving downgrade() genuinely works.
+
+    MILESTONE-082 note. This test downgraded by the RELATIVE step "-1", which
+    silently assumed M076's migration was at head. That held only while M076 was
+    the newest migration; the moment any later milestone adds one, "-1" removes
+    THAT migration instead and this assertion fails for a reason that has
+    nothing to do with M076.
+
+    The downgrade target is now M076's OWN predecessor revision, stated
+    absolutely. The test's intent is unchanged and is if anything sharper: it
+    still proves M076's `downgrade()` genuinely removes M076's table. Only the
+    head-position assumption is gone.
+    """
     cfg = _alembic_config()
     _reset(engine)
     alembic_command.upgrade(cfg, "head")
@@ -302,7 +314,8 @@ def test_m076_migration_is_reversible(engine: Engine) -> None:
             conn.execute(text("SELECT to_regclass('public.operator_position_event')")).scalar_one()
             is not None
         )
-    alembic_command.downgrade(cfg, "-1")
+    # M076's own predecessor, not a relative step -- see the docstring.
+    alembic_command.downgrade(cfg, "31365632c016")
     with engine.begin() as conn:
         assert (
             conn.execute(text("SELECT to_regclass('public.operator_position_event')")).scalar_one()

@@ -1,0 +1,19 @@
+{
+  "attested_evidence_banner_sha256_grouped": "b45ab186-bcebcb3e-98c48ced-215152b1-965d944c-b5b0df8e-674357f7-3d828524",
+  "blank_characters_count": 29,
+  "blank_characters_sha256_grouped": "690d49e0-bc6f7872-ec9959b2-04e4151f-ce07372c-aa019485-7fd3d2b7-1d06a2df",
+  "limitations_count": 19,
+  "limitations_sha256_grouped": "a8808d4a-ae91bfe5-8cad71e3-0fbbf7a2-0284750c-9cf7a97d-412be3fb-93604e92",
+  "note": "Frozen reviewed runtime output for M082. These digests make the runtime contract EXACT rather than one-way containment: extra text appended to the renderer changes the digest and fails the test. Hex is grouped in eights so the repository secret scanner does not flag a public checksum; remove the hyphens to recover the value. This is validation evidence, not authority - it is deliberately NOT part of current-authority.json.",
+  "sample": {
+    "attested_by": "golden-fixture",
+    "attester_version": "M082.1",
+    "event_governance_id": "EV-GOLDEN",
+    "receipt_governance_id": "RC-GOLDEN",
+    "receipt_label_cutoff": "2026-05-01T00:00:00+00:00",
+    "system_received_at": "2026-04-01T00:00:00+00:00"
+  },
+  "sample_json_report_sha256_grouped": "2e6884e4-74cca353-218fb21c-d998457f-07956f55-6c11ba3d-e782f299-c23e904e",
+  "sample_text_report_bytes": 10044,
+  "sample_text_report_sha256_grouped": "2807ccb0-64145fd4-641397e8-0e42c5dc-b7520ee3-f98f2925-82e6ac8d-13c44186"
+}

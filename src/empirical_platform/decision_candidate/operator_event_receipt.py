@@ -1,0 +1,444 @@
+"""MILESTONE-082 -- Operator Event Receipt Identity Attestation.
+
+WHAT A RECEIPT PROVES, AND ONLY THIS. The attestation process READ THE EVENT
+BACK from committed persistence, and only THEN created the receipt. That
+ordering is guaranteed by program order plus PostgreSQL transaction visibility:
+`attest` runs in a transaction of its own, so it can observe the event only if
+the event's transaction has already committed. The claim is CAUSAL and holds no
+matter what any clock says.
+
+A receipt therefore binds a stable receipt identity to one exact M076 event
+governance identity whose real `public` row originated from a prior committed
+transaction at receipt insertion.
+
+WHAT IT DOES NOT PROVE. Not the event payload, current or historical. Not the
+commit time. Not any wall-clock chronology. Not historical availability. Not
+availability to an arbitrary reader at an arbitrary cutoff. Not the provenance
+of persisted metadata. Not that an arbitrary persisted row came through
+`attest()`.
+
+METADATA PROVENANCE. As generic persisted values, `system_received_at`,
+`attested_by` and `attester_version` have UNAUTHENTICATED PROVENANCE: a direct
+SQL caller with write access can insert a receipt for an already-committed event
+carrying any allowed value, and this module cannot tell it apart. ON THE
+SANCTIONED `attest()` PATH ONLY, the clock call producing `system_received_at`
+is issued causally after the read-back, `attester_version` is an application
+constant, and `attested_by` is caller-supplied and passed through unchanged.
+
+CUTOFF SEMANTICS. The artifact is a RECEIPT-LABEL FILTER and nothing more. It is
+built FROM RECEIPTS whose label is at or before the cutoff, never from the
+current ledger inventory, so a receipt labelled after the cutoff and an event
+with no such receipt are structurally unreachable. It is not a point-in-time
+reconstruction: a label can be backdated, so repeated evaluation at the same
+cutoff can legitimately change, and the view deliberately reports no count of
+what it excluded.
+
+WHAT THE DATABASE ENFORCES. A BEFORE INSERT trigger refuses a receipt whose
+referenced event was written by the current transaction, so the causal claim
+holds for every persisted row rather than only for rows produced through
+`attest()`. Row immutability is row-level UPDATE/DELETE only -- not TRUNCATE,
+not DROP, not a superuser.
+
+LEGACY EVENTS ARE NEVER BACKFILLED. A receipt is never manufactured from
+`recorded_at`, `event_timestamp` or a migration time. An event without a receipt
+simply does not appear and remains a valid M076 operator assertion carrying no
+M082 authority.
+
+M079, M080 and M081 are untouched and do NOT consume this authority; M082 does
+not replace M079's `recorded_at` firewall.
+
+The canonical, machine-readable statement of this authority is
+external-review/MILESTONE-082/current-authority.json. Every earlier version of
+this docstring, including its retractions and reproduced defects, is preserved
+in the historical record of that package.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime
+
+from empirical_platform.decision_candidate.operator_position_ledger import (
+    OperatorAssertedPositionEvent,
+)
+
+# OWNER FINDINGS 12 AND 16. The database and this module must classify EXACTLY
+# the same strings as blank, or a row the write boundary accepted can crash the
+# read. Executed against PostgreSQL 16.13, `btrim(v) <> ''` rejected only space
+# and empty: tab, newline, CR, formfeed, vertical tab and NBSP all PASSED the
+# CHECK while Python called them blank. A tab-only `attested_by` therefore
+# persisted as an authoritative receipt and then raised ValueError while the
+# artifact was being built.
+#
+# RETRACTED (owner finding 16). The first correction NARROWED this module to a
+# seven-character set so the two sides would agree. That weakened the Python
+# invariant instead of restoring it: U+2003 EM SPACE and twenty other blanks
+# would then have been accepted by both. The invariant is now the COMPLETE
+# Python 3.13 `str.strip()` set, frozen explicitly and mirrored in the database.
+#
+# All 29 codepoints, derived by enumerating every `chr(c)` for which
+# `not chr(c).strip()` holds on Python 3.13:
+#
+#   U+0009 U+000A U+000B U+000C U+000D U+001C U+001D U+001E U+001F U+0020
+#   U+0085 U+00A0 U+1680 U+2000 U+2001 U+2002 U+2003 U+2004 U+2005 U+2006
+#   U+2007 U+2008 U+2009 U+200A U+2028 U+2029 U+202F U+205F U+3000
+#
+# This module keeps using bare `str.strip()`, which IS the invariant. The frozen
+# tuple exists so the migration can mirror it and a test can prove the two agree
+# on every one of the 29 - it is not a second, competing definition.
+BLANK_CHARACTERS = (
+    "\x09\x0a\x0b\x0c\x0d\x1c"
+    "\x1d\x1e\x1f\x20\u0085\u00a0"
+    "\u1680\u2000\u2001\u2002\u2003\u2004"
+    "\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
+
+__all__ = [
+    "BLANK_CHARACTERS",
+    "ATTESTED_EVIDENCE_BANNER",
+    "AttestedEvidenceReport",
+    "AttestedEventEntry",
+    "OperatorEventReceipt",
+    "build_attested_evidence_report",
+    "events_with_receipt_labelled_by",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class OperatorEventReceipt:
+    """One receipt attesting an M076 event was read back as committed.
+
+    THIS TYPE IS GENERIC. Every persisted receipt row is mapped into it,
+    including one a direct SQL caller inserted for an already-committed event,
+    so it must not describe how any of its own fields came to hold their values.
+
+    GENERIC PERSISTED VALUE: `system_received_at`, `attested_by` and
+    `attester_version` have UNAUTHENTICATED PROVENANCE. Nothing in the row, and
+    nothing the database enforces, shows that any of them came from the
+    application clock, an application constant, or the sanctioned `attest()`
+    path.
+
+    ON THE SANCTIONED attest() PATH ONLY: `system_received_at` is obtained from
+    the application host clock after the read-back; `attester_version` is an
+    application constant; `attested_by` is caller-supplied and passed through
+    unchanged.
+
+    On EVERY path the label is NOT a proven upper bound on the event's commit
+    time; see the module docstring's retraction.
+
+    RETRACTED (owner finding 20): this docstring said `system_received_at` "is a
+    SYSTEM-ASSIGNED LABEL taken from the application host clock after the
+    read-back", with no path qualification, while this very type is what a
+    direct-SQL row is mapped into.
+    """
+
+    receipt_governance_id: str
+    event_governance_id: str
+    system_received_at: datetime
+    attested_by: str
+    attester_version: str
+
+    def __post_init__(self) -> None:
+        for label, value in (
+            ("receipt_governance_id", self.receipt_governance_id),
+            ("event_governance_id", self.event_governance_id),
+            ("attested_by", self.attested_by),
+            ("attester_version", self.attester_version),
+        ):
+            if not value.strip():
+                raise ValueError(f"{label} must be non-empty")
+        # A naive datetime has no instant, so it cannot label anything.
+        if self.system_received_at.tzinfo is None or self.system_received_at.utcoffset() is None:
+            raise ValueError(
+                "system_received_at must be timezone-aware; a naive datetime has no instant"
+            )
+
+
+ATTESTED_EVIDENCE_BANNER = (
+    "RECEIPT-LABEL-CUTOFF VIEW OF M082 RECEIPTS: the receipts whose LABEL is at "
+    "or before the cutoff below, and the exact M076 event governance identity "
+    "each one names. "
+    "M082 DOES NOT ATTEST THE PAYLOAD of those events, current or historical. "
+    "No position, instrument, price, quantity or timestamp of an event appears "
+    "here, because the M076 row carries no user-defined immutability trigger and "
+    "can be updated after a receipt exists -- executed, and the earlier version "
+    "of this report changed while the receipt stood still. "
+    "This is a PREDICATE OVER LABELS IN THE CURRENT PERSISTED RECEIPT SET. It is "
+    "NOT a historical snapshot and NOT a reconstruction of which receipts "
+    "existed at the cutoff in real time: because a label can be backdated, a "
+    "receipt created LATER can carry a qualifying label, so REPEATED EVALUATION "
+    "AT THE SAME CUTOFF CAN CHANGE. "
+    "What a receipt PROVES is CAUSAL and clock-independent: the attestation "
+    "process read the event back from COMMITTED persistence, and only then "
+    "created the receipt. "
+    "What it does NOT prove is any wall-clock fact, and it does not prove where "
+    "the three metadata fields came from. ON THE SANCTIONED attest() PATH: "
+    "system_received_at comes from the application host clock after read-back, "
+    "attester_version from an application constant, and attested_by is "
+    "CALLER-SUPPLIED and passed through unchanged. AS PERSISTED VALUES all three "
+    "have UNAUTHENTICATED PROVENANCE -- a direct SQL receipt for a genuinely "
+    "prior-committed event is deliberately accepted, and may carry any allowed "
+    "value in any of the three. NO INDIVIDUAL ROW HERE CAN BE SAID TO HAVE COME "
+    "THROUGH attest(), because the database does not prove that. The host clock "
+    "can also be wrong, adjusted or moved BACKWARD, so a label at or before the "
+    "cutoff DOES NOT prove the event was durably committed by that cutoff in "
+    "real time. "
+    "RETRACTED: an earlier version of this report claimed the label was an "
+    "upper bound on commit time and that the report could never OVERSTATE what "
+    "was known. Both claims are withdrawn -- they are false under a backward "
+    "clock, which is executed and recorded. "
+    "This report therefore does NOT replace M079's recorded_at firewall, and "
+    "M079, M080 and M081 continue to use the operator-supplied recorded_at "
+    "exactly as frozen. "
+    "It does NOT assert the event's COMMIT TIME, which is not available here "
+    "and is not claimed. "
+    "It does NOT assert that the operator's assertion is true, that recorded_at "
+    "is honest, that any trade occurred, or that any price was paid. "
+    "It is built ONLY from receipts labelled at or before the cutoff. Receipts "
+    "labelled after the cutoff, and events with no such receipt, are "
+    "structurally absent -- they contribute no entry, no count and no ordering. "
+    "The DATABASE enforces that a receipt's event was committed by a PRIOR "
+    "transaction, so the causal claim holds for every row here. It does NOT "
+    "authenticate the label, the attester name or the attester version: a direct "
+    "SQL caller with write access can insert a receipt for an already-committed "
+    "event carrying any of the three, and this report cannot tell it apart. "
+    "Consequently this view CANNOT tell you how much evidence it excluded, "
+    "and it deliberately offers no count of what it cannot see. "
+    "An event that does not appear is NOT attested by M082 and carries no M082 "
+    "authority; it remains a valid M076 operator assertion, and its absence is "
+    "NEVER filled in from recorded_at, event_timestamp or any other guess. "
+    "NO ordering authority is emitted: a database sequence would be assignment "
+    "order, not commit order."
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AttestedEventEntry:
+    """One receipt. EVERY FIELD COMES FROM THE RECEIPT ROW AND NOTHING ELSE.
+
+    RECEIPT-ONLY BY CONSTRUCTION (owner review finding 7). An earlier version
+    carried `position_governance_id` and `instrument_symbol`, resolved from the
+    CURRENT M076 row. That made the artifact track a mutable payload: a receipt
+    was created for an event, the M076 row was then updated through direct SQL
+    from POS-ORIGINAL/AAPL to POS-MUTATED/ZZZZ, and the report changed while the
+    receipt's identity and label stayed exactly the same. M076 carries ZERO
+    user-defined triggers, so nothing made that row immutable -- and this module
+    nevertheless called it immutable. Both the field enrichment and the claim are
+    **RETRACTED**.
+
+    M082 DOES NOT ATTEST THE PAYLOAD OF THE M076 EVENT, current or historical.
+    It binds a stable receipt identity to an exact event governance identity.
+
+    GENERIC PERSISTED VALUES. `system_received_at`, `attested_by` and
+    `attester_version` are reproduced from the row and carry UNAUTHENTICATED
+    PROVENANCE. This entry does NOT claim any of them came from the application
+    clock, an application constant, or the sanctioned `attest()` path -- the
+    database does not prove that for any individual row.
+
+    No entry can be derived from a receipt whose label is after
+    `receipt_label_cutoff`. That is a LABEL-SELECTION property only. It is NOT a
+    claim that the cutoff establishes real wall-clock knowledge time, nor that
+    the selected events were durably available by that instant -- a label can be
+    backdated, so a receipt created later can still qualify.
+    """
+
+    receipt_governance_id: str
+    event_governance_id: str
+    system_received_at: datetime
+    attested_by: str
+    attester_version: str
+
+
+@dataclass(frozen=True, slots=True)
+class AttestedEvidenceReport:
+    """The receipt-label-cutoff view.
+
+    REMOVED, and deliberately not replaced: `attested_after_cutoff_count` and
+    `unattested_count`. Both were future-aware -- they counted rows that exist
+    only in the present-day store. See the module docstring's retraction.
+    """
+
+    receipt_label_cutoff: datetime
+    attested_count: int
+    entries: tuple[AttestedEventEntry, ...]
+    limitations: tuple[str, ...]
+
+
+def events_with_receipt_labelled_by(
+    events: tuple[OperatorAssertedPositionEvent, ...],
+    receipts: tuple[OperatorEventReceipt, ...],
+    receipt_label_cutoff: datetime,
+) -> tuple[OperatorAssertedPositionEvent, ...]:
+    """The events carrying a receipt labelled at or before the cutoff.
+
+    RENAMED from `attested_known_by` by Owner review finding 2. The old name
+    asserted KNOWLEDGE at a time, which the label cannot support. This function
+    filters a PERSISTED LABEL of unauthenticated provenance; it does not
+    establish what was knowable, and it asserts nothing about where any label
+    came from.
+
+    `recorded_at` is never read here -- this authority is separate from M079's,
+    and neither is modified by the other.
+
+    WARNING: the events returned are whatever the caller supplied, and their
+    payloads are CURRENT M076 rows. M082 attests the event IDENTITY only, never
+    the payload (owner review finding 7). This helper is a convenience filter,
+    not the authoritative artifact; the authoritative artifact is receipt-only.
+    """
+    if receipt_label_cutoff.tzinfo is None or receipt_label_cutoff.utcoffset() is None:
+        raise ValueError(
+            "receipt_label_cutoff must be timezone-aware; a naive datetime has no instant"
+        )
+
+    labelled = {
+        receipt.event_governance_id
+        for receipt in receipts
+        if receipt.system_received_at <= receipt_label_cutoff
+    }
+    return tuple(event for event in events if event.governance_id in labelled)
+
+
+_LIMITATIONS = (
+    "limitation: what a receipt PROVES is CAUSAL only -- a stable receipt "
+    "identity bound to an exact M076 event governance identity whose real "
+    "public-table row was visible as coming from a PRIOR COMMITTED transaction "
+    "at receipt insertion. That holds regardless of any clock",
+    "limitation: M082 DOES NOT ATTEST THE PAYLOAD of that M076 event, current "
+    "or historical. M076 carries no user-defined immutability trigger, so the "
+    "row can be updated after a receipt exists; executed, an UPDATE changed the "
+    "earlier report while the receipt identity and label were unchanged. No "
+    "payload field is emitted here at all",
+    "limitation: the three metadata fields have DIFFERENT origins on the "
+    "sanctioned attest() path and the SAME unauthenticated status once "
+    "persisted. system_received_at is taken from the application host clock "
+    "AFTER read-back; attester_version is an application constant; attested_by "
+    "is CALLER-SUPPLIED and passed through unchanged. As persisted values all "
+    "three have UNAUTHENTICATED PROVENANCE: a direct SQL receipt for a genuinely "
+    "prior-committed event is accepted by design and may carry arbitrary allowed "
+    "values, and no individual row can be described as having come through "
+    "attest() -- the database does not prove that",
+    "limitation: RETRACTED CLAIM. Earlier versions of this artifact said "
+    "system_received_at was an UPPER BOUND on the event's commit time, and that "
+    "the report could never OVERSTATE what was known. Both are withdrawn. The "
+    "application host clock can be wrong, adjusted or moved BACKWARD, and an "
+    "executed backward-clock attack produces a receipt labelled before the "
+    "event's real commit chronology",
+    "limitation: comparing the label to an arbitrary historical instant W does "
+    "NOT prove the event was durably committed by W in real time. The cutoff "
+    "here is a LABEL comparison, not a knowledge-time proof",
+    "limitation: CONSEQUENTLY M082 does NOT replace M079's recorded_at "
+    "firewall. M079, M080 and M081 continue to filter the operator-supplied "
+    "recorded_at exactly as frozen, and adopting receipt authority downstream "
+    "is a separate future milestone",
+    "limitation: PostgreSQL commit timestamps are NOT used. "
+    "track_commit_timestamp is an optional, off-by-default, restart-required "
+    "server setting the platform does not control, so commit-time authority is "
+    "unavailable here and is not claimed",
+    "limitation: no monotonicity is enforced and no cryptographic claim is "
+    "made. This is not a trusted timestamping service, and a sufficiently "
+    "privileged actor can influence the clock that produces the label",
+    "limitation: receipt immutability is ROW-LEVEL UPDATE/DELETE ONLY, under the "
+    "installed trigger. TRUNCATE is a statement-level operation a row trigger "
+    "does not intercept, and DROP TRIGGER, DROP TABLE and superuser mutation "
+    "remain possible. This is NOT absolute database immutability",
+    "limitation: NO ordering authority is emitted. A database sequence is "
+    "assignment order, not commit order -- two connections proved a transaction "
+    "taking the earlier sequence can commit later -- and its gaps do not mean "
+    "missing receipts. Ordering here is by (system_received_at, "
+    "event_governance_id) for determinism only",
+    "limitation: this is a RECEIPT-LABEL-CUTOFF VIEW built ONLY from receipts "
+    "labelled at or before the cutoff. Receipts labelled after it, and events "
+    "with no such receipt, are structurally unreachable and contribute nothing",
+    "limitation: it is NOT a stable point-in-time snapshot. The cutoff is a "
+    "predicate over the labels in the CURRENT persisted receipt set, not a "
+    "reconstruction of which receipts existed at that instant in real time. "
+    "Because a label can be backdated, a receipt created LATER can carry a "
+    "qualifying label, so REPEATED EVALUATION AT THE SAME CUTOFF CAN CHANGE -- "
+    "this is executed and recorded, not hypothetical",
+    "limitation: the DATABASE enforces that a receipt's referenced event was "
+    "committed by a PRIOR transaction, refusing an event written by the same "
+    "transaction as the receipt. That makes the causal claim hold for every "
+    "persisted row rather than only for rows produced through attest()",
+    "limitation: the database does NOT authenticate system_received_at, "
+    "attested_by or attester_version. All three are UNAUTHENTICATED LABELS, and "
+    "a direct SQL caller with write access can insert a receipt for an "
+    "already-committed event carrying any of them. This view cannot distinguish "
+    "such a row from one attest() produced",
+    "limitation: this view CANNOT report how much evidence it excluded. A count "
+    "of what it cannot see would itself be future-aware, so none is offered",
+    "limitation: an event absent from this view is NOT attested by M082. The "
+    "migration performs NO backfill and no historical receipt time is invented. "
+    "A legacy event may later be explicitly attested, but that creates only "
+    "CURRENT causal receipt authority -- never retroactive historical authority, "
+    "and never a reconstruction of when the event was originally knowable",
+    "limitation: the M076 recording path is unchanged and still reachable, so "
+    "M082 does NOT claim that all events carry receipt authority. Only events "
+    "possessing a receipt are eligible for M082-authoritative analysis",
+    "limitation: a crash after the event commits but before the receipt is "
+    "inserted leaves an UNATTESTED GAP. The event remains unattested unless and "
+    "until a later explicit attestation succeeds. That later attestation proves "
+    "only its own causal ordering -- read-back before receipt insertion. Its "
+    "label is still untrusted and may be numerically EARLIER or later; it does "
+    "not reconstruct the original commit time or any historical knowledge time. "
+    "RETRACTED: earlier versions said the event was PERMANENTLY unattested and "
+    "that a later reconciliation could assign only a LATER label. The first "
+    "contradicts the second, and the second is false under this module's own "
+    "clock model -- executed, the sanctioned path produced a 1999 label for an "
+    "event that had just committed",
+    "limitation: this report emits NO monetary value, NO ratio, NO aggregate "
+    "and NO performance figure of any kind",
+)
+
+
+def build_attested_evidence_report(
+    *,
+    receipts: tuple[OperatorEventReceipt, ...],
+    receipt_label_cutoff: datetime,
+) -> AttestedEvidenceReport:
+    """Build the receipt-label-cutoff view FROM RECEIPTS ALONE.
+
+    There is no `events` parameter and no ledger dependency. Three Owner
+    findings collapse into that one change:
+
+      * finding 7 -- the artifact no longer resolves any field from the mutable
+        current M076 row, so a payload change after attestation cannot move it;
+      * finding 10 -- there is no second inventory to read, so the split
+        ledger/receipt read that raised during ordinary concurrency cannot
+        occur.
+
+    REMOVED with that read: the `MissingAttestedEventError` type itself, because
+    nothing here can reference an event it was not given.
+
+    Callers pass receipts already narrowed by the cutoff where the persistence
+    layer can do it (see `list_labelled_by`); this filter stays as the domain's
+    own structural guarantee rather than trusting the query alone.
+    """
+    if receipt_label_cutoff.tzinfo is None or receipt_label_cutoff.utcoffset() is None:
+        raise ValueError(
+            "receipt_label_cutoff must be timezone-aware; a naive datetime has no instant"
+        )
+
+    entries = tuple(
+        sorted(
+            (
+                AttestedEventEntry(
+                    receipt_governance_id=receipt.receipt_governance_id,
+                    event_governance_id=receipt.event_governance_id,
+                    system_received_at=receipt.system_received_at,
+                    attested_by=receipt.attested_by,
+                    attester_version=receipt.attester_version,
+                )
+                for receipt in receipts
+                if receipt.system_received_at <= receipt_label_cutoff
+            ),
+            key=lambda e: (e.system_received_at, e.event_governance_id),
+        )
+    )
+
+    return AttestedEvidenceReport(
+        receipt_label_cutoff=receipt_label_cutoff,
+        attested_count=len(entries),
+        entries=entries,
+        limitations=_LIMITATIONS,
+    )
