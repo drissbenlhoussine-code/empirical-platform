@@ -28,6 +28,7 @@ external-review/MILESTONE-082/owner-review-correction-pass.md
 external-review/MILESTONE-082/owner-review-fail-closed-pass.md
 external-review/MILESTONE-082/owner-review-hardening-pass.md
 external-review/MILESTONE-082/reality-gate.md
+external-review/MILESTONE-082/runtime-output-fixture.json
 external-review/MILESTONE-082/scope-and-design-snapshot.md
 external-review/MILESTONE-082/transaction-timing-evidence.md
 external-review/MILESTONE-082/validation-results.md

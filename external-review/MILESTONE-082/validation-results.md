@@ -55,3 +55,29 @@ docstring-stripped AST comparison and by evaluating the emitted runtime values.
 `PROJECT_CHECKPOINT.md` unchanged; `LATEST_FROZEN_MILESTONE=MILESTONE-081`.
 M076 production, M079, M080 and M081 untouched. No migration, no new table, no
 new receipt authority, M083 not started.
+
+---
+
+## Owner final acceptance residual
+
+Three structural contract gaps closed on top of `12c3b84`, with **zero**
+production or migration change. Detail in
+[`owner-final-closure-candidate.md`](owner-final-closure-candidate.md) §10.
+
+| Gate | Result |
+|---|---|
+| manifest class set closed to exactly three names | pass |
+| manifest top-level keys closed; `milestone` and `manifest_version` asserted | pass |
+| `CURRENT_AUTHORITY` is exactly the contract, schema and generated document | pass |
+| `authority_version` frozen at `const: 1` | pass |
+| frozen banner, limitations and blank set match by digest | pass |
+| sample text report byte-exact against reviewed output | pass |
+| sample JSON report byte-exact against reviewed output | pass |
+| attack: `UNDECLARED_FOURTH_CLASS` | rejected |
+| attack: `authority_version = 2`, Markdown regenerated | rejected |
+| attack: append `M082 ALSO PROVES COMMIT TIME.` to the text renderer | rejected |
+| anti-vacuity for each of the three | weakened rule admits the attack; restored rule refuses it |
+| `src/` and `migrations/` byte-identical to `12c3b84` | **IDENTICAL** |
+
+Frozen reviewed output lives in `runtime-output-fixture.json`, classified as
+validation evidence rather than authority.

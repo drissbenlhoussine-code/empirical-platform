@@ -36,9 +36,9 @@ On the sanctioned `attest()` path only:
 
 The cutoff is a **receipt-label filter only**. It selects receipts whose label is at or before the cutoff, and asserts nothing else.
 
-- It does **not** carries historical knowledge authority.
-- It does **not** emits future-tail counts.
-- It does **not** enriches entries with event payload.
+- It does **not** carry historical knowledge authority.
+- It does **not** emit future-tail counts.
+- It does **not** enrich entries with event payload.
 
 ## Database enforcement
 

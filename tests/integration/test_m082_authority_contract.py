@@ -20,6 +20,7 @@ CONTRACT = PACKAGE / "current-authority.json"
 SCHEMA = PACKAGE / "current-authority.schema.json"
 DOCUMENT = PACKAGE / "current-authority.md"
 MANIFEST = PACKAGE / "authority-surface-manifest.json"
+FIXTURE = PACKAGE / "runtime-output-fixture.json"
 RENDERER = ROOT / "tools" / "render_m082_authority.py"
 
 sys.path.insert(0, str(ROOT / "tools"))
@@ -47,6 +48,26 @@ APPROVED_DOES_NOT_PROVE = frozenset(
     }
 )
 RETIRED_TOKENS = ("BANNED-TERM", "QUOTED-DEFECT")
+
+# OWNER FINAL ACCEPTANCE, item 1. The manifest's own shape is closed: a fourth
+# classification key, or a fourth top-level key, is a defect rather than an
+# extension. Without this a document could be parked in an undeclared class and
+# still satisfy "classified exactly once".
+MANIFEST_CLASSES = frozenset(
+    {"CURRENT_AUTHORITY", "CURRENT_VALIDATION_EVIDENCE", "HISTORICAL_RECORD"}
+)
+MANIFEST_TOP_LEVEL_KEYS = frozenset(
+    {"milestone", "manifest_version", "classifications", "byte_identical_archives"}
+)
+# OWNER FINAL ACCEPTANCE, item 2. Authority is these three files and nothing
+# else. The root design explicitly says it is not the source of authority.
+REQUIRED_CURRENT_AUTHORITY = frozenset(
+    {
+        "external-review/MILESTONE-082/current-authority.json",
+        "external-review/MILESTONE-082/current-authority.schema.json",
+        "external-review/MILESTONE-082/current-authority.md",
+    }
+)
 HISTORICAL_NOTICE = "HISTORICAL RECORD — NOT CURRENT M082 AUTHORITY"
 
 
@@ -135,14 +156,55 @@ def test_the_manifest_classifies_every_m082_document_exactly_once() -> None:
 
 
 def test_the_required_current_authority_surfaces_are_classified_as_authority() -> None:
-    """OWNER CLOSURE ATTACK G - authority cannot be demoted to history."""
+    """OWNER CLOSURE ATTACK G - authority cannot be demoted to history.
+
+    OWNER FINAL ACCEPTANCE, item 2: the set is EXACT, so nothing can be promoted
+    into authority either.
+    """
     classified = _classified()
-    for required in (
-        "external-review/MILESTONE-082/current-authority.json",
-        "external-review/MILESTONE-082/current-authority.schema.json",
-        "external-review/MILESTONE-082/current-authority.md",
-    ):
+    for required in REQUIRED_CURRENT_AUTHORITY:
         assert classified.get(required) == "CURRENT_AUTHORITY", required
+    actual = frozenset(_manifest()["classifications"]["CURRENT_AUTHORITY"])
+    assert actual == REQUIRED_CURRENT_AUTHORITY, actual
+
+
+def test_the_manifest_shape_is_closed() -> None:
+    """OWNER FINAL ACCEPTANCE, item 1 - no fourth class, no fourth key."""
+    manifest = _manifest()
+    assert manifest["milestone"] == "M082"
+    assert manifest["manifest_version"] == 1
+    assert frozenset(manifest) <= MANIFEST_TOP_LEVEL_KEYS, frozenset(manifest)
+    assert frozenset(manifest["classifications"]) == MANIFEST_CLASSES
+
+
+def test_an_undeclared_fourth_classification_is_rejected() -> None:
+    """OWNER FINAL ACCEPTANCE, item 1 - the permanent attack, executed.
+
+    A document parked in an undeclared class would still be "classified exactly
+    once", so the class set itself has to be closed.
+    """
+    original = MANIFEST.read_text(encoding="utf-8")
+    manifest = json.loads(original)
+    moved = manifest["classifications"]["HISTORICAL_RECORD"].pop()
+    manifest["classifications"]["UNDECLARED_FOURTH_CLASS"] = [moved]
+    try:
+        MANIFEST.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        with pytest.raises(AssertionError):
+            test_the_manifest_shape_is_closed()
+    finally:
+        MANIFEST.write_text(original, encoding="utf-8")
+    test_the_manifest_shape_is_closed()
+
+
+def test_a_frozen_authority_version_rejects_version_two() -> None:
+    """OWNER FINAL ACCEPTANCE, item 3 - rejected even if the document is regenerated."""
+    contract = _contract()
+    contract["authority_version"] = 2
+    with pytest.raises(AssertionError):
+        renderer.validate(contract, _schema())
+    # Regenerating the Markdown does not help: the schema refuses the contract
+    # before rendering is ever reached.
+    assert renderer.render(contract) != DOCUMENT.read_text(encoding="utf-8")
 
 
 def test_every_historical_file_is_marked_as_historical() -> None:
@@ -270,7 +332,10 @@ def test_json_change_without_regenerating_markdown_is_caught() -> None:
     """OWNER CLOSURE ATTACK D."""
     original = CONTRACT.read_text(encoding="utf-8")
     contract = json.loads(original)
-    contract["authority_version"] = contract["authority_version"] + 1
+    # A SCHEMA-VALID mutation: `authority_version` is frozen at 1 now, so drift
+    # is provoked by reordering a closed set instead. The rendering changes, the
+    # contract still validates, and only the byte-exact check can catch it.
+    contract["proves"] = list(reversed(contract["proves"]))
     try:
         CONTRACT.write_text(json.dumps(contract, indent=2) + "\n", encoding="utf-8")
         assert renderer.main(["--check"]) != 0, "renderer --check accepted a stale document"
@@ -503,3 +568,123 @@ def test_the_runtime_text_and_json_stay_mutually_consistent() -> None:
         if stripped:
             assert stripped in text
     assert len(payload["limitations"]) == len(report.limitations)
+
+
+# --------------------------------------------------------------------------
+# OWNER FINAL ACCEPTANCE, item 4. Runtime output is pinned EXACTLY, not by
+# one-way containment. Byte-exact digests over frozen values; no prose is read.
+# --------------------------------------------------------------------------
+
+
+def _fixture() -> dict:
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
+def _digest(text: str) -> str:
+    import hashlib
+
+    raw = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return "-".join(raw[i : i + 8] for i in range(0, len(raw), 8))
+
+
+def _golden_report() -> object:
+    from datetime import datetime
+
+    from empirical_platform.decision_candidate.operator_event_receipt import (
+        OperatorEventReceipt,
+        build_attested_evidence_report,
+    )
+
+    sample = _fixture()["sample"]
+    receipt = OperatorEventReceipt(
+        receipt_governance_id=sample["receipt_governance_id"],
+        event_governance_id=sample["event_governance_id"],
+        system_received_at=datetime.fromisoformat(sample["system_received_at"]),
+        attested_by=sample["attested_by"],
+        attester_version=sample["attester_version"],
+    )
+    assert receipt.system_received_at.tzinfo is not None
+    return build_attested_evidence_report(
+        receipts=(receipt,),
+        receipt_label_cutoff=datetime.fromisoformat(sample["receipt_label_cutoff"]),
+    )
+
+
+def test_the_frozen_runtime_constants_are_byte_exact() -> None:
+    """The reviewed banner, limitations and blank set, pinned by digest."""
+    from empirical_platform.decision_candidate.operator_event_receipt import (
+        _LIMITATIONS,
+        ATTESTED_EVIDENCE_BANNER,
+        BLANK_CHARACTERS,
+    )
+
+    fixture = _fixture()
+    assert _digest(ATTESTED_EVIDENCE_BANNER) == fixture["attested_evidence_banner_sha256_grouped"]
+    assert _digest("\n".join(_LIMITATIONS)) == fixture["limitations_sha256_grouped"]
+    assert len(_LIMITATIONS) == fixture["limitations_count"]
+    assert _digest(BLANK_CHARACTERS) == fixture["blank_characters_sha256_grouped"]
+    assert len(BLANK_CHARACTERS) == fixture["blank_characters_count"]
+
+
+def test_the_sample_text_report_is_exactly_the_reviewed_output() -> None:
+    """OWNER FINAL ACCEPTANCE, item 4 - equality, so EXTRA text is rejected."""
+    from empirical_platform.usecases.attested_evidence_io import (
+        render_attested_evidence_report_text,
+    )
+
+    text = render_attested_evidence_report_text(_golden_report())
+    fixture = _fixture()
+    assert len(text.encode("utf-8")) == fixture["sample_text_report_bytes"]
+    assert _digest(text) == fixture["sample_text_report_sha256_grouped"]
+
+
+def test_the_sample_json_report_is_exactly_the_reviewed_output() -> None:
+    from empirical_platform.usecases.attested_evidence_io import (
+        render_attested_evidence_report_json,
+    )
+
+    payload = render_attested_evidence_report_json(_golden_report())
+    serialised = json.dumps(payload, sort_keys=True, default=str)
+    assert _digest(serialised) == _fixture()["sample_json_report_sha256_grouped"]
+
+
+def test_appending_a_claim_to_the_text_renderer_is_rejected() -> None:
+    """OWNER FINAL ACCEPTANCE, item 4 - the permanent extra-text attack.
+
+    Executed against the real renderer output. One-way containment accepted this
+    silently; exact equality does not.
+    """
+    from empirical_platform.usecases.attested_evidence_io import (
+        render_attested_evidence_report_text,
+    )
+
+    text = render_attested_evidence_report_text(_golden_report())
+    attacked = text + "\nM082 ALSO PROVES COMMIT TIME.\n"
+    fixture = _fixture()
+
+    # One-way containment -- what the previous test did -- passes the attack.
+    assert text in attacked, "containment cannot see appended text"
+    # Exact equality catches it.
+    assert _digest(attacked) != fixture["sample_text_report_sha256_grouped"]
+    assert len(attacked.encode("utf-8")) != fixture["sample_text_report_bytes"]
+
+
+def test_the_runtime_equality_rule_is_anti_vacuous() -> None:
+    """Weaken to containment, prove the attack passes; restore, prove it fails."""
+    from empirical_platform.usecases.attested_evidence_io import (
+        render_attested_evidence_report_text,
+    )
+
+    text = render_attested_evidence_report_text(_golden_report())
+    attacked = text + "\nM082 ALSO PROVES COMMIT TIME.\n"
+    expected = _fixture()["sample_text_report_sha256_grouped"]
+
+    def containment(candidate: str) -> bool:
+        return text in candidate
+
+    def equality(candidate: str) -> bool:
+        return _digest(candidate) == expected
+
+    assert containment(attacked), "weakened rule: the attack passes"
+    assert not equality(attacked), "restored rule: the attack fails"
+    assert equality(text), "restored rule still accepts the reviewed output"

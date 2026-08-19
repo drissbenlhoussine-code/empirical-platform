@@ -1,6 +1,13 @@
 # MILESTONE-082 — Owner Final Closure Candidate
 
-**Status: FINAL_CLOSURE_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
+**Status: FINAL_ACCEPTANCE_CANDIDATE_PENDING_OWNER_REVIEW. Not merged, not frozen.**
+
+> **⚠ SUPERSEDED IN PART.** This document's original conclusion — that the
+> closure candidate at `12c3b84` was complete — is **superseded**. An Owner
+> final-acceptance review found three structural gaps in the contract, listed in
+> §10 below, and they are corrected on top of `12c3b84`. Nothing else in this
+> report is withdrawn; the earlier conclusion is kept visible rather than
+> rewritten.
 
 Starting head: `f61f14b15fb5caa5bebc89abef2bca65cecd0318`.
 Base `master`: `28a10530dbc295fedacfa89c8aef246b35a0b86e`.
@@ -176,7 +183,16 @@ pass, the rule is restored, and the attack is shown to fail again.
 | `PROJECT_CHECKPOINT.md` | unchanged; `LATEST_FROZEN_MILESTONE=MILESTONE-081` |
 | New table / migration / receipt authority / M083 | **none** |
 
-Production changes are docstring-only, in three files.
+Production changes are docstring-only, in **two** files:
+`decision_candidate/operator_event_receipt.py` and
+`entrypoints/get_attested_evidence_report.py`.
+
+> **⚠ CORRECTED (Owner final acceptance, item 6).** This paragraph said
+> **three** files. Measured, `git diff --name-only f61f14b..12c3b84 -- src/
+> migrations/` returns exactly **two**:
+> `usecases/attest_operator_event_receipt.py` was edited during the mission and
+> then restored to its `f61f14b` content, so its net delta is empty. The count
+> of three was wrong.
 
 ---
 
@@ -291,3 +307,50 @@ PR #12  OPEN / NOT MERGED
 ```
 
 No approval, freeze, merge or zero-blockers claim is made on the Owner's behalf.
+
+
+---
+
+## 10. Owner final acceptance residual — three structural gaps
+
+The closure candidate at `12c3b84` was reviewed and three gaps were found in the
+contract itself. None required a prose parser, an annotation grammar, a banned
+vocabulary, banner logic, negation logic or Markdown interpretation, and none
+touched production: `src/` and `migrations/` remain **byte-identical to
+`12c3b84`**.
+
+| # | Gap | Correction |
+|---|---|---|
+| 1 | the manifest's class set was open — a document parked in an undeclared fourth class would still satisfy "classified exactly once" | class set closed to exactly the three declared names; top-level keys closed; `milestone == "M082"` and `manifest_version == 1` asserted |
+| 2 | the root design was classified `CURRENT_AUTHORITY` while its own text says it is not the source of authority | reclassified to `CURRENT_VALIDATION_EVIDENCE`; `CURRENT_AUTHORITY` is now **exactly** the contract, its schema and the generated document |
+| 3 | `authority_version` was `minimum: 1`, so a version 2 was representable | frozen to `const: 1` |
+| 4 | the runtime text test proved only `canonical ⊆ runtime`, so **appended** text was invisible | replaced with byte-exact equality against frozen reviewed output |
+| 5 | generated English read "does **not** carries…" | closed identifiers now render base-form verbs: "does not carry", "does not emit", "does not enrich" |
+
+### Permanent attacks added, each anti-vacuous
+
+| Attack | Outcome |
+|---|---|
+| add `UNDECLARED_FOURTH_CLASS` and move a document into it | manifest shape validation **fails** |
+| set `authority_version = 2`, even with the Markdown regenerated | closed schema **rejects** before rendering is reached |
+| append `M082 ALSO PROVES COMMIT TIME.` to the text renderer result | byte-exact runtime test **fails** |
+
+Anti-vacuity is executed for each: the exact-class-set assertion is weakened and
+the fourth class passes; one-way containment is restored and the appended-text
+attack passes; the exact rules are restored and both fail again.
+
+### Where the frozen output lives
+
+`runtime-output-fixture.json` holds the reviewed digests — banner, limitations
+tuple, blank set, and the complete text and JSON output for one deterministic
+sample report. It is classified `CURRENT_VALIDATION_EVIDENCE`, **deliberately
+not** part of `current-authority.json`: a golden fixture is evidence about the
+runtime, not a claim about the world. Hex is grouped in eights for the same
+secret-scanner reason as the archive checksum.
+
+### Scope of this residual
+
+Because production and migrations are byte-identical, the full historical
+regression campaign was not repeated. Executed: the M082 authority-contract
+suite, all M082 unit suites, `--check`, the three new attacks with their
+anti-vacuity probes, and the repository gates.

@@ -10,7 +10,7 @@
   ],
   "properties": {
     "milestone": {"const": "M082"},
-    "authority_version": {"type": "integer", "minimum": 1},
+    "authority_version": {"const": 1},
     "title": {"const": "Operator Event Receipt Identity Attestation"},
     "proves": {
       "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,

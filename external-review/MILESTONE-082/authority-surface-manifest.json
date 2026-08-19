@@ -11,16 +11,17 @@
   },
   "classifications": {
     "CURRENT_AUTHORITY": [
-      "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md",
       "external-review/MILESTONE-082/current-authority.json",
       "external-review/MILESTONE-082/current-authority.md",
       "external-review/MILESTONE-082/current-authority.schema.json"
     ],
     "CURRENT_VALIDATION_EVIDENCE": [
+      "MILESTONE_082_OPERATOR_EVENT_RECEIPT_ATTESTATION_SCOPE_AND_DESIGN.md",
       "external-review/MILESTONE-082/README.md",
       "external-review/MILESTONE-082/authority-surface-manifest.json",
       "external-review/MILESTONE-082/changed-files.txt",
       "external-review/MILESTONE-082/owner-final-closure-candidate.md",
+      "external-review/MILESTONE-082/runtime-output-fixture.json",
       "external-review/MILESTONE-082/validation-results.md"
     ],
     "HISTORICAL_RECORD": [

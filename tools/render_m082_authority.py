@@ -133,9 +133,9 @@ _CUTOFF = {
         "The cutoff is a **receipt-label filter only**. It selects receipts whose label is "
         "at or before the cutoff, and asserts nothing else."
     ),
-    "historical_knowledge_authority": "carries historical knowledge authority",
-    "future_tail_counts": "emits future-tail counts",
-    "event_payload_enrichment": "enriches entries with event payload",
+    "historical_knowledge_authority": "carry historical knowledge authority",
+    "future_tail_counts": "emit future-tail counts",
+    "event_payload_enrichment": "enrich entries with event payload",
 }
 _LIMITATIONS = {
     "row_update_delete_immutability_does_not_cover_truncate_drop_or_superuser": (

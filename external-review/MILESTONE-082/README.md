@@ -51,6 +51,7 @@ in the canonical contract.
 | `authority-surface-manifest.json` | the classification of every M082 document |
 | `owner-final-closure-candidate.md` | the closure mission's delivery report |
 | `validation-results.md` | executed gates at this head |
+| `runtime-output-fixture.json` | frozen reviewed runtime output, pinned by digest |
 | `changed-files.txt` | the exact `master..head` file list |
 | `history/` | the archived legacy design, byte-identical, with its checksum |
 
