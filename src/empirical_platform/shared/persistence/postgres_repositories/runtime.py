@@ -21,6 +21,9 @@ from empirical_platform.shared.persistence.postgres_repositories.dataset_snapsho
 from empirical_platform.shared.persistence.postgres_repositories.decision_candidate_repository import (  # noqa: E501
     PostgresDecisionCandidateRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.evaluation_evidence_watermark_repository import (  # noqa: E501
+    PostgresEvaluationEvidenceWatermarkRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.evidence_package_repository import (  # noqa: E501
     PostgresEvidencePackageRepository,
 )
@@ -116,6 +119,7 @@ class PostgresRepositoryRuntime:
         "_historical_portfolio_evidence_query",
         "_operator_event_receipts",
         "_operator_position_ledger",
+        "_evaluation_evidence_watermarks",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -152,6 +156,9 @@ class PostgresRepositoryRuntime:
         )
         self._operator_position_ledger = PostgresOperatorPositionLedgerRepository(service)
         self._operator_event_receipts = PostgresOperatorEventReceiptRepository(service)
+        self._evaluation_evidence_watermarks = PostgresEvaluationEvidenceWatermarkRepository(
+            service
+        )
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
@@ -252,6 +259,10 @@ class PostgresRepositoryRuntime:
     @property
     def operator_event_receipts(self) -> PostgresOperatorEventReceiptRepository:
         return self._operator_event_receipts
+
+    @property
+    def evaluation_evidence_watermarks(self) -> PostgresEvaluationEvidenceWatermarkRepository:
+        return self._evaluation_evidence_watermarks
 
     def run_composed(self, operations: Sequence[Callable[[], object]]) -> tuple[object, ...]:
         """Delegate directly to the frozen MILESTONE-024 composed-transaction primitive."""

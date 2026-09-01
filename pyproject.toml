@@ -124,6 +124,8 @@ empirical-platform-operator-evidence-snapshot = "empirical_platform.entrypoints.
 empirical-platform-asserted-round-trip = "empirical_platform.entrypoints.get_asserted_round_trip_report:main"
 empirical-platform-asserted-round-trip-ratio = "empirical_platform.entrypoints.get_asserted_round_trip_ratio_report:main"
 empirical-platform-receipt-label-cutoff-view = "empirical_platform.entrypoints.get_attested_evidence_report:main"
+empirical-platform-capture-evaluation-evidence-watermark = "empirical_platform.entrypoints.capture_evaluation_evidence_watermark:main"
+empirical-platform-get-evaluation-evidence-watermark = "empirical_platform.entrypoints.get_evaluation_evidence_watermark:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
