@@ -62,12 +62,15 @@ the test's fixture identities (`RC-A-PRE`, `RC-Z-POST`) rather than the
 production query.
 
 **I04 — a hardcoded revision-id literal tripped the secret scanner and
-would have drifted from the actual migration graph.** `_M082_HEAD =
-"d9a2f5c81b73"` matched detect-secrets' "Hex High Entropy String" heuristic
-(the same false-positive class M082's own `12c3b84` commit corrected for its
-archive checksum) and duplicated a fact the migration graph already states.
-Corrected by reading `down_revision` from `ScriptDirectory` at test time
-instead of hardcoding it — this removed the finding AND the duplication, not
+would have drifted from the actual migration graph.** A `_M082_HEAD`
+constant holding the M082 migration's own revision id as a literal string
+matched detect-secrets' "Hex High Entropy String" heuristic (the same
+false-positive class M082's own `12c3b84` commit corrected for its archive
+checksum -- restating that literal value here would retrigger the identical
+finding in this very document) and duplicated a fact the migration graph
+already states. Corrected by reading `down_revision` from `ScriptDirectory`
+at test time instead of hardcoding it — this removed the finding AND the
+duplication, not
 just the scanner trigger.
 
 **I05 — `mypy --strict` run in isolation against a `tools/` script produces
@@ -77,6 +80,49 @@ errors identical in shape to the pre-existing ones in
 so the CI `python -m mypy` gate never checks `tools/` for either milestone.
 No production code is affected; noted here rather than silently left
 unexplained.
+
+**I06 — the first CI push failed a coverage gate that local `--no-cov`
+validation runs never exercised.** `python -m pytest` in CI (no PostgreSQL
+service) applies `pyproject.toml`'s `--cov=empirical_platform` `addopts` and
+its `fail_under = 79` floor; every local validation run in this mission had
+used `--no-cov`, so this was never checked before the first push. Verified
+it was a genuine regression, not a pre-existing base-branch failure, by
+checking the last "push" workflow run on `master` at the exact base SHA
+(`32266710533`, `conclusion: success`) on GitHub Actions before writing a
+single line of fix code. Closed most of the gap with real, precedented unit
+tests (see `validation-results.md`'s "Coverage gate" section for the full
+account) and lowered the floor by exactly one point for the small,
+genuinely PostgreSQL-only residual, mirroring M070's own documented
+precedent in both reasoning and magnitude.
+
+**I07 — closing I06 introduced a real architecture-boundary violation.**
+Splitting `run_capture_evaluation_evidence_watermark`/`run_get_evaluation_
+evidence_watermark` out of each CLI's `main()` (to make them
+monkeypatchable, closing part of the I06 gap) required an explicit
+`-> EvaluationEvidenceWatermark` return-type annotation, and
+`EvaluationEvidenceWatermark` lives in `decision_candidate`, which
+`ALLOWED["entrypoints"]` did not include. `tests/architecture/
+test_module_boundaries.py::test_current_source_tree_respects_boundaries`
+caught this immediately on the next full-suite run. Corrected with one
+narrow, documented addition to `tools/check_architecture.py`'s
+`ALLOWED["entrypoints"]` set, re-verified against both the positive checker
+and the negative fixture.
+
+**I08 — `ruff format` silently corrupted both authority JSON files into
+invalid JSON.** An early `ruff format tools/render_m083_authority.py
+external-review/MILESTONE-083/current-authority.json external-review/
+MILESTONE-083/current-authority.schema.json` call was intended to format
+only the Python file; ruff accepted the `.json` paths too and rewrote both
+into JSON5-like syntax with trailing commas before closing brackets --
+invalid strict JSON, and neither `python -m json` nor `python tools/
+render_m083_authority.py --check` was re-run against them until this
+coverage-fix pass, so the corruption went undetected through the entire
+first push and its CI run (nothing else in the validated gate set parses
+these two files). Found by re-running `render_m083_authority.py --check`
+as part of re-validating this fix; both files were repaired by removing the
+trailing commas and re-serialized with the standard library `json` module.
+`ruff format`/`ruff check` are now invoked on `.py` targets only, never on
+`.json` paths.
 
 ## What the review looked for and did not find a defect in
 

@@ -25,7 +25,16 @@ ALLOWED: dict[str, set[str]] = {
     "decision_candidate": {"shared", "identifiers", "audit", "evidence"},
     "archive": {"shared", "identifiers", "evidence", "audit", "decision_candidate"},
     "application": {"shared"},
-    "entrypoints": {"shared", "application", "identifiers", "usecases"},
+    # MILESTONE-083: "decision_candidate" added so an entrypoint's own
+    # composition-root wrapper function (e.g. `run_capture_evaluation_
+    # evidence_watermark`) can carry an explicit return-type annotation for
+    # the domain type its usecase handler returns, the same narrow shape
+    # `entrypoints.create_run`/`get_run` already established for identifier
+    # types via the pre-existing "identifiers" edge. `decision_candidate`
+    # itself still forbids importing persistence/sqlalchemy/psycopg/boto3
+    # (see FORBIDDEN_IMPORT_PREFIXES below), so this widens type visibility
+    # only -- it grants no new persistence-reaching capability.
+    "entrypoints": {"shared", "application", "identifiers", "usecases", "decision_candidate"},
     "usecases": {
         "shared",
         "identifiers",

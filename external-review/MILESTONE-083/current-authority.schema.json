@@ -1,92 +1,116 @@
 {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "M083 canonical authority contract",
-    "type": "object",
-    "additionalProperties": false,
-    "required": [
-        "milestone",
-        "authority_version",
-        "title",
-        "proves",
-        "does_not_prove",
-        "database_enforcement",
-        "structural_limitations",
-        "intended_future_use",
-    ],
-    "properties": {
-        "milestone": {"const": "M083"},
-        "authority_version": {"const": 1},
-        "title": {"const": "Persisted Receipt-Set Evaluation Evidence Watermark"},
-        "proves": {
-            "type": "array",
-            "minItems": 4,
-            "maxItems": 4,
-            "uniqueItems": true,
-            "items": {
-                "enum": [
-                    "stable_watermark_governance_identity",
-                    "exact_receipt_governance_id_set_visible_to_capture_statement_snapshot",
-                    "canonical_deterministic_storage_order",
-                    "immutable_after_persistence",
-                ]
-            },
-        },
-        "does_not_prove": {
-            "type": "array",
-            "minItems": 15,
-            "maxItems": 15,
-            "uniqueItems": true,
-            "items": {
-                "enum": [
-                    "research_session_decision_candidate_brief_or_evaluation_consumption",
-                    "evaluation_time_capture_time_or_wall_clock_chronology",
-                    "receipt_or_event_commit_time",
-                    "historical_availability_at_an_arbitrary_cutoff",
-                    "receipt_ordering_committed_prefix_or_sequence_authority",
-                    "event_payload_current_or_historical",
-                    "receipt_metadata_provenance",
-                    "operator_or_broker_truth_fills_or_trades",
-                    "every_m076_event_has_a_receipt",
-                    "an_absent_receipt_did_not_exist_at_another_time",
-                    "the_set_represents_all_operator_evidence",
-                    "future_tail_or_excluded_receipt_count",
-                    "cryptographic_sealing",
-                    "protection_against_ddl_trigger_disable_truncate_drop_or_superuser",
-                    "profitability_performance_advice_or_live_trading_readiness",
-                ]
-            },
-        },
-        "database_enforcement": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-                "capture_query_overwrites_caller_supplied_membership",
-                "canonical_deterministic_order",
-                "empty_set_explicit_not_null",
-                "row_level_update_delete_refused",
-                "identity_uniqueness_idempotency",
-                "ddl_authority_trigger_disable_truncate_drop_superuser",
-            ],
-            "properties": {
-                "capture_query_overwrites_caller_supplied_membership": {"const": true},
-                "canonical_deterministic_order": {"const": true},
-                "empty_set_explicit_not_null": {"const": true},
-                "row_level_update_delete_refused": {"const": true},
-                "identity_uniqueness_idempotency": {"const": true},
-                "ddl_authority_trigger_disable_truncate_drop_superuser": {"const": false},
-            },
-        },
-        "structural_limitations": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {"type": "string", "pattern": "^[a-z0-9_]+$"},
-        },
-        "intended_future_use": {
-            "type": "array",
-            "minItems": 1,
-            "uniqueItems": true,
-            "items": {"type": "string", "pattern": "^[a-z0-9_]+$"},
-        },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "M083 canonical authority contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "milestone",
+    "authority_version",
+    "title",
+    "proves",
+    "does_not_prove",
+    "database_enforcement",
+    "structural_limitations",
+    "intended_future_use"
+  ],
+  "properties": {
+    "milestone": {
+      "const": "M083"
     },
+    "authority_version": {
+      "const": 1
+    },
+    "title": {
+      "const": "Persisted Receipt-Set Evaluation Evidence Watermark"
+    },
+    "proves": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "stable_watermark_governance_identity",
+          "exact_receipt_governance_id_set_visible_to_capture_statement_snapshot",
+          "canonical_deterministic_storage_order",
+          "immutable_after_persistence"
+        ]
+      }
+    },
+    "does_not_prove": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "research_session_decision_candidate_brief_or_evaluation_consumption",
+          "evaluation_time_capture_time_or_wall_clock_chronology",
+          "receipt_or_event_commit_time",
+          "historical_availability_at_an_arbitrary_cutoff",
+          "receipt_ordering_committed_prefix_or_sequence_authority",
+          "event_payload_current_or_historical",
+          "receipt_metadata_provenance",
+          "operator_or_broker_truth_fills_or_trades",
+          "every_m076_event_has_a_receipt",
+          "an_absent_receipt_did_not_exist_at_another_time",
+          "the_set_represents_all_operator_evidence",
+          "future_tail_or_excluded_receipt_count",
+          "cryptographic_sealing",
+          "protection_against_ddl_trigger_disable_truncate_drop_or_superuser",
+          "profitability_performance_advice_or_live_trading_readiness"
+        ]
+      }
+    },
+    "database_enforcement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_query_overwrites_caller_supplied_membership",
+        "canonical_deterministic_order",
+        "empty_set_explicit_not_null",
+        "row_level_update_delete_refused",
+        "identity_uniqueness_idempotency",
+        "ddl_authority_trigger_disable_truncate_drop_superuser"
+      ],
+      "properties": {
+        "capture_query_overwrites_caller_supplied_membership": {
+          "const": true
+        },
+        "canonical_deterministic_order": {
+          "const": true
+        },
+        "empty_set_explicit_not_null": {
+          "const": true
+        },
+        "row_level_update_delete_refused": {
+          "const": true
+        },
+        "identity_uniqueness_idempotency": {
+          "const": true
+        },
+        "ddl_authority_trigger_disable_truncate_drop_superuser": {
+          "const": false
+        }
+      }
+    },
+    "structural_limitations": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_]+$"
+      }
+    },
+    "intended_future_use": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9_]+$"
+      }
+    }
+  }
 }
