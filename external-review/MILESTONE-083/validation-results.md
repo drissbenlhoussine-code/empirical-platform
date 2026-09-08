@@ -24,6 +24,13 @@ unrelated or substitute baseline.
 | Fresh second pass (`test_m083_evaluation_evidence_watermark_second_pass.py`) | 5 | 5 passed |
 | **M083 together** | **156** | **156 passed** |
 
+> **SUPERSEDED IN PART — counts only.** The totals in this table were accurate
+> at `e53275e`. The later quantified-exhaustion campaign added 16 tests
+> (authority-contract 57 → 59, extended attacks 10 → 13, repository unit
+> 11 → 22), taking M083 to **172 tests**. The per-suite results
+> (all passing) are unchanged. Current figures, and the reason each test was
+> added, are in "Quantified exhaustion campaign — measured results" below.
+
 75 tests are net-new relative to the `c75c14d` candidate (57 authority-contract
 + 10 extended PostgreSQL attacks + 8 net-new repository unit tests — the
 repository suite grew from 3 to 11).
@@ -302,3 +309,284 @@ recorded, not silently assumed away, that a future evaluation-context
 milestone consuming this primitive at very large receipt-table sizes should
 re-measure rather than assume the current numbers extrapolate indefinitely.
 Full list: `current-authority.json` → `structural_limitations`.
+
+---
+
+# Quantified exhaustion campaign — measured results
+
+Everything above this line is the earlier deep-closure review and the
+independent audit that followed it. This section records a later, separate
+campaign run against `2cadb91827ff679e4bb4ca3bc03c6d18e2ae42e5`.
+
+**`SUPERSEDED IN PART — INDEPENDENT AUDIT DID NOT COMPLETE ALL OWNER
+EXHAUSTION CRITERIA`.** The preceding independent audit's findings stand and
+are not rewritten. What is superseded is only its terminal claim of
+completeness: it explicitly disclosed that it had not performed three formally
+separate hostile passes, three clean concurrency repetitions, the
+10,000-receipt measurement, or the complete 27-mutation matrix. This campaign
+executes all of them, and adds four findings the earlier passes had missed
+(AUD-001 – AUD-004, see `hostile-review.md`).
+
+## Environment boundary for every measurement below
+
+| | |
+|---|---|
+| PostgreSQL | 16.13 (Ubuntu 16.13-0ubuntu0.24.04.1), x86_64 |
+| Host | Linux 6.18.44 x86_64, glibc 2.39, **4 vCPU** (shared container) |
+| Python | 3.13.12, project's own `requires-python = ">=3.13,<3.14"` |
+| `work_mem` | 4MB (default) |
+| `shared_buffers` | 128MB |
+| `default_transaction_isolation` | read committed |
+| Database collation | `C.UTF-8` (agrees with byte order — see AUD-004) |
+
+These numbers characterise THIS machine under THIS configuration. They are
+validation evidence, not an M083 authority claim, and not a production
+performance guarantee.
+
+## Concurrency campaign — three clean repetitions
+
+The complete M083 concurrency/isolation set is these **14 test IDs**, which
+between them cover all twelve behaviours the Owner enumerated:
+
+| Required behaviour | Test |
+|---|---|
+| concurrent different identities | `test_21_two_concurrent_captures_with_different_ids_are_each_internally_coherent` |
+| concurrent identical identity | `test_22_two_concurrent_captures_with_the_same_id_yield_one_immutable_winner`; `test_concurrent_capture_of_the_same_identity_yields_one_winner` |
+| winner read-back | `test_22_…`, `test_capture_conflict_reads_back_and_returns_the_winner` |
+| receipt uncommitted in another transaction | `test_17_a_receipt_uncommitted_in_another_transaction_is_excluded` |
+| receipt committed after the capture snapshot | `test_18_and_19_…` |
+| later watermark may include the later receipt | `test_18_and_19_…` |
+| earlier watermark remains stable | `test_5_…`, `test_6_…`, `test_an_earlier_watermark_stays_byte_identical_after_a_later_capture` |
+| READ COMMITTED | `test_16_a_receipt_committed_before_capture_is_included`, `test_20_same_transaction_receipt_visibility_is_statement_snapshot_not_prior_commit` |
+| REPEATABLE READ | `test_e7_repeatable_read_holds_one_snapshot_across_the_whole_transaction` |
+| SERIALIZABLE | `test_e8_serializable_write_skew_raises_and_retry_succeeds` (real SQLSTATE 40001 + retry) |
+| rollback under concurrent activity | `test_23_rollback_leaves_no_header_or_partial_set` |
+| coherent membership during concurrent receipt creation | `test_21_…`, `test_11_caller_supplied_duplicates_and_reordering_is_overwritten` |
+
+Coordination is by deterministic barriers, locks and database coordination —
+no test proves anything by sleep timing.
+
+Each run was preceded by a **full `DROP DATABASE` / `CREATE DATABASE`**, not a
+truncation, so no session, temp relation or catalog state can survive between
+runs. The differing database OIDs prove the resets were real.
+
+| Run | Database identity | Start → end (UTC) | Collected / passed / failed / errors / skipped | Result-line SHA-256 | temp schemas after | leftover sessions after |
+|---|---|---|---|---|---|---|
+| 1 | `empirical_conc` **oid 285705** | 10:11:25 → 10:11:30 | 14 / 14 / 0 / 0 / 0 | `9ee18b94a9d5b75f…` | 0 | 0 |
+| 2 | `empirical_conc` **oid 288361** | 10:11:30 → 10:11:34 | 14 / 14 / 0 / 0 / 0 | `9ee18b94a9d5b75f…` | 0 | 0 |
+| 3 | `empirical_conc` **oid 291016** | 10:11:35 → 10:11:39 | 14 / 14 / 0 / 0 / 0 | `9ee18b94a9d5b75f…` | 0 | 0 |
+
+All three runs clean, **identical checksums**, no flake, no probe failure to
+investigate. Timestamps are recorded as operational evidence only; nothing is
+inferred from elapsed time.
+
+## Performance and scale — including the previously omitted 10,000 point
+
+Method per size: 1 discarded warm-up capture, then **5 measured captures with
+distinct watermark identities and 5 measured stored-set reads**, through the
+REAL repository path (composition root → repository → PostgreSQL). Data
+construction is bulk SQL executed **outside** every measured interval, so no
+setup time is included. After each size the stored set is verified for exact
+cardinality, canonical ascending order and absence of duplicates.
+
+| Receipts | capture median / max (ms) | get median / max (ms) | stored array (bytes) | whole row (bytes) | array cardinality |
+|---|---|---|---|---|---|
+| 0 | 2.37 / 3.11 | 0.93 / 1.07 | 13 | 47 | 0 |
+| 1 | 3.11 / 5.53 | 1.09 / 1.39 | 37 | 71 | 1 |
+| 100 | 3.27 / 4.53 | 1.26 / 2.52 | 1,624 | 1,660 | 100 |
+| 1,000 | 5.54 / 5.73 | 2.02 / 2.44 | 3,285 | 3,325 | 1,000 |
+| **10,000** | **15.97 / 20.28** | **6.47 / 7.42** | **33,546** | **33,586** | **10,000** |
+| 25,000 | 52.91 / 54.43 | 19.17 / 20.57 | 83,741 | 83,781 | 25,000 |
+
+With five samples, the maximum is reported rather than a p95, which five points
+cannot estimate meaningfully.
+
+**Query plan at 25,000 receipts** (`EXPLAIN ANALYZE, BUFFERS`):
+
+```
+Aggregate  (actual time=11.944..11.946 rows=1 loops=1)
+  ->  Sort  (actual time=7.751..8.812 rows=25000 loops=1)
+        Sort Key: receipt_governance_id COLLATE "C"
+        Sort Method: quicksort  Memory: 1354kB
+        ->  Seq Scan on operator_event_receipt r  (actual time=0.010..2.812 rows=25000)
+Execution Time: 12.252 ms
+```
+
+**Sort behaviour and spill.** At the shipped `work_mem` (4MB) the sort stays in
+memory at every size measured (1,354kB at 25,000 rows). Spill was not assumed
+absent — it was *forced* and observed: with `work_mem = 64kB` the same query
+reports `Sort Method: external merge  Disk: 432kB`. Linear extrapolation of the
+in-memory figure puts the spill threshold near ~74,000 receipts at the default
+`work_mem`; that is an extrapolation, explicitly not a measurement.
+
+**Index usage — a real, measured trade-off.** The explicit `COLLATE "C"`
+prevents the planner from using `operator_event_receipt_pkey`, whose collation
+is the database default, so the capture query is a Seq Scan + Sort
+(estimated cost 2410). Without the COLLATE the same query becomes an Index Only
+Scan (estimated cost 830). The COLLATE is NOT removable — AUD-004 exists
+precisely because canonical order must not depend on the deployment's default
+collation — so this is recorded as the measured price of determinism. A future
+consumer needing lower capture latency could add an index declared
+`COLLATE "C"`; that is a compatibility observation, not an M083 change, and no
+M084 design is implied or begun.
+
+**Row-size and unbounded-growth risk.** The array TOASTs, so PostgreSQL's
+per-page limit is not the binding constraint; growth is roughly linear at
+~3.35 compressed bytes per receipt at 10,000 (`pg_column_size` reports the
+compressed size, and these synthetic sequential identifiers compress unusually
+well — real identifiers may not). Capture cost grows faster than linearly
+between 10,000 and 25,000 (2.5× rows → 3.3× time), consistent with sort plus
+array construction. Every capture re-scans the whole receipt table, so capture
+is O(N) in total receipts by design.
+
+**Compatibility assessment.** At the evidence volumes measured here — up to
+25,000 receipts, ~53ms capture, ~19ms read, ~84KB stored — a future
+evaluation-context milestone could consume this primitive safely. No hard cap
+is added to M083: the existing structural limitation already states that the
+`array_agg` has no row-count cap, and adding one now would change stored
+behaviour late in review without a consumer requiring it. A future consumer
+should re-measure at its own expected scale rather than extrapolate these
+numbers.
+
+## Baseline discrepancy — the 24-vs-26 question, resolved exactly
+
+The earlier deep-closure review reported **26** PostgreSQL-on failures; the
+independent audit measured **24** at both heads. The difference is exactly two
+test IDs, and it is a property of the connecting role, not of any code:
+
+1. `tests/integration/test_m082_operator_event_receipt_lifecycle.py::test_an_unexpected_checker_error_fails_closed`
+2. `tests/integration/test_m082_operator_event_receipt_lifecycle.py::test_a_non_superuser_cannot_shadow_the_event_table_through_pg_temp`
+
+These are the only two tests in the entire M082 suite that execute
+`CREATE ROLE` (lines 1175 and 1376), which requires the connecting role to hold
+SUPERUSER or CREATEROLE. Both conditions were reproduced on demand:
+
+| Condition | Connecting role | `rolsuper` / `rolcreaterole` | Result | Total PG-on failures |
+|---|---|---|---|---|
+| A | `empirical` | `t` / `f` | **both PASS** | 24 |
+| B | `empirical_plain` | `f` / `f` | **both FAIL**, `permission denied to create role` on `CREATE ROLE m082_shadow_probe …` | 26 |
+
+So the earlier review's sandbox ran as a role without CREATEROLE and the audit's
+ran as a superuser. This is an M082 **test-harness environment dependency**, not
+a product defect and not caused by M083: it reproduces identically at base
+master and at this head, and the failing/error ID sets still match exactly
+between baseline and candidate in both environments.
+
+## Full regression — baseline vs final candidate
+
+Baseline `45016d7cb79381d9ff8f90a410f57d5a22473269` in an isolated worktree with
+its own virtualenv; candidate at this head. Each PostgreSQL-on run used a
+**freshly created database** migrated through the complete historical migration
+chain from empty.
+
+| Mode | Baseline | Candidate | Failing+error ID diff |
+|---|---|---|---|
+| PostgreSQL **off** | 8 failed / 2,376 passed / 667 skipped / 12 errors | 8 failed / 2,497 passed / 718 skipped / 12 errors | **EMPTY** (20 ≡ 20) |
+| PostgreSQL **on** | 24 failed / 2,981 passed / 14 skipped / 44 errors | 24 failed / 3,153 passed / 14 skipped / 44 errors | **EMPTY** (68 ≡ 68) |
+
+`xfailed = 0` and `xpassed = 0` in all four runs. No new failing ID, no new
+error ID, no ID that disappeared (which would indicate a silently hidden
+pre-existing failure), and no test-selection shrinkage.
+
+**Delta reconciliation — exact, with no remainder.** M083 owns 172 tests:
+
+| File | Tests |
+|---|---|
+| `test_m083_authority_contract.py` | 59 |
+| `test_m083_evaluation_evidence_watermark_extended_attacks.py` | 13 |
+| `test_m083_evaluation_evidence_watermark_lifecycle.py` | 33 |
+| `test_m083_evaluation_evidence_watermark_second_pass.py` | 5 |
+| `test_decision_candidate_evaluation_evidence_watermark.py` | 13 |
+| `test_evaluation_evidence_watermark_io.py` | 5 |
+| `test_m083_evaluation_evidence_watermark_cli.py` | 16 |
+| `test_m083_evaluation_evidence_watermark_handlers.py` | 6 |
+| `test_postgres_evaluation_evidence_watermark_repository.py` | 22 |
+| **Total** | **172** |
+
+PostgreSQL-on delta is **+172 passed / +0 skipped** — every M083 test runs.
+PostgreSQL-off delta is **+121 passed / +51 skipped**, and 121 + 51 = 172: the
+51 are exactly the PostgreSQL-gated tests, which is the only skip increase and
+is fully explained. No unexplained skip, in either direction.
+
+## Suppression and configuration accounting — recomputed mechanically
+
+Computed by walking the `git diff -U0` of base master → this head, over the 20
+changed `.py` files only (a `noqa` appearing inside a Markdown report is prose,
+not a suppression), counting **added lines only**, with exact file:line
+identity recorded in the campaign evidence.
+
+| Category | Added |
+|---|---|
+| `noqa: E501` | 6 |
+| `noqa: BLE001` | 4 |
+| `noqa: S608` | 2 |
+| `noqa: PLC0415` | **2 (new in this campaign)** |
+| `noqa: E402` | 1 |
+| `type: ignore[arg-type]` | 8 |
+| `type: ignore[attr-defined]` | 4 |
+| `type: ignore[assignment]` | 2 |
+| `type: ignore[misc]` | 1 |
+| `pragma: no cover` | 1 |
+| `skip` / `xfail` | **0** |
+| warning filters / coverage exclusions | **0** |
+| **Total added, base → head** | **31** |
+
+The two `noqa: PLC0415` are new in this campaign and are declared rather than
+absorbed: both are deliberate function-scoped imports inside
+`test_rev_005_entrypoints_may_not_regain_a_direct_decision_candidate_edge`,
+which must import `tools/check_architecture.py` after a `sys.path` insert.
+
+Configuration changes across the whole PR: coverage floor 78 → **79** (a
+strengthening; restored by REV-004), and the architecture allowlist widening
+**removed** (a strengthening; REV-005). No lint rule was relaxed, no warning
+filter added, no coverage exclusion added, and no test selection changed.
+
+Offline coverage at this head: **79.19%**, clearing the restored 79 floor. The
+gate is live, not decorative: raising the floor to 80 produces
+`FAIL Required test coverage of 80.0% not reached. Total coverage: 79.19%`.
+(The discriminator is that line, not the process exit code — this environment
+has 8 pre-existing, M083-unrelated failures, so pytest exits non-zero either
+way.)
+
+## Quality gates at the final candidate
+
+| Gate | Command | Result |
+|---|---|---|
+| compileall | `python -m compileall -q src tests tools migrations` | exit 0 |
+| format | `python -m ruff format --check .` | 635 files already formatted |
+| lint | `python -m ruff check .` | All checks passed |
+| types | `python -m mypy` | no issues in 319 source files |
+| architecture (positive) | `python tools/check_architecture.py .` | exit 0 |
+| architecture (negative fixture) | `python tools/check_architecture.py tests/fixtures/illegal_imports` | exit 1, 32 violations |
+| JSON parse | both `external-review/MILESTONE-083/*.json` | OK |
+| authority renderer | `python tools/render_m083_authority.py --check` | `current-authority.md matches current-authority.json`, exit 0 |
+| migration graph | `alembic heads` | single head `9e4e647347ad` |
+| upgrade/downgrade/upgrade | live cycle | M083 objects removed then restored; M082 table, rows and triggers survive |
+| clean historical install | fresh DB migrated from empty | performed for every database created in this campaign |
+| M082 authority + lifecycle | full suite | **184 passed** |
+| M083 suites (all 9 files) | full | **172 passed** |
+| concurrency ×3 | see above | 14/14 three times, identical checksums |
+| dependency audit | `python -m pip_audit` | no known vulnerabilities |
+| secret scan | `python tools/secret_scan_targets.py --scan-json` | `results: {}` |
+| sdist + wheel | `python -m build` | both built |
+| clean-venv wheel import | fresh 3.13 venv | imports; strict mapping present |
+| console scripts | installed entry points | live capture/get round trip, exact 4-key JSON, `{RC-1,RC-2,RC-3}` |
+| exit codes | missing watermark | exit 1 |
+| `git diff --check` | — | exit 0 |
+| changed-files exact | `git diff --name-only base HEAD` vs committed list | exact match, 29 files |
+| frozen paths | diff over M057/M070/M076–M082 + `PROJECT_CHECKPOINT.md` | none touched |
+
+## Probe / environment errors, kept separate from product findings
+
+1. **The two `CREATE ROLE` M082 probe tests** — resolved above; a role-privilege
+   dependency of M082's own harness, reproducible in both directions.
+2. **`pip_audit` and a stale bundled `pip`** — a freshly created virtualenv
+   ships whatever `pip` its interpreter bundles; that `pip` (25.3) carried
+   advisories of its own. After upgrading `pip`, the audit is clean. This is a
+   property of the audit machine's tooling, not a project dependency, and CI's
+   `actions/setup-python` provisions a current `pip` itself.
+3. **`.coverage.vm.pid*` artifacts** — transient files written by concurrently
+   executing coverage runs; untracked, not part of the candidate, and gone once
+   the runs complete.
+
+None of the three is a product defect, and none is reported as a passing check.
