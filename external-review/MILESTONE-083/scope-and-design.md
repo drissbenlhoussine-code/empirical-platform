@@ -1,6 +1,10 @@
 # MILESTONE-083 — Scope and Design
 
-Status: **CANDIDATE_PENDING_OWNER_REVIEW**. Authority is `current-authority.json`,
+Status: **FINAL_CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW** (stale
+`CANDIDATE_PENDING_OWNER_REVIEW` label corrected by an independent audit;
+the Owner's REV-001 through REV-005 deep-closure findings against this
+document's earlier form are all closed -- see `validation-results.md`).
+Authority is `current-authority.json`,
 not this document — this is design rationale (`CURRENT_VALIDATION_EVIDENCE`),
 not `CURRENT_AUTHORITY`.
 
