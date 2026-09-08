@@ -124,6 +124,8 @@ empirical-platform-operator-evidence-snapshot = "empirical_platform.entrypoints.
 empirical-platform-asserted-round-trip = "empirical_platform.entrypoints.get_asserted_round_trip_report:main"
 empirical-platform-asserted-round-trip-ratio = "empirical_platform.entrypoints.get_asserted_round_trip_ratio_report:main"
 empirical-platform-receipt-label-cutoff-view = "empirical_platform.entrypoints.get_attested_evidence_report:main"
+empirical-platform-capture-evaluation-evidence-watermark = "empirical_platform.entrypoints.capture_evaluation_evidence_watermark:main"
+empirical-platform-get-evaluation-evidence-watermark = "empirical_platform.entrypoints.get_evaluation_evidence_watermark:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -198,6 +200,23 @@ source = ["empirical_platform"]
 # offline coverage of already-DB-tested orchestration code would be new,
 # unprecedented test infrastructure disproportionate to the fractional
 # (0.05 point) gap it would close.
+#
+# MILESTONE-083 owner review (REV-004): an earlier candidate lowered this
+# floor to 78 for a measured 0.05-point gap. That gap is now closed by real
+# tests rather than by weakening the gate: `PostgresEvaluationEvidenceWatermark
+# Repository.capture`/`.get` are now covered offline by a hand-written fake
+# that duck-types the narrow `unit_of_work()`/`execute()` surface (SQL
+# dispatch shape, the existing-row fast path, conflict/read-back, and
+# unrelated-error propagation -- see
+# tests/unit/test_postgres_evaluation_evidence_watermark_repository.py). That
+# fake never simulates what the BEFORE INSERT trigger computes -- it only
+# scripts pre-baked rows so the REPOSITORY CLASS's own Python branching, not
+# PostgreSQL's, is what is exercised offline. Real PostgreSQL snapshot/
+# trigger/concurrency semantics remain covered exclusively by the 33 real
+# hostile-attack tests plus the fresh second-pass suite against a live
+# database (tests/integration/test_m083_evaluation_evidence_watermark_
+# lifecycle.py, test_m083_evaluation_evidence_watermark_second_pass.py). The
+# floor is restored to 79, its value from M070 through M082.
 fail_under = 79
 show_missing = true
 skip_covered = true

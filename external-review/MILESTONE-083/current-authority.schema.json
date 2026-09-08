@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "M083 canonical authority contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "milestone",
+    "authority_version",
+    "title",
+    "proves",
+    "does_not_prove",
+    "database_enforcement",
+    "structural_limitations",
+    "intended_future_use"
+  ],
+  "properties": {
+    "milestone": {
+      "const": "M083"
+    },
+    "authority_version": {
+      "const": 1
+    },
+    "title": {
+      "const": "Persisted Receipt-Set Evaluation Evidence Watermark"
+    },
+    "proves": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "stable_watermark_governance_identity",
+          "exact_receipt_governance_id_set_visible_to_capture_statement_snapshot",
+          "canonical_deterministic_storage_order",
+          "stored_set_stable_against_later_receipt_activity",
+          "row_level_update_delete_refused_while_installed_trigger_is_active"
+        ]
+      }
+    },
+    "does_not_prove": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "research_session_decision_candidate_brief_or_evaluation_consumption",
+          "evaluation_time_capture_time_or_wall_clock_chronology",
+          "receipt_or_event_commit_time",
+          "historical_availability_at_an_arbitrary_cutoff",
+          "receipt_ordering_committed_prefix_or_sequence_authority",
+          "event_payload_current_or_historical",
+          "receipt_metadata_provenance",
+          "operator_or_broker_truth_fills_or_trades",
+          "every_m076_event_has_a_receipt",
+          "an_absent_receipt_did_not_exist_at_another_time",
+          "the_set_represents_all_operator_evidence",
+          "future_tail_or_excluded_receipt_count",
+          "cryptographic_sealing",
+          "protection_against_ddl_trigger_disable_truncate_drop_or_superuser",
+          "profitability_performance_advice_or_live_trading_readiness"
+        ]
+      }
+    },
+    "database_enforcement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capture_query_overwrites_caller_supplied_membership",
+        "canonical_deterministic_order",
+        "empty_set_explicit_not_null",
+        "row_level_update_delete_refused",
+        "identity_uniqueness_idempotency",
+        "ddl_authority_trigger_disable_truncate_drop_superuser"
+      ],
+      "properties": {
+        "capture_query_overwrites_caller_supplied_membership": {
+          "const": true
+        },
+        "canonical_deterministic_order": {
+          "const": true
+        },
+        "empty_set_explicit_not_null": {
+          "const": true
+        },
+        "row_level_update_delete_refused": {
+          "const": true
+        },
+        "identity_uniqueness_idempotency": {
+          "const": true
+        },
+        "ddl_authority_trigger_disable_truncate_drop_superuser": {
+          "const": false
+        }
+      }
+    },
+    "structural_limitations": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "row_level_update_delete_refusal_does_not_cover_truncate_drop_or_superuser",
+          "no_cryptographic_signature_and_no_monotonicity_enforcement",
+          "statement_snapshot_visibility_is_not_prior_commit_visibility",
+          "a_crash_between_capture_statement_start_and_commit_leaves_no_partial_row",
+          "the_watermark_cannot_report_how_much_evidence_it_excluded",
+          "watermark_identity_is_caller_supplied_and_carries_no_chronology_of_its_own"
+        ]
+      }
+    },
+    "intended_future_use": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "future_evaluation_context_milestone_may_bind_a_watermark_to_one_evaluation_not_started",
+          "m082_receipt_identity_attestation_is_not_replaced_or_strengthened_by_this_milestone"
+        ]
+      }
+    }
+  }
+}

@@ -25,6 +25,18 @@ ALLOWED: dict[str, set[str]] = {
     "decision_candidate": {"shared", "identifiers", "audit", "evidence"},
     "archive": {"shared", "identifiers", "evidence", "audit", "decision_candidate"},
     "application": {"shared"},
+    # MILESTONE-083 owner review (REV-005): an earlier candidate widened this
+    # edge to "decision_candidate" solely so `run_capture_evaluation_evidence_
+    # watermark`/`run_get_evaluation_evidence_watermark` could carry a return-
+    # type annotation for the domain type their usecase handlers return. That
+    # widening was unnecessary: `EvaluationEvidenceWatermark` is re-exported
+    # from `usecases.capture_evaluation_evidence_watermark.__all__` (the
+    # module already imports it for its own handler signatures), and
+    # "usecases" was already an allowed entrypoints edge -- see MILESTONE-083
+    # `entrypoints/capture_evaluation_evidence_watermark.py` and
+    # `entrypoints/get_evaluation_evidence_watermark.py`, which import the
+    # type from there instead of directly from `decision_candidate`. The
+    # allowlist below is therefore unchanged from its pre-MILESTONE-083 shape.
     "entrypoints": {"shared", "application", "identifiers", "usecases"},
     "usecases": {
         "shared",
