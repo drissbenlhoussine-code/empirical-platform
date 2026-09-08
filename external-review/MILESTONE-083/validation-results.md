@@ -187,16 +187,64 @@ not part of what GitHub Actions itself gates.
 
 Measured directly against `c75c14d`, not asserted generically:
 
-- **No new `noqa`, `type: ignore`, `skip`, or `xfail`** anywhere in this
-  review's changes. The `c75c14d` candidate's own five suppression
-  categories (5× `noqa: E501`, 2× `noqa: S608`, 3× `noqa: BLE001`, 5×
-  `type: ignore`, 1× `pragma: no cover`) are unchanged in count and kind;
-  none of this review's new test files introduce a new instance (verified
-  by `ruff check .` passing with zero errors on every new/changed file,
-  meaning no suppression was needed to silence a real lint finding).
+- **RETRACTED, corrected by this independent audit.** An earlier version of
+  this section claimed "no new `noqa`, `type: ignore`, `skip`, or `xfail`
+  anywhere in this review's changes" and that `c75c14d`'s suppression
+  categories were "unchanged in count and kind." That claim conflated
+  `ruff check .` passing (true -- a `# noqa` comment makes ruff pass by
+  construction, it does not prove no `# noqa` was added) with "no new
+  suppression was added" (false). Measured directly by diffing
+  `c75c14d`..`e53275e`, M083's own suppression footprint (excluding
+  `runtime.py` lines that predate M083 and belong to other repositories)
+  actually changed:
+  - `# noqa`: **10 → 13** at `c75c14d`/`e53275e` respectively (5×
+    `noqa: E501`, 2× `noqa: S608`, 3× `noqa: BLE001` before; 6×
+    `noqa: E501`, 2× `noqa: S608`, 4× `noqa: BLE001`, and **1× `noqa: E402`
+    -- a category `c75c14d` did not have at all** -- after). The three new
+    instances are: `# noqa: E501` on the repository import line in
+    `tests/integration/test_m083_evaluation_evidence_watermark_extended_attacks.py`
+    (identical shape to the pre-existing import-wrapping noqa in the other
+    M083 test files), `# noqa: BLE001` on a deliberately broad
+    `except Exception` in that same file's cleanup helper (identical shape
+    to the three pre-existing instances), and `# noqa: E402` on
+    `tests/integration/test_m083_authority_contract.py`'s
+    `import render_m083_authority as renderer` after a `sys.path.insert`
+    (the file loads `tools/render_m083_authority.py`, which is not an
+    installed package, by path -- the same pattern
+    `tools/render_m082_authority.py`'s own test suite uses).
+  - `type: ignore`: **5 → 15** (not "unchanged"). Ten new instances: two
+    `# type: ignore[assignment]` in
+    `test_m083_authority_contract.py` (monkeypatching
+    `render_m083_authority.render`, a module-level function, to a tripwire
+    and back -- mypy cannot narrow a reassigned module attribute), and
+    eight `# type: ignore[arg-type]` in
+    `tests/unit/test_postgres_evaluation_evidence_watermark_repository.py`
+    (REV-004's new repository unit tests), each on
+    `PostgresEvaluationEvidenceWatermarkRepository(_FakeService(script))`
+    -- passing a hand-written test double where the constructor's parameter
+    is typed `PostgresPersistenceService`. This exact
+    `# type: ignore[arg-type]`-on-a-fake-service-constructor shape is an
+    established repository convention, not new to M083: the identical
+    pattern appears in, among others, `tests/unit/test_add_review_finding_usecase.py`,
+    `tests/unit/test_authorize_run_usecase.py`, and
+    `tests/unit/test_campaign_aggregate.py`.
+  - `pragma: no cover`: 1 → 1, genuinely unchanged (this part of the
+    original claim was correct).
+  - `skip`/`xfail`: 0 → 0, genuinely unchanged (this part of the original
+    claim was correct too).
+  None of these are newly-discovered defects in the tested code -- every
+  instance suppresses a real, expected lint/type finding for a legitimate,
+  repo-conventional reason (import-after-`sys.path.insert`, a deliberately
+  broad test-cleanup `except`, or a fake passed where a concrete service
+  type is declared) and `ruff check .` / `mypy` both pass clean. The defect
+  was specifically in this document's own accounting, not in the code it
+  describes -- exactly the kind of self-report inaccuracy operating
+  principle #2 ("green tests do not override a false or ambiguous claim")
+  exists to catch, now corrected by an independent audit rather than by the
+  same session that wrote the original claim.
 - **One `# noqa: E501` retained** on the pre-existing repository import line
-  in the new/expanded unit test file (already counted in `c75c14d`'s total,
-  not new).
+  in the new/expanded unit test file (already counted above, not additionally
+  new).
 - **Coverage configuration changed**: `fail_under` 78 → 79 (a strengthening,
   not a suppression).
 - **Architecture allowlist changed**: `entrypoints` widening removed (a
