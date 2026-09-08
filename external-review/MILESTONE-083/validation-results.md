@@ -590,3 +590,142 @@ way.)
    the runs complete.
 
 None of the three is a product defect, and none is reported as a passing check.
+
+---
+
+## Non-negotiable completion table
+
+Every row below refers to work that was executed during the quantified
+exhaustion campaign at accepted engineering head
+`7291962054c27760dc69b35142371b8765d4cca2`, and to evidence already recorded
+in this document or in `hostile-review.md`. No row is marked `EXECUTED_PASS`
+on the strength of an argument; each names the command or test that produced
+it and the result that came back.
+
+| Requirement | Status | Evidence location | Exact command/test | Result |
+|---|---|---|---|---|
+| Three formally separate hostile passes | `EXECUTED_PASS` | `hostile-review.md` → "Quantified exhaustion campaign", Pass A/B/C | each pass begun from commit `2cadb91` / tree `2dfd62b1`, own checklist, fresh re-review after correction | 3 passes executed, 4 findings (AUD-001…004) |
+| Pass A minimum 20 database attacks, ≥8 independently written | `EXECUTED_PASS` | `hostile-review.md` → Pass A attack table | 28 attacks against live PostgreSQL 16.13; P1–P18b + A-N1…A-N8 | 28 executed, 18 novel — exceeds both minima |
+| Pass B minimum 15 authority mutations | `EXECUTED_PASS` | `hostile-review.md` → Pass B table | 20 mutations B01–B20 through `render_m083_authority.validate` with `render` replaced by a tripwire | 20/20 rejected structurally, render never reached |
+| Pass C minimum 15 governance attacks | `EXECUTED_PASS` | `hostile-review.md` → Pass C table | C01–C15 | 15 executed; C02/C03/C05 produced AUD-001/002/003/004 |
+| Three concurrency repetitions | `EXECUTED_PASS` | "Concurrency campaign — three clean repetitions" | `pytest <3 M083 integration files> -k "<14 IDs>" -v --no-cov -p no:randomly`, full `DROP`/`CREATE DATABASE` between runs | 14/14 three times; OIDs 285705/288361/291016; identical checksum `9ee18b94a9d5b75f…` |
+| Deterministic synchronization (no sleep-only proof) | `EXECUTED_PASS` | same section; `test_e7`, `test_e8`, `test_21`, `test_22` | `threading.Barrier`/`threading.Event`, row locks, advisory coordination | no test infers ordering from elapsed time |
+| 27 mutation experiments | `EXECUTED_PASS` | `hostile-review.md` → "Mutation / anti-vacuity matrix" | mutations 1–27, each applied in isolation with its named detecting test | 27/27 executed; 3 initially undetected → AUD-002/003/004 → re-run and detected |
+| Restoration proven after every mutation | `EXECUTED_PASS` | same matrix | `git checkout -- <file>` then `git diff --quiet <file>`; unmutated test re-run | every mutation restored byte-identical; none committed |
+| 10,000-receipt measurement | `EXECUTED_PASS` | "Performance and scale" table | real repository path, warm-up + 5 captures + 5 reads | capture 15.97/20.28 ms, get 6.47/7.42 ms, array 33,546 B, cardinality 10,000 |
+| 25,000-receipt measurement | `EXECUTED_PASS` | same table | as above | capture 52.91/54.43 ms, get 19.17/20.57 ms, array 83,741 B, cardinality 25,000 |
+| Five measured captures and five reads per size | `EXECUTED_PASS` | same section | 1 discarded warm-up, then 5 distinct watermark identities per size; setup outside every measured interval | median and max reported per size (5 samples cannot estimate p95) |
+| Row-mapping fail-closed decision | `EXECUTED_PASS` | `hostile-review.md` → AUD-001 | `_row_to_watermark` strict typing; `test_row_to_watermark_refuses_*` (unit) + `test_e11_…` (real DB) | coercion removed; corrupted row refused end-to-end with the position and actual type named |
+| All alternative SQL paths | `EXECUTED_PASS` | `hostile-review.md` → Pass A table P1–P18b | omitted/NULL/empty/subset/superset/duplicate/reverse membership, `INSERT…SELECT`, multi-row, `PREPARE`, repository, raw SQL, `COPY`, both `ON CONFLICT` forms, `search_path`, pg_temp table+function, trigger ordering | 18 paths executed; every sanctioned path stored exactly `{RC-1,RC-2,RC-3}` |
+| All 29 changed files individually audited | `EXECUTED_PASS` | "File-by-file final PR audit" below | one row per path; equality proven mechanically against `git diff --name-only` | 29 rows, no duplicate, no omission |
+| Authority/runtime bijection | `EXECUTED_PASS` | `hostile-review.md` → Pass B, and this document | all 15 required points executed against the committed contract, schema, document, domain type and runtime renderers | 15/15 PASS; Markdown byte-identical at 3,601 bytes |
+| PostgreSQL-off baseline | `EXECUTED_PASS` | "Full regression" table | `python -m pytest -q` at `45016d7` in an isolated worktree/venv | 8 failed / 2,376 passed / 667 skipped / 12 errors |
+| PostgreSQL-on baseline | `EXECUTED_PASS` | same | same, `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1`, freshly created database | 24 failed / 2,981 passed / 14 skipped / 44 errors |
+| PostgreSQL-off candidate | `EXECUTED_PASS` | same | `python -m pytest -q` at this head | 8 failed / 2,497 passed / 718 skipped / 12 errors |
+| PostgreSQL-on candidate | `EXECUTED_PASS` | same | same with PostgreSQL enabled, freshly created database | 24 failed / 3,153 passed / 14 skipped / 44 errors |
+| Failing/error ID diff empty in both modes | `EXECUTED_PASS` | same | `comm -13` / `comm -23` over sorted `FAILED`/`ERROR` ID sets | EMPTY both directions; 20 ≡ 20 off, 68 ≡ 68 on |
+| Delta reconciliation with no remainder | `EXECUTED_PASS` | "Delta reconciliation" | per-file `pytest --collect-only -q` over the 9 M083 files | 172 tests; +172 passed on, +121 passed / +51 skipped off, 121+51=172 |
+| 24-versus-26 discrepancy resolved | `EXECUTED_PASS` | "Baseline discrepancy" | both role conditions reproduced: superuser vs `NOSUPERUSER NOCREATEROLE` | exactly two `CREATE ROLE` test IDs named; 24 and 26 each reproduced on demand |
+| Coverage gate at 79 | `EXECUTED_PASS` | "Suppression and configuration accounting" | `python -m pytest -q` with `fail_under = 79` | `Required test coverage of 79.0% reached. Total coverage: 79.19%` |
+| Coverage negative control | `EXECUTED_PASS` | same | temporarily set `fail_under = 80`, full suite, then restored | `FAIL Required test coverage of 80.0% not reached. Total coverage: 79.19%`; restored byte-identical |
+| Architecture positive control | `EXECUTED_PASS` | "Quality gates" | `python tools/check_architecture.py .` | exit 0 |
+| Architecture negative control | `EXECUTED_PASS` | same | `python tools/check_architecture.py tests/fixtures/illegal_imports` | exit 1, 32 violations |
+| Suppression accounting, mechanical | `EXECUTED_PASS` | "Suppression and configuration accounting" | walk of `git diff -U0 45016d7 HEAD` over the 20 changed `.py` files, added lines only | 31 added suppressions with exact file:line; 0 skips, 0 xfails, 0 warning filters, 0 coverage exclusions |
+| Frozen-path preservation | `EXECUTED_PASS` | "Frozen milestones" | `git diff --name-only 45016d7 HEAD` filtered for M057/M070/M076–M082 | no frozen path appears; M082 production files byte-identical |
+| `PROJECT_CHECKPOINT.md` byte equality | `EXECUTED_PASS` | same | `git diff --quiet 45016d7 HEAD -- PROJECT_CHECKPOINT.md` | byte-identical (M083 branch content only; the Owner freeze that follows merge is a separate authorized action) |
+| M084 absence | `EXECUTED_PASS` | same | `find . -iname "*m084*" -not -path "./.git/*"` | no file |
+| Migration up / down / up | `EXECUTED_PASS` | "Quality gates" | live `alembic downgrade -1` then `alembic upgrade head` on a real database | M083 table and both functions removed then restored; capture works after the cycle |
+| M082 survives the M083 downgrade, behaviourally | `EXECUTED_PASS` | same | `UPDATE operator_event_receipt …` while M083 is downgraded | rows 3→3, triggers 2→2, and `operator_event_receipt is append-only: UPDATE is not permitted` still raised |
+| Clean historical installation | `EXECUTED_PASS` | same | `alembic upgrade head` from an empty schema on every database created in the campaign | complete migration chain applied cleanly each time |
+| M082 suites | `EXECUTED_PASS` | same | `pytest tests/integration/test_m082_operator_event_receipt_lifecycle.py -q --no-cov` | 184 passed |
+| M083 suites | `EXECUTED_PASS` | same | `pytest <all 9 M083 files> -q --no-cov` | 172 passed |
+| Build, wheel, clean-environment import, CLI | `EXECUTED_PASS` | same | `python -m build`; fresh 3.13 venv install; both console scripts | sdist+wheel built; import OK; live capture/get round trip returning the exact 4-key JSON and `{RC-1,RC-2,RC-3}`; missing watermark exit code 1 |
+| Dependency audit and secret scan | `EXECUTED_PASS` | same | `python -m pip_audit`; `python tools/secret_scan_targets.py --scan-json` | `No known vulnerabilities found`; `results: {}` |
+| `changed-files.txt` equality | `EXECUTED_PASS` | same | `diff <(git diff --name-only 45016d7 HEAD \| sort) <(sort changed-files.txt)` | exact match, 29 files |
+| Local head equals remote PR head | `EXECUTED_PASS` | same | `git rev-parse HEAD` vs `git ls-remote origin <branch>` | identical at `7291962` |
+| CI at the accepted engineering head | `EXECUTED_PASS` | PR #13 checks | workflow `foundation`, runs 34215348792 (push) and 34215351324 (pull_request) | both `success`; all 17 job steps `success` |
+
+A note on the last row, stated rather than glossed: this table is committed in
+the same document whose commit CI has not yet run at authoring time. A
+document cannot cite the result of a check on the commit that first contains
+it without a recursive cycle — the same reason this repository's freeze
+procedure records `PENDING` and then a hash in a second commit. The CI result
+for the documentation-only head is therefore verified after push and recorded
+in the PR body, not back-dated into this table.
+
+## File-by-file final PR audit
+
+One row per path in `git diff --name-only 45016d7cb79381d9ff8f90a410f57d5a22473269..HEAD`.
+Classification marks shared-governance files explicitly, since those are the
+only paths in this PR that other milestones also depend on. This table is
+**validation evidence, not authority** — the authority remains
+`current-authority.json` alone.
+
+| # | Path | Classification | Purpose | Claims/behavior | Executable coverage | Suppressions | Final result |
+|---|---|---|---|---|---|---|---|
+| 1 | `external-review/MILESTONE-083/README.md` | evidence | package index | none — points at the authority | n/a (prose index) | none | `PASS` |
+| 2 | `external-review/MILESTONE-083/changed-files.txt` | evidence | the PR's own file manifest | none | mutation 26; exact `diff` against `git diff --name-only` | none | `PASS` |
+| 3 | `external-review/MILESTONE-083/current-authority.json` | **authority** | the single machine-readable claim set | 5 `proves`, 15 `does_not_prove`, 6 enforcement keys, 6 limitations, 2 future-use | `test_1`, `test_the_contract_states_exactly_the_approved_claim_sets`, Pass B B01–B20 | none | `PASS` |
+| 4 | `external-review/MILESTONE-083/current-authority.md` | **authority (generated)** | deterministic rendering of the contract | mirrors the JSON exactly | `test_2` byte-identical (3,601 B), `test_29`, renderer `--check`, mutation 23 | none | `PASS` |
+| 5 | `external-review/MILESTONE-083/current-authority.schema.json` | **authority (schema)** | closes the claim universe structurally | closed enums, exact cardinality, `additionalProperties:false`, `authority_version` const 1 | `test_3`–`test_20`, `test_the_schema_admits_exactly_the_approved_identifier_universe` (AUD-002), mutations 1–9 | none | `PASS` |
+| 6 | `external-review/MILESTONE-083/hostile-review.md` | evidence | adversarial findings, three passes, mutation matrix | none — records findings | n/a (prose evidence) | none | `PASS` |
+| 7 | `external-review/MILESTONE-083/scope-and-design.md` | evidence | design rationale and rejected candidates | none — explicitly not authority | n/a (prose evidence) | none | `PASS` |
+| 8 | `external-review/MILESTONE-083/validation-results.md` | evidence | measured results, this table | none — records measurements | n/a (prose evidence) | none | `PASS` |
+| 9 | `migrations/versions/9e4e647347ad_…_schema.py` | **migration** | table, capture trigger, immutability trigger | statement-snapshot capture, canonical `COLLATE "C"` order, explicit empty array, row-level UPDATE/DELETE refusal | 33 lifecycle + 13 extended attacks; mutations 10–14; live up/down/up | none | `PASS` |
+| 10 | `pyproject.toml` | **shared governance** | coverage floor and packaging | `fail_under = 79` (restored by REV-004) | coverage gate live; mutation 24 negative control | none | `PASS` |
+| 11 | `src/…/decision_candidate/evaluation_evidence_watermark.py` | production (domain) | the frozen watermark value type | bounded stability wording; no duplicates; canonical order; count derived not stored | `test_decision_candidate_evaluation_evidence_watermark.py` (13); mutations 16, 17; bijection points 7–8 | none | `PASS` |
+| 12 | `src/…/decision_candidate/evaluation_evidence_watermark_repository.py` | production (protocol) | repository port | bounded stability wording only | exercised through every repository test | none | `PASS` |
+| 13 | `src/…/entrypoints/capture_evaluation_evidence_watermark.py` | production (entrypoint) | capture CLI | no claim beyond the banner | `test_m083_evaluation_evidence_watermark_cli.py` (16); live installed-script round trip | none | `PASS` |
+| 14 | `src/…/entrypoints/get_evaluation_evidence_watermark.py` | production (entrypoint) | read CLI | reads the stored set only | same; exit code 1 on a missing watermark | `noqa: E501` ×1 (usage string) | `PASS` |
+| 15 | `src/…/postgres_repositories/evaluation_evidence_watermark_repository.py` | production (adapter) | capture/get, conflict read-back, **fail-closed row mapping** | never computes membership; refuses malformed persisted values (AUD-001) | `test_postgres_evaluation_evidence_watermark_repository.py` (22), `test_e11`/`test_e12`; mutations 15, 18, 19, 20 | `pragma: no cover` ×1 (unreachable conflict branch) | `PASS` |
+| 16 | `src/…/postgres_repositories/runtime.py` | **shared governance** | composition-root wiring | none — wiring only | exercised by every integration test through `postgres_repository_runtime` | `noqa: E501` ×1 (M083 import line; the other 16 predate M083) | `PASS` |
+| 17 | `src/…/usecases/capture_evaluation_evidence_watermark.py` | production (usecase) | command/handlers, re-exports the domain type | no claim; the REV-005 seam | `test_m083_evaluation_evidence_watermark_handlers.py` (6); AUD-003 test asserts the re-export exists | none | `PASS` |
+| 18 | `src/…/usecases/evaluation_evidence_watermark_io.py` | production (renderers) | text and JSON runtime output | closed 4-key JSON; banner states the non-claims | `test_evaluation_evidence_watermark_io.py` (5), `test_31`, `test_33`; mutations 21, 22 | none | `PASS` |
+| 19 | `tests/integration/test_m083_authority_contract.py` | test | authority attack suite (REV-002) | asserts claims, makes none | 59 tests, self-covering; anti-vacuity campaign inside | `noqa: E402` ×1, `noqa: PLC0415` ×2, `type: ignore[assignment]` ×2 | `PASS` |
+| 20 | `tests/integration/…_extended_attacks.py` | test | E1–E13 PostgreSQL attacks | asserts behaviour, makes none | 13 tests incl. E11/E12 (AUD-001) and E13 (AUD-004) | `noqa: BLE001` ×1, `noqa: E501` ×1 | `PASS` |
+| 21 | `tests/integration/…_lifecycle.py` | test | the 33 original hostile attacks | asserts behaviour, makes none | 33 tests; 12 of the 14 concurrency IDs live here | `noqa: BLE001` ×2, `noqa: E501` ×2, `noqa: S608` ×2, `type: ignore[attr-defined]` ×1 | `PASS` |
+| 22 | `tests/integration/…_second_pass.py` | test | independent fresh-database second pass | asserts behaviour, makes none | 5 tests; 2 concurrency IDs | `noqa: BLE001` ×1 | `PASS` |
+| 23 | `tests/unit/test_decision_candidate_evaluation_evidence_watermark.py` | test | domain invariants | asserts, makes none | 13 tests; detects mutations 16, 17 | `type: ignore[misc]` ×1 (frozen-dataclass assignment) | `PASS` |
+| 24 | `tests/unit/test_evaluation_evidence_watermark_io.py` | test | pure renderer unit tests | asserts, makes none | 5 tests; detects mutation 21 | none | `PASS` |
+| 25 | `tests/unit/test_m083_evaluation_evidence_watermark_cli.py` | test | CLI argument/output handling | asserts, makes none | 16 tests | `type: ignore[attr-defined]` ×3 | `PASS` |
+| 26 | `tests/unit/test_m083_evaluation_evidence_watermark_handlers.py` | test | handler wiring against a fake repository | asserts, makes none | 6 tests | none | `PASS` |
+| 27 | `tests/unit/test_postgres_evaluation_evidence_watermark_repository.py` | test | repository control flow + strict mapping | asserts, makes none | 22 tests; detects mutations 15, 18, 19, 20; carries the retracted-predecessor note | `noqa: E501` ×1, `type: ignore[arg-type]` ×8 | `PASS` |
+| 28 | `tools/check_architecture.py` | **shared governance** | module-boundary checker | `ALLOWED["entrypoints"]` byte-identical to its pre-M083 value (REV-005) | positive exit 0 / negative exit 1 (32); AUD-003 test; mutation 25 | none | `PASS` |
+| 29 | `tools/render_m083_authority.py` | tool | schema validator and deterministic renderer | renders, never invents; refuses to emit an unvalidated identifier | `test_35`, `test_36`, `--check`; Pass B tripwire proves validate-before-render | none | `PASS` |
+
+**Mechanical equality proof.** This table is not eyeballed against Git. A
+one-time checker parses the numbered rows above out of this very file,
+resolves each abbreviated `src/…/` path back to the unique Git path it can
+only mean (refusing to proceed if any abbreviation is ambiguous), and asserts
+set equality, the count, the absence of duplicates, and contiguous 1..29
+numbering:
+
+```python
+BASE = BASE_MASTER_SHA   # the base master commit named at the top of this document
+git_paths = sorted(subprocess.run(
+    ["git", "diff", "--name-only", BASE, "HEAD"],
+    capture_output=True, text=True, check=True).stdout.split())
+
+section = DOC.read_text(encoding="utf-8").split("## File-by-file final PR audit", 1)[1]
+rows = re.findall(r"^\|\s*(\d+)\s*\|\s*`([^`]+)`\s*\|", section, re.MULTILINE)
+resolved = sorted(resolve(p) for _, p in rows)   # resolve() rejects ambiguity
+
+assert resolved == git_paths
+assert len(resolved) == 29 and len(set(resolved)) == 29
+assert [int(n) for n, _ in rows] == list(range(1, 30))
+```
+
+Executed output:
+
+```
+matrix paths == git changed paths : True
+matrix path count                 : 29
+git changed path count            : 29
+duplicate paths                   : 0
+row numbering contiguous 1..29    : True
+checker exit: 0
+```
+
+The checker is a one-time verification, not a committed test: like
+`changed-files.txt`'s own equality check, it is anchored to a review base SHA
+that stops being meaningful once this branch merges.
