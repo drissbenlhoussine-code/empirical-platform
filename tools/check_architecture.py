@@ -109,6 +109,39 @@ FORBIDDEN_IMPORT_PREFIXES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# MILESTONE-084: order-submission dependencies, forbidden everywhere.
+#
+# MILESTONE-084 produces approved order INTENTS and must be technically
+# incapable of sending an order. A refusal that lives only in a code review is
+# not a capability boundary, so the boundary is enforced statically: no module
+# of this package may import a client that can place, modify or cancel an order
+# at a broker or exchange.
+#
+# This deny-list names order-submission clients specifically. Market-data-only
+# libraries are deliberately absent -- listing them would make the rule read as
+# a general "no finance libraries" ban and would say nothing about submission,
+# which is the capability actually being denied.
+#
+# Unlike FORBIDDEN_IMPORT_PREFIXES, this applies to EVERY source module rather
+# than to a named set. A per-module list would let a future package acquire the
+# capability simply by not having an entry.
+ORDER_SUBMISSION_PREFIXES: tuple[str, ...] = (
+    "alpaca",  # alpaca-py: TradingClient.submit_order
+    "alpaca_trade_api",  # the older Alpaca SDK: REST.submit_order
+    "ib_insync",  # Interactive Brokers: IB.placeOrder
+    "ibapi",  # the official IB API: EClient.placeOrder
+    "ibind",  # IB Web API client: place_order
+    "ccxt",  # unified exchange API: create_order
+    "quickfix",  # FIX engine: NewOrderSingle
+    "simplefix",  # FIX message construction
+    "oandapyV20",  # OANDA: OrderCreate
+    "robin_stocks",  # Robinhood: order_buy_*
+    "kiteconnect",  # Zerodha Kite: place_order
+    "tda",  # TD Ameritrade: place_order
+    "schwab",  # Schwab trader API
+    "binance",  # Binance: create_order
+)
+
 
 def module_for_path(path: Path, root: Path) -> str | None:
     """Return the top-level empirical_platform module for a file."""
@@ -162,6 +195,15 @@ def check_path(root: Path) -> list[str]:
                 raw_imported_name = next((alias.name for alias in node.names), None)
             elif raw_imported_name is None and isinstance(node, ast.ImportFrom):
                 raw_imported_name = node.module
+            if raw_imported_name is not None and any(
+                raw_imported_name == forbidden or raw_imported_name.startswith(f"{forbidden}.")
+                for forbidden in ORDER_SUBMISSION_PREFIXES
+            ):
+                violations.append(
+                    f"{path}: {source_module} may not import order-submission "
+                    f"dependency {raw_imported_name}"
+                )
+                continue
             forbidden_prefixes = FORBIDDEN_IMPORT_PREFIXES.get(source_module, ())
             if source_module == "shared" and "domain" not in path.parts:
                 forbidden_prefixes = ()
