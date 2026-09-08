@@ -21,6 +21,13 @@ from empirical_platform.shared.persistence.postgres_repositories.dataset_snapsho
 from empirical_platform.shared.persistence.postgres_repositories.decision_candidate_repository import (  # noqa: E501
     PostgresDecisionCandidateRepository,
 )
+from empirical_platform.shared.persistence.postgres_repositories.decision_to_approval_repositories import (  # noqa: E501
+    PostgresApprovalDecisionRepository,
+    PostgresApprovedOrderIntentRepository,
+    PostgresEvaluationContextRepository,
+    PostgresOperatorTradingConfigurationRepository,
+    PostgresTradeProposalRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.evaluation_evidence_watermark_repository import (  # noqa: E501
     PostgresEvaluationEvidenceWatermarkRepository,
 )
@@ -120,6 +127,11 @@ class PostgresRepositoryRuntime:
         "_operator_event_receipts",
         "_operator_position_ledger",
         "_evaluation_evidence_watermarks",
+        "_operator_trading_configurations",
+        "_evaluation_contexts",
+        "_trade_proposals",
+        "_approval_decisions",
+        "_approved_order_intents",
     )
 
     def __init__(self, service: PostgresPersistenceService) -> None:
@@ -159,10 +171,39 @@ class PostgresRepositoryRuntime:
         self._evaluation_evidence_watermarks = PostgresEvaluationEvidenceWatermarkRepository(
             service
         )
+        self._operator_trading_configurations = PostgresOperatorTradingConfigurationRepository(
+            service
+        )
+        self._evaluation_contexts = PostgresEvaluationContextRepository(service)
+        self._trade_proposals = PostgresTradeProposalRepository(service)
+        self._approval_decisions = PostgresApprovalDecisionRepository(service)
+        self._approved_order_intents = PostgresApprovedOrderIntentRepository(service)
 
     @property
     def campaigns(self) -> PostgresCampaignRepository:
         return self._campaigns
+
+    @property
+    def operator_trading_configurations(
+        self,
+    ) -> PostgresOperatorTradingConfigurationRepository:
+        return self._operator_trading_configurations
+
+    @property
+    def evaluation_contexts(self) -> PostgresEvaluationContextRepository:
+        return self._evaluation_contexts
+
+    @property
+    def trade_proposals(self) -> PostgresTradeProposalRepository:
+        return self._trade_proposals
+
+    @property
+    def approval_decisions(self) -> PostgresApprovalDecisionRepository:
+        return self._approval_decisions
+
+    @property
+    def approved_order_intents(self) -> PostgresApprovedOrderIntentRepository:
+        return self._approved_order_intents
 
     @property
     def runs(self) -> PostgresRunRepository:

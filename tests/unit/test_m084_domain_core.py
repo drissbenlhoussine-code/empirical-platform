@@ -508,6 +508,28 @@ class TestProposalFingerprint:
         altered = replace(proposal, **{field: value})
         assert compute_fingerprint(altered) == proposal.content_fingerprint
 
+    @pytest.mark.parametrize(
+        ("field", "rescaled"),
+        [
+            ("limit_price", Decimal("200.10000000")),
+            ("estimated_notional", Decimal("1800.900")),
+            ("estimated_fees", Decimal("1")),
+            ("stop_loss_price", Decimal("196.1")),
+        ],
+    )
+    def test_the_digest_depends_on_the_amount_and_not_on_its_scale(
+        self, field: str, rescaled: Decimal
+    ) -> None:
+        # A NUMERIC(20,8) column returns 200.10000000 for a price stored as
+        # 200.10. That is the same price, so it must be the same digest --
+        # otherwise every proposal read back from the database would look
+        # tampered with.
+        proposal = a_proposal()
+        assert getattr(proposal, field) == rescaled, "the test's own premise"
+        assert compute_fingerprint(a_variant(proposal, **{field: rescaled})) == (
+            proposal.content_fingerprint
+        )
+
     def test_a_proposal_whose_digest_does_not_match_its_terms_is_refused(self) -> None:
         proposal = a_proposal()
         with pytest.raises(ValueError):

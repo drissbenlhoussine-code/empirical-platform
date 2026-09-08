@@ -370,6 +370,19 @@ class _AuthorizedTerms(TypedDict):
     expires_at: datetime
 
 
+def _money(value: Decimal) -> str:
+    """Render one amount for the digest, by value rather than by scale.
+
+    `normalize()` first, deliberately. A price is the same price whether it
+    reached here as `200.10` or as the `200.10000000` that a NUMERIC(20,8)
+    column returns, and a digest that disagreed with itself across a database
+    round trip would report every re-read proposal as tampered with. `"f"`
+    formatting then keeps a normalized whole number out of exponent notation,
+    so `2000` never renders as `2E+3`.
+    """
+    return format(value.normalize(), "f")
+
+
 def _fingerprint_digest(terms: _AuthorizedTerms) -> str:
     """The one definition of the digest, over values rather than an instance.
 
@@ -389,14 +402,14 @@ def _fingerprint_digest(terms: _AuthorizedTerms) -> str:
             terms["side"],
             str(terms["quantity"]),
             terms["order_type"].value,
-            "" if limit_price is None else format(limit_price, "f"),
+            "" if limit_price is None else _money(limit_price),
             terms["currency"],
-            format(terms["estimated_notional"], "f"),
-            format(terms["estimated_fees"], "f"),
-            format(terms["estimated_slippage_amount"], "f"),
-            format(terms["estimated_total_cash_required"], "f"),
-            format(terms["stop_loss_price"], "f"),
-            format(terms["profit_exit_price"], "f"),
+            _money(terms["estimated_notional"]),
+            _money(terms["estimated_fees"]),
+            _money(terms["estimated_slippage_amount"]),
+            _money(terms["estimated_total_cash_required"]),
+            _money(terms["stop_loss_price"]),
+            _money(terms["profit_exit_price"]),
             terms["mandatory_liquidation_at"].astimezone(UTC).isoformat(),
             terms["expires_at"].astimezone(UTC).isoformat(),
         )

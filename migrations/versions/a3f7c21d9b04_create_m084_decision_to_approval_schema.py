@@ -344,14 +344,23 @@ FOR EACH ROW EXECUTE FUNCTION public.m084_append_only()
 """
 
 
+_RISK_CHECK_IMMUTABLE_TRIGGER = """
+CREATE TRIGGER trade_proposal_risk_check_append_only_trigger
+BEFORE UPDATE OR DELETE ON public.trade_proposal_risk_check
+FOR EACH ROW EXECUTE FUNCTION public.m084_append_only()
+"""
+
+
 def upgrade() -> None:
     _create_configuration_table()
     _create_evaluation_context_table()
     _create_proposal_table()
+    _create_risk_check_table()
     _create_decision_table()
     _create_intent_table()
 
     op.execute(_IMMUTABLE_FUNCTION)
+    op.execute(_RISK_CHECK_IMMUTABLE_TRIGGER)
     op.execute(_PROPOSAL_UPDATE_FUNCTION)
     op.execute(_PROPOSAL_UPDATE_TRIGGER)
     op.execute(_PROPOSAL_DELETE_TRIGGER)
@@ -616,6 +625,53 @@ def _create_proposal_table() -> None:
     )
 
 
+def _create_risk_check_table() -> None:
+    """The gates one proposal passed, kept as evidence rather than as output.
+
+    Deliberately NOT part of the fingerprint: a proposal that moves from
+    PREPARED to APPROVED is the same order, and making the digest depend on
+    diagnostic text would break that. They are stored all the same, because
+    "which rules did this pass, and what did each one see" is exactly the
+    question an operator asks months later, and an answer that has to be
+    re-derived from code that has since changed is not an answer.
+
+    `outcome` is constrained to PASSED. That is not a formality: a proposal
+    only exists when every applicable check passed, so a stored FAILED or
+    UNKNOWN row would describe a proposal that should never have been
+    prepared. The column is stored rather than assumed so the record states
+    what it means instead of leaving it to be inferred.
+    """
+    op.create_table(
+        "trade_proposal_risk_check",
+        sa.Column("proposal_governance_id", sa.String(length=64), nullable=False),
+        sa.Column("check_id", sa.String(length=64), nullable=False),
+        sa.Column("ordinal", sa.Integer(), nullable=False),
+        sa.Column("outcome", sa.String(length=16), nullable=False),
+        sa.Column("detail", sa.Text(), nullable=False),
+        sa.PrimaryKeyConstraint(
+            "proposal_governance_id", "check_id", name="pk_trade_proposal_risk_check"
+        ),
+        sa.ForeignKeyConstraint(
+            ["proposal_governance_id"],
+            ["trade_proposal.proposal_governance_id"],
+            name="fk_trade_proposal_risk_check_proposal",
+        ),
+        sa.UniqueConstraint(
+            "proposal_governance_id",
+            "ordinal",
+            name="uq_trade_proposal_risk_check_ordinal",
+        ),
+        sa.CheckConstraint("ordinal >= 0", name="ck_trade_proposal_risk_check_ordinal"),
+        sa.CheckConstraint(
+            "outcome = 'PASSED'",
+            name="ck_trade_proposal_risk_check_passed_only",
+        ),
+        sa.CheckConstraint(
+            _not_blank("check_id"), name="ck_trade_proposal_risk_check_id_present"
+        ),
+    )
+
+
 def _create_decision_table() -> None:
     op.create_table(
         "trade_approval_decision",
@@ -790,6 +846,10 @@ def downgrade() -> None:
         "ON public.trade_approval_decision"
     )
     op.execute(
+        "DROP TRIGGER IF EXISTS trade_proposal_risk_check_append_only_trigger "
+        "ON public.trade_proposal_risk_check"
+    )
+    op.execute(
         "DROP TRIGGER IF EXISTS trade_proposal_refuse_delete_trigger ON public.trade_proposal"
     )
     op.execute(
@@ -798,6 +858,7 @@ def downgrade() -> None:
 
     op.drop_table("approved_order_intent")
     op.drop_table("trade_approval_decision")
+    op.drop_table("trade_proposal_risk_check")
     op.drop_table("trade_proposal")
     op.drop_table("evaluation_context")
     op.drop_table("operator_trading_configuration")

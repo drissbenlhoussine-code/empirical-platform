@@ -741,6 +741,81 @@ class TestProposalStateMachine:
         assert status == "PREPARED"
 
 
+RISK_CHECK: dict[str, object] = {
+    "proposal_governance_id": "PRP-0001",
+    "check_id": "kill_switch",
+    "ordinal": 0,
+    "outcome": "PASSED",
+    "detail": "kill switch DISENGAGED",
+}
+
+
+class TestRiskCheckEvidence:
+    """The gates a proposal passed are evidence, and evidence is append-only."""
+
+    def test_a_passed_check_is_storable(self, db: Connection) -> None:
+        _seed_to_proposal(db)
+        _insert(db, "trade_proposal_risk_check", RISK_CHECK)
+        stored = db.execute(text("SELECT count(*) FROM trade_proposal_risk_check")).scalar_one()
+        assert stored == 1
+
+    @pytest.mark.parametrize("outcome", ["FAILED", "UNKNOWN", "passed", ""])
+    def test_a_check_that_did_not_pass_cannot_be_stored_against_a_proposal(
+        self, db: Connection, outcome: str
+    ) -> None:
+        # A proposal only exists when every applicable check passed, so a
+        # stored FAILED row would describe a proposal that should never have
+        # been prepared.
+        _seed_to_proposal(db)
+        with _refused("passed_only"):
+            _insert(db, "trade_proposal_risk_check", RISK_CHECK, outcome=outcome)
+
+    def test_the_same_check_cannot_be_recorded_twice_for_one_proposal(self, db: Connection) -> None:
+        _seed_to_proposal(db)
+        _insert(db, "trade_proposal_risk_check", RISK_CHECK)
+        with _refused("pk_trade_proposal_risk_check"):
+            _insert(db, "trade_proposal_risk_check", RISK_CHECK, ordinal=1)
+
+    def test_two_checks_cannot_claim_the_same_position_in_the_evaluation(
+        self, db: Connection
+    ) -> None:
+        _seed_to_proposal(db)
+        _insert(db, "trade_proposal_risk_check", RISK_CHECK)
+        with _refused("risk_check_ordinal"):
+            _insert(db, "trade_proposal_risk_check", RISK_CHECK, check_id="market_status")
+
+    def test_a_check_for_a_proposal_that_does_not_exist_is_refused(self, db: Connection) -> None:
+        _seed_to_proposal(db)
+        with _refused("fk_trade_proposal_risk_check_proposal"):
+            _insert(db, "trade_proposal_risk_check", RISK_CHECK, proposal_governance_id="PRP-NOPE")
+
+    def test_a_negative_ordinal_is_refused(self, db: Connection) -> None:
+        _seed_to_proposal(db)
+        with _refused("risk_check_ordinal"):
+            _insert(db, "trade_proposal_risk_check", RISK_CHECK, ordinal=-1)
+
+    def test_a_blank_check_id_is_refused(self, db: Connection) -> None:
+        _seed_to_proposal(db)
+        with _refused("risk_check_id_present"):
+            _insert(db, "trade_proposal_risk_check", RISK_CHECK, check_id="  ")
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "UPDATE trade_proposal_risk_check SET detail = 'something else'",
+            "UPDATE trade_proposal_risk_check SET check_id = 'other_check'",
+            "DELETE FROM trade_proposal_risk_check",
+        ],
+    )
+    def test_recorded_evidence_can_never_be_rewritten_or_removed(
+        self, db: Connection, statement: str
+    ) -> None:
+        _seed_to_proposal(db)
+        _insert(db, "trade_proposal_risk_check", RISK_CHECK)
+        with _refused("append-only"):
+            db.execute(text(statement))
+
+
 # ===========================================================================
 # E. Decision admission
 # ===========================================================================
