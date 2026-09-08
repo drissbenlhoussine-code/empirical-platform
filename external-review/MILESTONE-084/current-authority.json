@@ -1,0 +1,60 @@
+{
+  "milestone": "M084",
+  "authority_version": 1,
+  "title": "Decision-to-Approval Product Core",
+  "proves": [
+    "one_versioned_operator_configuration_governing_one_evaluation",
+    "one_evaluation_context_bound_to_exactly_one_persisted_m083_watermark",
+    "the_receipt_count_and_set_digest_read_from_the_loaded_watermark_not_from_the_caller",
+    "deterministic_single_reason_no_trade_or_one_proposal_from_one_input_set",
+    "quantity_price_and_risk_verdict_derived_by_the_engine_never_supplied_by_the_caller",
+    "one_fingerprint_binding_one_approval_to_one_exact_set_of_order_terms",
+    "order_terms_immutable_after_insert_with_status_the_only_mutable_column",
+    "a_closed_proposal_state_machine_in_which_only_prepared_has_outgoing_edges",
+    "at_most_one_explicit_human_decision_per_proposal",
+    "at_most_one_order_intent_per_proposal_derived_from_that_decision",
+    "every_stored_intent_is_not_submitted_and_no_transition_away_from_it_exists",
+    "no_module_of_the_package_imports_an_order_submission_dependency"
+  ],
+  "does_not_prove": [
+    "that_an_asserted_quote_account_or_session_matches_what_the_market_or_broker_showed",
+    "that_the_m082_receipts_behind_the_watermark_describe_anything_historically_true",
+    "profitability_expected_return_or_advice",
+    "fillability_liquidity_at_the_proposed_price_or_execution_quality",
+    "broker_acceptance_of_the_intent_or_of_its_terms",
+    "that_an_approved_intent_was_will_be_or_can_be_sent_to_any_venue",
+    "paper_or_live_trading_readiness",
+    "regulatory_tax_or_reporting_compliance",
+    "protection_against_ddl_trigger_disable_truncate_drop_or_superuser",
+    "cryptographic_sealing_against_an_attacker_with_database_write_access",
+    "any_wall_clock_chronology_beyond_the_instants_the_caller_supplied",
+    "that_a_proposal_absent_from_the_table_was_never_evaluated"
+  ],
+  "database_enforcement": {
+    "unleveraged_long_only_intraday_preparation_mode_configuration_only": true,
+    "order_terms_immutable_after_insert": true,
+    "closed_proposal_state_machine_on_update": true,
+    "decision_admitted_only_against_a_prepared_proposal_with_a_matching_fingerprint": true,
+    "one_decision_per_proposal": true,
+    "one_intent_per_proposal": true,
+    "intent_terms_re_derived_from_the_proposal_and_decision_at_insert": true,
+    "submission_state_restricted_to_not_submitted": true,
+    "decisions_intents_and_risk_check_evidence_append_only": true,
+    "evaluation_context_requires_an_existing_watermark_row": true,
+    "ddl_authority_trigger_disable_truncate_drop_superuser": false
+  },
+  "structural_limitations": [
+    "row_level_refusals_do_not_cover_truncate_drop_disable_trigger_or_superuser",
+    "market_inputs_are_operator_asserted_and_are_never_verified_against_a_venue",
+    "the_fingerprint_is_a_change_detector_not_a_cryptographic_seal",
+    "risk_check_evidence_is_excluded_from_the_fingerprint_by_design",
+    "a_no_trade_is_not_persisted_so_the_tables_do_not_record_every_evaluation",
+    "the_engine_reads_no_clock_and_every_instant_it_records_was_supplied_to_it",
+    "the_liquidation_deadline_check_compares_local_times_not_an_exchange_calendar"
+  ],
+  "intended_future_use": [
+    "a_future_milestone_may_submit_an_intent_to_a_paper_account_it_is_not_started",
+    "such_a_milestone_must_add_a_submission_state_transition_in_the_open_because_none_exists",
+    "m083_watermark_authority_is_consumed_by_this_milestone_and_is_neither_replaced_nor_strengthened"
+  ]
+}
