@@ -34,10 +34,17 @@ not claim any decision used it. See `external-review/MILESTONE-083/
 current-authority.json` for the closed, machine-readable statement of this
 authority.
 
-IMMUTABILITY. Once persisted, a watermark's `receipt_governance_ids` never
-changes: a later receipt insertion, even a backdated one, cannot alter an
-existing watermark. Reading an existing watermark reads its stored set only
-and never re-consults the current receipt inventory.
+STORED-SET STABILITY, A BOUNDED CLAIM, NOT ABSOLUTE DATABASE IMMUTABILITY.
+Once persisted, a watermark's `receipt_governance_ids` does not change in
+response to later receipt or event activity: a later receipt insertion, even
+a backdated one, cannot alter an existing watermark, and reading an existing
+watermark reads its stored set only, never re-consulting the current receipt
+inventory. Separately, the row itself is protected only from ordinary
+row-level UPDATE and DELETE by the installed trigger (see the migration
+docstring). Neither guarantee is a claim about TRUNCATE, DROP, disabling the
+trigger, or superuser mutation, all of which remain outside this milestone's
+enforcement boundary -- see `current-authority.json`'s `does_not_prove` and
+`structural_limitations`.
 """
 
 from __future__ import annotations
@@ -65,7 +72,11 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class EvaluationEvidenceWatermark:
-    """One immutable, database-computed receipt-identity set.
+    """One stored, database-computed receipt-identity set, stable once persisted.
+
+    "Stable" here means the bounded guarantee stated in the module docstring
+    (stored-set stability plus row-level UPDATE/DELETE refusal) -- not
+    absolute database immutability.
 
     `receipt_governance_ids` is a TUPLE, not a set, because the database
     stores and this type preserves ONE canonical order (ascending, `COLLATE

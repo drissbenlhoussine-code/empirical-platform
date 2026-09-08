@@ -201,31 +201,22 @@ source = ["empirical_platform"]
 # unprecedented test infrastructure disproportionate to the fractional
 # (0.05 point) gap it would close.
 #
-# MILESTONE-083 note: this floor was 79 from M070 through M082 and is
-# lowered by exactly 1 point here, not routinely, for the same class of
-# reason M070 documented above, at the same order of magnitude (measured
-# offline gap: 0.05 points). `PostgresEvaluationEvidenceWatermarkRepository`
-# and the `run_capture_evaluation_evidence_watermark`/`run_get_evaluation_
-# evidence_watermark` composition bodies exist to prove ONE claim: that
-# PostgreSQL itself, via a real BEFORE INSERT trigger, computes the exact
-# stored receipt-identity set. Faking that with an in-memory SQLite engine
-# (the technique `tests/unit/test_m025_repository_runtime.py` uses for
-# simpler repositories) would require re-implementing the trigger's own
-# logic in Python test glue, which would then be the thing under test
-# instead of PostgreSQL -- exactly the dishonest substitution this
-# milestone's entire design exists to avoid. All 21 uncovered statements in
-# `evaluation_evidence_watermark_repository.py`, and the two CLI entry
-# points' `run_*` composition bodies (mirroring `entrypoints.create_run`'s
-# own `run_create_run`, which is offline-uncovered for the identical
-# precedented reason), are exhaustively covered by 33 real PostgreSQL
-# hostile-attack tests plus a fresh second-pass suite
-# (tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py,
-# test_m083_evaluation_evidence_watermark_second_pass.py). Every pure,
-# DB-independent piece of M083 (the domain model and its validation, both
-# renderers, both usecase handlers against an in-memory fake repository,
-# both CLI entry points' argv handling and output formatting via
-# monkeypatched `run_*` functions, and the repository's own pure row-mapping
-# helper) has dedicated unit tests.
-fail_under = 78
+# MILESTONE-083 owner review (REV-004): an earlier candidate lowered this
+# floor to 78 for a measured 0.05-point gap. That gap is now closed by real
+# tests rather than by weakening the gate: `PostgresEvaluationEvidenceWatermark
+# Repository.capture`/`.get` are now covered offline by a hand-written fake
+# that duck-types the narrow `unit_of_work()`/`execute()` surface (SQL
+# dispatch shape, the existing-row fast path, conflict/read-back, and
+# unrelated-error propagation -- see
+# tests/unit/test_postgres_evaluation_evidence_watermark_repository.py). That
+# fake never simulates what the BEFORE INSERT trigger computes -- it only
+# scripts pre-baked rows so the REPOSITORY CLASS's own Python branching, not
+# PostgreSQL's, is what is exercised offline. Real PostgreSQL snapshot/
+# trigger/concurrency semantics remain covered exclusively by the 33 real
+# hostile-attack tests plus the fresh second-pass suite against a live
+# database (tests/integration/test_m083_evaluation_evidence_watermark_
+# lifecycle.py, test_m083_evaluation_evidence_watermark_second_pass.py). The
+# floor is restored to 79, its value from M070 through M082.
+fail_under = 79
 show_missing = true
 skip_covered = true

@@ -34,9 +34,11 @@ class EvaluationEvidenceWatermarkRepository(Protocol):
         Idempotent BY IDENTITY: a second call with the same
         `watermark_governance_id` returns the already-persisted watermark
         unchanged rather than attempting a second capture. A watermark, once
-        persisted, is immutable -- retrying with the same id must never be
-        able to produce a different stored set for it, no matter what
-        receipts exist at retry time.
+        persisted, has a stable stored set -- retrying with the same id must
+        never be able to produce a different stored set for it, no matter
+        what receipts exist at retry time. This is the bounded stored-set
+        stability guarantee, not a claim of absolute database immutability
+        (see `evaluation_evidence_watermark.py`'s module docstring).
         """
         ...
 

@@ -14,6 +14,7 @@ from empirical_platform.decision_candidate.evaluation_evidence_watermark_reposit
 __all__ = [
     "CaptureEvaluationEvidenceWatermarkCommand",
     "CaptureEvaluationEvidenceWatermarkHandler",
+    "EvaluationEvidenceWatermark",
     "GetEvaluationEvidenceWatermarkHandler",
     "GetEvaluationEvidenceWatermarkQuery",
     "WatermarkNotFoundError",

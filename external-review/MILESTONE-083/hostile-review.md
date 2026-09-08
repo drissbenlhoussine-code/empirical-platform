@@ -124,6 +124,93 @@ trailing commas and re-serialized with the standard library `json` module.
 `ruff format`/`ruff check` are now invoked on `.py` targets only, never on
 `.json` paths.
 
+## Owner deep-closure review findings (REV-001 through REV-005)
+
+Reproduced and closed against the actual executable candidate at `c75c14d`,
+in the order the owner mission specified.
+
+**REV-001 — authority schema left `structural_limitations`/
+`intended_future_use` open to any regex-valid identifier.** Reproduced
+first: `renderer.validate()` accepted an invented identifier appended to
+`structural_limitations` (schema only enforced `pattern: "^[a-z0-9_]+$"`),
+and only `renderer.render()` then crashed with a bare `KeyError` -- an
+incidental failure, not a schema rejection, exactly as the finding states.
+Corrected by converting both arrays to closed `enum` lists with exact
+`minItems`/`maxItems` (6 and 2, matching the renderer's own `_LIMITATIONS`/
+`_FUTURE` dictionaries) -- the identical enum-closure technique already used
+for `proves`/`does_not_prove`. Re-verified with an isolated same-length swap
+(not merely an over-length append, which the `maxItems` check alone would
+have caught) to prove the enum closure itself, not just cardinality, is
+doing the rejecting. New dedicated suite:
+`tests/integration/test_m083_authority_contract.py` (57 tests, closing
+REV-002 in the same change).
+
+**REV-002 — no dedicated authority-contract attack suite existed.** Added
+`tests/integration/test_m083_authority_contract.py`, executing the real
+`validate()`/`render()`/`main()` against the real committed contract and
+schema. Covers all 36 items the mission specified (numbered `test_1_...`
+through `test_36_...` plus named coverage tests) and a four-part anti-vacuity
+campaign (`test_each_structural_rule_is_anti_vacuous`): closed-schema,
+enum-closure, byte-exact-rendering, and `authority_version`-const, each
+weakened, shown to pass the attack, then restored and shown to fail it
+again. All 57 tests pass.
+
+**REV-003 — `immutable_after_persistence` overclaimed absolute database
+immutability.** The rendered text read "immutability -- the stored set
+never changes once persisted, regardless of later receipt activity" as one
+of the four `proves` claims -- broader-sounding than the actual boundary
+(row-level UPDATE/DELETE refusal only; TRUNCATE/DROP/disable-trigger/
+superuser remain outside it, already correctly stated elsewhere in the same
+document's `does_not_prove`/`structural_limitations`, but the `proves` claim
+itself did not carry that qualifier inline). Corrected by retiring the
+identifier entirely and replacing it with two bounded claims exactly as
+named in the mission: `stored_set_stable_against_later_receipt_activity` and
+`row_level_update_delete_refused_while_installed_trigger_is_active`, each
+with its own precise, separately-qualified rendered sentence. `proves` grew
+from 4 to 5 items; schema, JSON, and renderer all updated together and
+re-verified with `--check`. The same bounded language was then applied
+consistently to `decision_candidate/evaluation_evidence_watermark.py`'s
+module and class docstrings (replacing a bare "IMMUTABILITY" section and a
+bare "One immutable, database-computed..." class summary) and to
+`evaluation_evidence_watermark_repository.py`'s protocol docstring
+("is immutable" -> "has a stable stored set", with an explicit pointer to
+the bounded-guarantee module docstring). The migration file's own docstring
+was already precisely bounded ("ROW-LEVEL UPDATE/DELETE IMMUTABILITY UNDER
+THE INSTALLED TRIGGER ONLY") and needed no correction.
+
+**REV-004 — coverage floor lowered to 78 rather than closing the real
+gap.** Measured the actual gap directly: `PostgresEvaluationEvidenceWatermark
+Repository.capture`/`.get` carried 21 uncovered statements (branches: the
+existing-row fast path, the INSERT happy path and its exact SQL shape, the
+conflict-and-read-back path, the no-readable-winner defensive branch, and
+unrelated-error propagation). Added `tests/unit/
+test_postgres_evaluation_evidence_watermark_repository.py`'s 8 new tests
+against a hand-written fake that duck-types the narrow `unit_of_work()`/
+`execute()` surface -- scripted rows only, never a simulation of what the
+BEFORE INSERT trigger computes (that remains exclusively PostgreSQL-tested).
+This raised measured offline coverage from 78.95% to 79.18%, clearing the
+original 79% floor with real margin, not by construction. `pyproject.toml`'s
+`fail_under` is restored to 79 (from 78). The two CLI `run_capture_.../
+run_get_...` composition bodies remain offline-uncovered by deliberate,
+precedented choice, matching `entrypoints.create_run`'s own `run_create_run`
+(no existing entrypoint in this ~80-entrypoint codebase unit-tests its own
+composition body by monkeypatching `postgres_repository_runtime`); they
+are exhaustively covered by the PostgreSQL integration suite instead.
+
+**REV-005 — `entrypoints -> decision_candidate` architecture widening was
+unnecessary.** The only reason for the widening was a return-type annotation
+on `run_capture_evaluation_evidence_watermark`/`run_get_evaluation_evidence_
+watermark`. `EvaluationEvidenceWatermark` was already imported into
+`usecases/capture_evaluation_evidence_watermark.py` for its own handler
+signatures; adding it to that module's `__all__` and having both entrypoints
+import the type from there instead of directly from `decision_candidate`
+resolves the annotation through an edge (`entrypoints -> usecases`) already
+present in the pre-M083 allowlist -- mirroring exactly how `entrypoints.
+create_run` already gets `RunId` through the pre-existing `identifiers`
+edge. `ALLOWED["entrypoints"]` is restored to its exact pre-M083 set
+(`{"shared", "application", "identifiers", "usecases"}`); both the positive
+checker and the negative fixture were re-verified.
+
 ## What the review looked for and did not find a defect in
 
 - Exact-set completeness against a direct SQL caller who supplies an omitted
@@ -172,3 +259,70 @@ attack passes; restore the rule, show the attack is rejected. The full
 33-test hostile suite was re-run after both checks and passed unchanged
 (the raw-SQL checks above ran against isolated, freshly truncated rows and
 left the schema in its correct, restored state).
+
+## Owner deep-closure review: extended attack campaign (E1-E10)
+
+Ten additional attacks, committed as `tests/integration/
+test_m083_evaluation_evidence_watermark_extended_attacks.py`, target SQL
+surfaces and isolation levels the original 33 did not exercise. All pass,
+repeated across five separate full runs of the combined M083 PostgreSQL
+suite (43 tests: 33 original + 10 extended) with no flake.
+
+| # | Attack | Result |
+|---|---|---|
+| E1 | Multi-row single-statement `INSERT ... VALUES (a),(b)` | Both rows independently receive the identical, complete set (row trigger, not statement-level) |
+| E2 | `INSERT ... SELECT 'id'` (derived source, not a literal VALUES list) | Fires identically; full set captured |
+| E3 | Caller supplies `ARRAY[]::text[]` while real receipts exist | Overwritten to the real, non-empty set |
+| E4 | Caller supplies explicit `NULL` for a `NOT NULL` column | Overwritten before NOT NULL is even checked (BEFORE ROW fires first) — real PostgreSQL semantics, not an M083-specific mechanism |
+| E5 | `COPY evaluation_evidence_watermark (watermark_governance_id) FROM STDIN` | Fires the identical row trigger |
+| E6 | Exactly 64 vs. 65-character identity | 64 succeeds; 65 rejected by the column type itself (`value too long`), independent of any Python-layer check |
+| E7 | REPEATABLE READ, snapshot pinned at first statement, a receipt committed mid-transaction from another connection | The pinned snapshot excludes it — genuinely different from the default per-statement READ COMMITTED behaviour attacks 18-19 measure |
+| E8 | SERIALIZABLE write-skew (two transactions each read `count(*)`, then each insert a different row) | A real serialization failure (SQLSTATE `40001`, "could not serialize access due to read/write dependencies") aborts exactly one side at commit; its retry then succeeds |
+| E9 | Named hostile schema (`hostile_evil_schema`, holding a shadow `operator_event_receipt` table) explicitly prepended to `search_path` | The trigger's own `SET search_path = pg_catalog, public` pins resolution; the forged receipt never appears |
+| E10 | Direct repository call with a blank identity, bypassing Python-layer command validation, reaching the real CHECK constraint (SQLSTATE `23514`) | `unique_violation_constraint_name` correctly returns `None`; the repository re-raises rather than misclassifying it as a PK conflict |
+
+**Independent database-design review (Phase D), findings that did NOT
+require any code change:** own-transaction-write visibility, later-commit
+exclusion, and same-transaction inclusion were re-derived from first
+principles against the live database rather than trusted from the existing
+33-attack report, and matched exactly. `array_agg(...COLLATE "C")` was
+confirmed stable across ASCII and a mixed-case sample. Receipt-identity
+`NULL`/duplicate prevention is M082's own primary-key/NOT NULL boundary,
+read-only from M083's side and unchanged. No rule, default, or second
+BEFORE INSERT trigger exists on this table to race with or bypass the
+capture trigger (confirmed by inspecting `pg_trigger`/`pg_rewrite` for this
+relation: exactly the two triggers the M083 migration installs, in the
+expected firing order).
+
+**Performance and scale characterization (Phase I), measured, not
+estimated.** Against the same local PostgreSQL 16.13 instance, single
+connection, no concurrent load:
+
+| Receipt-table size at capture | `capture()` latency | Stored array size (`pg_column_size`) | `get()` latency |
+|---|---|---|---|
+| 0 | 5.85 ms | 13 bytes | 1.17 ms |
+| 100 | 3.89 ms | 1,624 bytes | 1.37 ms |
+| 1,000 | 5.46 ms | 3,280 bytes | 1.87 ms |
+| 10,000 | 17.24 ms | 33,542 bytes | 4.87 ms |
+
+Both `capture()` and `get()` scale sub-linearly to linearly and stay in
+single-digit-to-low-double-digit milliseconds through 10,000 receipts on
+this hardware; `get()` is a primary-key lookup and is not expected to
+degrade with table growth. No scalability defect was found at this scale.
+This is measured local-hardware evidence, not a portable performance
+guarantee, and is NOT converted into M083 authority (the schema's `proves`/
+`does_not_prove` sets are unchanged by this measurement). The capture
+trigger's `array_agg` over the entire `operator_event_receipt` table has no
+row-count cap; this remains a recorded structural characteristic (see
+`validation-results.md`'s "Remaining limitations"), not a defect requiring
+a fix within M083 -- a future evaluation-context milestone should re-measure
+at its own expected receipt-table size before relying on these numbers.
+
+**Environment-only limitation, separated from the above (operating
+principle #14):** the true non-superuser/table-owner permission boundary
+(mission Phase D/E) could not be independently re-measured in this sandbox
+beyond what M082's own two pre-existing probe tests already attempt --
+those two tests themselves fail in this sandbox for a database-role-
+privilege reason unrelated to any M083 or M082 code (see
+`validation-results.md`'s "Probe/environment errors" section). This is
+recorded as an environment gap, not a product finding.

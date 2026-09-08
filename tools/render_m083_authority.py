@@ -89,9 +89,17 @@ _PROVES = {
     "canonical_deterministic_storage_order": (
         'that set stored once, in deterministic canonical (`COLLATE "C"`) order'
     ),
-    "immutable_after_persistence": (
-        "immutability -- the stored set never changes once persisted, regardless "
-        "of later receipt activity"
+    "stored_set_stable_against_later_receipt_activity": (
+        "that the stored set does not change when a later receipt or event is "
+        "inserted -- reading an existing watermark reads its stored set only "
+        "and never re-consults the current receipt inventory"
+    ),
+    "row_level_update_delete_refused_while_installed_trigger_is_active": (
+        "that ordinary row-level UPDATE and DELETE against this watermark's row "
+        "are refused by the installed trigger -- a narrower guarantee than "
+        "absolute database immutability; it does NOT cover TRUNCATE, DROP, "
+        "disabling the trigger, or superuser mutation (see `does_not_prove` and "
+        "`structural_limitations`)"
     ),
 }
 _DOES_NOT_PROVE = {

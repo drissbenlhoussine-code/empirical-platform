@@ -6,7 +6,8 @@
     "stable_watermark_governance_identity",
     "exact_receipt_governance_id_set_visible_to_capture_statement_snapshot",
     "canonical_deterministic_storage_order",
-    "immutable_after_persistence"
+    "stored_set_stable_against_later_receipt_activity",
+    "row_level_update_delete_refused_while_installed_trigger_is_active"
   ],
   "does_not_prove": [
     "research_session_decision_candidate_brief_or_evaluation_consumption",

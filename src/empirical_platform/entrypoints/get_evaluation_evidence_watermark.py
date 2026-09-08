@@ -18,12 +18,10 @@ import json
 import sys
 
 from empirical_platform.application.query import QueryEntryPoint
-from empirical_platform.decision_candidate.evaluation_evidence_watermark import (
-    EvaluationEvidenceWatermark,
-)
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.capture_evaluation_evidence_watermark import (
+    EvaluationEvidenceWatermark,
     GetEvaluationEvidenceWatermarkHandler,
     GetEvaluationEvidenceWatermarkQuery,
 )

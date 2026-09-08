@@ -11,7 +11,8 @@ One persisted watermark row binds:
 - a stable watermark governance identity;
 - the EXACT set of M082 `receipt_governance_id` values visible to the schema-qualified capture query, under that one statement's own PostgreSQL transaction snapshot;
 - that set stored once, in deterministic canonical (`COLLATE "C"`) order;
-- immutability -- the stored set never changes once persisted, regardless of later receipt activity;
+- that the stored set does not change when a later receipt or event is inserted -- reading an existing watermark reads its stored set only and never re-consults the current receipt inventory;
+- that ordinary row-level UPDATE and DELETE against this watermark's row are refused by the installed trigger -- a narrower guarantee than absolute database immutability; it does NOT cover TRUNCATE, DROP, disabling the trigger, or superuser mutation (see `does_not_prove` and `structural_limitations`);
 
 ## What it does not prove
 

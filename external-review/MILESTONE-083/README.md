@@ -33,3 +33,18 @@ annotation token exists anywhere in this package or in `tools/
 render_m083_authority.py` — the closed schema is the only enforcement
 mechanism, adopted directly from what M082's owner findings 20-28 converged
 on rather than re-derived.
+
+**Owner deep-closure review (findings REV-001–REV-005).** The candidate at
+`c75c14d` closed `proves`/`does_not_prove` but left `structural_limitations`/
+`intended_future_use` open to any regex-valid identifier (REV-001, closed
+below with the identical enum-closure technique, plus a dedicated
+`tests/integration/test_m083_authority_contract.py` — 57 tests including a
+literal reproduction of the pre-fix incidental-`KeyError` defect and a full
+anti-vacuity campaign); overclaimed absolute immutability in one `proves`
+entry (REV-002/REV-003, replaced by two bounded claims); weakened the global
+coverage floor to 78 rather than closing the real gap (REV-004, restored to
+79 with real offline tests of the repository's own Python control flow); and
+widened the `entrypoints` architecture allowlist rather than routing the one
+needed type through an already-allowed layer (REV-005, reverted to the
+pre-M083 allowlist exactly). Full account: `hostile-review.md` and
+`validation-results.md`.
