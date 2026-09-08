@@ -666,9 +666,7 @@ def _create_risk_check_table() -> None:
             "outcome = 'PASSED'",
             name="ck_trade_proposal_risk_check_passed_only",
         ),
-        sa.CheckConstraint(
-            _not_blank("check_id"), name="ck_trade_proposal_risk_check_id_present"
-        ),
+        sa.CheckConstraint(_not_blank("check_id"), name="ck_trade_proposal_risk_check_id_present"),
     )
 
 

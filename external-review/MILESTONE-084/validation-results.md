@@ -28,8 +28,8 @@ are equal, because a no-op update is not a transition.
 
 | Gate | Result |
 |---|---|
-| `ruff format --check` (src, tests, tools, migrations) | pass |
-| `ruff check` (src, tests, tools, migrations) | **All checks passed!** |
+| `ruff format --check .` (whole tree, as CI runs it) | **664 files already formatted** |
+| `ruff check .` (whole tree, as CI runs it) | **All checks passed!** |
 | `mypy --strict` (336 source files) | **Success: no issues found** |
 | Coverage floor (79%) | **pass at 79%** |
 | Architecture boundaries (`tools/check_architecture.py`) | pass, zero violations |
