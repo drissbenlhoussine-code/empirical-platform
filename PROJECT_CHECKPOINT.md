@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-082
+LATEST_FROZEN_MILESTONE=MILESTONE-083
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -783,8 +783,28 @@ M082_PROFITABILITY_CLAIM=NONE_MADE
 M082_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M082_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M083_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-083 -- recommendation only; not started as part of M082
+M083_SCOPE=Persisted Receipt-Set Evaluation Evidence Watermark (an additive primitive over frozen M082, where one persisted watermark row binds a STABLE CALLER-SUPPLIED WATERMARK GOVERNANCE IDENTITY to the EXACT SET of M082 receipt_governance_id values VISIBLE TO THE SCHEMA-QUALIFIED CAPTURE QUERY EXECUTED BY THE INSERT STATEMENT THAT CREATED IT, UNDER THAT STATEMENT'S OWN TRANSACTION SNAPSHOT, stored once in canonical ascending COLLATE "C" byte order independent of the database default collation; visibility is STATEMENT-SNAPSHOT, NOT PRIOR-COMMIT -- a receipt inserted earlier in the SAME transaction IS included even though uncommitted, and a receipt committed by another transaction AFTER the capture statement's snapshot IS excluded, the deliberate difference from M082's prior-commit guarantee; a later receipt insertion, including a backdated one, does NOT recalculate an existing watermark and a read returns the STORED set, never a re-derivation from the current receipt inventory; an empty receipt table yields an explicit empty array, never NULL; the primary key is the ONLY idempotency mechanism and a concurrent duplicate loses on that constraint while the repository returns the winner; the BEFORE INSERT trigger NEVER reads the caller-supplied membership before overwriting it, verified across eighteen alternative SQL paths including omitted/NULL/empty/forged-subset/forged-superset/duplicated/reverse-ordered membership, INSERT...SELECT, multi-row, prepared statement, application repository, raw SQL, COPY FROM STDIN, both ON CONFLICT forms, hostile search_path and pg_temp table and function shadows; ordinary ROW-LEVEL UPDATE AND DELETE ARE REFUSED ONLY WHILE THE INSTALLED TRIGGER IS ACTIVE, which is NOT absolute database immutability -- TRUNCATE, DROP, ALTER TABLE ... DISABLE TRIGGER, a competing BEFORE INSERT trigger named alphabetically after the capture trigger, session_replication_role=replica and a superuser ALL remain outside the boundary, each EXECUTED rather than merely asserted and each requiring table ownership or superuser; the read path is FAIL-CLOSED and refuses a malformed persisted value rather than coercing it into a governance identity; it proves NO evaluation/ResearchSession/DecisionCandidate/brief consumption, NO evaluation, capture or wall-clock chronology, NO receipt or event commit time, NO historical availability at an arbitrary cutoff, NO receipt ordering/committed-prefix/sequence authority, NO event payload, NO receipt metadata provenance, NO operator or broker truth, NOT that every M076 event has a receipt, NOT that an absent receipt did not exist at another time, NOT that the set represents all operator evidence, NO future-tail or excluded-receipt count, NO cryptographic sealing, NO protection against DDL/trigger disable/TRUNCATE/DROP/superuser, and NO profitability, performance, advice or live-trading readiness; the capture trigger's array_agg over the whole receipt table has NO ROW-COUNT CAP, a stated structural characteristic deliberately NOT repaired in M083; measured capture/read latency and row size through 25,000 receipts are VALIDATION EVIDENCE ONLY and enter no claim; the authority is stated ONCE machine-readably in external-review/MILESTONE-083/current-authority.json against a closed schema with authority_version frozen at const 1, rendered deterministically to current-authority.md, with schema and contract pinning each other so neither can be widened alone, so an unknown claim identifier is UNREPRESENTABLE; operator_event_receipt is READ by exactly one statement and NEVER written; zero new domain aggregate beyond the watermark, one new PostgreSQL table, one migration, and M057/M070/M076/M077/M078/M079/M080/M081/M082 read-only and unmodified)
+M083_SCOPE_STATUS=APPROVED_AND_FROZEN
+M083_DESIGN_STATUS=APPROVED_AND_FROZEN
+M083_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M083_IMPLEMENTATION_COMMIT=7291962 (owner-accepted engineering head; closure sequence a767370, c75c14d, e53275e, a288352, 2cadb91, 4a05e41, 7291962, then documentation-only 49a7c9f; 8 commits preserved, none squashed)
+M083_PULL_REQUEST=13
+M083_MERGE_COMMIT=3b841af8b1591ce274442c011f2590c19676e8a2
+M083_MACRO_REVIEW_STATUS=APPROVED_AFTER_FIVE_OWNER_FINDINGS_AND_FOUR_AUDIT_FINDINGS_ONE_BLOCKER_CLASS
+M083_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M083_OWNER_FREEZE_COMMIT=PENDING
+M083_STATUS=APPROVED_AND_FROZEN
+M083_POSITIVE_AUTHORITY=Exactly five bounded claims: stable_watermark_governance_identity; exact_receipt_governance_id_set_visible_to_capture_statement_snapshot; canonical_deterministic_storage_order; stored_set_stable_against_later_receipt_activity; row_level_update_delete_refused_while_installed_trigger_is_active. Nothing further.
+M083_EXPLICIT_NON_CLAIMS=Fifteen, governed by current-authority.json does_not_prove: evaluation consumption; evaluation/capture/wall-clock chronology; receipt or event commit time; historical availability at an arbitrary cutoff; receipt ordering/committed-prefix/sequence authority; event payload; receipt metadata provenance; operator or broker truth; that every M076 event has a receipt; that an absent receipt did not exist at another time; that the set represents all operator evidence; future-tail or excluded-receipt count; cryptographic sealing; protection against DDL/trigger disable/TRUNCATE/DROP/superuser; profitability, performance, advice or live-trading readiness.
+M083_STRUCTURAL_LIMITATIONS=Row-level UPDATE/DELETE refusal does not cover TRUNCATE, DROP, a disabled trigger, a competing later-named BEFORE INSERT trigger, the replication path or a superuser (all executed, all requiring table ownership or superuser); no cryptographic signature and no monotonicity enforcement; statement-snapshot visibility is not prior-commit visibility; a crash between capture statement start and commit leaves no partial row; the watermark cannot report how much evidence it excluded; the identity is caller-supplied and carries no chronology of its own; the capture array_agg has no row-count cap.
+M083_PERFORMANCE_MEASUREMENTS=VALIDATION_EVIDENCE_ONLY_NOT_AUTHORITY
+M083_M084_CONSUMPTION_CLAIM=NONE_MADE
+M083_PROFITABILITY_CLAIM=NONE_MADE
+M083_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M083_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M084_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-084 -- recommendation only; not started as part of M083
 ```
 
 ## 3. Frozen Milestone Summary
