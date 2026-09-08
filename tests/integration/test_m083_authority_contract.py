@@ -122,6 +122,58 @@ def test_the_contract_states_exactly_the_approved_claim_sets() -> None:
 
 
 # --------------------------------------------------------------------------
+# AUDIT FINDING M083-AUD-002 -- the SCHEMA's own enum membership must be
+# pinned, not only the contract's.
+#
+# Found by the anti-vacuity mutation campaign: adding a brand-new identifier
+# to the schema's `proves` enum was NOT detected by any existing test. The
+# tests above pin the CONTRACT (`current-authority.json`) against the
+# APPROVED_* constants, and `test_21_to_27` pins seven specific forbidden
+# LITERALS -- so widening the schema with any eighth identifier passed
+# unnoticed. The schema is the structural gate every other attack test relies
+# on; an unpinned gate can be widened in one commit and used in the next,
+# with the contract-side tests only noticing at the second step.
+#
+# These assertions close that direction: the schema's admissible universe and
+# the approved sets must be the SAME set, so neither file can drift alone.
+# --------------------------------------------------------------------------
+
+
+def test_the_schema_admits_exactly_the_approved_identifier_universe() -> None:
+    schema = _schema()
+    properties = schema["properties"]
+    for key, approved in (
+        ("proves", APPROVED_PROVES),
+        ("does_not_prove", APPROVED_DOES_NOT_PROVE),
+        ("structural_limitations", APPROVED_STRUCTURAL_LIMITATIONS),
+        ("intended_future_use", APPROVED_INTENDED_FUTURE_USE),
+    ):
+        definition = properties[key]
+        assert frozenset(definition["items"]["enum"]) == approved, (
+            f"schema `{key}` enum admits a different universe than the approved set; "
+            "the schema must not be widened independently of the contract"
+        )
+        # Closure is only meaningful alongside exact cardinality and uniqueness:
+        # an enum of the right members still admits a short or repeated list.
+        assert definition["minItems"] == len(approved)
+        assert definition["maxItems"] == len(approved)
+        assert definition["uniqueItems"] is True
+
+    enforcement = properties["database_enforcement"]
+    assert enforcement["additionalProperties"] is False
+    assert frozenset(enforcement["required"]) == frozenset(APPROVED_DATABASE_ENFORCEMENT)
+    for enforcement_key, approved_value in APPROVED_DATABASE_ENFORCEMENT.items():
+        assert enforcement["properties"][enforcement_key]["const"] is approved_value, (
+            f"schema pins `{enforcement_key}` to a value other than the approved one"
+        )
+
+    assert schema["additionalProperties"] is False
+    assert frozenset(schema["required"]) == frozenset(_contract())
+    assert properties["authority_version"]["const"] == 1
+    assert properties["milestone"]["const"] == "M083"
+
+
+# --------------------------------------------------------------------------
 # 2. Exact generated Markdown accepted.
 # --------------------------------------------------------------------------
 
@@ -586,3 +638,40 @@ def test_each_structural_rule_is_anti_vacuous() -> None:
     renderer.validate(versioned, {"type": "object"})  # weakened: the attack passes
     with pytest.raises(renderer.SchemaError):
         renderer.validate(versioned, _schema())  # restored: the attack fails
+
+
+# --------------------------------------------------------------------------
+# AUDIT FINDING M083-AUD-003 -- REV-005's architecture correction was not
+# protected against silent re-introduction.
+#
+# Found by the anti-vacuity mutation campaign: re-adding the
+# `entrypoints -> decision_candidate` edge that Owner finding REV-005 had
+# removed was NOT detected by anything. `test_current_source_tree_respects_
+# boundaries` cannot detect it by construction -- GRANTING a permission never
+# produces a violation, it only stops producing them -- so the checker still
+# exits 0 and the negative fixture still fails as designed.
+#
+# This pins only the one edge REV-005 was about. It deliberately does NOT
+# freeze the whole ALLOWED table: the rest is project-wide architecture policy
+# that other milestones must stay free to evolve, and an M083 test has no
+# business gating that.
+# --------------------------------------------------------------------------
+
+
+def test_rev_005_entrypoints_may_not_regain_a_direct_decision_candidate_edge() -> None:
+    sys.path.insert(0, str(ROOT / "tools"))
+    from check_architecture import ALLOWED  # noqa: PLC0415
+
+    assert "decision_candidate" not in ALLOWED["entrypoints"], (
+        "REV-005 removed the entrypoints -> decision_candidate widening; "
+        "M083's entrypoints reach the domain type through the already-allowed "
+        "`usecases` edge instead. Re-adding this edge would silently undo that "
+        "correction without any architecture violation being reported."
+    )
+    # And the shape REV-005 relies on must still exist, or the removal above
+    # would simply be broken rather than correct.
+    from empirical_platform.usecases.capture_evaluation_evidence_watermark import (  # noqa: PLC0415
+        __all__ as usecase_exports,
+    )
+
+    assert "EvaluationEvidenceWatermark" in usecase_exports

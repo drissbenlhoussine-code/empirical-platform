@@ -30,7 +30,7 @@ from typing import Any
 from empirical_platform.decision_candidate.evaluation_evidence_watermark import (
     EvaluationEvidenceWatermark,
 )
-from empirical_platform.shared.errors.foundation import FoundationError
+from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories._errors import (
     unique_violation_constraint_name,
@@ -106,9 +106,77 @@ class PostgresEvaluationEvidenceWatermarkRepository:
         return _row_to_watermark(rows[0])
 
 
+def _require_str(value: object, *, field: str, index: int | None = None) -> str:
+    """Return `value` only if it really is a string; never coerce it into one.
+
+    AUDIT FINDING M083-AUD-001, fail-closed by design. This function used to
+    read `str(value)`. That silently CONVERTED a malformed persisted value
+    into a valid-looking governance identity instead of refusing it: a stored
+    NULL array element became the receipt identity `'None'`, a `memoryview`
+    became `'<memory at 0x...>'`, and an integer became `'1'` -- each of them
+    then counted by `captured_receipt_count` as though it were a real M082
+    receipt. That directly contradicts the one thing this milestone claims
+    (the EXACT receipt-identity set), so the coercion is removed rather than
+    documented.
+
+    A NULL array ELEMENT is physically representable here even though the
+    column is `NOT NULL`: in PostgreSQL that constraint applies to the array
+    value, not to its members, so `ARRAY['real-id', NULL]` is a legal value
+    for this column. The capture trigger cannot produce one (it aggregates a
+    primary-key column), but the trigger is not the only writer the schema
+    admits -- `ALTER TABLE ... DISABLE TRIGGER`, DDL authority and a superuser
+    are all explicitly OUTSIDE this milestone's enforcement boundary and are
+    named as such in `current-authority.json`'s `structural_limitations`.
+    Reading a row back is exactly where that boundary should be noticed, not
+    papered over.
+
+    The domain type's own duplicate/canonical-order checks are NOT a
+    substitute: they caught the NULL case only INCIDENTALLY, and only for
+    identities that happen to sort after `'None'`. `['A-real-id', NULL]` is
+    still ascending once stringified, so it passed. An incidental rejection
+    for the wrong reason is not a type check.
+
+    No coercion is needed for a well-formed row: this repository reads through
+    SQLAlchemy's `result.mappings()` over psycopg, which returns `str` for a
+    `VARCHAR` column and `list[str]` for an `ARRAY(String)` column -- measured
+    directly against this schema, empty array included.
+    """
+    if not isinstance(value, str):
+        where = field if index is None else f"{field}[{index}]"
+        raise FoundationError(
+            category=FoundationErrorCategory.PERSISTENCE,
+            message=(
+                f"persisted evaluation_evidence_watermark value {where} is "
+                f"{type(value).__name__}, not str; refusing to coerce a malformed "
+                "stored value into a governance identity"
+            ),
+            layer="persistence",
+            operation="evaluation_evidence_watermark.row_mapping",
+            context={"field": where, "actual_type": type(value).__name__},
+        )
+    return value
+
+
 def _row_to_watermark(row: Mapping[str, Any]) -> EvaluationEvidenceWatermark:
     receipt_ids = row["receipt_governance_ids"]
+    if not isinstance(receipt_ids, list | tuple):
+        raise FoundationError(
+            category=FoundationErrorCategory.PERSISTENCE,
+            message=(
+                "persisted evaluation_evidence_watermark receipt_governance_ids is "
+                f"{type(receipt_ids).__name__}, not an array; refusing to read it as "
+                "a receipt-identity set"
+            ),
+            layer="persistence",
+            operation="evaluation_evidence_watermark.row_mapping",
+            context={"actual_type": type(receipt_ids).__name__},
+        )
     return EvaluationEvidenceWatermark(
-        watermark_governance_id=str(row["watermark_governance_id"]),
-        receipt_governance_ids=tuple(str(r) for r in receipt_ids),
+        watermark_governance_id=_require_str(
+            row["watermark_governance_id"], field="watermark_governance_id"
+        ),
+        receipt_governance_ids=tuple(
+            _require_str(value, field="receipt_governance_ids", index=position)
+            for position, value in enumerate(receipt_ids)
+        ),
     )

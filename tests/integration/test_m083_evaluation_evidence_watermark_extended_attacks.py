@@ -481,3 +481,195 @@ def test_e10_real_check_violation_is_not_misclassified_as_a_pk_conflict(
         service.close()
     # And no row was left behind by the failed attempt.
     assert _get(_config(), "   ") is None
+
+
+# --------------------------------------------------------------------------
+# E11: AUDIT FINDING M083-AUD-001 -- a corrupted stored set must be REFUSED on
+# read, not silently converted into a valid-looking receipt identity.
+#
+# This is a real-database test on purpose. The unit tests in
+# `tests/unit/test_postgres_evaluation_evidence_watermark_repository.py` pin
+# the mapping contract with hand-built mappings; this one proves the exposure
+# was real end to end: that PostgreSQL genuinely stores a NULL array element
+# in this NOT NULL column (the constraint binds the array, not its members),
+# that SQLAlchemy/psycopg genuinely hands it back as a Python None, and that
+# the repository refuses it instead of reporting the receipt identity 'None'.
+#
+# The corruption is written through `ALTER TABLE ... DISABLE TRIGGER`, which
+# is an explicitly NON-guaranteed path named in `current-authority.json`'s
+# `structural_limitations` -- this test asserts how the read side behaves once
+# that boundary has already been crossed, and claims no protection against
+# crossing it.
+# --------------------------------------------------------------------------
+
+
+def test_e11_a_null_array_element_is_refused_on_read_not_coerced_into_an_identity(
+    clean_tables: Engine,
+) -> None:
+    engine = clean_tables
+    _seed_receipt(engine, event_gid="EV-AUD001", receipt_gid="A-real-id")
+    captured = _capture(_config(), "WM-AUD001")
+    assert captured.receipt_governance_ids == ("A-real-id",)
+
+    # Cross the documented boundary: disable the row trigger and store a NULL
+    # element alongside a real one. 'A-real-id' < 'None' under byte ordering,
+    # so a stringified NULL would land in canonical ascending position and the
+    # domain type's order check would NOT notice it.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE public.evaluation_evidence_watermark "
+                "DISABLE TRIGGER evaluation_evidence_watermark_immutable_trigger"
+            )
+        )
+        conn.execute(
+            text(
+                "UPDATE public.evaluation_evidence_watermark "
+                "SET receipt_governance_ids = ARRAY['A-real-id', NULL]::varchar(64)[] "
+                "WHERE watermark_governance_id = 'WM-AUD001'"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE public.evaluation_evidence_watermark "
+                "ENABLE TRIGGER evaluation_evidence_watermark_immutable_trigger"
+            )
+        )
+
+    # The NOT NULL column really does hold a NULL member, and the driver really
+    # does return None for it -- neither is assumed.
+    with engine.begin() as conn:
+        stored = (
+            conn.execute(
+                text(
+                    "SELECT receipt_governance_ids FROM public.evaluation_evidence_watermark "
+                    "WHERE watermark_governance_id = 'WM-AUD001'"
+                )
+            )
+            .mappings()
+            .one()["receipt_governance_ids"]
+        )
+    assert stored == ["A-real-id", None]
+    assert stored[1] is None
+
+    with pytest.raises(FoundationError) as excinfo:
+        _get(_config(), "WM-AUD001")
+    error = excinfo.value
+    assert error.operation == "evaluation_evidence_watermark.row_mapping"
+    assert "receipt_governance_ids[1]" in error.safe_message
+    assert "NoneType" in error.safe_message
+    # Refused as a type violation, not as an incidental ordering complaint.
+    assert "canonical" not in error.safe_message
+
+    # Restore the trigger state this test perturbed, so nothing leaks.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "ALTER TABLE public.evaluation_evidence_watermark "
+                "DISABLE TRIGGER evaluation_evidence_watermark_immutable_trigger"
+            )
+        )
+        conn.execute(
+            text(
+                "DELETE FROM public.evaluation_evidence_watermark "
+                "WHERE watermark_governance_id = 'WM-AUD001'"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE public.evaluation_evidence_watermark "
+                "ENABLE TRIGGER evaluation_evidence_watermark_immutable_trigger"
+            )
+        )
+
+
+def test_e12_a_well_formed_row_still_reads_back_unchanged_after_the_strict_mapping(
+    clean_tables: Engine,
+) -> None:
+    """Fail-closed must not mean fail-often: the ordinary capture/read round
+    trip through real PostgreSQL is unaffected by the strict mapping."""
+    engine = clean_tables
+    _seed_receipt(engine, event_gid="EV-AUD002-A", receipt_gid="RC-AUD002-A")
+    _seed_receipt(engine, event_gid="EV-AUD002-B", receipt_gid="RC-AUD002-B")
+    captured = _capture(_config(), "WM-AUD002")
+    read_back = _get(_config(), "WM-AUD002")
+    assert read_back is not None
+    assert read_back.receipt_governance_ids == ("RC-AUD002-A", "RC-AUD002-B")
+    assert read_back == captured
+    assert read_back.captured_receipt_count == 2
+
+    # And the empty-set case, which exercises the array branch with zero
+    # elements (the loop body never runs -- it must not fail closed there).
+    with engine.begin() as conn:
+        conn.execute(text("TRUNCATE operator_event_receipt CASCADE"))
+    empty = _capture(_config(), "WM-AUD002-EMPTY")
+    assert empty.receipt_governance_ids == ()
+    assert _get(_config(), "WM-AUD002-EMPTY") == empty
+
+
+# --------------------------------------------------------------------------
+# E13: AUDIT FINDING M083-AUD-004 -- the explicit COLLATE "C" was not pinned
+# by anything executable.
+#
+# Found by the anti-vacuity mutation campaign: deleting `COLLATE "C"` from the
+# capture query's ORDER BY was NOT detected by any test. That is not a test
+# oversight so much as a property of the environment, and `hostile-review.md`'s
+# design finding D03 already predicted it: this cluster's default collation is
+# `C.UTF-8`, which agrees with byte order, so with the explicit COLLATE removed
+# the trigger sorts by the column's collation and produces the SAME order --
+# in THIS database. The guarantee the milestone actually makes is that
+# canonical order does not DEPEND on that coincidence.
+#
+# A behavioural test cannot discriminate here (it would need a database whose
+# default collation disagrees with byte order, which is not portable -- CI runs
+# on windows-latest). So this pins the property structurally, against the
+# function definition PostgreSQL actually installed, and separately proves the
+# pin is not cosmetic by showing a real non-C collation in this very cluster
+# orders the same identifiers differently.
+# --------------------------------------------------------------------------
+
+
+def test_e13_the_installed_capture_function_pins_collate_c_explicitly(
+    clean_tables: Engine,
+) -> None:
+    engine = clean_tables
+    with engine.begin() as conn:
+        definition = conn.execute(
+            text(
+                "SELECT pg_get_functiondef(p.oid) FROM pg_proc p "
+                "JOIN pg_namespace n ON n.oid = p.pronamespace "
+                "WHERE n.nspname = 'public' "
+                "AND p.proname = 'evaluation_evidence_watermark_capture_receipt_set'"
+            )
+        ).scalar_one()
+
+    assert 'COLLATE "C"' in definition, (
+        'the installed capture function no longer pins COLLATE "C"; canonical '
+        "order would silently fall back to the database's default collation"
+    )
+    assert "ORDER BY" in definition
+    # The COLLATE must qualify the ORDER BY key itself, not appear incidentally.
+    order_by_clause = definition.split("ORDER BY", 1)[1]
+    assert order_by_clause.lstrip().startswith('r.receipt_governance_id COLLATE "C"')
+
+    # And the pin is meaningful: a real collation available in this cluster
+    # orders the same identifiers differently from byte order, so "it happens to
+    # match today" is a property of the deployment, not of the query.
+    with engine.begin() as conn:
+        byte_order = conn.execute(
+            text(
+                "SELECT string_agg(v, ',' ORDER BY v COLLATE \"C\") "
+                "FROM (VALUES ('a-1'),('B-1'),('_z')) t(v)"
+            )
+        ).scalar_one()
+        icu_order = conn.execute(
+            text(
+                "SELECT string_agg(v, ',' ORDER BY v COLLATE \"und-x-icu\") "
+                "FROM (VALUES ('a-1'),('B-1'),('_z')) t(v)"
+            )
+        ).scalar_one()
+    assert byte_order == "B-1,_z,a-1"
+    assert icu_order != byte_order, (
+        "expected a non-C collation to disagree with byte order, which is the "
+        'whole reason the capture query pins COLLATE "C" explicitly'
+    )

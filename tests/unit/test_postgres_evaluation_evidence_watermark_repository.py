@@ -252,17 +252,128 @@ def test_row_to_watermark_maps_an_empty_receipt_array() -> None:
     assert watermark.receipt_governance_ids == ()
 
 
-def test_row_to_watermark_coerces_non_string_column_values() -> None:
-    """A defensive `str()` coercion, exercised against non-`str` DBAPI values
-    (e.g. a driver returning a `memoryview` or a psycopg-specific text type)
-    rather than assumed to be a no-op."""
+# --------------------------------------------------------------------------
+# AUDIT FINDING M083-AUD-001 -- fail-closed row mapping.
+#
+# RETRACTED PREDECESSOR: this file previously asserted the OPPOSITE contract,
+# in `test_row_to_watermark_coerces_non_string_column_values`, which called a
+# `str()` coercion of arbitrary DBAPI values "defensive" and asserted that an
+# object whose `__str__` returned "WM-WEIRD" became the governance identity
+# "WM-WEIRD". That test enshrined the defect rather than catching it: the same
+# coercion silently converted a stored NULL array element into the receipt
+# identity 'None', a memoryview into '<memory at 0x...>' and an integer into
+# '1', each then counted by `captured_receipt_count` as a real M082 receipt --
+# fabricating exactly the "exact receipt-identity set" this milestone claims.
+#
+# A NULL array ELEMENT is not hypothetical: PostgreSQL's NOT NULL applies to
+# the array value, not its members, so ARRAY['real-id', NULL] is storable in
+# this column, and SQLAlchemy/psycopg hands it back as a Python None. That was
+# measured directly against the real schema, and the corrupt row was then read
+# back through the real repository, before this contract was changed.
+#
+# The domain type's duplicate/canonical-order checks are NOT a substitute:
+# they caught a stringified NULL only INCIDENTALLY, and only when 'None'
+# happened to sort out of position. `['A-real-id', NULL]` stringifies to an
+# ascending pair and passed. The tests below therefore assert the REASON for
+# the refusal, not merely that something was raised.
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("malformed_value", "expected_type_name"),
+    [
+        pytest.param(None, "NoneType", id="null-element"),
+        pytest.param(memoryview(b"abc"), "memoryview", id="memoryview-element"),
+        pytest.param(1, "int", id="int-element"),
+        pytest.param(b"RC-A", "bytes", id="bytes-element"),
+        pytest.param(["RC-A"], "list", id="nested-list-element"),
+    ],
+)
+def test_row_to_watermark_refuses_a_non_string_receipt_element(
+    malformed_value: object, expected_type_name: str
+) -> None:
+    with pytest.raises(FoundationError) as excinfo:
+        _row_to_watermark(
+            {
+                "watermark_governance_id": "WM-ROW",
+                "receipt_governance_ids": ["A-real-id", malformed_value],
+            }
+        )
+    error = excinfo.value
+    assert error.category is FoundationErrorCategory.PERSISTENCE
+    assert error.operation == "evaluation_evidence_watermark.row_mapping"
+    # The refusal must name the offending POSITION and the ACTUAL type -- i.e.
+    # it is a type check, not an incidental ordering or duplicate complaint.
+    assert "receipt_governance_ids[1]" in error.safe_message
+    assert expected_type_name in error.safe_message
+
+
+def test_row_to_watermark_refuses_a_null_element_that_sorts_into_canonical_position() -> None:
+    """The exact case the domain type's order check does NOT catch.
+
+    'A-real-id' < 'None' under byte-order comparison, so a stringified NULL
+    lands in canonical ascending position and the pre-fix mapping ACCEPTED it,
+    reporting `('A-real-id', 'None')` as the stored receipt set.
+    """
+    with pytest.raises(FoundationError) as excinfo:
+        _row_to_watermark(
+            {
+                "watermark_governance_id": "WM-ROW",
+                "receipt_governance_ids": ["A-real-id", None],
+            }
+        )
+    assert "not str" in excinfo.value.safe_message
+    assert "canonical" not in excinfo.value.safe_message
+
+
+@pytest.mark.parametrize(
+    ("malformed_value", "expected_type_name"),
+    [
+        pytest.param(None, "NoneType", id="null-identity"),
+        pytest.param(b"WM-ROW", "bytes", id="bytes-identity"),
+        pytest.param(7, "int", id="int-identity"),
+    ],
+)
+def test_row_to_watermark_refuses_a_non_string_identity(
+    malformed_value: object, expected_type_name: str
+) -> None:
+    with pytest.raises(FoundationError) as excinfo:
+        _row_to_watermark(
+            {"watermark_governance_id": malformed_value, "receipt_governance_ids": []}
+        )
+    assert "watermark_governance_id" in excinfo.value.safe_message
+    assert expected_type_name in excinfo.value.safe_message
+
+
+def test_row_to_watermark_refuses_a_non_array_receipt_column() -> None:
+    with pytest.raises(FoundationError) as excinfo:
+        _row_to_watermark({"watermark_governance_id": "WM-ROW", "receipt_governance_ids": None})
+    assert "not an array" in excinfo.value.safe_message
+
+
+def test_row_to_watermark_refuses_a_stringable_object_instead_of_trusting_dunder_str() -> None:
+    """An object with a convenient `__str__` is still not a stored string.
+
+    This is the precise inversion of the retracted predecessor test: the
+    mapping must refuse it rather than adopt whatever `__str__` returns as an
+    authoritative governance identity.
+    """
 
     class _Weird:
         def __str__(self) -> str:
             return "WM-WEIRD"
 
+    with pytest.raises(FoundationError):
+        _row_to_watermark({"watermark_governance_id": _Weird(), "receipt_governance_ids": []})
+
+
+def test_row_to_watermark_still_accepts_a_well_formed_row_unchanged() -> None:
+    """Fail-closed must not mean fail-often: the real driver's own output shape
+    (`str` and `list[str]`, measured against this schema) maps exactly as before.
+    """
     watermark = _row_to_watermark(
-        {"watermark_governance_id": _Weird(), "receipt_governance_ids": [_Weird()]}
+        {"watermark_governance_id": "WM-OK", "receipt_governance_ids": ["RC-A", "RC-B"]}
     )
-    assert watermark.watermark_governance_id == "WM-WEIRD"
-    assert watermark.receipt_governance_ids == ("WM-WEIRD",)
+    assert watermark.watermark_governance_id == "WM-OK"
+    assert watermark.receipt_governance_ids == ("RC-A", "RC-B")
+    assert watermark.captured_receipt_count == 2
