@@ -16,7 +16,7 @@ import ast
 import json
 import subprocess
 from collections.abc import Callable, Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy import text
@@ -25,9 +25,11 @@ from tests.integration.test_m084_decision_to_approval_postgres_attacks import (
     CONFIGURATION,
     CONTEXT,
     DECISION,
+    INTENT,
     PROPOSAL,
+    RISK_CHECK,
 )
-from tools.m084_hostile_review import PACKAGE, REPO_ROOT, Pass, refused_by
+from tools.m084_hostile_review import PACKAGE, REPO_ROOT, Pass, allowed, refused_by
 
 
 def _schema() -> dict[str, object]:
@@ -465,4 +467,590 @@ def pass_one(engine: Engine) -> Pass:
     return review
 
 
-PASS_BUILDERS: dict[int, Callable[[Engine], Pass]] = {1: pass_one}
+# ===========================================================================
+# Pass 2 — database adversary
+# ===========================================================================
+
+
+def pass_two(engine: Engine) -> Pass:
+    """Raw SQL only. The domain layer is not in the room.
+
+    Every attack here is what a psql session, a repository written in a hurry,
+    or a migration-era script would do. The domain refuses all of these too;
+    that is not what is being tested. What is being tested is whether the
+    DATABASE refuses them, because a rule that lives only in Python is a rule
+    that survives exactly as long as the next caller remembers it.
+    """
+    review = Pass(
+        2,
+        "database adversary",
+        "Has write access and no intention of going through the domain layer. "
+        "Assumes every Python guarantee is absent and asks what the schema "
+        "itself still refuses.",
+        40,
+    )
+
+    def attack(
+        identifier: str, target: str, attempt: str, action: Callable[[], None], rule: str
+    ) -> None:
+        _wipe(engine)
+        done = review.record(identifier, target, attempt)
+        done(*refused_by(action, rule))
+
+    def permitted(identifier: str, target: str, attempt: str, action: Callable[[], None]) -> None:
+        _wipe(engine)
+        done = review.record(identifier, target, attempt)
+        done(*allowed(action))
+
+    def write(statement: str, **parameters: object) -> Callable[[], None]:
+        def run() -> None:
+            with engine.begin() as conn:
+                conn.execute(text(statement), parameters)
+
+        return run
+
+    # --- the four hard configuration invariants --------------------------
+    for identifier, field, value, rule in (
+        ("A2-01", "maximum_leverage", 2, "ck_operator_trading_configuration_unleveraged"),
+        ("A2-02", "short_selling_permitted", True, "ck_operator_trading_configuration_long_only"),
+        (
+            "A2-03",
+            "overnight_positions_permitted",
+            True,
+            "ck_operator_trading_configuration_intraday_only",
+        ),
+        ("A2-04", "account_mode", "LIVE", "ck_operator_trading_configuration_preparation_only"),
+    ):
+        attack(
+            identifier,
+            "configuration hard invariant",
+            f"store a configuration with {field} = {value!r}",
+            lambda f=field, v=value: [  # type: ignore[misc]
+                _insert_in(engine, "operator_trading_configuration", CONFIGURATION, **{f: v})
+            ],
+            rule,
+        )
+
+    attack(
+        "A2-05",
+        "configuration hard invariant",
+        "store account_mode = 'PAPER', the mode a future milestone will want",
+        lambda: _insert_in(
+            engine, "operator_trading_configuration", CONFIGURATION, account_mode="PAPER"
+        ),
+        "ck_operator_trading_configuration_preparation_only",
+    )
+
+    # --- evaluation context ----------------------------------------------
+    attack(
+        "A2-06",
+        "context requires a watermark",
+        "open a context naming a watermark that does not exist",
+        lambda: _seed_then(
+            engine,
+            lambda conn: _insert(conn, "operator_trading_configuration", CONFIGURATION),
+            lambda conn: _insert(
+                conn, "evaluation_context", CONTEXT, watermark_governance_id="WM-GHOST"
+            ),
+        ),
+        "foreign key",
+    )
+    attack(
+        "A2-07",
+        "context requires a configuration",
+        "open a context naming a configuration version that does not exist",
+        lambda: _seed_then(
+            engine,
+            _seed_watermark,
+            lambda conn: _insert(conn, "evaluation_context", CONTEXT, configuration_version=99),
+        ),
+        "foreign key",
+    )
+    attack(
+        "A2-08",
+        "context digest shape",
+        "store a receipt digest that is not a 64-character hex string",
+        lambda: _seed_then(
+            engine,
+            _seed_to_config,
+            lambda conn: _insert(
+                conn, "evaluation_context", CONTEXT, consumed_receipt_digest="short"
+            ),
+        ),
+        "ck_evaluation_context",
+    )
+    attack(
+        "A2-09",
+        "context receipt count",
+        "store a negative consumed receipt count",
+        lambda: _seed_then(
+            engine,
+            _seed_to_config,
+            lambda conn: _insert(conn, "evaluation_context", CONTEXT, consumed_receipt_count=-1),
+        ),
+        "ck_evaluation_context",
+    )
+
+    # --- proposal shape ---------------------------------------------------
+    for identifier, field, value, rule in (
+        ("A2-10", "side", "SELL", "ck_trade_proposal_long_only"),
+        ("A2-11", "quantity", 0, "ck_trade_proposal_quantity_positive"),
+        ("A2-12", "quantity", -5, "ck_trade_proposal_quantity_positive"),
+        ("A2-13", "status", "SUBMITTED", "ck_trade_proposal_status"),
+        ("A2-14", "content_fingerprint", "not-a-digest", "ck_trade_proposal_fingerprint_shape"),
+    ):
+        attack(
+            identifier,
+            "proposal shape",
+            f"insert a proposal with {field} = {value!r}",
+            lambda f=field, v=value: _seed_then(  # type: ignore[misc]
+                engine,
+                _seed_to_context,
+                lambda conn: _insert(conn, "trade_proposal", PROPOSAL, **{f: v}),
+            ),
+            rule,
+        )
+
+    attack(
+        "A2-15",
+        "proposal temporal shape",
+        "insert a proposal that expires before it was created",
+        lambda: _seed_then(
+            engine,
+            _seed_to_context,
+            lambda conn: _insert(
+                conn, "trade_proposal", PROPOSAL, expires_at=_T0 - timedelta(seconds=1)
+            ),
+        ),
+        "ck_trade_proposal_expiry_after_creation",
+    )
+    attack(
+        "A2-16",
+        "proposal exit ordering",
+        "insert a proposal whose profit exit is below its stop loss",
+        lambda: _seed_then(
+            engine,
+            _seed_to_context,
+            lambda conn: _insert(conn, "trade_proposal", PROPOSAL, profit_exit_price="1.00"),
+        ),
+        "ck_trade_proposal_exits_ordered",
+    )
+
+    # --- immutability of order terms --------------------------------------
+    for identifier, column, value in (
+        ("A2-17", "quantity", 999),
+        ("A2-18", "limit_price", "1.00"),
+        ("A2-19", "symbol", "TSLA"),
+        ("A2-20", "estimated_notional", "1.00"),
+        ("A2-21", "content_fingerprint", _OTHER),
+        ("A2-22", "expires_at", "2099-01-01T00:00:00+00"),
+        ("A2-23", "mandatory_liquidation_at", "2099-01-01T00:00:00+00"),
+    ):
+        attack(
+            identifier,
+            "order terms immutable",
+            f"UPDATE a stored proposal's {column}",
+            lambda c=column, v=value: _seed_then(  # type: ignore[misc]
+                engine,
+                _seed_to_proposal,
+                # Composed with SQLAlchemy Core rather than an f-string. A
+                # column NAME cannot be a bound parameter, so the interpolated
+                # version needed an S608 suppression to say "this identifier is
+                # a literal from the tuple above". Composing removes the
+                # question instead of answering it.
+                lambda conn, c=c, v=v: conn.execute(  # type: ignore[misc]
+                    sa.update(_table("trade_proposal", ["proposal_governance_id", c]))
+                    .where(sa.column("proposal_governance_id") == "PRP-0001")
+                    .values(**{c: v})
+                ),
+            ),
+            "immutable",
+        )
+
+    attack(
+        "A2-24",
+        "proposal append-only",
+        "DELETE a stored proposal",
+        lambda: _seed_then(
+            engine,
+            _seed_to_proposal,
+            lambda conn: conn.execute(text("DELETE FROM trade_proposal")),
+        ),
+        "append-only",
+    )
+
+    # --- the closed state machine -----------------------------------------
+    for identifier, start, target in (
+        ("A2-25", "APPROVED", "PREPARED"),
+        ("A2-26", "REJECTED", "APPROVED"),
+        ("A2-27", "EXPIRED", "PREPARED"),
+        ("A2-28", "CANCELLED", "APPROVED"),
+        ("A2-29", "INVALIDATED", "PREPARED"),
+    ):
+        attack(
+            identifier,
+            "closed state machine",
+            f"move a proposal from {start} back to {target}",
+            lambda s=start, t=target: _seed_then(  # type: ignore[misc]
+                engine,
+                lambda conn, s=s: _seed_to_proposal(conn, status=s),  # type: ignore[misc]
+                lambda conn, t=t: conn.execute(  # type: ignore[misc]
+                    text(
+                        "UPDATE trade_proposal SET status = :t "
+                        "WHERE proposal_governance_id = 'PRP-0001'"
+                    ),
+                    {"t": t},
+                ),
+            ),
+            "terminal",
+        )
+
+    permitted(
+        "A2-30",
+        "closed state machine",
+        "the one legitimate move: PREPARED -> APPROVED",
+        lambda: _seed_then(
+            engine,
+            _seed_to_proposal,
+            lambda conn: conn.execute(
+                text(
+                    "UPDATE trade_proposal SET status = 'APPROVED' "
+                    "WHERE proposal_governance_id = 'PRP-0001'"
+                )
+            ),
+        ),
+    )
+
+    # --- decisions ---------------------------------------------------------
+    attack(
+        "A2-31",
+        "decision admission",
+        "record a decision against a proposal that does not exist",
+        lambda: _seed_then(
+            engine,
+            _seed_to_context,
+            lambda conn: _insert(conn, "trade_approval_decision", DECISION),
+        ),
+        # A named trigger message, not a bare foreign-key error: the guard says
+        # which proposal is missing. Stronger than the expectation first written.
+        "no such proposal",
+    )
+    attack(
+        "A2-32",
+        "decision fingerprint binding",
+        "record a decision whose approved fingerprint is not the proposal's",
+        lambda: _seed_then(
+            engine,
+            _seed_to_proposal,
+            lambda conn: _insert(
+                conn, "trade_approval_decision", DECISION, approved_fingerprint=_OTHER
+            ),
+        ),
+        "fingerprint",
+    )
+    attack(
+        "A2-33",
+        "decision version binding",
+        "record a decision against a proposal version that is not stored",
+        lambda: _seed_then(
+            engine,
+            _seed_to_proposal,
+            lambda conn: _insert(conn, "trade_approval_decision", DECISION, proposal_version=7),
+        ),
+        "decision cites proposal version",
+    )
+    attack(
+        "A2-34",
+        "one decision per proposal",
+        "record a second decision for the same proposal",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (
+                _seed_to_proposal(conn),
+                _insert(conn, "trade_approval_decision", DECISION),
+            ),
+            lambda conn: _insert(
+                conn,
+                "trade_approval_decision",
+                DECISION,
+                decision_governance_id="DEC-0002",
+                action="REJECT",
+                resulting_status="REJECTED",
+                expires_at=None,
+            ),
+        ),
+        "uq_trade_approval_decision_one_per_proposal",
+    )
+    attack(
+        "A2-35",
+        "decision immutability",
+        "UPDATE a recorded decision's action from REJECT to APPROVE",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (
+                _seed_to_proposal(conn),
+                _insert(conn, "trade_approval_decision", DECISION),
+            ),
+            lambda conn: conn.execute(text("UPDATE trade_approval_decision SET action = 'REJECT'")),
+        ),
+        "append-only",
+    )
+    attack(
+        "A2-36",
+        "decision append-only",
+        "DELETE a recorded decision",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (
+                _seed_to_proposal(conn),
+                _insert(conn, "trade_approval_decision", DECISION),
+            ),
+            lambda conn: conn.execute(text("DELETE FROM trade_approval_decision")),
+        ),
+        "append-only",
+    )
+    attack(
+        "A2-37",
+        "decision expiry shape",
+        "record a REJECT that carries an approval expiry",
+        lambda: _seed_then(
+            engine,
+            _seed_to_proposal,
+            lambda conn: _insert(
+                conn,
+                "trade_approval_decision",
+                DECISION,
+                action="REJECT",
+                resulting_status="REJECTED",
+            ),
+        ),
+        "expiry_only_for_approval",
+    )
+
+    # --- the intent, and the submission boundary ---------------------------
+    attack(
+        "A2-38",
+        "intent needs an approval",
+        "issue an intent with no decision behind it",
+        lambda: _seed_then(
+            engine, _seed_to_proposal, lambda conn: _insert(conn, "approved_order_intent", INTENT)
+        ),
+        # Named again, rather than a bare foreign-key error: the guard says
+        # which decision is missing.
+        "no such decision",
+    )
+    attack(
+        "A2-39",
+        "submission state closed",
+        "store an intent whose submission_state is SUBMITTED",
+        lambda: _seed_then(
+            engine,
+            _seed_to_approved,
+            lambda conn: _insert(
+                conn, "approved_order_intent", INTENT, submission_state="SUBMITTED"
+            ),
+        ),
+        "ck_approved_order_intent_never_submitted",
+    )
+    attack(
+        "A2-40",
+        "submission state closed",
+        "UPDATE a stored intent to SUBMITTED -- the whole safety boundary",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (_seed_to_approved(conn), _insert(conn, "approved_order_intent", INTENT)),
+            lambda conn: conn.execute(
+                text("UPDATE approved_order_intent SET submission_state = 'SUBMITTED'")
+            ),
+        ),
+        "append-only",
+    )
+    attack(
+        "A2-41",
+        "one intent per proposal",
+        "issue a second intent for the same proposal",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (_seed_to_approved(conn), _insert(conn, "approved_order_intent", INTENT)),
+            lambda conn: _insert(
+                conn,
+                "approved_order_intent",
+                INTENT,
+                intent_governance_id="INT-0002",
+                idempotency_key="IDEM-0002",
+            ),
+        ),
+        "uq_approved_order_intent_one_per_proposal",
+    )
+    attack(
+        "A2-42",
+        "intent terms re-derived",
+        "issue an intent whose quantity differs from the approved proposal's",
+        lambda: _seed_then(
+            engine,
+            _seed_to_approved,
+            lambda conn: _insert(conn, "approved_order_intent", INTENT, quantity=999),
+        ),
+        "quantity",
+    )
+    attack(
+        "A2-43",
+        "intent terms re-derived",
+        "issue an intent for a different symbol than the proposal's",
+        lambda: _seed_then(
+            engine,
+            _seed_to_approved,
+            lambda conn: _insert(conn, "approved_order_intent", INTENT, symbol="TSLA"),
+        ),
+        "symbol",
+    )
+    attack(
+        "A2-44",
+        "intent side",
+        "issue a SELL intent",
+        lambda: _seed_then(
+            engine,
+            _seed_to_approved,
+            lambda conn: _insert(conn, "approved_order_intent", INTENT, side="SELL"),
+        ),
+        # The re-derivation guard catches the changed side before the CHECK
+        # constraint would: the intent's terms must match the approved proposal,
+        # and a SELL does not.
+        "differ from the proposal that was approved",
+    )
+    attack(
+        "A2-45",
+        "intent account mode",
+        "issue an intent that declares it needs a LIVE account",
+        lambda: _seed_then(
+            engine,
+            _seed_to_approved,
+            lambda conn: _insert(
+                conn, "approved_order_intent", INTENT, account_mode_required="LIVE"
+            ),
+        ),
+        "ck_approved_order_intent",
+    )
+    attack(
+        "A2-46",
+        "intent time in force",
+        "issue a GTC intent, which would survive the session",
+        lambda: _seed_then(
+            engine,
+            _seed_to_approved,
+            lambda conn: _insert(conn, "approved_order_intent", INTENT, time_in_force="GTC"),
+        ),
+        "ck_approved_order_intent",
+    )
+    attack(
+        "A2-47",
+        "intent append-only",
+        "DELETE a stored intent to cover the tracks",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (_seed_to_approved(conn), _insert(conn, "approved_order_intent", INTENT)),
+            lambda conn: conn.execute(text("DELETE FROM approved_order_intent")),
+        ),
+        "append-only",
+    )
+
+    # --- risk-check evidence ----------------------------------------------
+    attack(
+        "A2-48",
+        "risk-check evidence",
+        "store a FAILED risk check against a proposal that exists",
+        lambda: _seed_then(
+            engine,
+            _seed_to_proposal,
+            lambda conn: _insert(conn, "trade_proposal_risk_check", RISK_CHECK, outcome="FAILED"),
+        ),
+        "ck_trade_proposal_risk_check",
+    )
+    attack(
+        "A2-49",
+        "risk-check evidence",
+        "UPDATE stored risk-check evidence after the fact",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (
+                _seed_to_proposal(conn),
+                _insert(conn, "trade_proposal_risk_check", RISK_CHECK),
+            ),
+            lambda conn: conn.execute(
+                text("UPDATE trade_proposal_risk_check SET detail = 'rewritten'")
+            ),
+        ),
+        "append-only",
+    )
+    attack(
+        "A2-50",
+        "risk-check evidence",
+        "DELETE the evidence for a stored proposal",
+        lambda: _seed_then(
+            engine,
+            lambda conn: (
+                _seed_to_proposal(conn),
+                _insert(conn, "trade_proposal_risk_check", RISK_CHECK),
+            ),
+            lambda conn: conn.execute(text("DELETE FROM trade_proposal_risk_check")),
+        ),
+        "append-only",
+    )
+
+    # --- transactional integrity ------------------------------------------
+    done = review.record(
+        "A2-51", "transaction rollback", "a refused intent must leave no partial decision behind"
+    )
+    _wipe(engine)
+    try:
+        with engine.begin() as conn:
+            _seed_to_proposal(conn)
+            _insert(conn, "trade_approval_decision", DECISION)
+            conn.execute(
+                text(
+                    "UPDATE trade_proposal SET status = 'APPROVED' "
+                    "WHERE proposal_governance_id = 'PRP-0001'"
+                )
+            )
+            _insert(conn, "approved_order_intent", INTENT, submission_state="SUBMITTED")
+    except Exception as error:  # noqa: BLE001
+        # The refusal is expected; what this attack measures is what SURVIVED it.
+        refusal = str(error)[:80]
+    else:
+        refusal = "the SUBMITTED intent was accepted"
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT count(*) FROM trade_approval_decision")).scalar()
+    done(
+        "DEFENDED" if rows == 0 else "FINDING",
+        f"the whole transaction rolled back ({refusal}); decisions left behind: {rows}",
+    )
+
+    return review
+
+
+def _insert_in(engine: Engine, table: str, row: dict[str, object], **overrides: object) -> None:
+    with engine.begin() as conn:
+        _insert(conn, table, row, **overrides)
+
+
+def _seed_to_config(conn: Connection) -> None:
+    _seed_watermark(conn)
+    _insert(conn, "operator_trading_configuration", CONFIGURATION)
+
+
+def _seed_then(
+    engine: Engine, prepare: Callable[[Connection], object], act: Callable[[Connection], object]
+) -> None:
+    """Seed in one committed transaction, then attack in a separate one.
+
+    Separate transactions on purpose: an attack sharing the seed's transaction
+    could be refused by a deferred constraint firing on the seed rather than on
+    the attack, and would then be credited with a defence it never earned.
+    """
+    with engine.begin() as conn:
+        prepare(conn)
+    with engine.begin() as conn:
+        act(conn)
+
+
+PASS_BUILDERS: dict[int, Callable[[Engine], Pass]] = {1: pass_one, 2: pass_two}
