@@ -83,6 +83,7 @@ def owner_of(path: str) -> str | None:
             return milestone
     return None
 
+
 #: Paths a frozen pattern matches but that pre-M084 repository policy already
 #: established as shared, non-frozen infrastructure. Empty, and it stays empty
 #: unless such policy is produced: a milestone's own convenience is not policy.
