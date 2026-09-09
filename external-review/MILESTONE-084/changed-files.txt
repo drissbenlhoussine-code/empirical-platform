@@ -20,6 +20,7 @@ A	src/empirical_platform/decision_candidate/product_market_inputs.py
 A	src/empirical_platform/decision_candidate/product_repositories.py
 A	src/empirical_platform/decision_candidate/trade_approval.py
 A	src/empirical_platform/decision_candidate/trade_proposal.py
+A	src/empirical_platform/entrypoints/_operator_cli.py
 A	src/empirical_platform/entrypoints/audit_history.py
 A	src/empirical_platform/entrypoints/decide_trade_proposal.py
 A	src/empirical_platform/entrypoints/explain_no_trade.py
@@ -60,6 +61,7 @@ M	tools/check_architecture.py
 A	tools/check_frozen_paths.py
 A	tools/m084_frozen_m083_acceptance.py
 A	tools/m084_mutation_campaign.py
+A	tools/m084_operator_walkthrough.sh
 A	tools/m084_performance_campaign.py
 A	tools/render_m084_authority.py
 A	tools/render_m084_file_audit.py
