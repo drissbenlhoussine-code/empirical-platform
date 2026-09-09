@@ -256,6 +256,27 @@ class TestTheEndpointItselfCannotBeMoved:
         with pytest.raises(EndpointRefusedError):
             PaperEndpoint.from_url(url)
 
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://paper-api.alpaca.markets@evil.example",
+            "https://user:pass@paper-api.alpaca.markets",
+            "https://key:secret@paper-api.alpaca.markets:443",
+        ],
+    )
+    def test_userinfo_is_refused_by_the_userinfo_rule_specifically(self, url: str) -> None:
+        """The userinfo rule, isolated from the host rule that also happens to catch it.
+
+        Both rules refuse these URLs, which is the correct amount of defence but
+        makes the userinfo check invisible to a test that only asserts "refused":
+        with the userinfo check removed, `partition(":")` leaves the whole
+        `user@host` in the host slot and the exact-host comparison refuses it
+        anyway. Asserting the SPECIFIC message is what makes the userinfo rule
+        independently observable -- without this, a mutation removing it survives.
+        """
+        with pytest.raises(EndpointRefusedError, match="must not carry userinfo"):
+            PaperEndpoint.from_url(url)
+
     def test_the_trading_client_refuses_a_data_host_endpoint(self) -> None:
         # Even a legitimate Alpaca host that is not the trading host is refused,
         # so the order path has exactly one reachable hostname.

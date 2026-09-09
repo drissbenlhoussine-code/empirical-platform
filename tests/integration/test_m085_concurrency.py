@@ -231,12 +231,17 @@ class TestTwoWorkersCannotBothClaimOneDispatch:
 
         # And the loser was handed the winner rather than an error, so it will
         # reconcile the real order instead of retrying.
+        #
+        # REQUIRED, not tolerated. An earlier version of this test accepted "the
+        # loser raised instead" as an alternative, and a mutation removing the
+        # `AND consumed_at IS NULL` clause from the claim then SURVIVED: without
+        # it the loser hits the consumption trigger and raises, which the
+        # permissive branch accepted. The conditional UPDATE exists precisely so
+        # the loser gets a losing CLAIM, so that is what the test demands.
         losers = [outcome for outcome in outcomes if not getattr(outcome, "won", True)]
-        if losers:
-            assert losers[0].attempt.attempt_id == stored.attempt_id  # type: ignore[union-attr]
-        else:
-            # A serialization failure is acceptable ONLY if nothing partial landed.
-            assert failures, "one worker must either lose cleanly or fail cleanly"
+        assert failures == [], f"no worker should fail; got {failures}"
+        assert len(losers) == 1, outcomes
+        assert losers[0].attempt.attempt_id == stored.attempt_id  # type: ignore[union-attr]
 
     def test_only_one_attempt_row_exists_however_many_workers_race(
         self, paper: PostgresPaperExecutionRuntime, rebuilt: Engine

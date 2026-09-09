@@ -1256,20 +1256,16 @@ class TestMilestone084IsUntouched:
             ]
         assert offenders == []
 
-    @pytest.mark.parametrize(
-        "statement",
-        [
-            "INSERT INTO public.paper_execution_event (event_id, intent_governance_id, "
-            "attempt_id, event_type, occurred_at, detail) "
-            "VALUES ('EVT-ORPHAN', 'NO-SUCH-INTENT', NULL, 'X', now(), 'd')",
-        ],
-    )
-    def test_a_paper_row_naming_an_unknown_intent_is_still_refused(
-        self, clean: Engine, statement: str
-    ) -> None:
+    def test_a_paper_row_naming_an_unknown_intent_is_still_refused(self, clean: Engine) -> None:
         # The half of the foreign key that mattered, kept.
         with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
-            connection.execute(text(statement))
+            connection.execute(
+                text(
+                    "INSERT INTO public.paper_execution_event (event_id, "
+                    "intent_governance_id, attempt_id, event_type, occurred_at, detail) "
+                    "VALUES ('EVT-ORPHAN', 'NO-SUCH-INTENT', NULL, 'X', now(), 'd')"
+                )
+            )
         assert "which does not exist" in str(raised.value)
 
     def test_the_intent_existence_trigger_pins_its_search_path(self, clean: Engine) -> None:

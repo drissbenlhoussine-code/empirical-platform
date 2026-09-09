@@ -395,6 +395,42 @@ class TestTheMechanicalClaimsMatchTheCode:
                     offenders.append(f"{path.name}: {node.value[:80]}")
         assert offenders == []
 
+    def test_the_broker_status_map_is_exactly_this_closed_set(self) -> None:
+        """The status map had no test until a surviving mutation said so.
+
+        The mutation campaign added `"calculated": FILLED` to the map and NOTHING
+        failed -- so the closure claim was resting on nobody having widened it yet.
+        Pinning the whole mapping is what makes widening it a decision somebody has
+        to make here, in the open, rather than a line that slips in.
+
+        The statuses deliberately ABSENT are real Alpaca statuses with no obviously
+        correct destination: `done_for_day`, `replaced`, `pending_replace`,
+        `stopped` and `calculated`. An unmapped status records the acknowledgement
+        and leaves the state alone, which is the honest behaviour.
+        """
+        from empirical_platform.usecases.paper_execution import _BROKER_STATUS_TO_STATE
+
+        assert dict(_BROKER_STATUS_TO_STATE) == {
+            "new": PaperExecutionState.PAPER_ACCEPTED,
+            "accepted": PaperExecutionState.PAPER_ACCEPTED,
+            "pending_new": PaperExecutionState.PAPER_ACCEPTED,
+            "accepted_for_bidding": PaperExecutionState.PAPER_ACCEPTED,
+            "held": PaperExecutionState.PAPER_ACCEPTED,
+            "partially_filled": PaperExecutionState.PARTIALLY_FILLED,
+            "filled": PaperExecutionState.FILLED,
+            "canceled": PaperExecutionState.CANCELED,
+            "expired": PaperExecutionState.EXPIRED,
+            "rejected": PaperExecutionState.REJECTED,
+            "suspended": PaperExecutionState.REJECTED,
+            "pending_cancel": PaperExecutionState.CANCEL_REQUESTED,
+        }
+
+    def test_no_unmapped_alpaca_status_is_silently_given_a_destination(self) -> None:
+        from empirical_platform.usecases.paper_execution import _BROKER_STATUS_TO_STATE
+
+        for absent in ("done_for_day", "replaced", "pending_replace", "stopped", "calculated"):
+            assert absent not in _BROKER_STATUS_TO_STATE, absent
+
     def test_the_credential_claim_holds_for_every_persisted_domain_type(self) -> None:
         """No domain type carries a credential field, by construction."""
         forbidden = {"key_id", "secret_key", "api_key", "secret", "password", "token"}
