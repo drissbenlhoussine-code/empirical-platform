@@ -133,6 +133,12 @@ _PURPOSE = {
     "src/empirical_platform/entrypoints/_operator_cli.py": (
         "One refusal shape for every operator command; defects keep their traceback"
     ),
+    "tools/m084_hostile_review.py": (
+        "The hostile-review harness: an attack is code that runs, not an argument"
+    ),
+    "tools/m084_hostile_passes.py": (
+        "The five passes; every attack executed against a live database"
+    ),
     "tools/m084_performance_campaign.py": (
         "Latency and scale at 0..25k rows, with query plans and lock waits"
     ),

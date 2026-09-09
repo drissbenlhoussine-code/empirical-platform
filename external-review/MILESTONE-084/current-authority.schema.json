@@ -19,9 +19,7 @@
       "const": "M084"
     },
     "authority_version": {
-      "type": "integer",
-      "minimum": 1,
-      "maximum": 1
+      "const": 1
     },
     "title": {
       "const": "Decision-to-Approval Product Core"

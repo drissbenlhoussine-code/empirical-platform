@@ -70,6 +70,59 @@ class TestTheContractIsValidAndClosed:
     def test_rendering_twice_produces_the_same_bytes(self, contract: dict[str, Any]) -> None:
         assert render(contract) == render(contract)
 
+    def test_the_schema_uses_only_keywords_the_validator_enforces(
+        self, schema: dict[str, Any]
+    ) -> None:
+        """A constraint the validator ignores is worse than one nobody wrote.
+
+        FIND-H1-01. `authority_version` was pinned with `minimum: 1, maximum: 1`
+        -- correct JSON Schema, and a silent no-op here: the validator this
+        contract is checked by implements `const`, `enum`, `type`, `required`,
+        `additionalProperties`, `minItems`, `maxItems`, `uniqueItems` and
+        `pattern`, and nothing else. The version could be bumped to any value
+        and the contract still "validated". It is now pinned with `const`.
+
+        The validator lives in M083's frozen `tools/render_m083_authority.py`
+        and cannot be extended from here, so this test enforces the boundary
+        from M084's side instead: the schema may only use keywords that are
+        actually checked. Anything else reads as closure and is decoration.
+        """
+        enforced = {
+            "const",
+            "enum",
+            "type",
+            "required",
+            "properties",
+            "additionalProperties",
+            "items",
+            "minItems",
+            "maxItems",
+            "uniqueItems",
+            "pattern",
+            # Annotations, not constraints: they promise nothing, so they
+            # cannot silently fail to deliver.
+            "$schema",
+            "title",
+            "description",
+        }
+
+        def unenforced_in(node: object, path: str = "$") -> list[str]:
+            """Every keyword this schema node uses that nothing checks."""
+            if not isinstance(node, dict):
+                return []
+            found = [f"{path}: {key}" for key in node if key not in enforced]
+            for name, child in node.get("properties", {}).items():
+                found += unenforced_in(child, f"{path}.{name}")
+            if isinstance(node.get("items"), dict):
+                found += unenforced_in(node["items"], f"{path}[]")
+            return found
+
+        unenforced = unenforced_in(schema)
+        assert unenforced == [], (
+            f"the schema uses keywords the validator does not check: {unenforced}. "
+            "Each one reads as a closed constraint and enforces nothing."
+        )
+
     @pytest.mark.parametrize(
         "section", ["proves", "does_not_prove", "structural_limitations", "intended_future_use"]
     )
