@@ -1,5 +1,13 @@
 MILESTONE-084 changed files, 707161a..HEAD
 
+A	external-review/MILESTONE-084/README.md
+A	external-review/MILESTONE-084/broker-and-market-data-research.md
+A	external-review/MILESTONE-084/changed-files.txt
+A	external-review/MILESTONE-084/current-authority.json
+A	external-review/MILESTONE-084/current-authority.md
+A	external-review/MILESTONE-084/current-authority.schema.json
+A	external-review/MILESTONE-084/scope-and-design.md
+A	external-review/MILESTONE-084/validation-results.md
 A	migrations/versions/a3f7c21d9b04_create_m084_decision_to_approval_schema.py
 M	pyproject.toml
 A	src/empirical_platform/decision_candidate/evaluation_context.py
@@ -8,14 +16,21 @@ A	src/empirical_platform/decision_candidate/product_market_inputs.py
 A	src/empirical_platform/decision_candidate/product_repositories.py
 A	src/empirical_platform/decision_candidate/trade_approval.py
 A	src/empirical_platform/decision_candidate/trade_proposal.py
+A	src/empirical_platform/entrypoints/audit_history.py
 A	src/empirical_platform/entrypoints/decide_trade_proposal.py
+A	src/empirical_platform/entrypoints/explain_no_trade.py
 A	src/empirical_platform/entrypoints/get_order_intent.py
 A	src/empirical_platform/entrypoints/get_trade_proposal.py
+A	src/empirical_platform/entrypoints/invalidate_stale_proposals.py
 A	src/empirical_platform/entrypoints/issue_order_intent.py
+A	src/empirical_platform/entrypoints/kill_switch.py
 A	src/empirical_platform/entrypoints/list_trade_proposals.py
 A	src/empirical_platform/entrypoints/open_evaluation_context.py
 A	src/empirical_platform/entrypoints/prepare_trade_proposal.py
 A	src/empirical_platform/entrypoints/save_trading_configuration.py
+A	src/empirical_platform/entrypoints/show_trading_configuration.py
+A	src/empirical_platform/entrypoints/system_status.py
+A	src/empirical_platform/entrypoints/validate_trading_configuration.py
 A	src/empirical_platform/shared/persistence/postgres_repositories/decision_to_approval_repositories.py
 M	src/empirical_platform/shared/persistence/postgres_repositories/runtime.py
 A	src/empirical_platform/usecases/decision_to_approval.py
@@ -25,11 +40,14 @@ A	tests/fixtures/illegal_imports/src/empirical_platform/application/bad_broker_o
 A	tests/fixtures/illegal_imports/src/empirical_platform/decision_candidate/bad_broker_order_submission_import.py
 A	tests/fixtures/illegal_imports/src/empirical_platform/entrypoints/bad_broker_order_submission_import.py
 A	tests/fixtures/illegal_imports/src/empirical_platform/usecases/bad_broker_order_submission_import.py
+A	tests/integration/test_m084_authority_contract.py
 A	tests/integration/test_m084_decision_to_approval_lifecycle.py
 A	tests/integration/test_m084_decision_to_approval_postgres_attacks.py
 A	tests/unit/test_m084_cli_and_io.py
 A	tests/unit/test_m084_domain_core.py
+A	tests/unit/test_m084_operator_workflow.py
 A	tests/unit/test_m084_repositories_and_handlers.py
 M	tools/check_architecture.py
+A	tools/render_m084_authority.py
 
- 31 files changed, 10587 insertions(+), 1 deletion(-)
+ 49 files changed, 14052 insertions(+), 1 deletion(-)
