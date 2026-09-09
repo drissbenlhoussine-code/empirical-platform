@@ -12,7 +12,7 @@ diff, against `changed-files.txt`, and against the filesystem.
 
 | # | Path | Status | Ownership | Purpose | Lines | Public surface |
 |---|---|---|---|---|---|---|
-| 1 | `external-review/MILESTONE-084/README.md` | new | M084 review package | Package entry point and reading order | 57 | - |
+| 1 | `external-review/MILESTONE-084/README.md` | new | M084 review package | Package entry point and reading order | 101 | - |
 | 2 | `external-review/MILESTONE-084/broker-and-market-data-research.md` | new | M084 review package | Phase C research; states its own source limitation before any claim | 240 | - |
 | 3 | `external-review/MILESTONE-084/changed-files.txt` | new | M084 review package | The exact diff surface | 75 | - |
 | 4 | `external-review/MILESTONE-084/concurrency-results.md` | new | M084 review package | Executed concurrency races, three clean schema repetitions | 142 | - |
