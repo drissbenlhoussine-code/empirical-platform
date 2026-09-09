@@ -38,6 +38,10 @@ _OWNERSHIP = {
     "src/empirical_platform/usecases/": "M084 application",
     "tests/architecture/": "shared architecture gate",
     "tests/fixtures/": "shared negative fixtures",
+    # M083's own test files appear in this diff because M084's foreign key broke
+    # their reset. Labelling them "M084 tests" would hide whose tests changed,
+    # which is precisely what a reviewer needs to see, so they are named first.
+    "tests/integration/test_m083_": "M083 tests, repaired by M084",
     "tests/integration/": "M084 tests",
     "tests/unit/": "M084 tests",
     "tools/": "shared toolchain",
@@ -123,6 +127,12 @@ _PURPOSE = {
         "Reads operator input refusing rather than repairing; renders results"
     ),
     "tests/architecture/test_module_boundaries.py": ("Adds the order-submission boundary tests"),
+    "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py": (
+        "M083 reset takes CASCADE, and its up/down/up test targets M083 by name (FIND-R-01/02)"
+    ),
+    "tests/integration/test_m083_evaluation_evidence_watermark_extended_attacks.py": (
+        "M083 reset takes CASCADE now that a foreign key references the watermark (FIND-R-01)"
+    ),
     "tools/check_architecture.py": "Adds the package-wide order-submission deny-list",
     "tools/m084_mutation_campaign.py": (
         "Anti-vacuity campaign: mutates each governing rule, requires the named test to fail"
