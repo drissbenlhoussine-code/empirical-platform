@@ -501,6 +501,46 @@ def run_family(mutation: Mutation, *, database: str) -> dict[str, object]:
     }
 
 
+#: Each safety claim M084 publishes, against the family number that re-proves
+#: it. The interim report cited "SubmissionState declares exactly one member" as
+#: mutation 25 while calling family 25 "runtime JSON/domain closure" -- both
+#: true, since 25's LABEL is the closure and its RULE is the one-member enum,
+#: but a reader cannot be asked to hold that apart. The 27 family labels are
+#: fixed by the mission and are not renamed to suit prose; instead every
+#: narrative reference is generated from this table, so a claim's family
+#: number, label and rule are always quoted together and cannot drift from the
+#: matrix they came from.
+SAFETY_CLAIMS: tuple[tuple[str, int], ...] = (
+    ("The runtime declares exactly one submission state", 25),
+    ("The database pins the stored submission state to NOT_SUBMITTED", 19),
+    ("At most one order intent exists per proposal", 18),
+    ("No module may import an order-submission client", 27),
+)
+
+
+def render_safety_crossreference(results: list[dict[str, object]]) -> list[str]:
+    by_number = {mutation.number: mutation for mutation in MUTATIONS}
+    status = {int(row["n"]): str(row["status"]) for row in results}
+    lines = [
+        "## Safety claims, and the family that re-proves each",
+        "",
+        "Quote this table rather than a bare family number. Each row carries the",
+        "number, the family's label and the rule the mutation actually weakens --",
+        "which are not always the same words, and were conflated once already.",
+        "",
+        "| Safety claim | # | Family label | Rule mutated | Status |",
+        "|---|---|---|---|---|",
+    ]
+    for claim, number in SAFETY_CLAIMS:
+        mutation = by_number[number]
+        lines.append(
+            f"| {claim} | {number} | {mutation.family} | {mutation.rule} | "
+            f"**{status.get(number, 'NOT RUN')}** |"
+        )
+    lines.append("")
+    return lines
+
+
 def render_markdown(results: list[dict[str, object]]) -> str:
     """The published matrix, written from the run rather than transcribed.
 
@@ -535,6 +575,8 @@ def render_markdown(results: list[dict[str, object]]) -> str:
             f"`{row.get('file', '')}` | `{detector}` | {row.get('mutated_result', '')} | "
             f"{row.get('restored_result', '')} | **{row['status']}** |"
         )
+    lines.append("")
+    lines.extend(render_safety_crossreference(results))
     lines.extend(
         [
             "",

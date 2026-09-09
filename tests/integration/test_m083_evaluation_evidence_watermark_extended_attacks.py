@@ -100,7 +100,7 @@ def clean_tables(upgraded_schema: Engine) -> Engine:
         conn.execute(
             text(
                 "TRUNCATE evaluation_evidence_watermark, operator_event_receipt, "
-                "operator_position_event CASCADE"
+                "operator_position_event"
             )
         )
     return upgraded_schema
