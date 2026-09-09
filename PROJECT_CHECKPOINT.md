@@ -18,7 +18,7 @@ This document is updated at each milestone freeze or major checkpoint. It supers
 ## 2. Current State
 
 ```text
-LATEST_FROZEN_MILESTONE=MILESTONE-083
+LATEST_FROZEN_MILESTONE=MILESTONE-084
 MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILESTONE-036
 CHECKPOINT_CONTENT_BASELINE_BRANCH=master
 CHECKPOINT_CONTENT_BASELINE_HEAD=c5ce6f64bc030ebf7c144ddcacc4119fc3b64b9c
@@ -803,8 +803,33 @@ M083_PROFITABILITY_CLAIM=NONE_MADE
 M083_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
 M083_INVESTMENT_ADVICE_CLAIM=NONE_MADE
 
-M084_STATUS=NOT_STARTED
-NEXT_PERMITTED_ACTION=MILESTONE-084 -- recommendation only; not started as part of M083
+M084_SCOPE=Decision-to-Approval Product Core (an additive product layer over frozen M083, where one VERSIONED OPERATOR CONFIGURATION governs one evaluation, one EVALUATION CONTEXT is bound to EXACTLY ONE persisted M083 watermark and reads the receipt count and set digest FROM THE LOADED WATERMARK ROW rather than from the caller, and one input set yields DETERMINISTICALLY either a SINGLE CLOSED NO_TRADE REASON or ONE IMMUTABLE TRADE PROPOSAL whose QUANTITY, PRICE AND RISK VERDICT ARE DERIVED BY THE ENGINE AND NEVER SUPPLIED BY THE CALLER; a proposal carries ONE FINGERPRINT binding an approval to ONE EXACT SET OF ORDER TERMS, its terms are IMMUTABLE AFTER INSERT with status the only mutable column, and it moves through a CLOSED STATE MACHINE IN WHICH ONLY PREPARED HAS OUTGOING EDGES; AT MOST ONE EXPLICIT HUMAN DECISION exists per proposal, admitted only against a PREPARED proposal with a MATCHING FINGERPRINT, and AT MOST ONE ORDER INTENT per proposal is derived from that decision with its terms RE-DERIVED FROM THE PROPOSAL AND DECISION AT INSERT; EVERY STORED INTENT IS NOT_SUBMITTED AND NO TRANSITION AWAY FROM IT EXISTS -- SubmissionState declares exactly one member, a database CHECK pins the stored value, an append-only trigger refuses the UPDATE, a unique constraint allows one intent per proposal, and a PACKAGE-WIDE DENY-LIST REFUSES AN ORDER-SUBMISSION IMPORT IN ANY MODULE, all four re-proved by mutation; decisions, intents and risk-check evidence are APPEND-ONLY and an evaluation context REQUIRES AN EXISTING WATERMARK ROW; it proves NO match between an asserted quote/account/session and what any market or broker showed, NO historical truth behind the M082 receipts, NO profitability/expected return/advice, NO fillability/liquidity/execution quality, NO broker acceptance, NOT that an approved intent was/will be/can be sent to any venue, NO paper or live trading readiness, NO regulatory/tax/reporting compliance, NO protection against DDL/trigger disable/TRUNCATE/DROP/superuser, NO cryptographic sealing against database write access, NO wall-clock chronology beyond the instants the caller supplied, and NOT that a proposal absent from the table was never evaluated; MARKET INPUTS ARE OPERATOR-ASSERTED and never verified against a venue, the fingerprint is a CHANGE DETECTOR NOT A CRYPTOGRAPHIC SEAL, risk-check evidence is excluded from it by design, a NO_TRADE IS NOT PERSISTED so the tables do not record every evaluation, the engine READS NO CLOCK, and the liquidation-deadline check compares LOCAL TIMES not an exchange calendar; M084's foreign key makes M083's frozen fixture TRUNCATE STRUCTURALLY INEXECUTABLE at the M084 head, a MEASURED LIMITATION recorded rather than repaired -- frozen M083 acceptance is obtained at M083's OWN REVISION in its own worktree and database (51 passed) and M084 compatibility is covered by twelve M084-OWNED tests, and neither stands in for the other; the authority is stated ONCE machine-readably in external-review/MILESTONE-084/current-authority.json against a closed schema with authority_version frozen at const 1, rendered deterministically to current-authority.md, so an unknown claim identifier is UNREPRESENTABLE; six new PostgreSQL tables, one migration, and M083 read-only and unmodified under a 27-path frozen-path guard with an EMPTY AND EMPTY-ASSERTED exemption list)
+M084_SCOPE_STATUS=APPROVED_AND_FROZEN
+M084_DESIGN_STATUS=APPROVED_AND_FROZEN
+M084_IMPLEMENTATION_STATUS=APPROVED_AND_FROZEN
+M084_IMPLEMENTATION_COMMIT=e0907c4 (reviewed head) then e661fa9 (owner-authorized final correction, FIND-S-01); 36 branch commits preserved, none squashed
+M084_PULL_REQUEST=14
+M084_MERGE_COMMIT=a7cca5109a4d8f9154f08f3dc4d4f4398e8c866c
+M084_MACRO_REVIEW_STATUS=APPROVED_AFTER_TWELVE_FINDINGS_ONE_GOVERNANCE_BREACH_CORRECTED_AND_ONE_OWNER_DIRECTED_SECRET_SCANNER_CORRECTION
+M084_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M084_OWNER_FREEZE_COMMIT=PENDING
+M084_STATUS=APPROVED_AND_FROZEN
+M084_POSITIVE_AUTHORITY=Exactly twelve bounded claims: one_versioned_operator_configuration_governing_one_evaluation; one_evaluation_context_bound_to_exactly_one_persisted_m083_watermark; the_receipt_count_and_set_digest_read_from_the_loaded_watermark_not_from_the_caller; deterministic_single_reason_no_trade_or_one_proposal_from_one_input_set; quantity_price_and_risk_verdict_derived_by_the_engine_never_supplied_by_the_caller; one_fingerprint_binding_one_approval_to_one_exact_set_of_order_terms; order_terms_immutable_after_insert_with_status_the_only_mutable_column; a_closed_proposal_state_machine_in_which_only_prepared_has_outgoing_edges; at_most_one_explicit_human_decision_per_proposal; at_most_one_order_intent_per_proposal_derived_from_that_decision; every_stored_intent_is_not_submitted_and_no_transition_away_from_it_exists; no_module_of_the_package_imports_an_order_submission_dependency. Nothing further.
+M084_EXPLICIT_NON_CLAIMS=Twelve, governed by current-authority.json does_not_prove: that an asserted quote/account/session matches what the market or broker showed; that the M082 receipts behind the watermark describe anything historically true; profitability, expected return or advice; fillability, liquidity at the proposed price or execution quality; broker acceptance of the intent or of its terms; that an approved intent was, will be or can be sent to any venue; paper or live trading readiness; regulatory, tax or reporting compliance; protection against DDL/trigger disable/TRUNCATE/DROP/superuser; cryptographic sealing against an attacker with database write access; any wall-clock chronology beyond the instants the caller supplied; that a proposal absent from the table was never evaluated.
+M084_STRUCTURAL_LIMITATIONS=Seven: row-level refusals do not cover TRUNCATE, DROP, a disabled trigger or a superuser (executed, not asserted -- hostile attack A1-11 demonstrates the TRUNCATE succeeding); market inputs are operator-asserted and are never verified against a venue; the fingerprint is a change detector, not a cryptographic seal; risk-check evidence is excluded from the fingerprint by design; a NO_TRADE is not persisted, so the tables do not record every evaluation; the engine reads no clock and every instant it records was supplied to it; the liquidation-deadline check compares local times, not an exchange calendar. Plus one measured cross-milestone limitation: M083's frozen fixture TRUNCATE is structurally inexecutable at the M084 head.
+M084_ORDER_SUBMISSION_CAPABILITY=NONE -- TECHNICALLY INCAPABLE. SubmissionState declares exactly one member NOT_SUBMITTED with no other member to transition to; a database CHECK pins the stored value; an append-only trigger refuses the UPDATE; a unique constraint allows at most one intent per proposal; a package-wide deny-list refuses an order-submission import in ANY module. All four re-proved by mutation. No broker credential, no broker SDK, no endpoint, no paper order, no live order, no FIX connectivity, no scheduled or unattended submission, no approval by default or by absence of rejection, and no approval covering more than one exact proposal version.
+M084_BROKER_SELECTION_STATUS=CONDITIONAL_AND_UNRESOLVED -- the research conclusion rests on a search summary because all three vendors' documentation domains are blocked in this environment; external-review/MILESTONE-084/operator-verification-checklist.md lists the exact URLs and questions and NO ROW HAS BEEN COMPLETED. No broker contacted, no account opened, no credential created, no terms accepted.
+M084_MARKET_INPUT_STATUS=OPERATOR_ASSERTED_NEVER_VERIFIED_AGAINST_A_VENUE
+M084_PERFORMANCE_MEASUREMENTS=VALIDATION_EVIDENCE_ONLY_NOT_AUTHORITY
+M084_M083_CONSUMPTION=CONSUMES_M083_WATERMARK_AUTHORITY_NEITHER_REPLACES_NOR_STRENGTHENS_IT
+M084_FROZEN_PATH_GUARD=tools/check_frozen_paths.py -- 27 governed M083 paths pinned to their git blob ids as of 707161a1, EXEMPT list empty and asserted empty
+M084_PROFITABILITY_CLAIM=NONE_MADE
+M084_LIVE_TRADING_READINESS_CLAIM=NONE_MADE
+M084_INVESTMENT_ADVICE_CLAIM=NONE_MADE
+
+M085_STATUS=NOT_STARTED
+M086_STATUS=NOT_STARTED
+NEXT_PERMITTED_ACTION=MILESTONE-085 -- recommendation only; not started as part of M084
 ```
 
 ## 3. Frozen Milestone Summary
