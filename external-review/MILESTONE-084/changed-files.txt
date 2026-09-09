@@ -8,6 +8,8 @@ A	external-review/MILESTONE-084/current-authority.schema.json
 A	external-review/MILESTONE-084/file-audit-matrix.json
 A	external-review/MILESTONE-084/file-audit-matrix.md
 A	external-review/MILESTONE-084/mutation-matrix.md
+A	external-review/MILESTONE-084/operator-verification-checklist.md
+A	external-review/MILESTONE-084/performance-results.md
 A	external-review/MILESTONE-084/scope-and-design.md
 A	external-review/MILESTONE-084/validation-results.md
 A	migrations/versions/a3f7c21d9b04_create_m084_decision_to_approval_schema.py
@@ -49,6 +51,7 @@ A	tests/integration/test_m084_decision_to_approval_lifecycle.py
 A	tests/integration/test_m084_decision_to_approval_postgres_attacks.py
 A	tests/integration/test_m084_file_audit.py
 A	tests/integration/test_m084_m083_compatibility.py
+A	tests/integration/test_m084_queue_index.py
 A	tests/unit/test_m084_cli_and_io.py
 A	tests/unit/test_m084_domain_core.py
 A	tests/unit/test_m084_operator_workflow.py
@@ -57,5 +60,6 @@ M	tools/check_architecture.py
 A	tools/check_frozen_paths.py
 A	tools/m084_frozen_m083_acceptance.py
 A	tools/m084_mutation_campaign.py
+A	tools/m084_performance_campaign.py
 A	tools/render_m084_authority.py
 A	tools/render_m084_file_audit.py
