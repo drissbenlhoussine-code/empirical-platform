@@ -132,7 +132,6 @@ class NoTradeReason(StrEnum):
     CASH_INSUFFICIENT = "CASH_INSUFFICIENT"
     CASH_RESERVE_BREACHED = "CASH_RESERVE_BREACHED"
     QUANTITY_ZERO_AFTER_SIZING = "QUANTITY_ZERO_AFTER_SIZING"
-    NOTIONAL_ABOVE_LIMIT = "NOTIONAL_ABOVE_LIMIT"
     ORDER_TYPE_NOT_PERMITTED = "ORDER_TYPE_NOT_PERMITTED"
     NO_ELIGIBLE_CANDIDATE = "NO_ELIGIBLE_CANDIDATE"
 
@@ -167,7 +166,6 @@ _REASON_PRECEDENCE: tuple[NoTradeReason, ...] = (
     NoTradeReason.DAILY_ORDER_LIMIT_REACHED,
     NoTradeReason.CASH_RESERVE_BREACHED,
     NoTradeReason.CASH_INSUFFICIENT,
-    NoTradeReason.NOTIONAL_ABOVE_LIMIT,
     NoTradeReason.QUANTITY_ZERO_AFTER_SIZING,
     NoTradeReason.NO_ELIGIBLE_CANDIDATE,
 )
@@ -771,14 +769,14 @@ def evaluate_trade_proposal(
         else Decimal("0.00")
     )
     total_cash = notional + fees + slippage_amount
-    record(
-        "notional_limit",
-        RiskCheckOutcome.PASSED
-        if notional <= configuration.maximum_capital_per_trade
-        else RiskCheckOutcome.FAILED,
-        f"notional {notional}",
-        NoTradeReason.NOTIONAL_ABOVE_LIMIT,
-    )
+    # There is deliberately no `notional_limit` risk check here. `budget` is
+    # already `min(maximum_capital_per_trade, ...)` and both roundings above are
+    # downward, so `notional <= maximum_capital_per_trade` holds for every input
+    # this engine accepts. A recorded check for it could never report FAILED: it
+    # would advertise a refusal the engine cannot make, and would be untestable
+    # by construction. The cap is enforced where it binds -- in `deployable` --
+    # and the resulting invariant is proved by execution in
+    # `TestSizingRespectsTheCapitalCap` rather than asserted by a dead branch.
     record(
         "cash_sufficient",
         RiskCheckOutcome.PASSED if total_cash <= spendable_cash else RiskCheckOutcome.FAILED,

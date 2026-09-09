@@ -301,7 +301,13 @@ class TestRendering:
         text = render_proposal_text(a_proposal())
         assert "BUY 9 AAPL" in text
         assert "limit 200.10" in text
-        assert "risk checks passed: 26" in text
+        # 25, not 26: FIND-M-01 removed the `notional_limit` check, which could
+        # never report FAILED because sizing already clips the budget to the cap.
+        # The literal is the canary -- a check appearing or disappearing must be
+        # a deliberate edit here -- and the second assertion keeps the rendered
+        # figure tied to the engine rather than to this expectation.
+        assert "risk checks passed: 25" in text
+        assert f"risk checks passed: {len(a_proposal().risk_checks)}" in text
 
     def test_a_no_trade_names_its_reason_and_the_checks_that_did_not_pass(self) -> None:
         outcome = evaluate(cost_estimate=None)

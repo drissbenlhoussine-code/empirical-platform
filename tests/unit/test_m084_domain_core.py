@@ -468,6 +468,69 @@ class TestProposalHappyPath:
         assert proposal.expires_at == proposal.created_at + timedelta(seconds=300)
 
 
+class TestSizingRespectsTheCapitalCap:
+    """The per-trade capital cap, proved by execution rather than by a dead branch.
+
+    The engine records no `notional_limit` risk check. It cannot: sizing already
+    clips the budget to `maximum_capital_per_trade` and rounds down twice, so a
+    recorded check would advertise a refusal that can never fire and could never
+    be tested. The cap is instead a derived invariant, and an invariant nobody
+    exercises is a claim, not a property -- so these tests sweep the inputs that
+    drive sizing (the cap itself, the portfolio-relative cap, the price, and the
+    lot size) and assert the bound holds on every one.
+
+    This is the detecting suite for mutation family 6. Removing the cap from
+    `deployable` -- the one place it binds -- makes the sweep fail.
+    """
+
+    @pytest.mark.parametrize("cap", ["100", "250.75", "1000", "2000", "9999.99"])
+    @pytest.mark.parametrize("ask", ["5.02", "12.50", "200.10", "999.98"])
+    @pytest.mark.parametrize("lot_size", [1, 5, 100])
+    def test_the_notional_never_exceeds_the_per_trade_cap(
+        self, cap: str, ask: str, lot_size: int
+    ) -> None:
+        limit = Decimal(cap)
+        price = Decimal(ask)
+        outcome = evaluate(
+            configuration=a_configuration(
+                maximum_capital_per_trade=limit,
+                maximum_deployable_capital=Decimal("1000000"),
+                minimum_cash_reserve=Decimal("0"),
+            ),
+            account=an_account(cash_available=Decimal("1000000")),
+            quote=a_quote(
+                bid=price - Decimal("0.02"),
+                ask=price,
+                last_trade=price,
+            ),
+            instrument=an_instrument(lot_size=lot_size),
+        )
+        # A NO_TRADE is a legitimate result here (a cap of 100 buys no 999.99
+        # share); what is never legitimate is a proposal above the cap.
+        if outcome.proposal is not None:
+            assert outcome.proposal.estimated_notional <= limit
+
+    def test_the_portfolio_relative_cap_binds_when_it_is_the_smaller(self) -> None:
+        # 5% of 10000 = 500 < the 2000 per-trade cap: floor(500 / 200.10) = 2.
+        proposal = a_proposal(configuration=a_configuration(maximum_percent_per_trade=Decimal("5")))
+        assert proposal.quantity == 2
+        assert proposal.estimated_notional == Decimal("400.20")
+
+    def test_the_per_trade_cap_binds_when_it_is_the_smaller(self) -> None:
+        # 400 cap < 20% of 10000 = 2000: floor(400 / 200.10) = 1.
+        proposal = a_proposal(
+            configuration=a_configuration(maximum_capital_per_trade=Decimal("400"))
+        )
+        assert proposal.quantity == 1
+        assert proposal.estimated_notional == Decimal("200.10")
+
+    def test_no_evaluation_can_report_a_notional_limit_refusal(self) -> None:
+        # The engine must not carry a reason it cannot produce: an unreachable
+        # NO_TRADE reason is a published refusal the product cannot actually make.
+        assert not any("NOTIONAL" in reason.value for reason in NoTradeReason)
+        assert not any(check.check_id == "notional_limit" for check in evaluate().risk_checks)
+
+
 class TestProposalFingerprint:
     def test_a_proposal_carries_the_digest_of_its_own_terms(self) -> None:
         proposal = a_proposal()
@@ -1028,6 +1091,43 @@ class TestApprovedOrderIntent:
                 decision=decision,
                 created_at=EVALUATED_AT + timedelta(seconds=20),
                 idempotency_key="IDEM-0006",
+            )
+
+    def test_an_approval_cannot_be_carried_to_a_later_version_of_its_proposal(self) -> None:
+        # FIND-M-02. The version binding and the fingerprint binding are two
+        # separate refusals, and until this test existed only the second was
+        # exercised: every approved pair in this suite is version 1, so deleting
+        # the version check changed no test outcome. The attack it guards is a
+        # proposal re-issued under a new version whose recorded digest still
+        # matches -- reachable through a rebuilt object, a replayed row, or a
+        # future re-versioning that preserves the terms -- so the check is
+        # driven here against a proposal whose version alone has moved.
+        proposal, decision = an_approved_pair()
+        reversioned = a_variant(proposal, proposal_version=2)
+        assert reversioned.content_fingerprint == decision.approved_fingerprint
+        assert reversioned.proposal_governance_id == decision.proposal_governance_id
+        with pytest.raises(ValueError, match="approved a different proposal version"):
+            build_approved_order_intent(
+                intent_governance_id="INT-0012",
+                proposal=reversioned,
+                decision=decision,
+                created_at=EVALUATED_AT + timedelta(seconds=20),
+                idempotency_key="IDEM-0012",
+            )
+
+    def test_an_approval_cannot_be_carried_to_an_earlier_version_of_its_proposal(self) -> None:
+        # The binding is equality, not "at least": an approval of version 2 must
+        # not authorize version 1 either.
+        proposal, decision = an_approved_pair()
+        forward = a_variant(proposal, proposal_version=3)
+        stale_decision = replace(decision, proposal_version=5)
+        with pytest.raises(ValueError, match="approved a different proposal version"):
+            build_approved_order_intent(
+                intent_governance_id="INT-0013",
+                proposal=forward,
+                decision=stale_decision,
+                created_at=EVALUATED_AT + timedelta(seconds=20),
+                idempotency_key="IDEM-0013",
             )
 
     def test_an_intent_cannot_be_built_after_the_approval_lapsed(self) -> None:
