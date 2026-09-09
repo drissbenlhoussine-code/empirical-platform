@@ -769,10 +769,15 @@ class TestOpenEvaluationContextHandler:
 
 class TestPrepareTradeProposalHandler:
     def _handler(
-        self, *, contexts: _MemoryContexts, proposals: _MemoryProposals
+        self,
+        *,
+        contexts: _MemoryContexts,
+        proposals: _MemoryProposals,
+        configurations: _MemoryConfigurations | None = None,
     ) -> PrepareTradeProposalHandler:
-        configurations = _MemoryConfigurations()
-        configurations.save(a_configuration())
+        if configurations is None:
+            configurations = _MemoryConfigurations()
+            configurations.save(a_configuration())
         return PrepareTradeProposalHandler(
             configuration_repository=configurations,  # type: ignore[arg-type]
             evaluation_context_repository=contexts,  # type: ignore[arg-type]
@@ -825,13 +830,33 @@ class TestPrepareTradeProposalHandler:
         with pytest.raises(NotFoundError, match="no evaluation context"):
             handler.handle(self._command())
 
+    def test_a_context_citing_a_missing_configuration_version_is_refused(self) -> None:
+        """FIND-H5-01. This branch carried `# pragma: no cover`.
+
+        The pragma's reasoning was that a stored context always cites a stored
+        configuration version, which the foreign key does guarantee in the
+        database. But the handler takes its repositories as parameters, so the
+        branch is reachable from here with a repository that returns None --
+        which is exactly what a caller composing this handler differently would
+        produce. A coverage pragma on a branch a unit test can reach is a
+        suppression that was never needed, and it hid a `raise` nobody had run.
+        """
+        handler = self._handler(
+            contexts=self._contexts(),
+            proposals=_MemoryProposals(),
+            configurations=_MemoryConfigurations(),
+        )
+        with pytest.raises(NotFoundError, match="which does not exist"):
+            handler.handle(self._command())
+
 
 class TestDecideTradeProposalHandler:
     def _setup(
-        self, proposal: TradeProposal | None = None
+        self, proposal: TradeProposal | None = None, *, store_configuration: bool = True
     ) -> tuple[DecideTradeProposalHandler, _MemoryProposals, _MemoryDecisions]:
         configurations = _MemoryConfigurations()
-        configurations.save(a_configuration())
+        if store_configuration:
+            configurations.save(a_configuration())
         proposals = _MemoryProposals()
         proposals.save(proposal if proposal is not None else a_proposal())
         decisions = _MemoryDecisions()
@@ -855,6 +880,14 @@ class TestDecideTradeProposalHandler:
         }
         defaults.update(overrides)
         return DecideTradeProposalCommand(**defaults)  # type: ignore[arg-type]
+
+    def test_a_proposal_citing_a_missing_configuration_version_is_refused(self) -> None:
+        # FIND-H5-01, the second of the two branches that carried a coverage
+        # pragma. Reachable here for the same reason as the first: the handler
+        # takes its repositories as parameters.
+        handler, _, _ = self._setup(store_configuration=False)
+        with pytest.raises(NotFoundError, match="cites a configuration version"):
+            handler.handle(self._command())
 
     def test_an_approval_records_the_decision_and_then_moves_the_proposal(self) -> None:
         handler, proposals, decisions = self._setup()

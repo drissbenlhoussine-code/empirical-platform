@@ -524,6 +524,34 @@ class TestSizingRespectsTheCapitalCap:
         assert proposal.quantity == 1
         assert proposal.estimated_notional == Decimal("200.10")
 
+    @pytest.mark.parametrize(
+        ("default", "permitted"),
+        [
+            (OrderType.LIMIT, (OrderType.LIMIT,)),
+            (OrderType.MARKET, (OrderType.MARKET,)),
+            (OrderType.LIMIT, (OrderType.LIMIT, OrderType.MARKET)),
+            (OrderType.MARKET, (OrderType.LIMIT, OrderType.MARKET)),
+        ],
+    )
+    def test_the_order_type_the_engine_uses_is_always_a_permitted_one(
+        self, default: OrderType, permitted: tuple[OrderType, ...]
+    ) -> None:
+        # FIND-H3-01, the replacement proof. Every configuration the product can
+        # actually hold is swept, and in each the engine's chosen order type is
+        # inside the permitted set -- which is why the removed risk check could
+        # never have fired.
+        outcome = evaluate(
+            configuration=a_configuration(
+                default_order_type=default, permitted_order_types=permitted
+            )
+        )
+        if outcome.proposal is not None:
+            assert outcome.proposal.order_type in permitted
+
+    def test_no_evaluation_can_report_an_order_type_refusal(self) -> None:
+        assert not any("ORDER_TYPE" in reason.value for reason in NoTradeReason)
+        assert not any(check.check_id == "order_type_permitted" for check in evaluate().risk_checks)
+
     def test_no_evaluation_can_report_a_notional_limit_refusal(self) -> None:
         # The engine must not carry a reason it cannot produce: an unreachable
         # NO_TRADE reason is a published refusal the product cannot actually make.
@@ -797,14 +825,26 @@ class TestNoTradeReasons:
         outcome = evaluate(account=an_account(cash_available=Decimal("1100")))
         assert outcome.no_trade_reason is NoTradeReason.QUANTITY_ZERO_AFTER_SIZING
 
-    def test_an_unpermitted_default_order_type_produces_no_trade(self) -> None:
-        # The configuration refuses this pairing, so the rule is driven through
-        # the one path that can still reach the engine: a permitted-set that no
-        # longer contains the default after the object was built.
-        configuration = a_configuration()
-        object.__setattr__(configuration, "permitted_order_types", (OrderType.MARKET,))
-        outcome = evaluate(configuration=configuration)
-        assert outcome.no_trade_reason is NoTradeReason.ORDER_TYPE_NOT_PERMITTED
+    def test_a_configuration_cannot_hold_an_unpermitted_default_order_type(self) -> None:
+        """FIND-H3-01. The rule binds at construction, not in the engine.
+
+        There used to be an `order_type_permitted` risk check and an
+        `ORDER_TYPE_NOT_PERMITTED` reason here. The check could never report
+        FAILED: the engine's order type IS `configuration.default_order_type`,
+        and the configuration refuses at construction to hold a default outside
+        its permitted set. The test that covered it said so out loud -- it
+        reached the branch only by writing through a frozen dataclass with
+        `object.__setattr__`, manufacturing a state the product cannot be in.
+
+        That is the tell for a dead branch: the only way to exercise it is to
+        break the object first. The refusal is asserted where it actually
+        happens instead, and the engine-side invariant is swept below.
+        """
+        with pytest.raises(ValueError, match="default_order_type must be one of"):
+            a_configuration(
+                default_order_type=OrderType.MARKET,
+                permitted_order_types=(OrderType.LIMIT,),
+            )
 
     def test_a_lot_size_larger_than_the_budget_produces_no_trade(self) -> None:
         outcome = evaluate(instrument=an_instrument(lot_size=100))

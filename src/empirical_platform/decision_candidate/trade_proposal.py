@@ -132,7 +132,6 @@ class NoTradeReason(StrEnum):
     CASH_INSUFFICIENT = "CASH_INSUFFICIENT"
     CASH_RESERVE_BREACHED = "CASH_RESERVE_BREACHED"
     QUANTITY_ZERO_AFTER_SIZING = "QUANTITY_ZERO_AFTER_SIZING"
-    ORDER_TYPE_NOT_PERMITTED = "ORDER_TYPE_NOT_PERMITTED"
     NO_ELIGIBLE_CANDIDATE = "NO_ELIGIBLE_CANDIDATE"
 
 
@@ -154,7 +153,6 @@ _REASON_PRECEDENCE: tuple[NoTradeReason, ...] = (
     NoTradeReason.INSTRUMENT_NOT_WATCHLISTED,
     NoTradeReason.MARKET_NOT_PERMITTED,
     NoTradeReason.CURRENCY_MISMATCH,
-    NoTradeReason.ORDER_TYPE_NOT_PERMITTED,
     NoTradeReason.PRICE_OUTSIDE_BOUNDS,
     NoTradeReason.SPREAD_TOO_WIDE,
     NoTradeReason.LIQUIDITY_INSUFFICIENT,
@@ -642,15 +640,17 @@ def evaluate_trade_proposal(
         NoTradeReason.CURRENCY_MISMATCH,
     )
 
+    # There is deliberately no `order_type_permitted` risk check. The order type
+    # is `configuration.default_order_type`, and the configuration refuses at
+    # construction to hold a default that is not among its permitted types --
+    # so this check could never report FAILED. FIND-H3-01: it was the second
+    # unreachable NO_TRADE reason in this engine, found by the trading-risk
+    # hostile pass rather than by the mutation campaign, whose family list did
+    # not name it. A published refusal the product cannot make is a false claim
+    # however defensively it is meant, so the rule is enforced where it binds --
+    # in `OperatorTradingConfiguration.__post_init__` -- and the resulting
+    # invariant is proved by execution in `TestTheOrderTypeIsAlwaysPermitted`.
     order_type = configuration.default_order_type
-    record(
-        "order_type_permitted",
-        RiskCheckOutcome.PASSED
-        if order_type in configuration.permitted_order_types
-        else RiskCheckOutcome.FAILED,
-        f"order type {order_type.value}",
-        NoTradeReason.ORDER_TYPE_NOT_PERMITTED,
-    )
 
     reference_price = quote.last_trade
     price_ok = reference_price >= configuration.minimum_price and (

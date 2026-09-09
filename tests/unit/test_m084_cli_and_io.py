@@ -301,12 +301,12 @@ class TestRendering:
         text = render_proposal_text(a_proposal())
         assert "BUY 9 AAPL" in text
         assert "limit 200.10" in text
-        # 25, not 26: FIND-M-01 removed the `notional_limit` check, which could
-        # never report FAILED because sizing already clips the budget to the cap.
+        # 24. FIND-M-01 removed `notional_limit` and FIND-H3-01 removed
+        # `order_type_permitted`; neither could ever report FAILED.
         # The literal is the canary -- a check appearing or disappearing must be
         # a deliberate edit here -- and the second assertion keeps the rendered
         # figure tied to the engine rather than to this expectation.
-        assert "risk checks passed: 25" in text
+        assert "risk checks passed: 24" in text
         assert f"risk checks passed: {len(a_proposal().risk_checks)}" in text
 
     def test_a_no_trade_names_its_reason_and_the_checks_that_did_not_pass(self) -> None:
@@ -412,22 +412,29 @@ class TestEntrypointOutput:
         assert "NO_TRADE: COST_ESTIMATE_MISSING" in capsys.readouterr().out
 
     def test_prepare_trade_proposal_refuses_a_naive_evaluation_instant(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
         path = tmp_path / "inputs.json"
         path.write_text(json.dumps(INPUTS_DOCUMENT), encoding="utf-8")
         monkeypatch.setattr(
             "sys.argv", ["prog", "PRP-1", "ECX-1", "AAPL", "2026-06-10T12:00:00", str(path)]
         )
-        with pytest.raises(InputError, match="must carry a UTC offset"):
+        with pytest.raises(SystemExit) as exit_info:
             prepare_trade_proposal.main()
+        assert exit_info.value.code == 1
+        assert "must carry a UTC offset" in capsys.readouterr().err
 
     def test_decide_trade_proposal_refuses_an_unknown_action(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         monkeypatch.setattr("sys.argv", ["prog", "PRP-1", "DEC-1", "AUTO_APPROVE", "alice"])
-        with pytest.raises(InputError, match="must be one of APPROVE, CANCEL, REJECT"):
+        with pytest.raises(SystemExit) as exit_info:
             decide_trade_proposal.main()
+        assert exit_info.value.code == 1
+        assert "must be one of APPROVE, CANCEL, REJECT" in capsys.readouterr().err
 
     def test_decide_trade_proposal_prints_who_decided(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
@@ -461,11 +468,13 @@ class TestEntrypointOutput:
         assert "no proposals in PREPARED" in capsys.readouterr().out
 
     def test_list_trade_proposals_refuses_an_unknown_status(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
         monkeypatch.setattr("sys.argv", ["prog", "SUBMITTED"])
-        with pytest.raises(InputError, match="status must be one of"):
+        with pytest.raises(SystemExit) as exit_info:
             list_trade_proposals.main()
+        assert exit_info.value.code == 1
+        assert "status must be one of" in capsys.readouterr().err
 
     def test_get_trade_proposal_renders_json_on_request(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

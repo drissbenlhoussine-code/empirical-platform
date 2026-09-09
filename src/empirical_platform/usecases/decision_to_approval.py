@@ -315,7 +315,7 @@ def evaluate_without_persisting(
     configuration = configuration_repository.get(
         context.configuration_governance_id, context.configuration_version
     )
-    if configuration is None:  # pragma: no cover - a stored context cites a stored version
+    if configuration is None:
         raise NotFoundError(
             f"context {context.evaluation_context_id!r} cites configuration "
             f"{context.configuration_governance_id!r} version "
@@ -435,7 +435,7 @@ class DecideTradeProposalHandler:
         configuration = self._configurations.get(
             proposal.configuration_governance_id, proposal.configuration_version
         )
-        if configuration is None:  # pragma: no cover - a stored proposal cites a stored version
+        if configuration is None:
             raise NotFoundError(
                 f"proposal {proposal.proposal_governance_id!r} cites a configuration "
                 "version that does not exist"

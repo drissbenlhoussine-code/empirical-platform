@@ -133,6 +133,15 @@ _PURPOSE = {
     "src/empirical_platform/entrypoints/_operator_cli.py": (
         "One refusal shape for every operator command; defects keep their traceback"
     ),
+    "tests/integration/test_m084_m083_compatibility.py": (
+        "M084-owned proof of what M084 does to the frozen M083 schema"
+    ),
+    "tests/integration/test_m084_queue_index.py": (
+        "The operator queue must not degrade with an append-only table"
+    ),
+    "tests/architecture/test_frozen_paths.py": (
+        "Enforces the frozen boundary that M084 crossed once"
+    ),
     "tools/m084_hostile_review.py": (
         "The hostile-review harness: an attack is code that runs, not an argument"
     ),

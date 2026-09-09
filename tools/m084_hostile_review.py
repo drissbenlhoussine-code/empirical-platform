@@ -38,7 +38,7 @@ import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -292,7 +292,7 @@ def main(argv: list[str] | None = None) -> int:
                         "pass": r.number,
                         "adversary": r.adversary,
                         "minimum": r.minimum,
-                        "attacks": [vars(a) for a in r.attacks],
+                        "attacks": [asdict(a) for a in r.attacks],
                     }
                     for r in results
                 ],

@@ -1,6 +1,6 @@
 {
   "base": "707161a1e8edeb7e0c95f3dafc7180ba9d782cc6",
-  "count": 67,
+  "count": 69,
   "files": [
     {
       "n": 1,
@@ -23,7 +23,7 @@
       "path": "external-review/MILESTONE-084/changed-files.txt",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 67,
+      "lines": 69,
       "surface": "-"
     },
     {
@@ -55,7 +55,7 @@
       "path": "external-review/MILESTONE-084/current-authority.schema.json",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 160,
+      "lines": 158,
       "surface": "-"
     },
     {
@@ -63,7 +63,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.json",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 542,
+      "lines": 558,
       "surface": "-"
     },
     {
@@ -71,7 +71,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.md",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 81,
+      "lines": 83,
       "surface": "-"
     },
     {
@@ -391,7 +391,7 @@
       "path": "tests/integration/test_m084_authority_contract.py",
       "status": "new",
       "ownership": "M084 tests",
-      "lines": 270,
+      "lines": 323,
       "surface": "contract, schema, TestTheContractIsValidAndClosed, TestTheClaimsMatchTheRunningCode, TestTheFrozenM083PackageIsUntouched"
     },
     {
@@ -447,7 +447,7 @@
       "path": "tests/unit/test_m084_cli_and_io.py",
       "status": "new",
       "ownership": "M084 tests",
-      "lines": 494,
+      "lines": 503,
       "surface": "TestReadingAConfiguration, TestReadingMarketInputs, TestReadingAContextRequest, TestLoadingAFile, TestRendering, TestEntrypointArguments, TestEntrypointOutput, TestOutcomeJsonShape"
     },
     {
@@ -455,7 +455,7 @@
       "path": "tests/unit/test_m084_domain_core.py",
       "status": "new",
       "ownership": "M084 tests",
-      "lines": 1281,
+      "lines": 1321,
       "surface": "a_configuration, a_quote, an_account, a_session, an_instrument, a_liquidity, a_cost_estimate, evaluate, evaluate_for, evaluate_at, a_proposal, a_variant, a_watermark, TestConfigurationHardInvariants, TestConfigurationOrderingInvariants, TestConfigurationUniverseInvariants, TestMarketInputSnapshots, TestProposalHappyPath, TestSizingRespectsTheCapitalCap, TestProposalFingerprint, TestProposalConstructionInvariants, TestNoTradeReasons, TestNoTradeReporting, TestTransitionTable, TestOperatorDecision, an_approved_pair, TestApprovedOrderIntent, TestEvaluationContext"
     },
     {
@@ -471,7 +471,7 @@
       "path": "tests/unit/test_m084_repositories_and_handlers.py",
       "status": "new",
       "ownership": "M084 tests",
-      "lines": 971,
+      "lines": 1004,
       "surface": "configuration_row, proposal_row, context_row, a_decision, decision_row, an_intent, intent_row, TestRowMappingRefusesRatherThanCoerces, TestConfigurationRepository, TestEvaluationContextRepository, TestTradeProposalRepository, TestDecisionRepository, TestIntentRepository, TestConfigurationHandler, TestOpenEvaluationContextHandler, TestPrepareTradeProposalHandler, TestDecideTradeProposalHandler, TestIssueApprovedOrderIntentHandler, TestQueryHandlers"
     },
     {
@@ -500,6 +500,22 @@
     },
     {
       "n": 63,
+      "path": "tools/m084_hostile_passes.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 2162,
+      "surface": "pass_one, pass_two, pass_three, pass_four, pass_five"
+    },
+    {
+      "n": 64,
+      "path": "tools/m084_hostile_review.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 314,
+      "surface": "Attack, Pass, rebuild_database, refused_by, allowed, render_markdown, main"
+    },
+    {
+      "n": 65,
       "path": "tools/m084_mutation_campaign.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -507,7 +523,7 @@
       "surface": "Mutation, run_family, render_safety_crossreference, render_markdown, main"
     },
     {
-      "n": 64,
+      "n": 66,
       "path": "tools/m084_operator_walkthrough.sh",
       "status": "new",
       "ownership": "shared toolchain",
@@ -515,7 +531,7 @@
       "surface": "-"
     },
     {
-      "n": 65,
+      "n": 67,
       "path": "tools/m084_performance_campaign.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -523,7 +539,7 @@
       "surface": "Samples, rebuild_database, seed_prerequisites, seed_proposals, measure_engine, measure_query, measure_insert, measure_issue_intent, capture_plans, measure_lock_duration, run, render_markdown, main"
     },
     {
-      "n": 66,
+      "n": 68,
       "path": "tools/render_m084_authority.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -531,11 +547,11 @@
       "surface": "render, main"
     },
     {
-      "n": 67,
+      "n": 69,
       "path": "tools/render_m084_file_audit.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 307,
+      "lines": 322,
       "surface": "AuditError, build, render_markdown, main"
     }
   ]

@@ -60,6 +60,8 @@ A	tests/unit/test_m084_repositories_and_handlers.py
 M	tools/check_architecture.py
 A	tools/check_frozen_paths.py
 A	tools/m084_frozen_m083_acceptance.py
+A	tools/m084_hostile_passes.py
+A	tools/m084_hostile_review.py
 A	tools/m084_mutation_campaign.py
 A	tools/m084_operator_walkthrough.sh
 A	tools/m084_performance_campaign.py
