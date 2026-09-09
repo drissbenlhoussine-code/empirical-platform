@@ -19,8 +19,8 @@ diff, against `changed-files.txt`, and against the filesystem.
 | 5 | `external-review/MILESTONE-084/current-authority.json` | new | M084 review package | The canonical authority contract; the only source of M084 authority | 60 | - |
 | 6 | `external-review/MILESTONE-084/current-authority.md` | new | M084 review package | Deterministic rendering of the contract; never hand-edited | 69 | - |
 | 7 | `external-review/MILESTONE-084/current-authority.schema.json` | new | M084 review package | Closed schema; exact item counts make adding and dropping equally visible | 160 | - |
-| 8 | `external-review/MILESTONE-084/file-audit-matrix.json` | new | M084 review package | This matrix, machine-checked against the diff and the filesystem | 446 | - |
-| 9 | `external-review/MILESTONE-084/file-audit-matrix.md` | new | M084 review package | This matrix, rendered | 69 | - |
+| 8 | `external-review/MILESTONE-084/file-audit-matrix.json` | new | M084 review package | This matrix, machine-checked against the diff and the filesystem | 462 | - |
+| 9 | `external-review/MILESTONE-084/file-audit-matrix.md` | new | M084 review package | This matrix, rendered | 71 | - |
 | 10 | `external-review/MILESTONE-084/mutation-matrix.md` | new | M084 review package | All 27 mutation families: mutated, detected, restored, re-verified | 95 | - |
 | 11 | `external-review/MILESTONE-084/scope-and-design.md` | new | M084 review package | What was built and why each refusal sits where it does | 147 | - |
 | 12 | `external-review/MILESTONE-084/validation-results.md` | new | M084 review package | What was executed and measured; what was not is listed, not omitted | 207 | - |

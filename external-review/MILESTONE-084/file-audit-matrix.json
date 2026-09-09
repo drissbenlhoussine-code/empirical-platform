@@ -63,7 +63,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.json",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 446,
+      "lines": 462,
       "surface": "-"
     },
     {
@@ -71,7 +71,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.md",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 69,
+      "lines": 71,
       "surface": "-"
     },
     {
