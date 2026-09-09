@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MILESTONE-085 current authority contract",
+  "description": "The closed, machine-readable statement of what MILESTONE-085 establishes. Every enumeration below is closed and every list length is exact: a claim this schema does not already name cannot be added to the contract without changing the schema, and a claim removed from the contract fails the exact minItems/maxItems. That is the point -- it makes silently widening or quietly dropping an authority claim impossible rather than merely discouraged. There is deliberately no property for a live endpoint, for unattended execution, for profitability or for fill quality: those are not fields with a false value, they are fields that do not exist.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "milestone",
+    "authority_version",
+    "title",
+    "proves",
+    "does_not_prove",
+    "database_enforcement",
+    "structural_limitations",
+    "intended_future_use"
+  ],
+  "properties": {
+    "milestone": {
+      "const": "M085"
+    },
+    "authority_version": {
+      "const": 1
+    },
+    "title": {
+      "const": "Alpaca Paper Execution with Exact Human Approval"
+    },
+    "proves": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 13,
+      "maxItems": 13,
+      "items": {
+        "type": "string",
+        "enum": [
+          "one_persisted_m084_intent_is_dispatchable_at_most_once_to_the_paper_environment",
+          "dispatch_requires_a_fresh_explicit_expiring_single_use_human_authorization",
+          "one_authorization_binds_one_request_fingerprint_one_paper_account_and_one_client_order_id",
+          "the_client_order_id_is_derived_from_persisted_identity_and_never_generated",
+          "the_dispatch_claim_is_committed_before_any_network_request_is_made",
+          "a_duplicate_dispatch_request_returns_the_persisted_winner_and_sends_nothing",
+          "an_ambiguous_outcome_becomes_submission_unknown_and_never_a_second_order",
+          "reconciliation_addresses_the_original_client_order_id_under_a_bounded_not_found_policy",
+          "the_order_endpoint_is_pinned_to_one_paper_host_and_every_redirect_is_refused",
+          "every_broker_answer_is_validated_field_by_field_against_the_request_that_was_sent",
+          "the_execution_state_machine_is_closed_and_mirrored_by_a_database_trigger",
+          "the_m084_approved_intent_is_read_and_never_rewritten",
+          "no_credential_reaches_a_domain_type_a_database_row_a_renderer_or_an_audit_record"
+        ]
+      }
+    },
+    "does_not_prove": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 19,
+      "maxItems": 19,
+      "items": {
+        "type": "string",
+        "enum": [
+          "live_trading_readiness",
+          "eligibility_for_an_alpaca_live_account",
+          "that_paper_behaviour_equals_live_behaviour",
+          "profitability_or_expected_return",
+          "fillability_or_liquidity_at_the_limit_price",
+          "execution_quality_or_the_absence_of_slippage",
+          "venue_truth_beyond_what_the_alpaca_paper_endpoint_returned",
+          "market_input_truth_beyond_the_iex_quote_that_was_actually_read",
+          "any_chronology_derived_from_identifiers",
+          "unattended_or_scheduled_authorization",
+          "approval_through_silence_timeout_retry_or_the_absence_of_rejection",
+          "approval_of_more_than_one_exact_intent_version",
+          "permission_to_trade_options_crypto_shorts_or_leveraged_positions",
+          "protection_against_a_database_owner_ddl_a_disabled_trigger_or_a_superuser",
+          "cryptographic_non_repudiation_of_a_human_authorization",
+          "recovery_of_an_unknown_broker_outcome_without_reconciliation",
+          "that_an_order_was_not_accepted_merely_because_the_client_timed_out",
+          "that_cancellation_guarantees_no_fill_occurred",
+          "that_a_paper_acknowledgement_is_a_real_market_execution"
+        ]
+      }
+    },
+    "database_enforcement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "single_use_authorization_consumption",
+        "authorization_immutable_apart_from_its_consumption",
+        "expired_authorization_cannot_be_consumed",
+        "at_most_one_consumed_authorization_per_intent",
+        "at_most_one_dispatch_attempt_per_intent",
+        "unique_deterministic_client_order_id",
+        "an_attempt_requires_a_consumed_matching_authorization",
+        "an_attempt_must_be_inserted_as_dispatch_claimed",
+        "closed_execution_state_machine_on_update",
+        "attempt_identity_immutable_after_the_claim",
+        "append_only_previews_accounts_acknowledgements_events_and_kill_switch",
+        "paper_environment_and_endpoint_host_pinned_by_check_constraint",
+        "long_only_whole_share_day_only_no_extended_hours_by_check_constraint",
+        "referential_integrity_to_the_m084_intent_by_trigger",
+        "bounded_broker_response_payload"
+      ],
+      "properties": {
+        "single_use_authorization_consumption": {
+          "const": true
+        },
+        "authorization_immutable_apart_from_its_consumption": {
+          "const": true
+        },
+        "expired_authorization_cannot_be_consumed": {
+          "const": true
+        },
+        "at_most_one_consumed_authorization_per_intent": {
+          "const": true
+        },
+        "at_most_one_dispatch_attempt_per_intent": {
+          "const": true
+        },
+        "unique_deterministic_client_order_id": {
+          "const": true
+        },
+        "an_attempt_requires_a_consumed_matching_authorization": {
+          "const": true
+        },
+        "an_attempt_must_be_inserted_as_dispatch_claimed": {
+          "const": true
+        },
+        "closed_execution_state_machine_on_update": {
+          "const": true
+        },
+        "attempt_identity_immutable_after_the_claim": {
+          "const": true
+        },
+        "append_only_previews_accounts_acknowledgements_events_and_kill_switch": {
+          "const": true
+        },
+        "paper_environment_and_endpoint_host_pinned_by_check_constraint": {
+          "const": true
+        },
+        "long_only_whole_share_day_only_no_extended_hours_by_check_constraint": {
+          "const": true
+        },
+        "referential_integrity_to_the_m084_intent_by_trigger": {
+          "const": true
+        },
+        "bounded_broker_response_payload": {
+          "const": true
+        }
+      }
+    },
+    "structural_limitations": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 9,
+      "maxItems": 9,
+      "items": {
+        "type": "string",
+        "enum": [
+          "row_level_refusals_do_not_cover_truncate_drop_a_disabled_trigger_or_a_superuser",
+          "the_quote_feed_is_iex_only_and_is_not_the_consolidated_tape",
+          "the_request_fingerprint_is_a_change_detector_not_a_cryptographic_seal",
+          "a_rejected_or_expired_intent_cannot_be_re_dispatched_in_this_milestone",
+          "a_truncate_of_the_m084_intent_table_can_orphan_paper_rows",
+          "an_unmapped_broker_status_leaves_the_state_unchanged_and_requires_an_operator",
+          "the_bounded_not_found_reconciliation_policy_is_a_stated_choice_not_a_proof",
+          "the_external_paper_submission_was_measured_blocked_by_quote_staleness",
+          "the_account_reference_is_a_digest_so_two_accounts_are_only_distinguishable_not_identifiable"
+        ]
+      }
+    },
+    "intended_future_use": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "string",
+        "enum": [
+          "extended_hours_execution_requires_its_own_separate_authorization",
+          "live_execution_requires_its_own_separate_authorization_and_is_not_implied_here",
+          "unattended_or_scheduled_dispatch_is_authorized_by_nothing_in_this_milestone"
+        ]
+      }
+    }
+  }
+}
