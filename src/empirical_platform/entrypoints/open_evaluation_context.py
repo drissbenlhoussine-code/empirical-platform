@@ -18,6 +18,7 @@ import sys
 
 from empirical_platform.application.command import CommandEntryPoint
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     EvaluationContext,
@@ -49,7 +50,7 @@ def run_open_evaluation_context(
         return entry_point(command)
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -63,6 +64,9 @@ def main() -> None:
         print(json.dumps(render_context_json(context), sort_keys=True))
     else:
         print(render_context_text(context), end="")
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

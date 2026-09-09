@@ -62,6 +62,7 @@ from empirical_platform.entrypoints import (
     system_status,
     validate_trading_configuration,
 )
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.persistence.postgres_repositories.decision_to_approval_repositories import (  # noqa: E501
     _row_to_context,
 )
@@ -226,11 +227,16 @@ class TestShowConfiguration:
         assert "PREPARATION" in text
 
     def test_a_version_argument_that_is_not_a_number_is_refused(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
+        # The command now answers this with a refusal and exit 1 rather than an
+        # InputError traceback. The rule it enforces is unchanged; what changed
+        # is that the operator reads a sentence instead of a stack.
         monkeypatch.setattr("sys.argv", ["prog", "CFG-1", "not-a-number"])
-        with pytest.raises(InputError, match="version must be a whole number"):
+        with pytest.raises(SystemExit) as exit_info:
             show_trading_configuration.main()
+        assert exit_info.value.code == 1
+        assert "version must be a whole number" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -281,10 +287,14 @@ class TestKillSwitch:
         expected = a_configuration(configuration_version=2, kill_switch=KillSwitchState.ENGAGED)
         assert moved == expected
 
-    def test_an_unknown_action_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_an_unknown_action_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         monkeypatch.setattr("sys.argv", ["prog", "disable", "CFG-1"])
-        with pytest.raises(InputError, match="must be one of status, on, off"):
+        with pytest.raises(SystemExit) as exit_info:
             kill_switch.main()
+        assert exit_info.value.code == 1
+        assert "must be one of status, on, off" in capsys.readouterr().err
 
     def test_an_engaged_configuration_stops_the_engine_at_the_first_check(self) -> None:
         # The switch is not advisory: it is the first rule the engine checks.
@@ -688,3 +698,84 @@ class TestEveryNewEntrypointRefusesAWrongArgumentCount:
         monkeypatch.setattr("sys.argv", ["prog", *argv])
         with pytest.raises(SystemExit, match="usage:"):
             module.main()
+
+
+class TestEveryOperatorCommandRefusesInsteadOfTracingBack:
+    """An operator's mistake must read as an answer, not as a crash.
+
+    Found by running the walkthrough against an installed wheel: fourteen of
+    the fifteen M084 commands answered a mistyped symbol or a malformed inputs
+    file with a Python traceback, burying the one useful line under frames
+    naming files the operator has never opened. Only
+    `validate-trading-configuration` printed a refusal, so the surface was
+    inconsistent as well as unhelpful.
+
+    The unit tests could not have caught it: they call handlers directly, and a
+    handler that raises is exactly what they assert. The traceback lived only
+    at the boundary, which is why the walkthrough had to run through a real
+    installed console script to find it.
+    """
+
+    _COMMANDS = (
+        audit_history,
+        explain_no_trade,
+        invalidate_stale_proposals,
+        kill_switch,
+        show_trading_configuration,
+        system_status,
+        validate_trading_configuration,
+    )
+
+    @pytest.mark.parametrize("module", _COMMANDS)
+    def test_the_command_is_wrapped(self, module: ModuleType) -> None:
+        # `main` must be the wrapped entry point rather than the raw body, or
+        # the assertions below would be testing a function nobody calls.
+        assert module.main.__module__ == "empirical_platform.entrypoints._operator_cli", (
+            f"{module.__name__} exposes an unwrapped main()"
+        )
+
+    @pytest.mark.parametrize("module", _COMMANDS)
+    @pytest.mark.parametrize(
+        "error",
+        [
+            InputError("inputs is missing 'account'"),
+            ValueError("every snapshot must describe the requested symbol"),
+        ],
+    )
+    def test_an_operator_error_prints_a_refusal_and_exits_one(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        module: ModuleType,
+        error: Exception,
+    ) -> None:
+        def explode() -> None:
+            raise error
+
+        monkeypatch.setattr(module, "_main", explode)
+        with pytest.raises(SystemExit) as exit_info:
+            operator_command(explode)()
+        assert exit_info.value.code == 1
+        assert f"REFUSED: {error}" in capsys.readouterr().err
+
+    def test_a_usage_exit_is_not_rewritten_as_a_refusal(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # A usage message is already a finished answer. Wrapping it would print
+        # "REFUSED: 2", which says nothing.
+        def explode() -> None:
+            raise SystemExit("usage: something")
+
+        with pytest.raises(SystemExit, match="usage:"):
+            operator_command(explode)()
+        assert "REFUSED" not in capsys.readouterr().err
+
+    def test_a_defect_keeps_its_traceback(self) -> None:
+        # The narrowness is the point. An error the operator cannot fix must
+        # not be dressed up as a refusal they can: swallowing it would trade a
+        # rough edge for a silent one.
+        def explode() -> None:
+            raise RuntimeError("a bug in this software")
+
+        with pytest.raises(RuntimeError, match="a bug in this software"):
+            operator_command(explode)()

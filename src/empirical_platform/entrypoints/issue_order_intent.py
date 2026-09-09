@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 
 from empirical_platform.application.command import CommandEntryPoint
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     ApprovedOrderIntent,
@@ -69,7 +70,7 @@ def _created_at(raw: str | None) -> datetime:
     return parsed
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -90,6 +91,9 @@ def main() -> None:
         print(json.dumps(render_intent_json(intent), sort_keys=True))
     else:
         print(render_intent_text(intent), end="")
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

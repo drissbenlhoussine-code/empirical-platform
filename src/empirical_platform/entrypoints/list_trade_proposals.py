@@ -14,6 +14,7 @@ import json
 import sys
 
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     ListTradeProposalsHandler,
@@ -48,7 +49,7 @@ def _status(raw: str) -> ProposalStatus:
         raise InputError(f"status must be one of {permitted}; got {raw!r}") from error
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -69,6 +70,9 @@ def main() -> None:
                 f"{proposal.proposal_governance_id}  {proposal.side} {proposal.quantity} "
                 f"{proposal.symbol} @ {price}  expires {proposal.expires_at.isoformat()}"
             )
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

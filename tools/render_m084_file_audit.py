@@ -127,6 +127,12 @@ _PURPOSE = {
     "tools/check_frozen_paths.py": (
         "Rejects any base-to-head change under a frozen milestone's governed paths"
     ),
+    "tools/m084_operator_walkthrough.sh": (
+        "The 18-step operator walkthrough, run against an installed wheel"
+    ),
+    "src/empirical_platform/entrypoints/_operator_cli.py": (
+        "One refusal shape for every operator command; defects keep their traceback"
+    ),
     "tools/m084_performance_campaign.py": (
         "Latency and scale at 0..25k rows, with query plans and lock waits"
     ),

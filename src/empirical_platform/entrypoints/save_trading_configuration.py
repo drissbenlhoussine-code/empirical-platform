@@ -21,6 +21,7 @@ import sys
 
 from empirical_platform.application.command import CommandEntryPoint
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     OperatorTradingConfiguration,
@@ -48,7 +49,7 @@ def run_save_trading_configuration(
         return entry_point(SaveOperatorTradingConfigurationCommand(configuration=configuration))
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -76,6 +77,9 @@ def main() -> None:
             f"v{stored.configuration_version} "
             f"[{stored.account_mode.value}, kill switch {stored.kill_switch.value}]"
         )
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ import json
 import sys
 
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     AuditHistory,
@@ -51,7 +52,7 @@ def run_audit_history(
         return handler.handle(GetAuditHistoryQuery(proposal_governance_id=proposal_governance_id))
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -64,6 +65,9 @@ def main() -> None:
         print(json.dumps(render_audit_history_json(history), sort_keys=True))
     else:
         print(render_audit_history_text(history), end="")
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

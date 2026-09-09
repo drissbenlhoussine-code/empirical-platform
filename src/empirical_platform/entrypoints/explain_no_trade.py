@@ -22,6 +22,7 @@ import sys
 from datetime import datetime
 
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     NotFoundError,
@@ -66,7 +67,7 @@ def _evaluated_at(raw: str) -> datetime:
     return parsed
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -103,6 +104,9 @@ def main() -> None:
         print(json.dumps(render_no_trade_explanation_json(outcome), sort_keys=True))
     else:
         print(render_no_trade_explanation_text(outcome), end="")
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

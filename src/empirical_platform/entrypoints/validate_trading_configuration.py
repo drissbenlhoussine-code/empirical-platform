@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.usecases.decision_to_approval_io import (
     InputError,
     load_json_file,
@@ -26,7 +27,7 @@ from empirical_platform.usecases.decision_to_approval_io import (
 _USAGE = "usage: empirical-platform-validate-trading-configuration [--json] <configuration.json>"
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -55,6 +56,9 @@ def main() -> None:
             f"v{configuration.configuration_version} would be stored as written. "
             "Nothing was written."
         )
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

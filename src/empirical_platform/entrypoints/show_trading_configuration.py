@@ -17,6 +17,7 @@ import json
 import sys
 
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     GetOperatorTradingConfigurationHandler,
@@ -63,7 +64,7 @@ def _version(raw: str) -> int:
     return parsed
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -79,6 +80,9 @@ def main() -> None:
         print(json.dumps(render_configuration_json(configuration), sort_keys=True))
     else:
         print(render_configuration_text(configuration), end="")
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":

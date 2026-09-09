@@ -20,6 +20,7 @@ import json
 import sys
 
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.entrypoints._operator_cli import operator_command
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.usecases.decision_to_approval import (
     GetSystemStatusHandler,
@@ -49,7 +50,7 @@ def run_system_status(
         )
 
 
-def main() -> None:
+def _main() -> None:
     args = sys.argv[1:]
     as_json = "--json" in args
     positional = [argument for argument in args if argument != "--json"]
@@ -62,6 +63,9 @@ def main() -> None:
         print(json.dumps(render_system_status_json(status), sort_keys=True))
     else:
         print(render_system_status_text(status), end="")
+
+
+main = operator_command(_main)
 
 
 if __name__ == "__main__":
