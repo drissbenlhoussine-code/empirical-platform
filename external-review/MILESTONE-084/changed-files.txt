@@ -1,11 +1,13 @@
-MILESTONE-084 changed files, 707161a..HEAD
-
 A	external-review/MILESTONE-084/README.md
 A	external-review/MILESTONE-084/broker-and-market-data-research.md
 A	external-review/MILESTONE-084/changed-files.txt
+A	external-review/MILESTONE-084/concurrency-results.md
 A	external-review/MILESTONE-084/current-authority.json
 A	external-review/MILESTONE-084/current-authority.md
 A	external-review/MILESTONE-084/current-authority.schema.json
+A	external-review/MILESTONE-084/file-audit-matrix.json
+A	external-review/MILESTONE-084/file-audit-matrix.md
+A	external-review/MILESTONE-084/mutation-matrix.md
 A	external-review/MILESTONE-084/scope-and-design.md
 A	external-review/MILESTONE-084/validation-results.md
 A	migrations/versions/a3f7c21d9b04_create_m084_decision_to_approval_schema.py
@@ -41,13 +43,15 @@ A	tests/fixtures/illegal_imports/src/empirical_platform/decision_candidate/bad_b
 A	tests/fixtures/illegal_imports/src/empirical_platform/entrypoints/bad_broker_order_submission_import.py
 A	tests/fixtures/illegal_imports/src/empirical_platform/usecases/bad_broker_order_submission_import.py
 A	tests/integration/test_m084_authority_contract.py
+A	tests/integration/test_m084_concurrency.py
 A	tests/integration/test_m084_decision_to_approval_lifecycle.py
 A	tests/integration/test_m084_decision_to_approval_postgres_attacks.py
+A	tests/integration/test_m084_file_audit.py
 A	tests/unit/test_m084_cli_and_io.py
 A	tests/unit/test_m084_domain_core.py
 A	tests/unit/test_m084_operator_workflow.py
 A	tests/unit/test_m084_repositories_and_handlers.py
 M	tools/check_architecture.py
+A	tools/m084_mutation_campaign.py
 A	tools/render_m084_authority.py
-
- 49 files changed, 14052 insertions(+), 1 deletion(-)
+A	tools/render_m084_file_audit.py
