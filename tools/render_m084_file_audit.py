@@ -124,6 +124,9 @@ _PURPOSE = {
     ),
     "tests/architecture/test_module_boundaries.py": ("Adds the order-submission boundary tests"),
     "tools/check_architecture.py": "Adds the package-wide order-submission deny-list",
+    "tools/m084_mutation_campaign.py": (
+        "Anti-vacuity campaign: mutates each governing rule, requires the named test to fail"
+    ),
     "tools/render_m084_authority.py": "Deterministic authority renderer with --check",
     "tools/render_m084_file_audit.py": "This generator",
 }
