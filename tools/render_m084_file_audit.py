@@ -62,6 +62,9 @@ _PURPOSE = {
     "external-review/MILESTONE-084/current-authority.schema.json": (
         "Closed schema; exact item counts make adding and dropping equally visible"
     ),
+    "external-review/MILESTONE-084/frozen-path-digests.json": (
+        "Each frozen path's content digest AS OF the base commit, read from that commit"
+    ),
     "external-review/MILESTONE-084/exhaustion-table.md": (
         "One machine-checked row per required campaign item"
     ),

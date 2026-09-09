@@ -17,9 +17,31 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from tools.check_frozen_paths import BASE, EXEMPT, FROZEN, owned_paths, owner_of, violations
+import pytest
+from tools.check_frozen_paths import (
+    BASE,
+    EXEMPT,
+    FROZEN,
+    base_digests,
+    content_violations,
+    owned_paths,
+    owner_of,
+    violations,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _base_commit_present() -> bool:
+    return (
+        subprocess.run(  # noqa: S603 - fixed argument vector, no shell
+            ["git", "cat-file", "-e", f"{BASE}^{{commit}}"],  # noqa: S607
+            cwd=_REPO_ROOT,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def _tracked() -> list[str]:
@@ -99,13 +121,45 @@ class TestOwnershipGoesToTheHighestMilestoneNamed:
 
 
 class TestNothingFrozenChanged:
-    def test_no_frozen_path_differs_from_the_base_commit(self) -> None:
-        breaches = {milestone: paths for milestone, paths in violations().items() if paths}
+    def test_no_frozen_path_differs_from_its_recorded_base_digest(self) -> None:
+        """The check that holds everywhere, including a shallow CI checkout.
+
+        The first version of this test compared `git diff BASE..HEAD`, which
+        exits 128 in CI because the base commit is genuinely absent from a
+        shallow clone -- so the guard failed in the one place it runs
+        unattended. Skipping there was the obvious fix and the wrong one: a
+        frozen-path guard that goes quiet in CI is worse than none, because it
+        reads as protection.
+
+        Comparing recorded content digests needs no history at all. The digests
+        are read FROM THE BASE COMMIT when generated, never from the working
+        tree, so the manifest cannot bless whatever happens to be there.
+        """
+        breaches = {milestone: paths for milestone, paths in content_violations().items() if paths}
         assert breaches == {}, (
-            f"frozen milestone files were modified between {BASE[:12]} and HEAD: {breaches}. "
+            f"frozen milestone files differ from their content at {BASE[:12]}: {breaches}. "
             "Fix the later milestone's own code, build a harness it owns, or record a "
             "measured limitation -- and restore these paths byte-for-byte."
         )
+
+    def test_the_digest_manifest_covers_every_governed_path(self) -> None:
+        # A manifest missing a path would let that path change silently, which
+        # is the failure the whole guard exists to prevent.
+        governed = {path for paths in owned_paths(_tracked()).values() for path in paths}
+        recorded = set(base_digests())
+        assert governed - recorded == set(), f"governed but unrecorded: {governed - recorded}"
+
+    def test_the_git_comparison_agrees_where_history_is_available(self) -> None:
+        # The stronger check, run as well as the digest one wherever the base
+        # commit is present. It cannot replace the digest check, and the digest
+        # check must not hide a disagreement between them.
+        if not _base_commit_present():
+            pytest.skip(
+                f"base commit {BASE[:12]} is absent from this clone (shallow checkout); "
+                "the digest comparison above covers the same paths and did run"
+            )
+        breaches = {milestone: paths for milestone, paths in violations().items() if paths}
+        assert breaches == {}
 
     def test_the_exemption_list_is_empty(self) -> None:
         # An exemption needs pre-existing repository policy establishing the

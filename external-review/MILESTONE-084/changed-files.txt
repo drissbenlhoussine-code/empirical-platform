@@ -5,6 +5,7 @@ A	external-review/MILESTONE-084/concurrency-results.md
 A	external-review/MILESTONE-084/current-authority.json
 A	external-review/MILESTONE-084/current-authority.md
 A	external-review/MILESTONE-084/current-authority.schema.json
+A	external-review/MILESTONE-084/exhaustion-table.md
 A	external-review/MILESTONE-084/file-audit-matrix.json
 A	external-review/MILESTONE-084/file-audit-matrix.md
 A	external-review/MILESTONE-084/hostile-review.md
@@ -67,4 +68,5 @@ A	tools/m084_mutation_campaign.py
 A	tools/m084_operator_walkthrough.sh
 A	tools/m084_performance_campaign.py
 A	tools/render_m084_authority.py
+A	tools/render_m084_exhaustion_table.py
 A	tools/render_m084_file_audit.py

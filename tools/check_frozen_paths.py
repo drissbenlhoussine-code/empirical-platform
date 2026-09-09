@@ -31,6 +31,8 @@ judgement that an edit is harmless is not such evidence.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -100,6 +102,48 @@ def owned_paths(tracked: list[str]) -> dict[str, list[str]]:
     }
 
 
+#: SHA-256 of every governed path as of BASE. Generated with `--write-digests`.
+#: This is the check that actually works everywhere: CI checks out shallow, so
+#: the base commit is genuinely absent there and `git diff BASE..HEAD` exits
+#: 128. Skipping on that would disable the guard exactly where it runs
+#: unattended, which is the worst possible place for it to be silent.
+DIGESTS = REPO_ROOT / "external-review" / "MILESTONE-084" / "frozen-path-digests.json"
+
+
+def _digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def base_digests() -> dict[str, str]:
+    if not DIGESTS.exists():
+        return {}
+    return json.loads(DIGESTS.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+
+
+def content_violations() -> dict[str, list[str]]:
+    """Frozen paths whose CONTENT differs from the recorded base digest.
+
+    Needs no git history at all, so it holds in a shallow clone.
+    """
+    recorded = base_digests()
+    breaches: dict[str, list[str]] = {}
+    tracked = [line for line in _git("ls-files").splitlines() if line]
+    for milestone, paths in owned_paths(tracked).items():
+        changed = []
+        for path in paths:
+            expected = recorded.get(path)
+            full = REPO_ROOT / path
+            if expected is None:
+                changed.append(f"{path} (no recorded base digest)")
+            elif not full.is_file():
+                changed.append(f"{path} (deleted)")
+            elif _digest(full) != expected:
+                changed.append(path)
+        if changed:
+            breaches[milestone] = changed
+    return breaches
+
+
 def _git(*arguments: str) -> str:
     return subprocess.run(  # noqa: S603 - fixed argument vector, no shell
         ["git", *arguments],  # noqa: S607
@@ -108,6 +152,18 @@ def _git(*arguments: str) -> str:
         text=True,
         check=True,
     ).stdout
+
+
+def _base_present() -> bool:
+    return (
+        subprocess.run(  # noqa: S603 - fixed argument vector, no shell
+            ["git", "cat-file", "-e", f"{BASE}^{{commit}}"],  # noqa: S607
+            cwd=REPO_ROOT,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def violations() -> dict[str, list[str]]:
@@ -128,10 +184,33 @@ def violations() -> dict[str, list[str]]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list", action="store_true", help="print the governed path set")
+    parser.add_argument(
+        "--write-digests",
+        action="store_true",
+        help="record each governed path's digest AS OF THE BASE COMMIT",
+    )
     args = parser.parse_args(argv)
 
     tracked = [line for line in _git("ls-files").splitlines() if line]
     owners = owned_paths(tracked)
+
+    if args.write_digests:
+        # Read from the base commit, never from the working tree: recording the
+        # working tree would bless whatever is currently there, which is the one
+        # thing this guard exists to prevent.
+        recorded = {}
+        for paths in owners.values():
+            for path in paths:
+                blob = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
+                    ["git", "show", f"{BASE}:{path}"],  # noqa: S607
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    check=True,
+                )
+                recorded[path] = hashlib.sha256(blob.stdout).hexdigest()
+        DIGESTS.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print(f"recorded {len(recorded)} frozen-path digests from {BASE[:12]}")
+        return 0
 
     if args.list:
         for milestone, paths in owners.items():
@@ -147,7 +226,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"frozen path patterns match no files for: {', '.join(empty)}", file=sys.stderr)
         return 1
 
-    breaches = {m: p for m, p in violations().items() if p}
+    # Content first: it needs no history and therefore holds in CI's shallow
+    # checkout. The git comparison is an additional check that runs only where
+    # the base commit is present.
+    breaches = {m: p for m, p in content_violations().items() if p}
+    if not breaches and _base_present():
+        breaches = {m: p for m, p in violations().items() if p}
     if breaches:
         print(
             f"frozen milestone files were modified between {BASE[:12]} and HEAD:", file=sys.stderr
@@ -164,7 +248,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     total = sum(len(paths) for paths in owners.values())
-    print(f"frozen paths unmodified since {BASE[:12]} ({total} governed)")
+    how = "by digest and by git diff" if _base_present() else "by digest (base commit absent)"
+    print(f"frozen paths unmodified since {BASE[:12]} ({total} governed, verified {how})")
     return 0
 
 
