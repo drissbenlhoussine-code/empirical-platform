@@ -20,7 +20,7 @@ diff, against `changed-files.txt`, and against the filesystem.
 | 6 | `external-review/MILESTONE-084/current-authority.md` | new | M084 review package | Deterministic rendering of the contract; never hand-edited | 69 | - |
 | 7 | `external-review/MILESTONE-084/current-authority.schema.json` | new | M084 review package | Closed schema; exact item counts make adding and dropping equally visible | 158 | - |
 | 8 | `external-review/MILESTONE-084/exhaustion-table.md` | new | M084 review package | One machine-checked row per required campaign item | 46 | - |
-| 9 | `external-review/MILESTONE-084/file-audit-matrix.json` | new | M084 review package | This matrix, machine-checked against the diff and the filesystem | 606 | - |
+| 9 | `external-review/MILESTONE-084/file-audit-matrix.json` | new | M084 review package | This matrix, machine-checked against the diff and the filesystem | 612 | - |
 | 10 | `external-review/MILESTONE-084/file-audit-matrix.md` | new | M084 review package | This matrix, rendered | 89 | - |
 | 11 | `external-review/MILESTONE-084/frozen-path-digests.json` | new | M084 review package | Each frozen path's content digest AS OF the base commit, read from that commit | 29 | - |
 | 12 | `external-review/MILESTONE-084/hostile-review.md` | new | M084 review package | Five formally separate hostile passes, each with its own conclusion | 257 | - |
@@ -28,7 +28,7 @@ diff, against `changed-files.txt`, and against the filesystem.
 | 14 | `external-review/MILESTONE-084/operator-verification-checklist.md` | new | M084 review package | Exact URLs and questions for facts this environment could not verify | 126 | - |
 | 15 | `external-review/MILESTONE-084/performance-results.md` | new | M084 review package | Measured latency and scale, with the environment boundary stated | 411 | - |
 | 16 | `external-review/MILESTONE-084/scope-and-design.md` | new | M084 review package | What was built and why each refusal sits where it does | 147 | - |
-| 17 | `external-review/MILESTONE-084/validation-results.md` | new | M084 review package | What was executed and measured; what was not is listed, not omitted | 305 | - |
+| 17 | `external-review/MILESTONE-084/validation-results.md` | new | M084 review package | What was executed and measured; what was not is listed, not omitted | 404 | - |
 | 18 | `migrations/versions/a3f7c21d9b04_create_m084_decision_to_approval_schema.py` | new | M084 schema | Six tables: the four hard invariants, the closed state machine, the append-only guards | 887 | upgrade, downgrade |
 | 19 | `pyproject.toml` | modified | shared packaging | Registers the M084 operator console scripts | 237 | - |
 | 20 | `src/empirical_platform/decision_candidate/evaluation_context.py` | new | M084 domain | Binds one evaluation to the M083 watermark it consumed | 203 | EvaluationContext, build_evaluation_context, recompute_consumed_receipt_digest |
@@ -57,7 +57,7 @@ diff, against `changed-files.txt`, and against the filesystem.
 | 43 | `src/empirical_platform/shared/persistence/postgres_repositories/runtime.py` | modified | M084 persistence | Registers the five M084 repositories on the shared runtime | 314 | PostgresRepositoryRuntime |
 | 44 | `src/empirical_platform/usecases/decision_to_approval.py` | new | M084 application | Commands and queries; one step each, nothing spans the human decision | 816 | ApprovalDecision, ApprovedOrderIntent, AuditHistory, DecideTradeProposalCommand, DecideTradeProposalHandler... |
 | 45 | `src/empirical_platform/usecases/decision_to_approval_io.py` | new | M084 application | Reads operator input refusing rather than repairing; renders results | 916 | InputError, MarketInputs, load_json_file, read_configuration, read_context_request, read_market_inputs, ren... |
-| 46 | `tests/architecture/test_frozen_paths.py` | new | shared architecture gate | Enforces the frozen boundary that M084 crossed once | 181 | TestTheGuardGovernsSomething, TestOwnershipGoesToTheHighestMilestoneNamed, TestNothingFrozenChanged |
+| 46 | `tests/architecture/test_frozen_paths.py` | new | shared architecture gate | Enforces the frozen boundary that M084 crossed once | 251 | TestTheGuardGovernsSomething, TestOwnershipGoesToTheHighestMilestoneNamed, TestNothingFrozenChanged |
 | 47 | `tests/architecture/test_module_boundaries.py` | modified | shared architecture gate | Adds the order-submission boundary tests | 108 | test_current_source_tree_respects_boundaries, test_negative_fixture_detects_illegal_import, test_negative_f... |
 | 48 | `tests/fixtures/illegal_imports/src/empirical_platform/application/bad_broker_order_submission_import.py` | new | shared negative fixtures | Negative fixture: proves the order-submission deny-list fires | 9 | quickfix |
 | 49 | `tests/fixtures/illegal_imports/src/empirical_platform/decision_candidate/bad_broker_order_submission_import.py` | new | shared negative fixtures | Negative fixture: proves the order-submission deny-list fires | 10 | alpaca |
@@ -67,23 +67,23 @@ diff, against `changed-files.txt`, and against the filesystem.
 | 53 | `tests/integration/test_m084_concurrency.py` | new | M084 tests | Test suite | 1111 | engine, clean, RaceResult, race, seed_to_context, seed_to_proposal, seed_to_approved, TestConfigurationRace... |
 | 54 | `tests/integration/test_m084_decision_to_approval_lifecycle.py` | new | M084 tests | Test suite | 509 | engine, clean, runtime, a_configuration, a_context, a_proposal, TestConfigurationPersistence, TestEvaluatio... |
 | 55 | `tests/integration/test_m084_decision_to_approval_postgres_attacks.py` | new | M084 tests | Test suite | 1342 | engine, upgraded_schema, db, TestConfigurationHardInvariantsInTheDatabase, TestConfigurationClosedEnumerati... |
-| 56 | `tests/integration/test_m084_file_audit.py` | new | M084 tests | Test suite | 130 | matrix, TestTheMatrixIsInternallySound, TestTheMatrixMatchesTheFilesystem, TestTheMatrixMatchesTheDeclaredD... |
+| 56 | `tests/integration/test_m084_file_audit.py` | new | M084 tests | Test suite | 147 | matrix, TestTheMatrixIsInternallySound, TestTheMatrixMatchesTheFilesystem, TestTheMatrixMatchesTheDeclaredD... |
 | 57 | `tests/integration/test_m084_m083_compatibility.py` | new | M084 tests | M084-owned proof of what M084 does to the frozen M083 schema | 404 | engine, at_head, TestM083SurvivesTheM084Migration, TestTheFrozenResetCannotRunAtTheM084Head, TestM083Surviv... |
 | 58 | `tests/integration/test_m084_queue_index.py` | new | M084 tests | The operator queue must not degrade with an append-only table | 186 | populated, TestTheQueueIndexExistsAndIsCorrect, TestTheQueueQueryUsesIt |
 | 59 | `tests/unit/test_m084_cli_and_io.py` | new | M084 tests | Test suite | 503 | TestReadingAConfiguration, TestReadingMarketInputs, TestReadingAContextRequest, TestLoadingAFile, TestRende... |
 | 60 | `tests/unit/test_m084_domain_core.py` | new | M084 tests | Test suite | 1321 | a_configuration, a_quote, an_account, a_session, an_instrument, a_liquidity, a_cost_estimate, evaluate, eva... |
 | 61 | `tests/unit/test_m084_operator_workflow.py` | new | M084 tests | Test suite | 781 | a_command, seeded_contexts, seeded_configurations, TestValidateConfiguration, TestShowConfiguration, TestKi... |
 | 62 | `tests/unit/test_m084_repositories_and_handlers.py` | new | M084 tests | Test suite | 1004 | configuration_row, proposal_row, context_row, a_decision, decision_row, an_intent, intent_row, TestRowMappi... |
-| 63 | `tests/unit/test_secret_scan_targets.py` | modified | M084 tests | Proves the new allowlist patterns did not disable the secret plugin | 342 | test_secret_scan_targets_include_tracked_and_untracked_repository_files, test_secret_scan_targets_do_not_si... |
+| 63 | `tests/unit/test_secret_scan_targets.py` | modified | M084 tests | Holds the removed name-based exemptions removed, and the value check non-vacuous | 463 | test_secret_scan_targets_include_tracked_and_untracked_repository_files, test_secret_scan_targets_do_not_si... |
 | 64 | `tools/check_architecture.py` | modified | shared toolchain | Adds the package-wide order-submission deny-list | 238 | module_for_path, imported_module, imported_top_level, check_path, main |
-| 65 | `tools/check_frozen_paths.py` | new | shared toolchain | Rejects any base-to-head change under a frozen milestone's governed paths | 272 | owner_of, owned_paths, blob_id, base_digests, content_violations, violations, main |
-| 66 | `tools/m084_frozen_m083_acceptance.py` | new | shared toolchain | Runs M083's unmodified suite at M083's own revision in its own worktree | 188 | main |
+| 65 | `tools/check_frozen_paths.py` | new | shared toolchain | Rejects any base-to-head change under a frozen milestone's governed paths | 283 | owner_of, owned_paths, blob_id, base_digests, content_violations, violations, main |
+| 66 | `tools/m084_frozen_m083_acceptance.py` | new | shared toolchain | Runs M083's unmodified suite at M083's own revision in its own worktree | 191 | main |
 | 67 | `tools/m084_hostile_passes.py` | new | shared toolchain | The five passes; every attack executed against a live database | 2164 | pass_one, pass_two, pass_three, pass_four, pass_five |
 | 68 | `tools/m084_hostile_review.py` | new | shared toolchain | The hostile-review harness: an attack is code that runs, not an argument | 314 | Attack, Pass, rebuild_database, refused_by, allowed, render_markdown, main |
 | 69 | `tools/m084_mutation_campaign.py` | new | shared toolchain | Anti-vacuity campaign: mutates each governing rule, requires the named test to fail | 685 | Mutation, run_family, render_safety_crossreference, render_markdown, main |
 | 70 | `tools/m084_operator_walkthrough.sh` | new | shared toolchain | The 18-step operator walkthrough, run against an installed wheel | 259 | - |
 | 71 | `tools/m084_performance_campaign.py` | new | shared toolchain | Latency and scale at 0..25k rows, with query plans and lock waits | 597 | Samples, rebuild_database, seed_prerequisites, seed_proposals, measure_engine, measure_query, measure_inser... |
 | 72 | `tools/render_m084_authority.py` | new | shared toolchain | Deterministic authority renderer with --check | 295 | render, main |
-| 73 | `tools/render_m084_exhaustion_table.py` | new | shared toolchain | Derives each exhaustion row from its evidence; a blocker cannot be typed away | 312 | Item, render, main |
-| 74 | `tools/render_m084_file_audit.py` | new | shared toolchain | This generator | 334 | AuditError, build, render_markdown, main |
-| 75 | `tools/secret_scan_targets.py` | modified | shared toolchain | Allows a git commit id and the frozen blob-id manifest; the plugin still fires | 218 | discover_secret_scan_targets, build_secret_scan_subprocess_env, scan_targets_for_secrets, main |
+| 73 | `tools/render_m084_exhaustion_table.py` | new | shared toolchain | Derives each exhaustion row from its evidence; a blocker cannot be typed away | 315 | Item, render, main |
+| 74 | `tools/render_m084_file_audit.py` | new | shared toolchain | This generator | 342 | AuditError, build, render_markdown, main |
+| 75 | `tools/secret_scan_targets.py` | modified | shared toolchain | Clears a manifest line only when git holds that blob for that path; no shape-only rule | 282 | discover_secret_scan_targets, build_secret_scan_subprocess_env, scan_targets_for_secrets, main |

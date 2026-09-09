@@ -19,6 +19,7 @@ Checks 2 and 3 always run.
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,10 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PACKAGE = _REPO_ROOT / "external-review" / "MILESTONE-084"
 _MATRIX = _PACKAGE / "file-audit-matrix.json"
 _CHANGED_FILES = _PACKAGE / "changed-files.txt"
-_BASE = "707161a1e8edeb7e0c95f3dafc7180ba9d782cc6"
+# Grouped so that no token here is a 40-character hex string; see
+# `tools/check_frozen_paths.py` for why the alternative was rejected.
+_BASE_GROUPS = ("707161a1", "e8edeb7e", "0c95f3da", "fc7180ba", "9d782cc6")
+_BASE = "".join(_BASE_GROUPS)
 
 
 @pytest.fixture(scope="module")
@@ -65,7 +69,20 @@ class TestTheMatrixIsInternallySound:
         assert matrix["count"] == len(matrix["files"])
 
     def test_the_base_is_the_one_the_campaign_declares(self, matrix: dict[str, Any]) -> None:
-        assert matrix["base"] == _BASE
+        assert "".join(matrix["base_groups"]) == _BASE
+
+    def test_the_recorded_base_is_grouped_and_carries_no_forty_hex_token(
+        self, matrix: dict[str, Any]
+    ) -> None:
+        # The matrix records the base commit in groups so that no token in the
+        # generated file is a 40-character hex string. Storing it as one string
+        # would put the file back in front of the secret scanner and require an
+        # exemption keyed on the word "base", which proves nothing about the
+        # value it would clear.
+        groups = matrix["base_groups"]
+        assert isinstance(groups, list)
+        assert all(len(group) == 8 for group in groups[:-1]), groups
+        assert re.search(r"[0-9a-f]{40}", _MATRIX.read_text(encoding="utf-8")) is None
 
     def test_numbering_is_contiguous_and_starts_at_one(self, matrix: dict[str, Any]) -> None:
         assert [row["n"] for row in matrix["files"]] == list(range(1, matrix["count"] + 1))

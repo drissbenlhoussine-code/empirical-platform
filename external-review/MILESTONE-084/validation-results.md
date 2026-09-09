@@ -41,15 +41,22 @@ docstring that quotes one. Across the whole base-to-head diff:
 
 | Kind | Count | Where |
 |---|---:|---|
-| `# noqa` | 88 | tools/migrations 50, tests 21, src 17 |
-| `# type: ignore` | 116 | 88 are `[arg-type]` on protocol test doubles |
+| `# noqa` | 112 | tools/migrations 64, tests 31, src 17 |
+| `# type: ignore` | 117 | 88 are `[arg-type]` on protocol test doubles |
 | **Coverage pragmas** | **0** | none |
 | **Skipped tests** | **0** | none |
 
-`noqa` by rule: S603 (22) and S607 (22) on fixed subprocess argument vectors
+`noqa` by rule: S603 (35) and S607 (33) on fixed subprocess argument vectors
 with no shell; E501 (20) on long SQL and message strings; BLE001 (14) where an
 attack harness must catch whatever the product raises in order to report it;
 S608 (5); DTZ001 (3); E402 (2).
+
+These are the numbers `tools/render_m084_exhaustion_table.py` prints, recounted
+here rather than carried forward. An earlier revision of this table said 88 and
+116 while the generated exhaustion row said 105 and 117: a hand-copied count
+goes stale the moment the code moves, and this one had. The correction in §10a
+added seven more `noqa` — six S603/S607 on fixed `git` and `detect-secrets`
+argument vectors, one E501 — which is the difference between 105 and 112.
 
 The two numbers that matter are the last two, and both are zero. **No coverage
 line is excluded and no test is skipped.** Two `# pragma: no cover` markers did
@@ -268,7 +275,79 @@ Every finding this campaign produced, with what was done about it.
 | FIND-H5-01 | Two production branches carried `# pragma: no cover` for a reason that did not hold — both are reachable from a unit test | Pragmas removed; both branches covered |
 | FIND-CI-01 | The frozen-path guard compared `git diff BASE..HEAD`, which exits 128 in CI's shallow clone — the guard failed exactly where it runs unattended | Compares recorded content, no history needed |
 | FIND-CI-02 | It then hashed file BYTES, which a Windows checkout legitimately changes for every non-Python path (`.gitattributes` pins `*.py` to LF) | Compares git blob ids: platform-independent by construction |
-| FIND-CI-03 | The blob-id manifest broke the secret scan — and not only for itself: detect-secrets' entropy verdict depends on batch composition, so it changed the verdict for files clean for days | Narrow line allowlist plus one path-scoped rule, with three tests proving the plugin still fires |
+| FIND-CI-03 | The blob-id manifest broke the secret scan — and not only for itself: detect-secrets' entropy verdict depends on batch composition, so it changed the verdict for files clean for days | Narrow line allowlist plus one path-scoped rule, with three tests proving the plugin still fires — **SUPERSEDED IN PART by FIND-S-01** |
+| FIND-S-01 | Two of FIND-CI-03's rules cleared a finding on the strength of a NAME: `BASE`, `_BASE`, `FROZEN_COMMIT` and JSON `"base"` carrying 40 hex characters were benign anywhere in the repository | The five commit ids are written in eight-character groups, so the scanner has nothing to report and the rules are gone; the manifest rule now checks the value against git's index |
+
+---
+
+## 10a. FIND-S-01 — what FIND-CI-03 got right, and the part that was wrong
+
+**Superseded in part, not withdrawn.** FIND-CI-03's diagnosis stands unchanged
+and is not restated here: detect-secrets' entropy verdict depends on the
+composition of the scan batch, and a gate with that property will eventually
+fail on a commit that did not cause it. So does its path-scoped rule for
+`frozen-path-digests.json`, which is still in force. What is superseded is the
+pair of repository-wide rules it used for the commit id.
+
+**The defect.** `_BENIGN_HIGH_ENTROPY_LINE_PATTERNS` cleared any line of the
+form `BASE|_BASE|FROZEN_COMMIT = "<40 hex>"`, and any JSON line
+`"base": "<40 hex>"`, in **every file in the repository**. The reasoning was
+that M084's five tools pin the campaign's base commit there, and a git commit id
+is a public identifier rather than a credential. That is true of those five
+lines and proves nothing about the rule: the name of a constant is evidence
+about its author's intent and no evidence at all about its value. A real 40-hex
+credential assigned to something called `BASE`, in any file, by anyone, later,
+would have been cleared silently — and silently is the whole problem, because
+the scanner's output is a count and nobody reads a zero twice.
+
+**Reproduction.** At `e0907c4`, with the rules in place, `BASE = "<forty hex
+characters that are no object in this repository>"` is reported by
+detect-secrets and cleared by the filter. The same value on `API_TOKEN` is
+reported. The difference between those two outcomes is the identifier, and
+nothing else. The exact value is in
+`tests/unit/test_secret_scan_targets.py::_INVENTED_FORTY_HEX`, written in
+four-character groups there; it is not spelled out in this document, because a
+40-hex token in a governance file would be a finding — correctly, now that no
+rule clears one on the strength of the word next to it.
+
+**The correction, in two parts.**
+
+1. *The commit ids stopped looking like credentials, rather than being excused
+   for looking like them.* All five definitions
+   (`tools/check_frozen_paths.py`, `tools/render_m084_file_audit.py`,
+   `tools/render_m084_exhaustion_table.py`,
+   `tools/m084_frozen_m083_acceptance.py`,
+   `tests/integration/test_m084_file_audit.py`) now hold the id in
+   eight-character groups and join it, and `file-audit-matrix.json` records
+   `base_groups` instead of `base` for the same reason — a generated JSON file
+   cannot use implicit concatenation. No token in any of the six is a
+   40-character hex string, so detect-secrets does not report them at all and no
+   rule is consulted. Measured: the unfiltered scan flagged 50 files before and
+   44 after; the six that left are exactly these.
+2. *The rule that remained checks the value, not the shape.* A line in
+   `external-review/MILESTONE-084/frozen-path-digests.json` is cleared only when
+   its key is a path git tracks here **and** its value is the blob id git holds
+   for that path, read from `git ls-files -s` — never from the value being
+   judged. Where git cannot answer, the rule clears nothing: a filter that goes
+   quiet when its evidence is unavailable goes quiet exactly where it is least
+   watched.
+
+**Negative controls, all executed.** `tests/unit/test_secret_scan_targets.py`
+holds five names — `BASE`, `_BASE`, `FROZEN_COMMIT`, JSON `"base"`, and
+`API_TOKEN` as the unchanged control — each carrying a 40-hex value that is no
+object here, and each must still be reported. Three more hold the manifest rule
+non-vacuous: an invented blob id is reported; a genuine blob id filed under the
+wrong path is reported; the identical line in `config/credentials.json` is
+reported. `tests/architecture/test_frozen_paths.py` adds four: every recorded
+entry is a governed path, every recorded id is a real **blob** of this
+repository, every recorded id is the object at the base commit where history is
+available, and replacing one recorded id with an invented value makes the guard
+report that exact path.
+
+**Anti-vacuity on the real file, not a fixture.** One blob id in the committed
+manifest was replaced with a value that is no object here; the repository scan
+reported `frozen-path-digests.json:2`. The file was restored byte-for-byte —
+blob `99a3788d4cbc` before and after — and the scan returned to zero findings.
 
 ---
 
@@ -284,8 +363,28 @@ commit, and a Windows checkout has no LF. The third is FIND-CI-03, and it is the
 one worth remembering: **a gate whose verdict depends on the composition of its
 input will eventually fail on a commit that did not cause it.** Adding 27 blob
 ids did not merely add its own findings; it moved detect-secrets' entropy
-verdict for five unrelated files that had been clean for days. The allowlist
-patterns now make those lines deterministic regardless of what else is scanned.
+verdict for five unrelated files that had been clean for days. Those lines are
+now deterministic regardless of what else is scanned — but by removal rather
+than by allowance, which is FIND-S-01 in §10a: a value that is not
+40 hex characters cannot be judged by a rule about 40 hex characters.
+
+## 11a. A pre-existing platform condition, found and not fixed here
+
+Running the whole suite on Linux to check this correction against `e0907c4`
+produced **20 failures and errors on both trees, identically**. They are not
+M084's and not this correction's: `tests/fixtures/m062_validation_study/…json`
+and the M063/M064 fixtures record `_EXPECTED_SHA256` over the file's RAW BYTES,
+and those constants were taken from a **CRLF** checkout. `.gitattributes` pins
+only `*.py` to LF, so on Windows the bytes match and CI is green, while on Linux
+the same tracked file hashes differently. Verified directly: the fixture's LF
+bytes hash to `1b582de9…`, the same bytes with CRLF hash to `3289c380…`, which
+is the recorded constant.
+
+It is recorded rather than repaired because it belongs to three earlier
+milestones and this mission's authority covers the secret scanner, M084's own
+guards and tools, and M084's derived artifacts. The relevance to M084 is the
+comparison itself: the failure sets at `e0907c4` and at the corrected head are
+byte-identical, so the correction adds no failure and removes none.
 
 ## 12. What this does not establish
 

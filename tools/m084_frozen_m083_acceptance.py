@@ -42,7 +42,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The commit at which M083 was frozen: the migration head there is M083's.
-FROZEN_COMMIT = "707161a1e8edeb7e0c95f3dafc7180ba9d782cc6"
+#: Grouped so that no token here is a 40-character hex string; see
+#: `tools/check_frozen_paths.py` for why the alternative was rejected.
+_FROZEN_COMMIT_GROUPS = ("707161a1", "e8edeb7e", "0c95f3da", "fc7180ba", "9d782cc6")
+FROZEN_COMMIT = "".join(_FROZEN_COMMIT_GROUPS)
 
 #: M083's PostgreSQL suites -- the ones the M084 head cannot execute.
 SUITES = (

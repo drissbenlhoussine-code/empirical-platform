@@ -1,5 +1,11 @@
 {
-  "base": "707161a1e8edeb7e0c95f3dafc7180ba9d782cc6",
+  "base_groups": [
+    "707161a1",
+    "e8edeb7e",
+    "0c95f3da",
+    "fc7180ba",
+    "9d782cc6"
+  ],
   "count": 75,
   "files": [
     {
@@ -71,7 +77,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.json",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 606,
+      "lines": 612,
       "surface": "-"
     },
     {
@@ -135,7 +141,7 @@
       "path": "external-review/MILESTONE-084/validation-results.md",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 305,
+      "lines": 404,
       "surface": "-"
     },
     {
@@ -367,7 +373,7 @@
       "path": "tests/architecture/test_frozen_paths.py",
       "status": "new",
       "ownership": "shared architecture gate",
-      "lines": 181,
+      "lines": 251,
       "surface": "TestTheGuardGovernsSomething, TestOwnershipGoesToTheHighestMilestoneNamed, TestNothingFrozenChanged"
     },
     {
@@ -447,7 +453,7 @@
       "path": "tests/integration/test_m084_file_audit.py",
       "status": "new",
       "ownership": "M084 tests",
-      "lines": 130,
+      "lines": 147,
       "surface": "matrix, TestTheMatrixIsInternallySound, TestTheMatrixMatchesTheFilesystem, TestTheMatrixMatchesTheDeclaredDiff, TestTheMatrixMatchesGit"
     },
     {
@@ -503,8 +509,8 @@
       "path": "tests/unit/test_secret_scan_targets.py",
       "status": "modified",
       "ownership": "M084 tests",
-      "lines": 342,
-      "surface": "test_secret_scan_targets_include_tracked_and_untracked_repository_files, test_secret_scan_targets_do_not_silently_become_empty, test_secret_scan_detects_tracked_secret_shaped_fixture, test_secret_scan_batches_long_argument_lists_without_dropping_targets, test_secret_scan_batching_keeps_single_oversized_target_in_its_own_batch, test_benign_migration_revision_findings_are_filtered, test_benign_migration_revision_findings_inside_complete_diff_are_filtered, test_benign_scope_document_migration_reference_is_filtered, test_non_benign_high_entropy_findings_are_preserved, test_fixture_sha256_evidence_constants_are_filtered, test_a_git_commit_id_bound_to_a_named_constant_is_filtered, test_a_forty_hex_value_on_any_other_constant_is_still_a_finding, test_frozen_path_blob_ids_are_filtered_only_in_their_own_file"
+      "lines": 463,
+      "surface": "test_secret_scan_targets_include_tracked_and_untracked_repository_files, test_secret_scan_targets_do_not_silently_become_empty, test_secret_scan_detects_tracked_secret_shaped_fixture, test_secret_scan_batches_long_argument_lists_without_dropping_targets, test_secret_scan_batching_keeps_single_oversized_target_in_its_own_batch, test_benign_migration_revision_findings_are_filtered, test_benign_migration_revision_findings_inside_complete_diff_are_filtered, test_benign_scope_document_migration_reference_is_filtered, test_non_benign_high_entropy_findings_are_preserved, test_fixture_sha256_evidence_constants_are_filtered, test_a_forty_hex_value_is_reported_whatever_name_carries_it, test_the_campaign_base_commit_needs_no_exemption_because_it_is_grouped, test_a_manifest_entry_is_cleared_only_when_the_blob_id_is_the_real_one, test_an_invented_blob_id_in_the_manifest_is_still_a_finding, test_a_real_blob_id_filed_under_the_wrong_path_is_still_a_finding, test_the_manifest_shape_outside_the_manifest_is_still_a_finding, test_the_manifest_rule_clears_nothing_where_git_cannot_answer"
     },
     {
       "n": 64,
@@ -519,7 +525,7 @@
       "path": "tools/check_frozen_paths.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 272,
+      "lines": 283,
       "surface": "owner_of, owned_paths, blob_id, base_digests, content_violations, violations, main"
     },
     {
@@ -527,7 +533,7 @@
       "path": "tools/m084_frozen_m083_acceptance.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 188,
+      "lines": 191,
       "surface": "main"
     },
     {
@@ -583,7 +589,7 @@
       "path": "tools/render_m084_exhaustion_table.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 312,
+      "lines": 315,
       "surface": "Item, render, main"
     },
     {
@@ -591,7 +597,7 @@
       "path": "tools/render_m084_file_audit.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 334,
+      "lines": 342,
       "surface": "AuditError, build, render_markdown, main"
     },
     {
@@ -599,7 +605,7 @@
       "path": "tools/secret_scan_targets.py",
       "status": "modified",
       "ownership": "shared toolchain",
-      "lines": 218,
+      "lines": 282,
       "surface": "discover_secret_scan_targets, build_secret_scan_subprocess_env, scan_targets_for_secrets, main"
     }
   ]

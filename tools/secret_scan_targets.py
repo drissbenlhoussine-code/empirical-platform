@@ -24,26 +24,31 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     re.compile(r'^[+-]?_EXPECTED_MANIFEST_HASH = "[0-9a-f]{64}"$'),
     re.compile(r'^[+-]?\s*"dataset_bundle_sha256": "[0-9a-f]{64}",?$'),
     re.compile(r'^[+-]?\s*"membership_manifest_hash": "[0-9a-f]{64}"$'),
-    # A git COMMIT id bound to a named constant. These are public identifiers
-    # printed by `git log`; treating one as a credential is a false positive
-    # that costs a CI run to diagnose. Deliberately anchored to the assignment
-    # form, so an arbitrary 40-hex value elsewhere is still a finding.
-    re.compile(r'^[+-]?(?:BASE|_BASE|FROZEN_COMMIT) = "[0-9a-f]{40}"$'),
-    re.compile(r'^[+-]?\s*"base": "[0-9a-f]{40}",?$'),
 )
 
-#: Benign shapes that are only benign in one specific generated file. Scoped by
-#: path because the line form alone -- a quoted path mapped to 40 hex -- is too
-#: common to allow repository-wide.
-_BENIGN_HIGH_ENTROPY_BY_PATH = {
-    # Every value in this file is a git BLOB id, written by
-    # `tools/check_frozen_paths.py --write-digests` from the base commit and
-    # checked by tests/architecture/test_frozen_paths.py. There is nothing else
-    # in it, and it is regenerated rather than edited.
-    "external-review/MILESTONE-084/frozen-path-digests.json": (
-        re.compile(r'^\s*"[^"]+": "[0-9a-f]{40}",?$'),
-    ),
-}
+#: The one file whose lines may be cleared by a path-scoped rule instead of the
+#: shape list above.
+#:
+#: An earlier version of this module cleared `BASE|_BASE|FROZEN_COMMIT = "<40
+#: hex>"` and `"base": "<40 hex>"` REPOSITORY-WIDE, reasoning that a git commit
+#: id is a public identifier rather than a credential. The reasoning was right
+#: about commit ids and wrong about the rule: a constant's NAME plus a 40-hex
+#: SHAPE proves nothing about the value, so any real 40-hex credential assigned
+#: to something called `BASE` would have gone unreported anywhere in the
+#: repository. Those two patterns are gone. The commit ids that provoked them
+#: are now written in eight-character groups at their five definitions, so no
+#: token in any of them is a 40-character hex string and none needs clearing at
+#: all -- the finding is removed at its source rather than suppressed.
+#:
+#: This manifest cannot be restructured the same way: every one of its values is
+#: a git BLOB id, and it is consumed as a JSON mapping. So it keeps a rule, and
+#: the rule verifies the VALUE rather than its shape -- see
+#: `_is_a_recorded_blob_id`.
+_BLOB_ID_MANIFEST = "external-review/MILESTONE-084/frozen-path-digests.json"
+
+#: The manifest's exact schema: one repository path mapped to one git blob id,
+#: with nothing else on the line.
+_BLOB_ID_MANIFEST_ENTRY = re.compile(r'^\s*"(?P<path>[^"]+)": "(?P<blob>[0-9a-f]{40})",?$')
 
 
 def _git_paths(root: Path, *args: str) -> list[str]:
@@ -152,11 +157,12 @@ def _filter_benign_secret_findings(
     """Drop findings that match known benign migration-revision documentation
     patterns, keeping all other results intact."""
     filtered: dict[str, list[dict[str, Any]]] = {}
+    tracked = _TrackedBlobIds(root)
 
     for relative_path, entries in findings.items():
         kept_entries: list[dict[str, Any]] = []
         for entry in entries:
-            if _is_known_benign_secret_finding(root, relative_path, entry):
+            if _is_known_benign_secret_finding(root, relative_path, entry, tracked):
                 continue
             kept_entries.append(entry)
         if kept_entries:
@@ -165,10 +171,67 @@ def _filter_benign_secret_findings(
     return filtered
 
 
+class _TrackedBlobIds:
+    """Every tracked path in the repository mapped to git's blob id for it.
+
+    Read once per filter run, from git's own index, and never from the value
+    being judged. An empty mapping (no repository, or git unavailable) clears
+    nothing, so a missing git leaves every finding reported.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+        self._entries: dict[str, str] | None = None
+
+    def __call__(self) -> dict[str, str]:
+        if self._entries is None:
+            self._entries = self._read()
+        return self._entries
+
+    def _read(self) -> dict[str, str]:
+        result = subprocess.run(  # noqa: S603 - toolchain helper invokes Git with fixed args.
+            ["git", "ls-files", "-s", "-z"],  # noqa: S607
+            cwd=self._root,
+            check=False,
+            capture_output=True,
+            text=False,
+        )
+        if result.returncode != 0:
+            return {}
+        entries: dict[str, str] = {}
+        for record in result.stdout.split(b"\0"):
+            if not record:
+                continue
+            metadata, _, path = record.partition(b"\t")
+            fields = metadata.split()
+            if len(fields) < 2 or not path:
+                continue
+            entries[path.decode("utf-8").replace("\\", "/")] = fields[1].decode("ascii")
+        return entries
+
+
+def _is_a_recorded_blob_id(line: str, tracked: dict[str, str]) -> bool:
+    """Whether this manifest line maps a real path to that path's real blob id.
+
+    This is the whole difference between the rule that was removed and the one
+    that stayed. Shape is necessary but decides nothing: the line's key must be
+    a path git actually tracks, and its value must be the blob id git actually
+    holds for that path. An invented 40-hex value matches no object and is
+    reported; a real blob id filed under the wrong path is reported; and the
+    same line in any other file never reaches this function, because the rule
+    is scoped to the one generated manifest.
+    """
+    match = _BLOB_ID_MANIFEST_ENTRY.match(line)
+    if match is None:
+        return False
+    return tracked.get(match["path"]) == match["blob"]
+
+
 def _is_known_benign_secret_finding(
     root: Path,
     relative_path: str,
     entry: dict[str, Any],
+    tracked: _TrackedBlobIds,
 ) -> bool:
     if entry.get("type") != "Hex High Entropy String":
         return False
@@ -178,10 +241,11 @@ def _is_known_benign_secret_finding(
     line = _read_line(root / relative_path, line_number)
     if line is None:
         return False
-    normalized = relative_path.replace("\\", "/")
-    scoped = _BENIGN_HIGH_ENTROPY_BY_PATH.get(normalized, ())
-    patterns = (*_BENIGN_HIGH_ENTROPY_LINE_PATTERNS, *scoped)
-    return any(pattern.search(line) for pattern in patterns)
+    if any(pattern.search(line) for pattern in _BENIGN_HIGH_ENTROPY_LINE_PATTERNS):
+        return True
+    if relative_path.replace("\\", "/") != _BLOB_ID_MANIFEST:
+        return False
+    return _is_a_recorded_blob_id(line, tracked())
 
 
 def _read_line(path: Path, line_number: int) -> str | None:

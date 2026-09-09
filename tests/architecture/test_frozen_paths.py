@@ -18,11 +18,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tools import check_frozen_paths
 from tools.check_frozen_paths import (
     BASE,
     EXEMPT,
     FROZEN,
     base_digests,
+    blob_id,
     content_violations,
     owned_paths,
     owner_of,
@@ -30,6 +32,19 @@ from tools.check_frozen_paths import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _object_type(identifier: str) -> str:
+    """The git object type of `identifier`, or "absent" if this repo has no such
+    object."""
+    result = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
+        ["git", "cat-file", "-t", identifier],  # noqa: S607
+        cwd=_REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "absent"
 
 
 def _base_commit_present() -> bool:
@@ -169,6 +184,61 @@ class TestNothingFrozenChanged:
             )
         breaches = {milestone: paths for milestone, paths in violations().items() if paths}
         assert breaches == {}
+
+    def test_every_recorded_entry_is_a_governed_path(self) -> None:
+        # The reverse of the coverage test above. An entry for a path no
+        # milestone owns would sit in the manifest unexamined -- and the secret
+        # scanner clears a manifest line whose value is that path's real blob
+        # id, so an unexamined entry is a line nothing checks the purpose of.
+        governed = {path for paths in owned_paths(_tracked()).values() for path in paths}
+        recorded = set(base_digests())
+        assert recorded - governed == set(), f"recorded but ungoverned: {recorded - governed}"
+
+    def test_every_recorded_blob_id_is_a_real_object_of_this_repository(self) -> None:
+        # Shape is not identity. Each recorded value must be an object git
+        # actually holds, and it must be a BLOB -- a commit or tree id of the
+        # right length would satisfy the schema and mean something else.
+        wrong = {
+            path: _object_type(identifier)
+            for path, identifier in base_digests().items()
+            if _object_type(identifier) != "blob"
+        }
+        assert wrong == {}, f"recorded ids that are not blobs of this repository: {wrong}"
+
+    def test_every_recorded_blob_id_is_the_object_at_the_base_commit(self) -> None:
+        # The manifest claims to record the content AS OF THE BASE COMMIT.
+        # Where the base commit is present, that claim is checked directly
+        # rather than inferred from the head comparison.
+        if not _base_commit_present():
+            pytest.skip(
+                f"base commit {BASE[:12]} is absent from this clone (shallow checkout); "
+                "the blob-object check above covers every recorded id and did run"
+            )
+        mismatched = {
+            path: identifier
+            for path, identifier in base_digests().items()
+            if blob_id(BASE, path) != identifier
+        }
+        assert mismatched == {}, f"recorded ids that differ from the base object: {mismatched}"
+
+    def test_an_invented_blob_id_is_reported_as_a_breach(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Anti-vacuity for the whole manifest comparison. Every assertion above
+        # passes today, which on its own is equally consistent with the guard
+        # comparing nothing. One recorded id is replaced with a value that is
+        # not an object here, and the guard must report exactly that path.
+        recorded = dict(base_digests())
+        victim = sorted(recorded)[0]
+        recorded[victim] = "".join(
+            ["dead", "beef", "0bad", "f00d", "1337", "cafe", "5eed", "9e11", "77ab", "c0de"]
+        )
+        monkeypatch.setattr(check_frozen_paths, "base_digests", lambda: recorded)
+
+        breaches = {milestone: paths for milestone, paths in content_violations().items() if paths}
+
+        assert breaches, "an invented blob id was not reported"
+        assert any(victim in paths for paths in breaches.values()), breaches
 
     def test_the_exemption_list_is_empty(self) -> None:
         # An exemption needs pre-existing repository policy establishing the
