@@ -64,8 +64,13 @@ __all__ = [
     "ALLOWED_PAPER_TRANSITIONS",
     "CLIENT_ORDER_ID_PREFIX",
     "MAXIMUM_BROKER_CLIENT_ORDER_ID_LENGTH",
+    "MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS",
+    "MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS",
+    "NOT_FOUND_ALONE_RESOLVES_UNKNOWN",
     "PAPER_ENDPOINT_HOST",
     "RECONCILIATION_UNKNOWN_POLICY",
+    "RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT",
+    "RESOLUTION_WHEN_POLICY_SATISFIED",
     "TERMINAL_PAPER_STATES",
     "BrokerAcknowledgement",
     "ExecutionAttempt",
@@ -106,13 +111,26 @@ CLIENT_ORDER_ID_PREFIX = "m085-"
 #: flight at the broker. The policy is therefore bounded in time rather than
 #: decided on the first answer, and the bound is stated here so it can be
 #: reviewed instead of discovered in a log.
-RECONCILIATION_UNKNOWN_POLICY = MappingProxyType(
+#: The individual bounds, typed, because callers do arithmetic with them and a
+#: heterogeneous mapping would make every use site cast.
+NOT_FOUND_ALONE_RESOLVES_UNKNOWN: bool = False
+MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS: int = 2
+MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS: int = 60
+RESOLUTION_WHEN_POLICY_SATISFIED: str = "REJECTED"
+RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT: bool = True
+
+#: The same policy as one document, for the authority package to render. Derived
+#: from the constants above rather than repeating them, so the published policy
+#: and the enforced policy cannot disagree.
+RECONCILIATION_UNKNOWN_POLICY: MappingProxyType[str, object] = MappingProxyType(
     {
-        "not_found_alone_resolves_unknown": False,
-        "minimum_consecutive_not_found_observations": 2,
-        "minimum_seconds_since_dispatch_before_not_found_counts": 60,
-        "resolution_when_policy_satisfied": "REJECTED",
-        "resolution_requires_operator_visible_event": True,
+        "not_found_alone_resolves_unknown": NOT_FOUND_ALONE_RESOLVES_UNKNOWN,
+        "minimum_consecutive_not_found_observations": (MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS),
+        "minimum_seconds_since_dispatch_before_not_found_counts": (
+            MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS
+        ),
+        "resolution_when_policy_satisfied": RESOLUTION_WHEN_POLICY_SATISFIED,
+        "resolution_requires_operator_visible_event": (RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT),
     }
 )
 

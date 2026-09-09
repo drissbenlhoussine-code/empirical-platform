@@ -337,7 +337,7 @@ class _QuoteView:
     source: str
 
 
-def _sanitize(body: bytes) -> str:
+def _sanitize(body: bytes, credentials: AlpacaPaperCredentials | None = None) -> str:
     """A bounded, printable rendering of a response body for the audit trail.
 
     Truncated rather than dropped, because the first few kilobytes of an HTML
@@ -348,9 +348,29 @@ def _sanitize(body: bytes) -> str:
     text = body[:MAXIMUM_DIAGNOSTIC_BODY_BYTES].decode("utf-8", "replace")
     if len(body) > MAXIMUM_DIAGNOSTIC_BODY_BYTES:
         text += f"...[truncated, {len(body)} bytes total]"
-    return "".join(
+    printable = "".join(
         character if character == "\n" or character.isprintable() else "�" for character in text
     )
+    return _scrub_credentials(printable, credentials)
+
+
+def _scrub_credentials(text: str, credentials: AlpacaPaperCredentials | None) -> str:
+    """Remove our own credentials from anything the peer said back to us.
+
+    A peer that echoes a request header into its response body -- a debug endpoint,
+    a misconfigured proxy, or a hostile server doing it deliberately -- would
+    otherwise have the key written verbatim into `sanitized_payload`, which is a
+    durable audit row. The redaction happens at the boundary rather than at the
+    point of storage, because there is more than one place a response body is
+    handed onward and only one place it is read.
+    """
+    if credentials is None:
+        return text
+    scrubbed = text
+    for secret in (credentials.secret_key, credentials.key_id):
+        if secret and secret in scrubbed:
+            scrubbed = scrubbed.replace(secret, REDACTED)
+    return scrubbed
 
 
 def _digest(text: str) -> str:
@@ -505,6 +525,10 @@ class AlpacaPaperClient:
                 f"the trading adapter is pinned to {PAPER_ENDPOINT_HOST}, not {endpoint.host}"
             )
         self._endpoint = endpoint
+        # Held ONLY so that a response body echoing them back can be scrubbed
+        # before it is stored. Never rendered: this object's `repr` is redacted
+        # and the credential type's own `repr` is redacted too.
+        self._credentials = credentials
         self._connection = _StrictConnection(
             endpoint,
             credentials,
@@ -524,7 +548,7 @@ class AlpacaPaperClient:
 
     def _json(self, method: str, path: str, *, body: str | None = None) -> tuple[int, Any, str]:
         status, _, raw = self._connection.request(method, path, body=body)
-        sanitized = _sanitize(raw)
+        sanitized = _sanitize(raw, self._credentials)
         if not raw:
             return status, None, sanitized
         try:
@@ -750,6 +774,7 @@ class AlpacaPaperMarketDataClient:
                 f"the market-data adapter is pinned to {DATA_ENDPOINT_HOST}, not {resolved.host}"
             )
         self._endpoint = resolved
+        self._credentials = credentials
         self._connection = _StrictConnection(
             resolved,
             credentials,
