@@ -1213,6 +1213,78 @@ class TestSearchPathCannotBeSubverted:
 
 
 class TestMilestone084IsUntouched:
+    """FIND-M085-01, held fixed.
+
+    The first version of this schema linked to `approved_order_intent` with four
+    FOREIGN KEYS. PostgreSQL refuses to TRUNCATE a referenced table, so M084's own
+    `clean` fixture -- which truncates exactly that table -- became inexecutable
+    and 97 M084 tests turned into errors at this head. The link is now a BEFORE
+    INSERT trigger, which gives the same insert-time guarantee without the
+    TRUNCATE dependency. These tests keep both halves of that fixed.
+    """
+
+    def test_the_m084_clean_fixture_truncate_still_works_at_this_head(
+        self, paper: PostgresPaperExecutionRuntime, clean: Engine
+    ) -> None:
+        # Byte-for-byte the statement `tests/integration/
+        # test_m084_decision_to_approval_lifecycle.py` issues before every test.
+        # Rows are present first, so this is not vacuous.
+        a_full_chain(paper)
+        with clean.begin() as connection:
+            connection.execute(
+                text(
+                    "TRUNCATE approved_order_intent, trade_approval_decision, "
+                    "trade_proposal_risk_check, trade_proposal, evaluation_context, "
+                    "operator_trading_configuration, evaluation_evidence_watermark"
+                )
+            )
+
+    def test_no_m085_table_holds_a_foreign_key_into_m084(self, clean: Engine) -> None:
+        # Structural, so the foreign key cannot come back by a well-meaning edit.
+        with clean.begin() as connection:
+            offenders = [
+                row[0]
+                for row in connection.execute(
+                    text(
+                        "SELECT c.conname FROM pg_constraint c "
+                        "JOIN pg_class t ON t.oid = c.conrelid "
+                        "JOIN pg_class r ON r.oid = c.confrelid "
+                        "WHERE c.contype = 'f' AND t.relname LIKE 'paper%' "
+                        "AND r.relname NOT LIKE 'paper%'"
+                    )
+                ).all()
+            ]
+        assert offenders == []
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "INSERT INTO public.paper_execution_event (event_id, intent_governance_id, "
+            "attempt_id, event_type, occurred_at, detail) "
+            "VALUES ('EVT-ORPHAN', 'NO-SUCH-INTENT', NULL, 'X', now(), 'd')",
+        ],
+    )
+    def test_a_paper_row_naming_an_unknown_intent_is_still_refused(
+        self, clean: Engine, statement: str
+    ) -> None:
+        # The half of the foreign key that mattered, kept.
+        with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
+            connection.execute(text(statement))
+        assert "which does not exist" in str(raised.value)
+
+    def test_the_intent_existence_trigger_pins_its_search_path(self, clean: Engine) -> None:
+        with clean.begin() as connection:
+            configuration = connection.execute(
+                text(
+                    "SELECT p.proconfig FROM pg_proc p "
+                    "JOIN pg_namespace n ON n.oid = p.pronamespace "
+                    "WHERE n.nspname = 'public' "
+                    "AND p.proname = 'paper_requires_approved_intent'"
+                )
+            ).scalar_one()
+        assert configuration is not None
+        assert any("search_path=" in setting for setting in configuration)
+
     def test_the_m085_schema_adds_no_trigger_to_any_m084_table(self, clean: Engine) -> None:
         with clean.begin() as connection:
             rows = (

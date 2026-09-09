@@ -64,10 +64,15 @@ and DROP TRIGGER, DROP TABLE, ALTER TABLE ... DISABLE TRIGGER,
 `session_replication_role = replica` and superuser mutation all remain possible.
 This must not be described as absolute database immutability.
 
-MEASURED CROSS-MILESTONE LIMITATION. The foreign keys below make a TRUNCATE of
-M084's `approved_order_intent` structurally inexecutable while this schema is
-installed, exactly as M084's own foreign key did to M083's fixture. This is
-recorded rather than repaired, and it disappears on downgrade.
+NO CROSS-MILESTONE BREAKAGE, AND WHY THAT TOOK A SECOND ATTEMPT. The link to
+M084's `approved_order_intent` is enforced by a BEFORE INSERT trigger, not by a
+foreign key. A foreign key was tried first and was wrong: PostgreSQL refuses to
+TRUNCATE a referenced table, so it made M084's own test fixture inexecutable and
+turned 97 M084 tests into errors at this head. M084 hit the same shape against
+M083 and accepted it as a recorded limitation; repeating that would mean every
+milestone breaking the one before it. The insert-time guarantee is unchanged; the
+one thing given up is protection against the parent being TRUNCATEd afterwards,
+which is stated in the trigger's own comment rather than left to be discovered.
 
 BLANK IDENTITY. Identity columns use the identical frozen 29-character Python
 3.13 `str.strip()` blank set that M082's, M083's and M084's migrations froze
@@ -134,6 +139,53 @@ _TERMINAL_STATES = "'FILLED', 'CANCELED', 'REJECTED', 'EXPIRED'"
 # ---------------------------------------------------------------------------
 # Shared append-only trigger function
 # ---------------------------------------------------------------------------
+
+#: Referential integrity to MILESTONE-084's `approved_order_intent`, enforced by
+#: a trigger instead of a FOREIGN KEY.
+#:
+#: WHY NOT A FOREIGN KEY. A foreign key would be the obvious choice and it was the
+#: first one made here. It is wrong, and measurably so: PostgreSQL refuses to
+#: TRUNCATE a table that is referenced by one, so four foreign keys pointing at
+#: `approved_order_intent` made M084's OWN test fixture -- which truncates exactly
+#: that table -- structurally inexecutable, turning 97 M084 tests into errors at
+#: this milestone's head. M084 hit this same shape against M083 and recorded it as
+#: an accepted limitation. Inheriting that would mean each milestone quietly
+#: breaking the one before it, so this one does not.
+#:
+#: WHAT IS AND IS NOT PRESERVED. The insert-time guarantee is identical: a paper
+#: row naming an intent that does not exist is refused. What a foreign key would
+#: additionally have given is protection against the parent being removed
+#: afterwards, and that is NOT claimed here -- M084's intents are append-only
+#: under their own triggers, so an ordinary DELETE is already refused there, but a
+#: TRUNCATE of `approved_order_intent` (which requires table ownership) would now
+#: leave M085 rows referring to an intent that is gone. That is a smaller and more
+#: honest cost than breaking the previous milestone's suite.
+_REQUIRES_INTENT_FUNCTION = """
+CREATE OR REPLACE FUNCTION public.paper_requires_approved_intent()
+RETURNS trigger AS $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM public.approved_order_intent
+        WHERE intent_governance_id = NEW.intent_governance_id
+    ) THEN
+        RAISE EXCEPTION
+            '% references approved order intent % which does not exist',
+            TG_TABLE_NAME, NEW.intent_governance_id;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+"""
+
+
+def _requires_intent_trigger(table: str) -> str:
+    return (
+        f"CREATE TRIGGER {table}_requires_intent_trigger "
+        f"BEFORE INSERT ON public.{table} "
+        "FOR EACH ROW EXECUTE FUNCTION public.paper_requires_approved_intent()"
+    )
+
 
 _APPEND_ONLY_FUNCTION = """
 CREATE OR REPLACE FUNCTION public.m085_append_only()
@@ -505,11 +557,6 @@ def _create_preview_table() -> None:
         sa.Column("refusals", sa.Text(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
-            ["intent_governance_id"],
-            ["approved_order_intent.intent_governance_id"],
-            name="fk_paper_preview_intent",
-        ),
-        sa.ForeignKeyConstraint(
             ["account_snapshot_id"],
             ["paper_account_snapshot.snapshot_id"],
             name="fk_paper_preview_account_snapshot",
@@ -571,11 +618,6 @@ def _create_authorization_table() -> None:
         # guard reads this row, so a mutual foreign key would make the pair
         # uninsertable in either order.
         sa.Column("consumed_by_attempt_id", sa.String(length=64), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["intent_governance_id"],
-            ["approved_order_intent.intent_governance_id"],
-            name="fk_paper_authorization_intent",
-        ),
         sa.ForeignKeyConstraint(
             ["preview_id"],
             ["paper_submission_preview.preview_id"],
@@ -649,11 +691,6 @@ def _create_attempt_table() -> None:
         sa.Column("filled_avg_price", sa.Numeric(20, 8), nullable=True),
         sa.Column("failure_code", sa.String(length=32), nullable=True),
         sa.Column("failure_detail", sa.String(length=500), nullable=True),
-        sa.ForeignKeyConstraint(
-            ["intent_governance_id"],
-            ["approved_order_intent.intent_governance_id"],
-            name="fk_paper_attempt_intent",
-        ),
         sa.ForeignKeyConstraint(
             ["authorization_id"],
             ["paper_execution_authorization.authorization_id"],
@@ -746,11 +783,6 @@ def _create_event_table() -> None:
         sa.Column("occurred_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("detail", sa.String(length=500), nullable=False),
         sa.ForeignKeyConstraint(
-            ["intent_governance_id"],
-            ["approved_order_intent.intent_governance_id"],
-            name="fk_paper_event_intent",
-        ),
-        sa.ForeignKeyConstraint(
             ["attempt_id"],
             ["paper_execution_attempt.attempt_id"],
             name="fk_paper_event_attempt",
@@ -777,6 +809,15 @@ def upgrade() -> None:
     _create_attempt_table()
     _create_acknowledgement_table()
     _create_event_table()
+
+    op.execute(_REQUIRES_INTENT_FUNCTION)
+    for table in (
+        "paper_submission_preview",
+        "paper_execution_authorization",
+        "paper_execution_attempt",
+        "paper_execution_event",
+    ):
+        op.execute(_requires_intent_trigger(table))
 
     op.execute(_AUTHORIZATION_UPDATE_FUNCTION)
     op.execute(_AUTHORIZATION_UPDATE_TRIGGER)
@@ -838,6 +879,13 @@ def downgrade() -> None:
         "DROP TRIGGER IF EXISTS paper_execution_authorization_guard_update_trigger "
         "ON public.paper_execution_authorization"
     )
+    for table in (
+        "paper_execution_event",
+        "paper_execution_attempt",
+        "paper_execution_authorization",
+        "paper_submission_preview",
+    ):
+        op.execute(f"DROP TRIGGER IF EXISTS {table}_requires_intent_trigger ON public.{table}")
 
     op.drop_table("paper_execution_event")
     op.drop_table("paper_broker_acknowledgement")
@@ -850,4 +898,5 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS public.paper_execution_attempt_guard_update()")
     op.execute("DROP FUNCTION IF EXISTS public.paper_execution_attempt_guard_insert()")
     op.execute("DROP FUNCTION IF EXISTS public.paper_execution_authorization_guard_update()")
+    op.execute("DROP FUNCTION IF EXISTS public.paper_requires_approved_intent()")
     op.execute("DROP FUNCTION IF EXISTS public.m085_append_only()")
