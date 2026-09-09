@@ -1901,11 +1901,13 @@ def pass_five(engine: Engine) -> Pass:
         # reporting on itself, which is noise rather than evidence.
         if full.name.startswith("m084_hostile_"):
             continue
-        # Tokenised, not line-matched. A docstring EXPLAINING why a pragma was
-        # removed contains the words "# pragma: no cover", and the line-based
-        # version counted that explanation as the thing it describes -- the
-        # third time in this campaign a grep-shaped check reported prose about
-        # a defect as the defect. `tokenize` can tell a comment from a string.
+        # Tokenised, not line-matched. A docstring explaining why a coverage
+        # exclusion was removed necessarily quotes the marker it describes, and
+        # the line-based version counted that explanation as the thing itself --
+        # the third time in this campaign a grep-shaped check reported prose
+        # about a defect as the defect. `tokenize` tells a comment from a
+        # string. (This comment is worded to avoid the marker for the same
+        # reason: a detector's own text should not be its own finding.)
         source = full.read_text(encoding="utf-8")
         comments = [
             (token.start[0], token.string)

@@ -7,6 +7,7 @@ A	external-review/MILESTONE-084/current-authority.md
 A	external-review/MILESTONE-084/current-authority.schema.json
 A	external-review/MILESTONE-084/file-audit-matrix.json
 A	external-review/MILESTONE-084/file-audit-matrix.md
+A	external-review/MILESTONE-084/hostile-review.md
 A	external-review/MILESTONE-084/mutation-matrix.md
 A	external-review/MILESTONE-084/operator-verification-checklist.md
 A	external-review/MILESTONE-084/performance-results.md

@@ -142,6 +142,9 @@ _PURPOSE = {
     "tests/architecture/test_frozen_paths.py": (
         "Enforces the frozen boundary that M084 crossed once"
     ),
+    "tools/render_m084_exhaustion_table.py": (
+        "Derives each exhaustion row from its evidence; a blocker cannot be typed away"
+    ),
     "tools/m084_hostile_review.py": (
         "The hostile-review harness: an attack is code that runs, not an argument"
     ),
