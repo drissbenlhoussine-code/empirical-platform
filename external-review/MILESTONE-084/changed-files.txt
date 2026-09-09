@@ -42,6 +42,8 @@ A	tests/fixtures/illegal_imports/src/empirical_platform/application/bad_broker_o
 A	tests/fixtures/illegal_imports/src/empirical_platform/decision_candidate/bad_broker_order_submission_import.py
 A	tests/fixtures/illegal_imports/src/empirical_platform/entrypoints/bad_broker_order_submission_import.py
 A	tests/fixtures/illegal_imports/src/empirical_platform/usecases/bad_broker_order_submission_import.py
+M	tests/integration/test_m083_evaluation_evidence_watermark_extended_attacks.py
+M	tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py
 A	tests/integration/test_m084_authority_contract.py
 A	tests/integration/test_m084_concurrency.py
 A	tests/integration/test_m084_decision_to_approval_lifecycle.py

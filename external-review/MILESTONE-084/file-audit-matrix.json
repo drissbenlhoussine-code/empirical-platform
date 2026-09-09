@@ -1,6 +1,6 @@
 {
   "base": "707161a1e8edeb7e0c95f3dafc7180ba9d782cc6",
-  "count": 57,
+  "count": 59,
   "files": [
     {
       "n": 1,
@@ -23,7 +23,7 @@
       "path": "external-review/MILESTONE-084/changed-files.txt",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 57,
+      "lines": 59,
       "surface": "-"
     },
     {
@@ -63,7 +63,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.json",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 462,
+      "lines": 478,
       "surface": "-"
     },
     {
@@ -71,7 +71,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.md",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 71,
+      "lines": 73,
       "surface": "-"
     },
     {
@@ -356,6 +356,22 @@
     },
     {
       "n": 45,
+      "path": "tests/integration/test_m083_evaluation_evidence_watermark_extended_attacks.py",
+      "status": "modified",
+      "ownership": "M083 tests, repaired by M084",
+      "lines": 675,
+      "surface": "engine, upgraded_schema, clean_tables, test_e1_multi_row_single_statement_insert_each_row_gets_the_full_set, test_e2_insert_select_derived_source_still_fires_the_capture_trigger, test_e3_caller_supplied_empty_array_is_overwritten_when_receipts_exist, test_e4_caller_supplied_null_is_overwritten_before_not_null_is_checked, test_e5_copy_from_stdin_fires_the_same_capture_trigger, test_e6_exactly_64_characters_succeeds_65_is_rejected_by_the_column_type, test_e7_repeatable_read_holds_one_snapshot_across_the_whole_transaction, test_e8_serializable_write_skew_raises_and_retry_succeeds, test_e9_hostile_named_schema_on_search_path_cannot_alter_the_result, test_e10_real_check_violation_is_not_misclassified_as_a_pk_conflict, test_e11_a_null_array_element_is_refused_on_read_not_coerced_into_an_identity, test_e12_a_well_formed_row_still_reads_back_unchanged_after_the_strict_mapping, test_e13_the_installed_capture_function_pins_collate_c_explicitly"
+    },
+    {
+      "n": 46,
+      "path": "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py",
+      "status": "modified",
+      "ownership": "M083 tests, repaired by M084",
+      "lines": 937,
+      "surface": "engine, upgraded_schema, clean_tables, test_1_empty_receipt_table_produces_an_explicit_empty_set, test_2_one_receipt_is_captured_exactly_once, test_3_many_receipts_are_stored_in_canonical_lexical_order, test_4_insertion_order_does_not_affect_the_stored_representation, test_5_later_receipt_insertion_does_not_change_an_existing_watermark, test_6_backdating_a_later_receipt_label_does_not_change_an_existing_watermark, test_7_an_unreceipted_m076_event_never_appears, test_8_no_event_payload_or_receipt_metadata_appears, test_9_caller_supplied_omitted_subset_is_overwritten, test_10_caller_supplied_extra_nonexistent_id_is_overwritten, test_11_caller_supplied_duplicates_and_reordering_is_overwritten, test_12_direct_sql_without_membership_produces_the_exact_database_set, test_13_pg_temp_relation_shadowing_cannot_alter_the_result, test_14_blank_watermark_ids_are_refused_by_python_and_postgresql, test_15_an_unexpected_database_failure_propagates_with_no_empty_set_fallback, test_16_a_receipt_committed_before_capture_is_included, test_17_a_receipt_uncommitted_in_another_transaction_is_excluded, test_18_and_19_a_receipt_committed_after_the_snapshot_is_excluded_and_a_later_watermark_may_include_it, test_20_same_transaction_receipt_visibility_is_statement_snapshot_not_prior_commit, test_21_two_concurrent_captures_with_different_ids_are_each_internally_coherent, test_22_two_concurrent_captures_with_the_same_id_yield_one_immutable_winner, test_23_rollback_leaves_no_header_or_partial_set, test_24_the_count_can_never_split_from_membership, test_25_update_is_refused, test_26_delete_is_refused, test_27_identity_collision_is_handled_honestly_not_silently_refreshed, test_28_migration_up_down_up_is_clean, test_29_m082_survives_m083_downgrade_unchanged, test_31_a_watermark_read_is_byte_identical_after_unrelated_future_inserts, test_32_truncate_drop_and_trigger_disable_are_outside_the_enforcement_boundary, test_the_migration_literal_the_domain_constant_and_the_database_all_agree"
+    },
+    {
+      "n": 47,
       "path": "tests/integration/test_m084_authority_contract.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -363,7 +379,7 @@
       "surface": "contract, schema, TestTheContractIsValidAndClosed, TestTheClaimsMatchTheRunningCode, TestTheFrozenM083PackageIsUntouched"
     },
     {
-      "n": 46,
+      "n": 48,
       "path": "tests/integration/test_m084_concurrency.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -371,7 +387,7 @@
       "surface": "engine, clean, RaceResult, race, seed_to_context, seed_to_proposal, seed_to_approved, TestConfigurationRaces, TestEvaluationContextRaces, TestProposalRaces, TestApprovalDecisionRaces, TestApprovedIntentRaces"
     },
     {
-      "n": 47,
+      "n": 49,
       "path": "tests/integration/test_m084_decision_to_approval_lifecycle.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -379,7 +395,7 @@
       "surface": "engine, clean, runtime, a_configuration, a_context, a_proposal, TestConfigurationPersistence, TestEvaluationContextPersistence, TestTheWholeFlow, TestDecisionAndIntentQueries"
     },
     {
-      "n": 48,
+      "n": 50,
       "path": "tests/integration/test_m084_decision_to_approval_postgres_attacks.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -387,7 +403,7 @@
       "surface": "engine, upgraded_schema, db, TestConfigurationHardInvariantsInTheDatabase, TestConfigurationClosedEnumerations, TestConfigurationOrderingAndUniverse, TestEvaluationContextBinding, TestProposalTermConstraints, TestProposalStateMachine, TestRiskCheckEvidence, TestDecisionAdmission, TestIntentAdmission, TestIntentCannotBecomeASubmission, TestBypassAttempts, TestFrozenMilestonesArePreserved"
     },
     {
-      "n": 49,
+      "n": 51,
       "path": "tests/integration/test_m084_file_audit.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -395,7 +411,7 @@
       "surface": "matrix, TestTheMatrixIsInternallySound, TestTheMatrixMatchesTheFilesystem, TestTheMatrixMatchesTheDeclaredDiff, TestTheMatrixMatchesGit"
     },
     {
-      "n": 50,
+      "n": 52,
       "path": "tests/unit/test_m084_cli_and_io.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -403,7 +419,7 @@
       "surface": "TestReadingAConfiguration, TestReadingMarketInputs, TestReadingAContextRequest, TestLoadingAFile, TestRendering, TestEntrypointArguments, TestEntrypointOutput, TestOutcomeJsonShape"
     },
     {
-      "n": 51,
+      "n": 53,
       "path": "tests/unit/test_m084_domain_core.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -411,7 +427,7 @@
       "surface": "a_configuration, a_quote, an_account, a_session, an_instrument, a_liquidity, a_cost_estimate, evaluate, evaluate_for, evaluate_at, a_proposal, a_variant, a_watermark, TestConfigurationHardInvariants, TestConfigurationOrderingInvariants, TestConfigurationUniverseInvariants, TestMarketInputSnapshots, TestProposalHappyPath, TestSizingRespectsTheCapitalCap, TestProposalFingerprint, TestProposalConstructionInvariants, TestNoTradeReasons, TestNoTradeReporting, TestTransitionTable, TestOperatorDecision, an_approved_pair, TestApprovedOrderIntent, TestEvaluationContext"
     },
     {
-      "n": 52,
+      "n": 54,
       "path": "tests/unit/test_m084_operator_workflow.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -419,7 +435,7 @@
       "surface": "a_command, seeded_contexts, seeded_configurations, TestValidateConfiguration, TestShowConfiguration, TestKillSwitch, TestExplainNoTrade, TestInvalidateStaleProposals, TestSystemStatus, TestAuditHistory, TestEveryNewEntrypointRefusesAWrongArgumentCount"
     },
     {
-      "n": 53,
+      "n": 55,
       "path": "tests/unit/test_m084_repositories_and_handlers.py",
       "status": "new",
       "ownership": "M084 tests",
@@ -427,7 +443,7 @@
       "surface": "configuration_row, proposal_row, context_row, a_decision, decision_row, an_intent, intent_row, TestRowMappingRefusesRatherThanCoerces, TestConfigurationRepository, TestEvaluationContextRepository, TestTradeProposalRepository, TestDecisionRepository, TestIntentRepository, TestConfigurationHandler, TestOpenEvaluationContextHandler, TestPrepareTradeProposalHandler, TestDecideTradeProposalHandler, TestIssueApprovedOrderIntentHandler, TestQueryHandlers"
     },
     {
-      "n": 54,
+      "n": 56,
       "path": "tools/check_architecture.py",
       "status": "modified",
       "ownership": "shared toolchain",
@@ -435,7 +451,7 @@
       "surface": "module_for_path, imported_module, imported_top_level, check_path, main"
     },
     {
-      "n": 55,
+      "n": 57,
       "path": "tools/m084_mutation_campaign.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -443,7 +459,7 @@
       "surface": "Mutation, run_family, render_markdown, main"
     },
     {
-      "n": 56,
+      "n": 58,
       "path": "tools/render_m084_authority.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -451,11 +467,11 @@
       "surface": "render, main"
     },
     {
-      "n": 57,
+      "n": 59,
       "path": "tools/render_m084_file_audit.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 292,
+      "lines": 302,
       "surface": "AuditError, build, render_markdown, main"
     }
   ]
