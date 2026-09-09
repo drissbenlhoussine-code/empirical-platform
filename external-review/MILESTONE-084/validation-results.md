@@ -266,10 +266,28 @@ Every finding this campaign produced, with what was done about it.
 | FIND-H1-01 | `authority_version` was pinned with `minimum`/`maximum`, which this contract's validator does not implement — a decorative constraint | Pinned with `const`; schema may now only use enforced keywords |
 | FIND-H3-01 | `order_type_permitted` was a second unreachable check; the configuration already guarantees it | Removed; invariant swept |
 | FIND-H5-01 | Two production branches carried `# pragma: no cover` for a reason that did not hold — both are reachable from a unit test | Pragmas removed; both branches covered |
+| FIND-CI-01 | The frozen-path guard compared `git diff BASE..HEAD`, which exits 128 in CI's shallow clone — the guard failed exactly where it runs unattended | Compares recorded content, no history needed |
+| FIND-CI-02 | It then hashed file BYTES, which a Windows checkout legitimately changes for every non-Python path (`.gitattributes` pins `*.py` to LF) | Compares git blob ids: platform-independent by construction |
+| FIND-CI-03 | The blob-id manifest broke the secret scan — and not only for itself: detect-secrets' entropy verdict depends on batch composition, so it changed the verdict for files clean for days | Narrow line allowlist plus one path-scoped rule, with three tests proving the plugin still fires |
 
 ---
 
-## 11. What this does not establish
+## 11. Three CI failures, and what they were
+
+Every gate in §1 was green locally while CI was red, three times. Each time the
+environment was right and the check was wrong, and each was found by CI rather
+than by reasoning — which is the argument for having it, and the reason "it
+passes locally" is not a result.
+
+The first two are FIND-CI-01 and FIND-CI-02 above: a shallow clone has no base
+commit, and a Windows checkout has no LF. The third is FIND-CI-03, and it is the
+one worth remembering: **a gate whose verdict depends on the composition of its
+input will eventually fail on a commit that did not cause it.** Adding 27 blob
+ids did not merely add its own findings; it moved detect-secrets' entropy
+verdict for five unrelated files that had been clean for days. The allowlist
+patterns now make those lines deterministic regardless of what else is scanned.
+
+## 12. What this does not establish
 
 - Nothing here says the asserted quotes, accounts or sessions match what any
   market or broker showed. Every market input is operator-asserted.

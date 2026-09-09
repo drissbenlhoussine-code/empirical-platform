@@ -127,6 +127,12 @@ _PURPOSE = {
     ),
     "tests/architecture/test_module_boundaries.py": ("Adds the order-submission boundary tests"),
     "tools/check_architecture.py": "Adds the package-wide order-submission deny-list",
+    "tools/secret_scan_targets.py": (
+        "Allows a git commit id and the frozen blob-id manifest; the plugin still fires"
+    ),
+    "tests/unit/test_secret_scan_targets.py": (
+        "Proves the new allowlist patterns did not disable the secret plugin"
+    ),
     "tools/check_frozen_paths.py": (
         "Rejects any base-to-head change under a frozen milestone's governed paths"
     ),

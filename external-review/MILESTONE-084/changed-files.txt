@@ -60,6 +60,7 @@ A	tests/unit/test_m084_cli_and_io.py
 A	tests/unit/test_m084_domain_core.py
 A	tests/unit/test_m084_operator_workflow.py
 A	tests/unit/test_m084_repositories_and_handlers.py
+M	tests/unit/test_secret_scan_targets.py
 M	tools/check_architecture.py
 A	tools/check_frozen_paths.py
 A	tools/m084_frozen_m083_acceptance.py
@@ -71,3 +72,4 @@ A	tools/m084_performance_campaign.py
 A	tools/render_m084_authority.py
 A	tools/render_m084_exhaustion_table.py
 A	tools/render_m084_file_audit.py
+M	tools/secret_scan_targets.py

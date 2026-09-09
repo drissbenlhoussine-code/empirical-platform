@@ -1,6 +1,6 @@
 {
   "base": "707161a1e8edeb7e0c95f3dafc7180ba9d782cc6",
-  "count": 73,
+  "count": 75,
   "files": [
     {
       "n": 1,
@@ -23,7 +23,7 @@
       "path": "external-review/MILESTONE-084/changed-files.txt",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 73,
+      "lines": 75,
       "surface": "-"
     },
     {
@@ -71,7 +71,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.json",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 590,
+      "lines": 606,
       "surface": "-"
     },
     {
@@ -79,7 +79,7 @@
       "path": "external-review/MILESTONE-084/file-audit-matrix.md",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 87,
+      "lines": 89,
       "surface": "-"
     },
     {
@@ -135,7 +135,7 @@
       "path": "external-review/MILESTONE-084/validation-results.md",
       "status": "new",
       "ownership": "M084 review package",
-      "lines": 287,
+      "lines": 305,
       "surface": "-"
     },
     {
@@ -500,6 +500,14 @@
     },
     {
       "n": 63,
+      "path": "tests/unit/test_secret_scan_targets.py",
+      "status": "modified",
+      "ownership": "M084 tests",
+      "lines": 342,
+      "surface": "test_secret_scan_targets_include_tracked_and_untracked_repository_files, test_secret_scan_targets_do_not_silently_become_empty, test_secret_scan_detects_tracked_secret_shaped_fixture, test_secret_scan_batches_long_argument_lists_without_dropping_targets, test_secret_scan_batching_keeps_single_oversized_target_in_its_own_batch, test_benign_migration_revision_findings_are_filtered, test_benign_migration_revision_findings_inside_complete_diff_are_filtered, test_benign_scope_document_migration_reference_is_filtered, test_non_benign_high_entropy_findings_are_preserved, test_fixture_sha256_evidence_constants_are_filtered, test_a_git_commit_id_bound_to_a_named_constant_is_filtered, test_a_forty_hex_value_on_any_other_constant_is_still_a_finding, test_frozen_path_blob_ids_are_filtered_only_in_their_own_file"
+    },
+    {
+      "n": 64,
       "path": "tools/check_architecture.py",
       "status": "modified",
       "ownership": "shared toolchain",
@@ -507,7 +515,7 @@
       "surface": "module_for_path, imported_module, imported_top_level, check_path, main"
     },
     {
-      "n": 64,
+      "n": 65,
       "path": "tools/check_frozen_paths.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -515,7 +523,7 @@
       "surface": "owner_of, owned_paths, blob_id, base_digests, content_violations, violations, main"
     },
     {
-      "n": 65,
+      "n": 66,
       "path": "tools/m084_frozen_m083_acceptance.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -523,7 +531,7 @@
       "surface": "main"
     },
     {
-      "n": 66,
+      "n": 67,
       "path": "tools/m084_hostile_passes.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -531,7 +539,7 @@
       "surface": "pass_one, pass_two, pass_three, pass_four, pass_five"
     },
     {
-      "n": 67,
+      "n": 68,
       "path": "tools/m084_hostile_review.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -539,7 +547,7 @@
       "surface": "Attack, Pass, rebuild_database, refused_by, allowed, render_markdown, main"
     },
     {
-      "n": 68,
+      "n": 69,
       "path": "tools/m084_mutation_campaign.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -547,7 +555,7 @@
       "surface": "Mutation, run_family, render_safety_crossreference, render_markdown, main"
     },
     {
-      "n": 69,
+      "n": 70,
       "path": "tools/m084_operator_walkthrough.sh",
       "status": "new",
       "ownership": "shared toolchain",
@@ -555,7 +563,7 @@
       "surface": "-"
     },
     {
-      "n": 70,
+      "n": 71,
       "path": "tools/m084_performance_campaign.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -563,7 +571,7 @@
       "surface": "Samples, rebuild_database, seed_prerequisites, seed_proposals, measure_engine, measure_query, measure_insert, measure_issue_intent, capture_plans, measure_lock_duration, run, render_markdown, main"
     },
     {
-      "n": 71,
+      "n": 72,
       "path": "tools/render_m084_authority.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -571,7 +579,7 @@
       "surface": "render, main"
     },
     {
-      "n": 72,
+      "n": 73,
       "path": "tools/render_m084_exhaustion_table.py",
       "status": "new",
       "ownership": "shared toolchain",
@@ -579,12 +587,20 @@
       "surface": "Item, render, main"
     },
     {
-      "n": 73,
+      "n": 74,
       "path": "tools/render_m084_file_audit.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 328,
+      "lines": 334,
       "surface": "AuditError, build, render_markdown, main"
+    },
+    {
+      "n": 75,
+      "path": "tools/secret_scan_targets.py",
+      "status": "modified",
+      "ownership": "shared toolchain",
+      "lines": 218,
+      "surface": "discover_secret_scan_targets, build_secret_scan_subprocess_env, scan_targets_for_secrets, main"
     }
   ]
 }

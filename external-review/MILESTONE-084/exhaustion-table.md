@@ -43,4 +43,4 @@ edited to read EXECUTED_PASS would be a list of intentions.
 | §10 | Authority document is the deterministic rendering of its contract | **EXECUTED_PASS** | authority renderer --check — exit 0 |
 | §10 | File-audit matrix is the rendering of the real diff | **EXECUTED_PASS** | file-audit --check — exit 0 |
 | §10 | Mechanical suppression accounting published | **EXECUTED_PASS** | counted, not estimated (`validation-results.md`) |
-| §10 | No coverage pragma or skipped test in the M084 diff | **EXECUTED_PASS** | noqa 98, type-ignore 117, coverage pragmas 0, skipped tests 0 |
+| §10 | No coverage pragma or skipped test in the M084 diff | **EXECUTED_PASS** | noqa 105, type-ignore 117, coverage pragmas 0, skipped tests 0 |
