@@ -283,3 +283,60 @@ def test_fixture_sha256_evidence_constants_are_filtered(tmp_path: Path) -> None:
     }
 
     assert _filter_benign_secret_findings(tmp_path, findings) == {}
+
+
+def test_a_git_commit_id_bound_to_a_named_constant_is_filtered(tmp_path: Path) -> None:
+    # M084's tools pin the campaign's base commit. A git commit id is a public
+    # identifier printed by `git log`; treating one as a credential costs a CI
+    # run to diagnose and teaches the team to ignore the scanner.
+    document = tmp_path / "tools" / "render_something.py"
+    commit = "".join(
+        ["7071", "61a1", "e8ed", "eb7e", "0c95", "f3da", "f718", "0ba9", "d782", "cc6f"]
+    )
+    _write(document, f'BASE = "{commit}"\n')
+    findings = {
+        "tools/render_something.py": [{"type": "Hex High Entropy String", "line_number": 1}]
+    }
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == {}
+
+
+def test_a_forty_hex_value_on_any_other_constant_is_still_a_finding(tmp_path: Path) -> None:
+    # Anti-vacuity for the pattern above. It is anchored to the assignment form,
+    # so a real credential of the same LENGTH is not waved through: a pattern
+    # that allowed any 40-hex string would disable the plugin outright.
+    document = tmp_path / "tools" / "render_something.py"
+    commit = "".join(
+        ["7071", "61a1", "e8ed", "eb7e", "0c95", "f3da", "f718", "0ba9", "d782", "cc6f"]
+    )
+    _write(document, f'API_TOKEN = "{commit}"\n')
+    findings = {
+        "tools/render_something.py": [{"type": "Hex High Entropy String", "line_number": 1}]
+    }
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == findings
+
+
+def test_frozen_path_blob_ids_are_filtered_only_in_their_own_file(tmp_path: Path) -> None:
+    # Scoped by path: every value in the digest manifest is a git blob id, and
+    # nothing else is in it. The same line shape ANYWHERE ELSE stays a finding,
+    # because "a quoted name mapped to 40 hex" is far too common a shape to
+    # allow repository-wide.
+    blob = "".join(["7270", "32ba", "b8c2", "c599", "7524", "03ca", "0bf0", "cd2f", "1571", "bb9a"])
+    line = f'  "external-review/MILESTONE-083/README.md": "{blob}",\n'
+
+    manifest = tmp_path / "external-review" / "MILESTONE-084" / "frozen-path-digests.json"
+    _write(manifest, "{\n" + line + "}\n")
+    manifest_findings = {
+        "external-review/MILESTONE-084/frozen-path-digests.json": [
+            {"type": "Hex High Entropy String", "line_number": 2},
+        ]
+    }
+    assert _filter_benign_secret_findings(tmp_path, manifest_findings) == {}
+
+    elsewhere = tmp_path / "config" / "credentials.json"
+    _write(elsewhere, "{\n" + line + "}\n")
+    elsewhere_findings = {
+        "config/credentials.json": [{"type": "Hex High Entropy String", "line_number": 2}]
+    }
+    assert _filter_benign_secret_findings(tmp_path, elsewhere_findings) == elsewhere_findings

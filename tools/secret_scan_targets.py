@@ -24,7 +24,26 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     re.compile(r'^[+-]?_EXPECTED_MANIFEST_HASH = "[0-9a-f]{64}"$'),
     re.compile(r'^[+-]?\s*"dataset_bundle_sha256": "[0-9a-f]{64}",?$'),
     re.compile(r'^[+-]?\s*"membership_manifest_hash": "[0-9a-f]{64}"$'),
+    # A git COMMIT id bound to a named constant. These are public identifiers
+    # printed by `git log`; treating one as a credential is a false positive
+    # that costs a CI run to diagnose. Deliberately anchored to the assignment
+    # form, so an arbitrary 40-hex value elsewhere is still a finding.
+    re.compile(r'^[+-]?(?:BASE|_BASE|FROZEN_COMMIT) = "[0-9a-f]{40}"$'),
+    re.compile(r'^[+-]?\s*"base": "[0-9a-f]{40}",?$'),
 )
+
+#: Benign shapes that are only benign in one specific generated file. Scoped by
+#: path because the line form alone -- a quoted path mapped to 40 hex -- is too
+#: common to allow repository-wide.
+_BENIGN_HIGH_ENTROPY_BY_PATH = {
+    # Every value in this file is a git BLOB id, written by
+    # `tools/check_frozen_paths.py --write-digests` from the base commit and
+    # checked by tests/architecture/test_frozen_paths.py. There is nothing else
+    # in it, and it is regenerated rather than edited.
+    "external-review/MILESTONE-084/frozen-path-digests.json": (
+        re.compile(r'^\s*"[^"]+": "[0-9a-f]{40}",?$'),
+    ),
+}
 
 
 def _git_paths(root: Path, *args: str) -> list[str]:
@@ -159,7 +178,10 @@ def _is_known_benign_secret_finding(
     line = _read_line(root / relative_path, line_number)
     if line is None:
         return False
-    return any(pattern.search(line) for pattern in _BENIGN_HIGH_ENTROPY_LINE_PATTERNS)
+    normalized = relative_path.replace("\\", "/")
+    scoped = _BENIGN_HIGH_ENTROPY_BY_PATH.get(normalized, ())
+    patterns = (*_BENIGN_HIGH_ENTROPY_LINE_PATTERNS, *scoped)
+    return any(pattern.search(line) for pattern in patterns)
 
 
 def _read_line(path: Path, line_number: int) -> str | None:
