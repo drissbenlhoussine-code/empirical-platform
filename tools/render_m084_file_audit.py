@@ -127,6 +127,9 @@ _PURPOSE = {
     "tools/check_frozen_paths.py": (
         "Rejects any base-to-head change under a frozen milestone's governed paths"
     ),
+    "tools/m084_performance_campaign.py": (
+        "Latency and scale at 0..25k rows, with query plans and lock waits"
+    ),
     "tools/m084_frozen_m083_acceptance.py": (
         "Runs M083's unmodified suite at M083's own revision in its own worktree"
     ),

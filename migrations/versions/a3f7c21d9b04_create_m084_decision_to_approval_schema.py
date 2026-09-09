@@ -623,6 +623,26 @@ def _create_proposal_table() -> None:
             name="ck_trade_proposal_exits_ordered",
         ),
     )
+    # The operator's queue: the newest PREPARED proposals awaiting a decision.
+    #
+    # Partial and pre-sorted, because without it that query is a sequential scan
+    # of the whole table followed by a top-N sort, and `trade_proposal` is
+    # append-only -- nothing ever leaves it, so the scan grows for the life of
+    # the deployment and never shrinks back. Measured before adding this: 0.12 ms
+    # at 0 rows, 2.8 ms at 10k, 6.6 ms at 25k, reading 834 shared buffers to
+    # return 50 rows. Linear in a table that only grows is the shape that looks
+    # fine in review and is a problem a year later.
+    #
+    # The index carries the ORDER BY columns in the query's own order, so the
+    # LIMIT stops the scan rather than sorting the whole match set; and it is
+    # partial on PREPARED, so decided proposals -- eventually the overwhelming
+    # majority -- cost it nothing in size or maintenance.
+    op.create_index(
+        "ix_trade_proposal_prepared_queue",
+        "trade_proposal",
+        [sa.text("created_at DESC"), "proposal_governance_id"],
+        postgresql_where=sa.text("status = 'PREPARED'"),
+    )
 
 
 def _create_risk_check_table() -> None:
