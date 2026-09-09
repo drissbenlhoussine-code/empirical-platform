@@ -52,7 +52,12 @@ from empirical_platform.decision_candidate.trade_proposal import (
     TradeProposal,
     TradeProposalOutcome,
 )
-from empirical_platform.usecases.decision_to_approval import OpenEvaluationContextCommand
+from empirical_platform.usecases.decision_to_approval import (
+    AuditHistory,
+    InvalidationOutcome,
+    OpenEvaluationContextCommand,
+    SystemStatus,
+)
 
 __all__ = [
     "InputError",
@@ -61,17 +66,27 @@ __all__ = [
     "read_configuration",
     "read_context_request",
     "read_market_inputs",
+    "render_audit_history_json",
+    "render_audit_history_text",
+    "render_configuration_json",
+    "render_configuration_text",
     "render_context_json",
     "render_context_text",
     "render_decision_json",
     "render_decision_text",
     "render_intent_json",
     "render_intent_text",
+    "render_invalidation_json",
+    "render_invalidation_text",
     "render_money",
+    "render_no_trade_explanation_json",
+    "render_no_trade_explanation_text",
     "render_outcome_json",
     "render_outcome_text",
     "render_proposal_json",
     "render_proposal_text",
+    "render_system_status_json",
+    "render_system_status_text",
 ]
 
 
@@ -664,3 +679,238 @@ def load_json_file(path: str) -> object:
         raise InputError(f"cannot read {path}: {error}") from error
     except json.JSONDecodeError as error:
         raise InputError(f"{path} is not valid JSON: {error}") from error
+
+
+def render_configuration_json(configuration: OperatorTradingConfiguration) -> dict[str, Any]:
+    """The stored policy, in the same shape `read_configuration` accepts.
+
+    Round-trippable on purpose: an operator who wants to change one limit
+    should be able to write this out, edit it, bump the version and store it
+    back, rather than reconstruct the file from documentation.
+    """
+    return {
+        "configuration_governance_id": configuration.configuration_governance_id,
+        "configuration_version": configuration.configuration_version,
+        "base_currency": configuration.base_currency,
+        "permitted_markets": list(configuration.permitted_markets),
+        "watchlist": list(configuration.watchlist),
+        "prohibited_instruments": list(configuration.prohibited_instruments),
+        "maximum_deployable_capital": render_money(configuration.maximum_deployable_capital),
+        "maximum_capital_per_trade": render_money(configuration.maximum_capital_per_trade),
+        "maximum_percent_per_trade": render_money(configuration.maximum_percent_per_trade),
+        "minimum_cash_reserve": render_money(configuration.minimum_cash_reserve),
+        "maximum_simultaneous_positions": configuration.maximum_simultaneous_positions,
+        "maximum_daily_loss": render_money(configuration.maximum_daily_loss),
+        "maximum_daily_order_count": configuration.maximum_daily_order_count,
+        "minimum_price": render_money(configuration.minimum_price),
+        "maximum_price": _money(configuration.maximum_price),
+        "minimum_liquidity_shares": configuration.minimum_liquidity_shares,
+        "maximum_spread_percent": render_money(configuration.maximum_spread_percent),
+        "maximum_estimated_slippage_percent": render_money(
+            configuration.maximum_estimated_slippage_percent
+        ),
+        "maximum_evidence_age_seconds": configuration.maximum_evidence_age_seconds,
+        "maximum_market_data_age_seconds": configuration.maximum_market_data_age_seconds,
+        "permitted_session": configuration.permitted_session.value,
+        "earliest_entry_time": configuration.earliest_entry_time.isoformat(),
+        "latest_entry_time": configuration.latest_entry_time.isoformat(),
+        "mandatory_liquidation_time": configuration.mandatory_liquidation_time.isoformat(),
+        "operator_timezone": configuration.operator_timezone,
+        "exchange_calendar_policy": configuration.exchange_calendar_policy,
+        "proposal_expiry_seconds": configuration.proposal_expiry_seconds,
+        "approval_expiry_seconds": configuration.approval_expiry_seconds,
+        "default_order_type": configuration.default_order_type.value,
+        "permitted_order_types": [t.value for t in configuration.permitted_order_types],
+        "limit_price_policy": configuration.limit_price_policy.value,
+        "stop_loss_percent": render_money(configuration.stop_loss_percent),
+        "profit_exit_percent": render_money(configuration.profit_exit_percent),
+        "maximum_leverage": render_money(configuration.maximum_leverage),
+        "short_selling_permitted": configuration.short_selling_permitted,
+        "overnight_positions_permitted": configuration.overnight_positions_permitted,
+        "account_mode": configuration.account_mode.value,
+        "kill_switch": configuration.kill_switch.value,
+    }
+
+
+def render_configuration_text(configuration: OperatorTradingConfiguration) -> str:
+    trading = "PERMITTED" if configuration.is_trading_permitted else "STOPPED (kill switch)"
+    return (
+        f"configuration {configuration.configuration_governance_id} "
+        f"v{configuration.configuration_version}\n"
+        f"  account mode {configuration.account_mode.value}   kill switch "
+        f"{configuration.kill_switch.value}   -> {trading}\n"
+        f"  long-only, unleveraged, intraday: short_selling="
+        f"{configuration.short_selling_permitted} overnight="
+        f"{configuration.overnight_positions_permitted} "
+        f"leverage={render_money(configuration.maximum_leverage)}\n"
+        f"  currency {configuration.base_currency}   markets "
+        f"{', '.join(configuration.permitted_markets)}\n"
+        f"  watchlist {', '.join(configuration.watchlist)}\n"
+        f"  prohibited {', '.join(configuration.prohibited_instruments) or '(none)'}\n"
+        f"  capital {render_money(configuration.maximum_deployable_capital)} "
+        f"per-trade {render_money(configuration.maximum_capital_per_trade)} "
+        f"({render_money(configuration.maximum_percent_per_trade)}%) "
+        f"reserve {render_money(configuration.minimum_cash_reserve)}\n"
+        f"  daily loss limit {render_money(configuration.maximum_daily_loss)}   "
+        f"daily order limit {configuration.maximum_daily_order_count}   "
+        f"max positions {configuration.maximum_simultaneous_positions}\n"
+        f"  session {configuration.permitted_session.value} "
+        f"{configuration.earliest_entry_time.isoformat()}-"
+        f"{configuration.latest_entry_time.isoformat()} "
+        f"liquidate {configuration.mandatory_liquidation_time.isoformat()} "
+        f"({configuration.operator_timezone})\n"
+        f"  proposal expiry {configuration.proposal_expiry_seconds}s   "
+        f"approval expiry {configuration.approval_expiry_seconds}s\n"
+        f"  order {configuration.default_order_type.value} "
+        f"({configuration.limit_price_policy.value})   "
+        f"stop {render_money(configuration.stop_loss_percent)}%   "
+        f"target {render_money(configuration.profit_exit_percent)}%\n"
+    )
+
+
+def render_no_trade_explanation_json(outcome: TradeProposalOutcome) -> dict[str, Any]:
+    """Every check, not only the reason precedence selected.
+
+    `render_outcome_json` answers "what happened"; this answers "why, and what
+    else was true at the same time". An operator debugging a refusal needs the
+    second, because the reported reason is one of possibly several.
+    """
+    return {
+        "decision": "PROPOSAL" if outcome.proposal is not None else "NO_TRADE",
+        "reported_reason": (
+            None if outcome.no_trade_reason is None else outcome.no_trade_reason.value
+        ),
+        "checks_evaluated": len(outcome.risk_checks),
+        "checks_not_passed": [
+            {"check_id": c.check_id, "outcome": c.outcome.value, "detail": c.detail}
+            for c in outcome.risk_checks
+            if c.outcome.value != "PASSED"
+        ],
+        "checks": [
+            {"check_id": c.check_id, "outcome": c.outcome.value, "detail": c.detail}
+            for c in outcome.risk_checks
+        ],
+    }
+
+
+def render_no_trade_explanation_text(outcome: TradeProposalOutcome) -> str:
+    lines: list[str] = []
+    if outcome.proposal is not None:
+        lines.append("PROPOSAL: every applicable check passed. Nothing to explain.")
+    else:
+        assert outcome.no_trade_reason is not None
+        lines.append(f"NO_TRADE reported reason: {outcome.no_trade_reason.value}")
+        lines.append(
+            "  One reason is reported, chosen by explicit precedence. Every check "
+            "that did not pass is listed below."
+        )
+    lines.append(f"  {len(outcome.risk_checks)} checks evaluated:")
+    lines.extend(f"    {c.outcome.value:<8} {c.check_id}: {c.detail}" for c in outcome.risk_checks)
+    return "\n".join(lines) + "\n"
+
+
+def render_audit_history_json(history: AuditHistory) -> dict[str, Any]:
+    return {
+        "proposal": render_proposal_json(history.proposal),
+        "evaluation_context": (
+            None if history.context is None else render_context_json(history.context)
+        ),
+        "configuration": (
+            None
+            if history.configuration is None
+            else render_configuration_json(history.configuration)
+        ),
+        "decision": None if history.decision is None else render_decision_json(history.decision),
+        "approved_order_intent": (
+            None if history.intent is None else render_intent_json(history.intent)
+        ),
+    }
+
+
+def render_audit_history_text(history: AuditHistory) -> str:
+    parts = [f"AUDIT HISTORY for proposal {history.proposal.proposal_governance_id}", ""]
+    parts.append("1. CONFIGURATION")
+    parts.append(
+        "   (missing)\n"
+        if history.configuration is None
+        else "".join(
+            f"   {line}\n" for line in render_configuration_text(history.configuration).splitlines()
+        )
+    )
+    parts.append("2. EVALUATION CONTEXT")
+    parts.append(
+        "   (missing)\n"
+        if history.context is None
+        else "".join(f"   {line}\n" for line in render_context_text(history.context).splitlines())
+    )
+    parts.append("3. PROPOSAL")
+    parts.append(
+        "".join(f"   {line}\n" for line in render_proposal_text(history.proposal).splitlines())
+    )
+    parts.append("4. HUMAN DECISION")
+    parts.append(
+        "   (no decision recorded)\n"
+        if history.decision is None
+        else "".join(f"   {line}\n" for line in render_decision_text(history.decision).splitlines())
+    )
+    parts.append("5. APPROVED ORDER INTENT")
+    parts.append(
+        "   (no intent issued)\n"
+        if history.intent is None
+        else "".join(f"   {line}\n" for line in render_intent_text(history.intent).splitlines())
+    )
+    return "\n".join(parts)
+
+
+def render_system_status_json(status: SystemStatus) -> dict[str, Any]:
+    return {
+        "proposal_counts": {s.value: n for s, n in status.proposal_counts.items()},
+        "configuration_governance_id": status.configuration_governance_id,
+        "configuration_version": status.configuration_version,
+        "account_mode": status.account_mode,
+        "kill_switch": status.kill_switch,
+        "submission_capability": status.submission_capability,
+    }
+
+
+def render_system_status_text(status: SystemStatus) -> str:
+    lines = ["system status", ""]
+    if status.configuration_governance_id is None:
+        lines.append("  configuration: (none named)")
+    else:
+        trading = (
+            "STOPPED (kill switch ENGAGED)" if status.kill_switch == "ENGAGED" else "permitted"
+        )
+        lines.append(
+            f"  configuration: {status.configuration_governance_id} "
+            f"v{status.configuration_version}  mode={status.account_mode}  "
+            f"kill switch={status.kill_switch} -> {trading}"
+        )
+    lines.append("  proposals:")
+    lines.extend(f"    {name.value:<12} {count}" for name, count in status.proposal_counts.items())
+    lines.append(f"  submission capability: {status.submission_capability}")
+    lines.append(
+        "    MILESTONE-084 cannot send an order. No broker client may be imported "
+        "anywhere in this package, and no intent can leave NOT_SUBMITTED."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def render_invalidation_json(outcome: InvalidationOutcome) -> dict[str, Any]:
+    return {
+        "expired": list(outcome.expired),
+        "invalidated": list(outcome.invalidated),
+        "total": outcome.total,
+    }
+
+
+def render_invalidation_text(outcome: InvalidationOutcome) -> str:
+    if outcome.total == 0:
+        return "no PREPARED proposal needed invalidating\n"
+    lines = [f"invalidated {outcome.total} proposal(s)"]
+    lines.extend(f"  EXPIRED      {pid}" for pid in outcome.expired)
+    lines.extend(
+        f"  INVALIDATED  {pid}  (a newer configuration version exists)"
+        for pid in outcome.invalidated
+    )
+    return "\n".join(lines) + "\n"

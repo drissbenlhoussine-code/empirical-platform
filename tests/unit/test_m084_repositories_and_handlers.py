@@ -647,6 +647,12 @@ class _MemoryProposals:
     def list_by_status(self, status: ProposalStatus) -> tuple[TradeProposal, ...]:
         return tuple(p for p in self.rows.values() if p.status is status)
 
+    def counts_by_status(self) -> dict[ProposalStatus, int]:
+        counts = dict.fromkeys(ProposalStatus, 0)
+        for proposal in self.rows.values():
+            counts[proposal.status] += 1
+        return counts
+
     def set_status(self, proposal_id: str, status: ProposalStatus) -> TradeProposal:
         moved = replace(self.rows[proposal_id], status=status)
         self.rows[proposal_id] = moved

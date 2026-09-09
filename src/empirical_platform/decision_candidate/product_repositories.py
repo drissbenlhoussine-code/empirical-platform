@@ -14,6 +14,7 @@ is the one that survives a caller who never came through here.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Protocol
 
 from empirical_platform.decision_candidate.evaluation_context import EvaluationContext
@@ -69,6 +70,14 @@ class TradeProposalRepository(Protocol):
     def get(self, proposal_governance_id: str) -> TradeProposal | None: ...
 
     def list_by_status(self, status: ProposalStatus) -> tuple[TradeProposal, ...]: ...
+
+    def counts_by_status(self) -> Mapping[ProposalStatus, int]:
+        """How many proposals sit in each status.
+
+        A count rather than a listing: a status summary should not have to load
+        every proposal and its risk-check evidence to say how many there are.
+        """
+        ...
 
     def set_status(self, proposal_governance_id: str, status: ProposalStatus) -> TradeProposal:
         """Move one proposal along the closed transition table.

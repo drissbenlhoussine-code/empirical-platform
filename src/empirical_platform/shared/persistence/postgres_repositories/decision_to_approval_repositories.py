@@ -634,6 +634,26 @@ class PostgresTradeProposalRepository:
             for row in rows
         )
 
+    def counts_by_status(self) -> Mapping[ProposalStatus, int]:
+        """How many proposals sit in each status.
+
+        Every member of the enumeration appears in the result, including the
+        ones with no rows: a status summary that silently omitted the empty
+        statuses would read as though those states did not exist.
+        """
+        with self._service.unit_of_work() as work:
+            rows = list(
+                work.execute(
+                    "SELECT status, count(*) AS row_count FROM public.trade_proposal "
+                    "GROUP BY status",
+                    {},
+                )
+            )
+        counts = dict.fromkeys(ProposalStatus, 0)
+        for row in rows:
+            counts[_member(row, "status", ProposalStatus)] = _int(row, "row_count")
+        return counts
+
     def set_status(self, proposal_governance_id: str, status: ProposalStatus) -> TradeProposal:
         """Move one proposal along the transition table.
 

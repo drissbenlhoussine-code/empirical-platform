@@ -21,7 +21,8 @@ convenience method that spanned it would be an approval nobody made.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 
@@ -33,6 +34,7 @@ from empirical_platform.decision_candidate.evaluation_evidence_watermark_reposit
     EvaluationEvidenceWatermarkRepository,
 )
 from empirical_platform.decision_candidate.operator_trading_configuration import (
+    KillSwitchState,
     OperatorTradingConfiguration,
 )
 from empirical_platform.decision_candidate.product_market_inputs import (
@@ -76,16 +78,27 @@ from empirical_platform.decision_candidate.trade_proposal import (
 __all__ = [
     "ApprovalDecision",
     "ApprovedOrderIntent",
+    "AuditHistory",
     "DecideTradeProposalCommand",
     "DecideTradeProposalHandler",
     "DecisionOutcome",
     "EvaluationContext",
     "GetApprovedOrderIntentHandler",
     "GetApprovedOrderIntentQuery",
+    "GetAuditHistoryHandler",
+    "GetAuditHistoryQuery",
+    "GetOperatorTradingConfigurationHandler",
+    "GetOperatorTradingConfigurationQuery",
+    "GetSystemStatusHandler",
+    "GetSystemStatusQuery",
     "GetTradeProposalHandler",
     "GetTradeProposalQuery",
+    "InvalidateStaleProposalsCommand",
+    "InvalidateStaleProposalsHandler",
+    "InvalidationOutcome",
     "IssueApprovedOrderIntentCommand",
     "IssueApprovedOrderIntentHandler",
+    "KillSwitchState",
     "ListTradeProposalsHandler",
     "ListTradeProposalsQuery",
     "NotFoundError",
@@ -98,6 +111,9 @@ __all__ = [
     "ProposalStatus",
     "SaveOperatorTradingConfigurationCommand",
     "SaveOperatorTradingConfigurationHandler",
+    "SetKillSwitchCommand",
+    "SetKillSwitchHandler",
+    "SystemStatus",
     "TradeProposal",
     "TradeProposalOutcome",
 ]
@@ -267,34 +283,10 @@ class PrepareTradeProposalHandler:
         self._proposals = trade_proposal_repository
 
     def handle(self, command: PrepareTradeProposalCommand) -> TradeProposalOutcome:
-        context = self._contexts.get(command.evaluation_context_id)
-        if context is None:
-            raise NotFoundError(f"no evaluation context {command.evaluation_context_id!r}")
-        configuration = self._configurations.get(
-            context.configuration_governance_id, context.configuration_version
-        )
-        if configuration is None:  # pragma: no cover - a stored context cites a stored version
-            raise NotFoundError(
-                f"context {context.evaluation_context_id!r} cites configuration "
-                f"{context.configuration_governance_id!r} version "
-                f"{context.configuration_version}, which does not exist"
-            )
-
-        outcome = evaluate_trade_proposal(
-            configuration=configuration,
-            evaluation_context_id=context.evaluation_context_id,
-            proposal_governance_id=command.proposal_governance_id,
-            evaluated_at=command.evaluated_at,
-            symbol=command.symbol,
-            quote=command.quote,
-            account=command.account,
-            session=command.session,
-            instrument=command.instrument,
-            liquidity=command.liquidity,
-            cost_estimate=command.cost_estimate,
-            positions=command.positions,
-            open_orders=command.open_orders,
-            evidence_age_seconds=command.evidence_age_seconds,
+        outcome = evaluate_without_persisting(
+            command,
+            configuration_repository=self._configurations,
+            evaluation_context_repository=self._contexts,
         )
         if outcome.proposal is None:
             return outcome
@@ -302,6 +294,49 @@ class PrepareTradeProposalHandler:
         return TradeProposalOutcome(
             proposal=stored, no_trade_reason=None, risk_checks=outcome.risk_checks
         )
+
+
+def evaluate_without_persisting(
+    command: PrepareTradeProposalCommand,
+    *,
+    configuration_repository: OperatorTradingConfigurationRepository,
+    evaluation_context_repository: EvaluationContextRepository,
+) -> TradeProposalOutcome:
+    """Load, evaluate, and write nothing.
+
+    Shared with `PrepareTradeProposalHandler` rather than duplicated, and that
+    sharing is the point: `explain-no-trade` must run the SAME evaluation the
+    real command would, or it would explain a decision the product did not
+    make. A second implementation, however carefully kept in step, would drift.
+    """
+    context = evaluation_context_repository.get(command.evaluation_context_id)
+    if context is None:
+        raise NotFoundError(f"no evaluation context {command.evaluation_context_id!r}")
+    configuration = configuration_repository.get(
+        context.configuration_governance_id, context.configuration_version
+    )
+    if configuration is None:  # pragma: no cover - a stored context cites a stored version
+        raise NotFoundError(
+            f"context {context.evaluation_context_id!r} cites configuration "
+            f"{context.configuration_governance_id!r} version "
+            f"{context.configuration_version}, which does not exist"
+        )
+    return evaluate_trade_proposal(
+        configuration=configuration,
+        evaluation_context_id=context.evaluation_context_id,
+        proposal_governance_id=command.proposal_governance_id,
+        evaluated_at=command.evaluated_at,
+        symbol=command.symbol,
+        quote=command.quote,
+        account=command.account,
+        session=command.session,
+        instrument=command.instrument,
+        liquidity=command.liquidity,
+        cost_estimate=command.cost_estimate,
+        positions=command.positions,
+        open_orders=command.open_orders,
+        evidence_age_seconds=command.evidence_age_seconds,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,3 +530,287 @@ class GetApprovedOrderIntentHandler:
         if intent is None:
             raise NotFoundError(f"no approved order intent {query.intent_governance_id!r}")
         return intent
+
+
+# ---------------------------------------------------------------------------
+# Configuration inspection
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class GetOperatorTradingConfigurationQuery:
+    """Read one configuration version, or the latest if none is named."""
+
+    configuration_governance_id: str
+    configuration_version: int | None = None
+
+
+class GetOperatorTradingConfigurationHandler:
+    __slots__ = ("_configurations",)
+
+    def __init__(self, *, configuration_repository: OperatorTradingConfigurationRepository) -> None:
+        self._configurations = configuration_repository
+
+    def handle(self, query: GetOperatorTradingConfigurationQuery) -> OperatorTradingConfiguration:
+        configuration = (
+            self._configurations.latest(query.configuration_governance_id)
+            if query.configuration_version is None
+            else self._configurations.get(
+                query.configuration_governance_id, query.configuration_version
+            )
+        )
+        if configuration is None:
+            named = (
+                "latest"
+                if query.configuration_version is None
+                else f"version {query.configuration_version}"
+            )
+            raise NotFoundError(f"no configuration {query.configuration_governance_id!r} ({named})")
+        return configuration
+
+
+# ---------------------------------------------------------------------------
+# The kill switch
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SetKillSwitchCommand:
+    """Engage or disengage the global stop.
+
+    THIS WRITES A NEW CONFIGURATION VERSION. The kill switch is a field of a
+    versioned, immutable configuration, so moving it is not an edit -- it is a
+    new version, recorded alongside the one it supersedes. That is the whole
+    point: a reader can see when the switch moved and what policy was in force
+    on either side of it, which an in-place flag would not preserve.
+    """
+
+    configuration_governance_id: str
+    engaged: bool
+
+
+class SetKillSwitchHandler:
+    """Copies the latest configuration forward with the switch moved."""
+
+    __slots__ = ("_configurations",)
+
+    def __init__(self, *, configuration_repository: OperatorTradingConfigurationRepository) -> None:
+        self._configurations = configuration_repository
+
+    def handle(self, command: SetKillSwitchCommand) -> OperatorTradingConfiguration:
+        current = self._configurations.latest(command.configuration_governance_id)
+        if current is None:
+            raise NotFoundError(
+                f"no configuration {command.configuration_governance_id!r} to engage a "
+                "kill switch on; a switch with no policy behind it stops nothing"
+            )
+        target = KillSwitchState.ENGAGED if command.engaged else KillSwitchState.DISENGAGED
+        if current.kill_switch is target:
+            # Already there. Writing an identical new version would add a
+            # governance record of a change that did not happen.
+            return current
+        return self._configurations.save(
+            replace(
+                current,
+                configuration_version=current.configuration_version + 1,
+                kill_switch=target,
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# Invalidating proposals that can no longer be acted on
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class InvalidationOutcome:
+    """What one sweep did, and why each proposal was moved."""
+
+    expired: tuple[str, ...]
+    invalidated: tuple[str, ...]
+
+    @property
+    def total(self) -> int:
+        return len(self.expired) + len(self.invalidated)
+
+
+@dataclass(frozen=True, slots=True)
+class InvalidateStaleProposalsCommand:
+    """Move PREPARED proposals that can no longer be approved out of the queue.
+
+    Two distinct reasons, kept distinct in the result rather than collapsed:
+
+      - EXPIRED: the proposal's own expiry has passed at `as_of`.
+      - INVALIDATED: a newer configuration version exists, so the policy the
+        proposal was evaluated under is no longer the operator's policy.
+
+    `as_of` is a parameter, never a clock read here. The sweep is as
+    reproducible as everything else in this milestone.
+    """
+
+    as_of: datetime
+    configuration_governance_id: str | None = None
+
+
+class InvalidateStaleProposalsHandler:
+    """Sweeps the PREPARED queue. Touches nothing that is already terminal."""
+
+    __slots__ = ("_configurations", "_proposals")
+
+    def __init__(
+        self,
+        *,
+        configuration_repository: OperatorTradingConfigurationRepository,
+        trade_proposal_repository: TradeProposalRepository,
+    ) -> None:
+        self._configurations = configuration_repository
+        self._proposals = trade_proposal_repository
+
+    def handle(self, command: InvalidateStaleProposalsCommand) -> InvalidationOutcome:
+        expired: list[str] = []
+        invalidated: list[str] = []
+        latest_versions: dict[str, int] = {}
+
+        for proposal in self._proposals.list_by_status(ProposalStatus.PREPARED):
+            if command.configuration_governance_id is not None and (
+                proposal.configuration_governance_id != command.configuration_governance_id
+            ):
+                continue
+
+            if proposal.expired_at(command.as_of):
+                self._proposals.set_status(proposal.proposal_governance_id, ProposalStatus.EXPIRED)
+                expired.append(proposal.proposal_governance_id)
+                continue
+
+            # Expiry is checked first on purpose: an expired proposal is
+            # expired whatever the configuration did afterwards, and reporting
+            # it as INVALIDATED would describe the wrong reason.
+            governance_id = proposal.configuration_governance_id
+            if governance_id not in latest_versions:
+                latest = self._configurations.latest(governance_id)
+                latest_versions[governance_id] = (
+                    proposal.configuration_version
+                    if latest is None
+                    else latest.configuration_version
+                )
+            if latest_versions[governance_id] > proposal.configuration_version:
+                self._proposals.set_status(
+                    proposal.proposal_governance_id, ProposalStatus.INVALIDATED
+                )
+                invalidated.append(proposal.proposal_governance_id)
+
+        return InvalidationOutcome(expired=tuple(expired), invalidated=tuple(invalidated))
+
+
+# ---------------------------------------------------------------------------
+# Audit history and system status
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class AuditHistory:
+    """The whole chain behind one proposal, in the order it happened."""
+
+    proposal: TradeProposal
+    context: EvaluationContext | None
+    configuration: OperatorTradingConfiguration | None
+    decision: ApprovalDecision | None
+    intent: ApprovedOrderIntent | None
+
+
+@dataclass(frozen=True, slots=True)
+class GetAuditHistoryQuery:
+    proposal_governance_id: str
+
+
+class GetAuditHistoryHandler:
+    """Assembles one proposal's full provenance for a human reader.
+
+    Each link is optional in the RESULT but not in reality: a stored proposal
+    always cites a stored context and configuration. They are typed as optional
+    so that a chain broken by something outside this milestone's enforcement
+    boundary is reported as broken rather than raising and telling the operator
+    nothing about the rest.
+    """
+
+    __slots__ = ("_configurations", "_contexts", "_decisions", "_intents", "_proposals")
+
+    def __init__(
+        self,
+        *,
+        configuration_repository: OperatorTradingConfigurationRepository,
+        evaluation_context_repository: EvaluationContextRepository,
+        approval_decision_repository: ApprovalDecisionRepository,
+        approved_order_intent_repository: ApprovedOrderIntentRepository,
+        trade_proposal_repository: TradeProposalRepository,
+    ) -> None:
+        self._configurations = configuration_repository
+        self._contexts = evaluation_context_repository
+        self._decisions = approval_decision_repository
+        self._intents = approved_order_intent_repository
+        self._proposals = trade_proposal_repository
+
+    def handle(self, query: GetAuditHistoryQuery) -> AuditHistory:
+        proposal = self._proposals.get(query.proposal_governance_id)
+        if proposal is None:
+            raise NotFoundError(f"no trade proposal {query.proposal_governance_id!r}")
+        return AuditHistory(
+            proposal=proposal,
+            context=self._contexts.get(proposal.evaluation_context_id),
+            configuration=self._configurations.get(
+                proposal.configuration_governance_id, proposal.configuration_version
+            ),
+            decision=self._decisions.for_proposal(proposal.proposal_governance_id),
+            intent=self._intents.for_proposal(proposal.proposal_governance_id),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class SystemStatus:
+    """What the product is currently able and unable to do."""
+
+    proposal_counts: Mapping[ProposalStatus, int]
+    configuration_governance_id: str | None
+    configuration_version: int | None
+    account_mode: str | None
+    kill_switch: str | None
+    #: Fixed. MILESTONE-084 has no order-submission capability, so this is a
+    #: constant rather than a probe of one -- there is nothing to probe.
+    submission_capability: str = "NONE"
+
+
+@dataclass(frozen=True, slots=True)
+class GetSystemStatusQuery:
+    configuration_governance_id: str | None = None
+
+
+class GetSystemStatusHandler:
+    __slots__ = ("_configurations", "_proposals")
+
+    def __init__(
+        self,
+        *,
+        configuration_repository: OperatorTradingConfigurationRepository,
+        trade_proposal_repository: TradeProposalRepository,
+    ) -> None:
+        self._configurations = configuration_repository
+        self._proposals = trade_proposal_repository
+
+    def handle(self, query: GetSystemStatusQuery) -> SystemStatus:
+        configuration = (
+            None
+            if query.configuration_governance_id is None
+            else self._configurations.latest(query.configuration_governance_id)
+        )
+        return SystemStatus(
+            proposal_counts=self._proposals.counts_by_status(),
+            configuration_governance_id=(
+                None if configuration is None else configuration.configuration_governance_id
+            ),
+            configuration_version=(
+                None if configuration is None else configuration.configuration_version
+            ),
+            account_mode=None if configuration is None else configuration.account_mode.value,
+            kill_switch=None if configuration is None else configuration.kill_switch.value,
+        )
