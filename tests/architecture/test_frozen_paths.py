@@ -17,7 +17,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from tools.check_frozen_paths import BASE, EXEMPT, FROZEN, owned_paths, violations
+from tools.check_frozen_paths import BASE, EXEMPT, FROZEN, owned_paths, owner_of, violations
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -63,6 +63,39 @@ class TestTheGuardGovernsSomething:
         assert (
             "tests/integration/test_m083_evaluation_evidence_watermark_extended_attacks.py" in paths
         )
+
+
+class TestOwnershipGoesToTheHighestMilestoneNamed:
+    """A later milestone owns what it authors about an earlier one."""
+
+    def test_a_path_naming_one_milestone_belongs_to_it(self) -> None:
+        assert owner_of("tests/integration/test_m083_authority_contract.py") == "M083"
+        assert owner_of("tools/render_m083_authority.py") == "M083"
+        assert owner_of("external-review/MILESTONE-083/README.md") == "M083"
+        assert owner_of("tests/integration/test_m084_concurrency.py") == "M084"
+
+    def test_a_path_naming_two_milestones_belongs_to_the_later_one(self) -> None:
+        # M084's replacement coverage for the frozen M083 suites names M083
+        # loudly, because that is what it is about. Reading it as M083's would
+        # freeze M084's own new tests the moment they were written.
+        assert owner_of("tests/integration/test_m084_m083_compatibility.py") == "M084"
+        assert owner_of("tools/m084_frozen_m083_acceptance.py") == "M084"
+
+    def test_a_path_naming_no_milestone_falls_back_to_the_primitive(self) -> None:
+        # M083's production and test modules are named after the primitive it
+        # introduced, not after its number.
+        assert (
+            owner_of("src/empirical_platform/decision_candidate/evaluation_evidence_watermark.py")
+            == "M083"
+        )
+        assert owner_of("tests/unit/test_evaluation_evidence_watermark_io.py") == "M083"
+        assert owner_of("pyproject.toml") is None
+
+    def test_the_milestone_token_needs_a_boundary(self) -> None:
+        # Guards against a hex migration id or a longer word being read as a
+        # milestone number.
+        assert owner_of("migrations/versions/a3f7c21d9b04_create_m084_schema.py") == "M084"
+        assert owner_of("docs/m0834_notes.md") is None
 
 
 class TestNothingFrozenChanged:

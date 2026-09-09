@@ -45,18 +45,43 @@ BASE = "707161a1e8edeb7e0c95f3dafc7180ba9d782cc6"
 #: A path is owned if any pattern matches, so a milestone's ownership survives
 #: a file being moved between the governed roots.
 FROZEN: dict[str, tuple[str, ...]] = {
+    # Patterns for files that name no milestone at all: M083's production and
+    # test modules are named after the primitive it introduced, not after its
+    # number, and would otherwise fall outside the guard entirely.
     "M083": (
-        # A token boundary, not a path boundary: `tools/render_m083_authority.py`
-        # carries the milestone number in the middle of the file name, and an
-        # earlier `(^|/)m083[_-]` anchor missed it -- caught by the ownership
-        # test in tests/architecture/test_frozen_paths.py, which exists because
-        # ownership derived from names can silently skip a whole category.
-        r"(?<![a-z0-9])m083(?![a-z0-9])",
         r"evaluation_evidence_watermark",
-        r"^external-review/MILESTONE-083/",
         r"^migrations/versions/9e4e647347ad_",
     ),
 }
+
+#: A milestone token anywhere in a path: `m083`, `MILESTONE-083`, `MILESTONE_083`.
+#: The token boundary matters -- `tools/render_m083_authority.py` carries the
+#: number mid-name, and a path-anchored pattern missed it. That gap was caught
+#: by the ownership test in tests/architecture/test_frozen_paths.py, which is
+#: there precisely because ownership derived from names can skip a category
+#: silently.
+_MILESTONE_TOKEN = re.compile(r"(?<![a-z0-9])(?:milestone[_-]|m)(\d{3})(?![a-z0-9])", re.IGNORECASE)
+
+
+def owner_of(path: str) -> str | None:
+    """The milestone a path belongs to, or None.
+
+    A path that names several milestones belongs to the HIGHEST one. A later
+    milestone routinely writes files *about* an earlier one --
+    `tests/integration/test_m084_m083_compatibility.py` and
+    `tools/m084_frozen_m083_acceptance.py` are exactly that, and both exist
+    because M083 is frozen. Reading them as M083's would freeze M084's own
+    replacement coverage the moment it was written, which is backwards: the
+    later milestone owns what it authors, however loudly the file names the
+    milestone it is protecting.
+    """
+    numbers = _MILESTONE_TOKEN.findall(path)
+    if numbers:
+        return f"M{max(numbers)}"
+    for milestone, patterns in FROZEN.items():
+        if re.search("|".join(patterns), path, re.IGNORECASE):
+            return milestone
+    return None
 
 #: Paths a frozen pattern matches but that pre-M084 repository policy already
 #: established as shared, non-frozen infrastructure. Empty, and it stays empty
@@ -66,13 +91,12 @@ EXEMPT: frozenset[str] = frozenset()
 
 def owned_paths(tracked: list[str]) -> dict[str, list[str]]:
     """Every tracked path each frozen milestone owns."""
-    owners: dict[str, list[str]] = {}
-    for milestone, patterns in FROZEN.items():
-        matcher = re.compile("|".join(patterns), re.IGNORECASE)
-        owners[milestone] = sorted(
-            path for path in tracked if matcher.search(path) and path not in EXEMPT
+    return {
+        milestone: sorted(
+            path for path in tracked if owner_of(path) == milestone and path not in EXEMPT
         )
-    return owners
+        for milestone in FROZEN
+    }
 
 
 def _git(*arguments: str) -> str:
