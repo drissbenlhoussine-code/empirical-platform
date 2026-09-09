@@ -31,7 +31,6 @@ judgement that an edit is harmless is not such evidence.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -102,16 +101,34 @@ def owned_paths(tracked: list[str]) -> dict[str, list[str]]:
     }
 
 
-#: SHA-256 of every governed path as of BASE. Generated with `--write-digests`.
-#: This is the check that actually works everywhere: CI checks out shallow, so
-#: the base commit is genuinely absent there and `git diff BASE..HEAD` exits
-#: 128. Skipping on that would disable the guard exactly where it runs
-#: unattended, which is the worst possible place for it to be silent.
+#: The git BLOB ID of every governed path as of BASE. Written by
+#: `--write-digests`.
+#:
+#: Two environment differences shaped this, and both were found by CI rather
+#: than reasoned about. First, `git diff BASE..HEAD` exits 128 in CI because the
+#: base commit is genuinely absent from a shallow clone -- so a history-based
+#: comparison fails exactly where the guard runs unattended, and skipping there
+#: would make it silent in the one place that matters.
+#:
+#: Second, hashing the FILE'S BYTES then failed on Windows for every non-Python
+#: path: `.gitattributes` pins `*.py` to LF, and everything else materializes
+#: CRLF on checkout, so the working-tree bytes are legitimately not the
+#: repository's bytes. A blob ID is git's own content address of the normalized
+#: content, so it is identical on every platform by construction -- and reading
+#: it needs only HEAD, which a shallow clone has.
 DIGESTS = REPO_ROOT / "external-review" / "MILESTONE-084" / "frozen-path-digests.json"
 
 
-def _digest(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def blob_id(revision: str, path: str) -> str | None:
+    """The git blob id of `path` at `revision`, or None if it is absent."""
+    result = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
+        ["git", "rev-parse", f"{revision}:{path}"],  # noqa: S607
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else None
 
 
 def base_digests() -> dict[str, str]:
@@ -132,12 +149,12 @@ def content_violations() -> dict[str, list[str]]:
         changed = []
         for path in paths:
             expected = recorded.get(path)
-            full = REPO_ROOT / path
+            current = blob_id("HEAD", path)
             if expected is None:
-                changed.append(f"{path} (no recorded base digest)")
-            elif not full.is_file():
-                changed.append(f"{path} (deleted)")
-            elif _digest(full) != expected:
+                changed.append(f"{path} (no recorded base blob id)")
+            elif current is None:
+                changed.append(f"{path} (absent at HEAD)")
+            elif current != expected:
                 changed.append(path)
         if changed:
             breaches[milestone] = changed
@@ -201,15 +218,13 @@ def main(argv: list[str] | None = None) -> int:
         recorded = {}
         for paths in owners.values():
             for path in paths:
-                blob = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
-                    ["git", "show", f"{BASE}:{path}"],  # noqa: S607
-                    cwd=REPO_ROOT,
-                    capture_output=True,
-                    check=True,
-                )
-                recorded[path] = hashlib.sha256(blob.stdout).hexdigest()
+                identifier = blob_id(BASE, path)
+                if identifier is None:
+                    print(f"{path} does not exist at {BASE[:12]}", file=sys.stderr)
+                    return 1
+                recorded[path] = identifier
         DIGESTS.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        print(f"recorded {len(recorded)} frozen-path digests from {BASE[:12]}")
+        print(f"recorded {len(recorded)} frozen-path blob ids from {BASE[:12]}")
         return 0
 
     if args.list:
@@ -248,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     total = sum(len(paths) for paths in owners.values())
-    how = "by digest and by git diff" if _base_present() else "by digest (base commit absent)"
+    how = "by blob id and by git diff" if _base_present() else "by blob id (base absent)"
     print(f"frozen paths unmodified since {BASE[:12]} ({total} governed, verified {how})")
     return 0
 

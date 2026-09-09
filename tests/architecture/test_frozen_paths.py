@@ -121,28 +121,37 @@ class TestOwnershipGoesToTheHighestMilestoneNamed:
 
 
 class TestNothingFrozenChanged:
-    def test_no_frozen_path_differs_from_its_recorded_base_digest(self) -> None:
-        """The check that holds everywhere, including a shallow CI checkout.
+    def test_no_frozen_path_differs_from_its_recorded_base_blob_id(self) -> None:
+        """The check that holds everywhere, including a shallow Windows CI runner.
 
-        The first version of this test compared `git diff BASE..HEAD`, which
-        exits 128 in CI because the base commit is genuinely absent from a
-        shallow clone -- so the guard failed in the one place it runs
-        unattended. Skipping there was the obvious fix and the wrong one: a
-        frozen-path guard that goes quiet in CI is worse than none, because it
-        reads as protection.
+        Two earlier versions of this test failed in CI while passing locally,
+        and both times the environment was right and the check was wrong.
 
-        Comparing recorded content digests needs no history at all. The digests
-        are read FROM THE BASE COMMIT when generated, never from the working
-        tree, so the manifest cannot bless whatever happens to be there.
+        The first compared `git diff BASE..HEAD`, which exits 128 in CI because
+        the base commit is genuinely absent from a shallow clone -- so the guard
+        failed in the one place it runs unattended. Skipping there was the
+        obvious fix and the wrong one: a frozen-path guard that goes quiet in CI
+        is worse than none, because it reads as protection.
+
+        The second hashed the FILE'S BYTES, and failed on Windows for every
+        non-Python governed path. `.gitattributes` pins `*.py` to LF; everything
+        else materializes CRLF on checkout, so the working-tree bytes are
+        legitimately not the repository's bytes. Hashing what is on disk was
+        asking the wrong question.
+
+        A git blob id is git's own content address of the normalized content:
+        identical on every platform by construction, and readable from HEAD
+        alone, which a shallow clone has. The manifest records the blob ids AS
+        OF THE BASE COMMIT, so it cannot bless whatever happens to be there now.
         """
         breaches = {milestone: paths for milestone, paths in content_violations().items() if paths}
         assert breaches == {}, (
-            f"frozen milestone files differ from their content at {BASE[:12]}: {breaches}. "
+            f"frozen milestone files differ from their blob id at {BASE[:12]}: {breaches}. "
             "Fix the later milestone's own code, build a harness it owns, or record a "
             "measured limitation -- and restore these paths byte-for-byte."
         )
 
-    def test_the_digest_manifest_covers_every_governed_path(self) -> None:
+    def test_the_manifest_covers_every_governed_path(self) -> None:
         # A manifest missing a path would let that path change silently, which
         # is the failure the whole guard exists to prevent.
         governed = {path for paths in owned_paths(_tracked()).values() for path in paths}

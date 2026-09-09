@@ -367,7 +367,7 @@
       "path": "tests/architecture/test_frozen_paths.py",
       "status": "new",
       "ownership": "shared architecture gate",
-      "lines": 172,
+      "lines": 181,
       "surface": "TestTheGuardGovernsSomething, TestOwnershipGoesToTheHighestMilestoneNamed, TestNothingFrozenChanged"
     },
     {
@@ -511,8 +511,8 @@
       "path": "tools/check_frozen_paths.py",
       "status": "new",
       "ownership": "shared toolchain",
-      "lines": 257,
-      "surface": "owner_of, owned_paths, base_digests, content_violations, violations, main"
+      "lines": 272,
+      "surface": "owner_of, owned_paths, blob_id, base_digests, content_violations, violations, main"
     },
     {
       "n": 65,
