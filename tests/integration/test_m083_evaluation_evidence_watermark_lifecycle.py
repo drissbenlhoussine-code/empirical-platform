@@ -54,11 +54,21 @@ def _m082_head(cfg: Config) -> str:
     """The revision immediately below the M083 migration -- read from the
     migration graph itself, never hardcoded, so this test cannot drift from
     whatever the actual down_revision is.
+
+    This resolves M083 by name rather than as "whatever sits below head". The
+    two were the same revision only while M083 *was* head; once M084 landed on
+    top, "below head" silently became M083 itself, and the downgrade assertions
+    below started checking that M083's own table survives its own migration --
+    which it does. The test then failed for the right reason against the wrong
+    target. Locating M083 by its message keeps the helper's stated meaning true
+    no matter how many milestones are stacked above it.
     """
-    head_revision = ScriptDirectory.from_config(cfg).get_revision("head")
-    assert head_revision is not None
-    assert head_revision.down_revision is not None
-    return str(head_revision.down_revision)
+    scripts = ScriptDirectory.from_config(cfg)
+    for script in scripts.walk_revisions():
+        if script.doc.startswith("MILESTONE-083"):
+            assert script.down_revision is not None
+            return str(script.down_revision)
+    raise AssertionError("the MILESTONE-083 migration is absent from the graph")
 
 
 def _config(database: str | None = None) -> PostgreSQLConfigSnapshot:
@@ -107,11 +117,19 @@ def upgraded_schema(engine: Engine) -> Iterator[Engine]:
 
 @pytest.fixture
 def clean_tables(upgraded_schema: Engine) -> Engine:
+    # CASCADE because M084's `evaluation_context` carries a foreign key to
+    # `evaluation_evidence_watermark`, and PostgreSQL refuses to TRUNCATE a
+    # table a foreign key references unless the referencing table goes in the
+    # same statement. Naming M084's tables here would put the reset list in the
+    # business of tracking every future downstream table; CASCADE keeps the
+    # fixture's meaning -- start from an empty slate -- independent of who
+    # references the watermark later. No M083 claim, assertion or production
+    # path changes: this is the reset, not the milestone.
     with upgraded_schema.begin() as conn:
         conn.execute(
             text(
                 "TRUNCATE evaluation_evidence_watermark, operator_event_receipt, "
-                "operator_position_event"
+                "operator_position_event CASCADE"
             )
         )
     return upgraded_schema
@@ -235,7 +253,7 @@ def test_4_insertion_order_does_not_affect_the_stored_representation(clean_table
         conn.execute(
             text(
                 "TRUNCATE evaluation_evidence_watermark, operator_event_receipt, "
-                "operator_position_event"
+                "operator_position_event CASCADE"
             )
         )
     # The identical id SET, inserted in the exact reverse physical order.
