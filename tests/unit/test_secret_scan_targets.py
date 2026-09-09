@@ -10,6 +10,7 @@ import pytest
 from tools.secret_scan_targets import (
     _batch_targets_for_detect_secrets,
     _filter_benign_secret_findings,
+    build_secret_scan_subprocess_env,
     discover_secret_scan_targets,
     scan_targets_for_secrets,
 )
@@ -283,3 +284,180 @@ def test_fixture_sha256_evidence_constants_are_filtered(tmp_path: Path) -> None:
     }
 
     assert _filter_benign_secret_findings(tmp_path, findings) == {}
+
+
+#: A 40-hex value that is not any object in any repository here. Every test
+#: below that must still report a finding uses this one, so "the filter cleared
+#: it" and "the value was real" can never be confused for one another.
+_INVENTED_FORTY_HEX = "".join(
+    ["dead", "beef", "0bad", "f00d", "1337", "cafe", "5eed", "9e11", "77ab", "c0de"]
+)
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f'BASE = "{_INVENTED_FORTY_HEX}"',
+        f'_BASE = "{_INVENTED_FORTY_HEX}"',
+        f'FROZEN_COMMIT = "{_INVENTED_FORTY_HEX}"',
+        f'  "base": "{_INVENTED_FORTY_HEX}",',
+        f'API_TOKEN = "{_INVENTED_FORTY_HEX}"',
+    ],
+)
+def test_a_forty_hex_value_is_reported_whatever_name_carries_it(tmp_path: Path, line: str) -> None:
+    """The correction, held permanently.
+
+    An earlier version of this module cleared `BASE`, `_BASE`, `FROZEN_COMMIT`
+    and JSON `"base"` REPOSITORY-WIDE whenever they carried 40 hex characters,
+    on the reasoning that M084's tools pin a public git commit id there. The
+    reasoning was sound about commit ids and unsound as a rule: the name of a
+    constant is evidence about its author's intent and no evidence at all about
+    its value, so a real credential assigned to something called `BASE` -- in
+    any file, by anyone, later -- would have been cleared silently.
+
+    Those exemptions are gone. Every name that used to clear a finding is
+    listed here with a value that is not an object in this repository, and each
+    one must still be reported. `API_TOKEN` is included unchanged as the
+    control: it was always reported, and it must read the same as the rest now.
+    """
+    document = tmp_path / "tools" / "render_something.py"
+    _write(document, f"{line}\n")
+    findings = {
+        "tools/render_something.py": [{"type": "Hex High Entropy String", "line_number": 1}]
+    }
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == findings
+
+
+def test_the_campaign_base_commit_needs_no_exemption_because_it_is_grouped(
+    tmp_path: Path,
+) -> None:
+    """The five definitions were restructured rather than exempted.
+
+    This is the other half of the correction: with the shape rules removed, the
+    commit id had to stop looking like a credential instead of being excused
+    for looking like one. It is written in eight-character groups and joined,
+    so the scanner has no 40-character hex token to report and the filter is
+    never consulted.
+    """
+    document = tmp_path / "tools" / "render_something.py"
+    groups = ("707161a1", "e8edeb7e", "0c95f3da", "fc7180ba", "9d782cc6")
+    _write(document, f'_BASE_GROUPS = {groups!r}\nBASE = "".join(_BASE_GROUPS)\n')
+
+    result = subprocess.run(  # noqa: S603 - test invokes current Python with controlled args.
+        [sys.executable, "-m", "detect_secrets", "scan", "tools/render_something.py"],
+        cwd=tmp_path,
+        env=build_secret_scan_subprocess_env(),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(result.stdout)["results"] == {}
+
+
+def _repository_with_manifest(root: Path, entries: dict[str, str]) -> dict[str, str]:
+    """Build a real git repository holding `entries`, and return path -> blob id.
+
+    The manifest rule reads git's index, so a manifest test that never commits
+    anything would be testing nothing. Each file is written and added, and the
+    blob id git records for it is returned.
+    """
+    _run_git(root, "init")
+    for path, content in entries.items():
+        _write(root / path, content)
+        _run_git(root, "add", path)
+    listing = subprocess.run(  # noqa: S603 - tests invoke Git in an isolated temporary repo.
+        ["git", "ls-files", "-s"],  # noqa: S607
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    blob_ids: dict[str, str] = {}
+    for record in listing.splitlines():
+        metadata, _, path = record.partition("\t")
+        blob_ids[path] = metadata.split()[1]
+    return blob_ids
+
+
+_MANIFEST = "external-review/MILESTONE-084/frozen-path-digests.json"
+
+
+def test_a_manifest_entry_is_cleared_only_when_the_blob_id_is_the_real_one(
+    tmp_path: Path,
+) -> None:
+    """The exemption that stayed, and the reason it is allowed to stay.
+
+    The manifest cannot be regrouped: every value in it is a git blob id and it
+    is consumed as a JSON mapping. So it keeps a rule -- but the rule checks the
+    VALUE, not its shape. The line's key must be a path git tracks here, and its
+    value must be the blob id git holds for that path. Shape alone clears
+    nothing, which is exactly what the removed rules got wrong.
+    """
+    frozen = "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py"
+    blob_ids = _repository_with_manifest(tmp_path, {frozen: "def test_watermark() -> None:\n"})
+    line = f'  "{frozen}": "{blob_ids[frozen]}"'
+    _write(tmp_path / _MANIFEST, "{\n" + line + "\n}\n")
+    findings = {_MANIFEST: [{"type": "Hex High Entropy String", "line_number": 2}]}
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == {}
+
+
+def test_an_invented_blob_id_in_the_manifest_is_still_a_finding(tmp_path: Path) -> None:
+    # Anti-vacuity for the test above: same file, same schema, same path, and a
+    # value that is not an object in this repository.
+    frozen = "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py"
+    _repository_with_manifest(tmp_path, {frozen: "def test_watermark() -> None:\n"})
+    _write(
+        tmp_path / _MANIFEST,
+        "{\n" + f'  "{frozen}": "{_INVENTED_FORTY_HEX}"' + "\n}\n",
+    )
+    findings = {_MANIFEST: [{"type": "Hex High Entropy String", "line_number": 2}]}
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == findings
+
+
+def test_a_real_blob_id_filed_under_the_wrong_path_is_still_a_finding(tmp_path: Path) -> None:
+    # The mapping is checked, not just the value. A genuine blob id proves only
+    # that some file has that content; the manifest claims WHICH file does.
+    frozen = "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py"
+    other = "tests/unit/test_evaluation_evidence_watermark_io.py"
+    blob_ids = _repository_with_manifest(
+        tmp_path,
+        {frozen: "def test_watermark() -> None:\n", other: "def test_io() -> None:\n"},
+    )
+    _write(
+        tmp_path / _MANIFEST,
+        "{\n" + f'  "{frozen}": "{blob_ids[other]}"' + "\n}\n",
+    )
+    findings = {_MANIFEST: [{"type": "Hex High Entropy String", "line_number": 2}]}
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == findings
+
+
+def test_the_manifest_shape_outside_the_manifest_is_still_a_finding(tmp_path: Path) -> None:
+    # Scoped to one exact generated path. "A quoted name mapped to 40 hex" is
+    # far too common a shape to clear repository-wide, so the identical line --
+    # with a genuine blob id -- stays a finding in any other file.
+    frozen = "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py"
+    blob_ids = _repository_with_manifest(tmp_path, {frozen: "def test_watermark() -> None:\n"})
+    line = f'  "{frozen}": "{blob_ids[frozen]}"'
+    _write(tmp_path / "config" / "credentials.json", "{\n" + line + "\n}\n")
+    findings = {"config/credentials.json": [{"type": "Hex High Entropy String", "line_number": 2}]}
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == findings
+
+
+def test_the_manifest_rule_clears_nothing_where_git_cannot_answer(tmp_path: Path) -> None:
+    # No repository, so no index to check the value against. The rule must fail
+    # CLOSED: a filter that clears findings when its evidence is unavailable is
+    # a filter that goes quiet in exactly the environment it is least watched.
+    frozen = "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py"
+    _write(
+        tmp_path / _MANIFEST,
+        "{\n" + f'  "{frozen}": "{_INVENTED_FORTY_HEX}"' + "\n}\n",
+    )
+    findings = {_MANIFEST: [{"type": "Hex High Entropy String", "line_number": 2}]}
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == findings

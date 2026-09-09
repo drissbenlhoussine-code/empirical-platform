@@ -1,0 +1,612 @@
+{
+  "base_groups": [
+    "707161a1",
+    "e8edeb7e",
+    "0c95f3da",
+    "fc7180ba",
+    "9d782cc6"
+  ],
+  "count": 75,
+  "files": [
+    {
+      "n": 1,
+      "path": "external-review/MILESTONE-084/README.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 101,
+      "surface": "-"
+    },
+    {
+      "n": 2,
+      "path": "external-review/MILESTONE-084/broker-and-market-data-research.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 240,
+      "surface": "-"
+    },
+    {
+      "n": 3,
+      "path": "external-review/MILESTONE-084/changed-files.txt",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 75,
+      "surface": "-"
+    },
+    {
+      "n": 4,
+      "path": "external-review/MILESTONE-084/concurrency-results.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 142,
+      "surface": "-"
+    },
+    {
+      "n": 5,
+      "path": "external-review/MILESTONE-084/current-authority.json",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 60,
+      "surface": "-"
+    },
+    {
+      "n": 6,
+      "path": "external-review/MILESTONE-084/current-authority.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 69,
+      "surface": "-"
+    },
+    {
+      "n": 7,
+      "path": "external-review/MILESTONE-084/current-authority.schema.json",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 158,
+      "surface": "-"
+    },
+    {
+      "n": 8,
+      "path": "external-review/MILESTONE-084/exhaustion-table.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 46,
+      "surface": "-"
+    },
+    {
+      "n": 9,
+      "path": "external-review/MILESTONE-084/file-audit-matrix.json",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 612,
+      "surface": "-"
+    },
+    {
+      "n": 10,
+      "path": "external-review/MILESTONE-084/file-audit-matrix.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 89,
+      "surface": "-"
+    },
+    {
+      "n": 11,
+      "path": "external-review/MILESTONE-084/frozen-path-digests.json",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 29,
+      "surface": "-"
+    },
+    {
+      "n": 12,
+      "path": "external-review/MILESTONE-084/hostile-review.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 257,
+      "surface": "-"
+    },
+    {
+      "n": 13,
+      "path": "external-review/MILESTONE-084/mutation-matrix.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 109,
+      "surface": "-"
+    },
+    {
+      "n": 14,
+      "path": "external-review/MILESTONE-084/operator-verification-checklist.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 126,
+      "surface": "-"
+    },
+    {
+      "n": 15,
+      "path": "external-review/MILESTONE-084/performance-results.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 411,
+      "surface": "-"
+    },
+    {
+      "n": 16,
+      "path": "external-review/MILESTONE-084/scope-and-design.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 147,
+      "surface": "-"
+    },
+    {
+      "n": 17,
+      "path": "external-review/MILESTONE-084/validation-results.md",
+      "status": "new",
+      "ownership": "M084 review package",
+      "lines": 404,
+      "surface": "-"
+    },
+    {
+      "n": 18,
+      "path": "migrations/versions/a3f7c21d9b04_create_m084_decision_to_approval_schema.py",
+      "status": "new",
+      "ownership": "M084 schema",
+      "lines": 887,
+      "surface": "upgrade, downgrade"
+    },
+    {
+      "n": 19,
+      "path": "pyproject.toml",
+      "status": "modified",
+      "ownership": "shared packaging",
+      "lines": 237,
+      "surface": "-"
+    },
+    {
+      "n": 20,
+      "path": "src/empirical_platform/decision_candidate/evaluation_context.py",
+      "status": "new",
+      "ownership": "M084 domain",
+      "lines": 203,
+      "surface": "EvaluationContext, build_evaluation_context, recompute_consumed_receipt_digest"
+    },
+    {
+      "n": 21,
+      "path": "src/empirical_platform/decision_candidate/operator_trading_configuration.py",
+      "status": "new",
+      "ownership": "M084 domain",
+      "lines": 388,
+      "surface": "AccountMode, KillSwitchState, LimitPricePolicy, OperatorTradingConfiguration, OrderType, TradingSession"
+    },
+    {
+      "n": 22,
+      "path": "src/empirical_platform/decision_candidate/product_market_inputs.py",
+      "status": "new",
+      "ownership": "M084 domain",
+      "lines": 371,
+      "surface": "AccountSnapshot, DataFeedKind, InstrumentMetadata, LiquiditySnapshot, MarketStatus, OpenOrderSnapshot, PositionSnapshot, QuoteSnapshot, SessionSnapshot, TradingCostEstimate"
+    },
+    {
+      "n": 23,
+      "path": "src/empirical_platform/decision_candidate/product_repositories.py",
+      "status": "new",
+      "ownership": "M084 domain",
+      "lines": 122,
+      "surface": "ApprovalDecisionRepository, ApprovedOrderIntentRepository, EvaluationContextRepository, OperatorTradingConfigurationRepository, TradeProposalRepository"
+    },
+    {
+      "n": 24,
+      "path": "src/empirical_platform/decision_candidate/trade_approval.py",
+      "status": "new",
+      "ownership": "M084 domain",
+      "lines": 387,
+      "surface": "ALLOWED_TRANSITIONS, ApprovalDecision, ApprovedOrderIntent, OperatorAction, SubmissionState, build_approved_order_intent, is_transition_allowed, record_operator_decision"
+    },
+    {
+      "n": 25,
+      "path": "src/empirical_platform/decision_candidate/trade_proposal.py",
+      "status": "new",
+      "ownership": "M084 domain",
+      "lines": 882,
+      "surface": "NoTradeReason, ProposalStatus, RiskCheck, RiskCheckOutcome, TradeProposal, TradeProposalOutcome, evaluate_trade_proposal"
+    },
+    {
+      "n": 26,
+      "path": "src/empirical_platform/entrypoints/_operator_cli.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 61,
+      "surface": "operator_command"
+    },
+    {
+      "n": 27,
+      "path": "src/empirical_platform/entrypoints/audit_history.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 74,
+      "surface": "run_audit_history"
+    },
+    {
+      "n": 28,
+      "path": "src/empirical_platform/entrypoints/decide_trade_proposal.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 132,
+      "surface": "run_decide_trade_proposal"
+    },
+    {
+      "n": 29,
+      "path": "src/empirical_platform/entrypoints/explain_no_trade.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 113,
+      "surface": "run_explain_no_trade"
+    },
+    {
+      "n": 30,
+      "path": "src/empirical_platform/entrypoints/get_order_intent.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 66,
+      "surface": "run_get_order_intent"
+    },
+    {
+      "n": 31,
+      "path": "src/empirical_platform/entrypoints/get_trade_proposal.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 62,
+      "surface": "run_get_trade_proposal"
+    },
+    {
+      "n": 32,
+      "path": "src/empirical_platform/entrypoints/invalidate_stale_proposals.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 100,
+      "surface": "run_invalidate_stale_proposals"
+    },
+    {
+      "n": 33,
+      "path": "src/empirical_platform/entrypoints/issue_order_intent.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 100,
+      "surface": "run_issue_order_intent"
+    },
+    {
+      "n": 34,
+      "path": "src/empirical_platform/entrypoints/kill_switch.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 115,
+      "surface": "run_kill_switch"
+    },
+    {
+      "n": 35,
+      "path": "src/empirical_platform/entrypoints/list_trade_proposals.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 79,
+      "surface": "run_list_trade_proposals"
+    },
+    {
+      "n": 36,
+      "path": "src/empirical_platform/entrypoints/open_evaluation_context.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 73,
+      "surface": "run_open_evaluation_context"
+    },
+    {
+      "n": 37,
+      "path": "src/empirical_platform/entrypoints/prepare_trade_proposal.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 114,
+      "surface": "run_prepare_trade_proposal"
+    },
+    {
+      "n": 38,
+      "path": "src/empirical_platform/entrypoints/save_trading_configuration.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 86,
+      "surface": "run_save_trading_configuration"
+    },
+    {
+      "n": 39,
+      "path": "src/empirical_platform/entrypoints/show_trading_configuration.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 89,
+      "surface": "run_show_trading_configuration"
+    },
+    {
+      "n": 40,
+      "path": "src/empirical_platform/entrypoints/system_status.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 72,
+      "surface": "run_system_status"
+    },
+    {
+      "n": 41,
+      "path": "src/empirical_platform/entrypoints/validate_trading_configuration.py",
+      "status": "new",
+      "ownership": "M084 operator CLI",
+      "lines": 65,
+      "surface": "(module-private)"
+    },
+    {
+      "n": 42,
+      "path": "src/empirical_platform/shared/persistence/postgres_repositories/decision_to_approval_repositories.py",
+      "status": "new",
+      "ownership": "M084 persistence",
+      "lines": 887,
+      "surface": "PostgresApprovalDecisionRepository, PostgresApprovedOrderIntentRepository, PostgresEvaluationContextRepository, PostgresOperatorTradingConfigurationRepository, PostgresTradeProposalRepository"
+    },
+    {
+      "n": 43,
+      "path": "src/empirical_platform/shared/persistence/postgres_repositories/runtime.py",
+      "status": "modified",
+      "ownership": "M084 persistence",
+      "lines": 314,
+      "surface": "PostgresRepositoryRuntime"
+    },
+    {
+      "n": 44,
+      "path": "src/empirical_platform/usecases/decision_to_approval.py",
+      "status": "new",
+      "ownership": "M084 application",
+      "lines": 816,
+      "surface": "ApprovalDecision, ApprovedOrderIntent, AuditHistory, DecideTradeProposalCommand, DecideTradeProposalHandler, DecisionOutcome, EvaluationContext, GetApprovedOrderIntentHandler, GetApprovedOrderIntentQuery, GetAuditHistoryHandler, GetAuditHistoryQuery, GetOperatorTradingConfigurationHandler, GetOperatorTradingConfigurationQuery, GetSystemStatusHandler, GetSystemStatusQuery, GetTradeProposalHandler, GetTradeProposalQuery, InvalidateStaleProposalsCommand, InvalidateStaleProposalsHandler, InvalidationOutcome, IssueApprovedOrderIntentCommand, IssueApprovedOrderIntentHandler, KillSwitchState, ListTradeProposalsHandler, ListTradeProposalsQuery, NotFoundError, OpenEvaluationContextCommand, OpenEvaluationContextHandler, OperatorAction, OperatorTradingConfiguration, PrepareTradeProposalCommand, PrepareTradeProposalHandler, ProposalStatus, SaveOperatorTradingConfigurationCommand, SaveOperatorTradingConfigurationHandler, SetKillSwitchCommand, SetKillSwitchHandler, SystemStatus, TradeProposal, TradeProposalOutcome"
+    },
+    {
+      "n": 45,
+      "path": "src/empirical_platform/usecases/decision_to_approval_io.py",
+      "status": "new",
+      "ownership": "M084 application",
+      "lines": 916,
+      "surface": "InputError, MarketInputs, load_json_file, read_configuration, read_context_request, read_market_inputs, render_audit_history_json, render_audit_history_text, render_configuration_json, render_configuration_text, render_context_json, render_context_text, render_decision_json, render_decision_text, render_intent_json, render_intent_text, render_invalidation_json, render_invalidation_text, render_money, render_no_trade_explanation_json, render_no_trade_explanation_text, render_outcome_json, render_outcome_text, render_proposal_json, render_proposal_text, render_system_status_json, render_system_status_text"
+    },
+    {
+      "n": 46,
+      "path": "tests/architecture/test_frozen_paths.py",
+      "status": "new",
+      "ownership": "shared architecture gate",
+      "lines": 251,
+      "surface": "TestTheGuardGovernsSomething, TestOwnershipGoesToTheHighestMilestoneNamed, TestNothingFrozenChanged"
+    },
+    {
+      "n": 47,
+      "path": "tests/architecture/test_module_boundaries.py",
+      "status": "modified",
+      "ownership": "shared architecture gate",
+      "lines": 108,
+      "surface": "test_current_source_tree_respects_boundaries, test_negative_fixture_detects_illegal_import, test_negative_fixture_detects_an_order_submission_dependency, test_no_source_file_imports_an_order_submission_dependency"
+    },
+    {
+      "n": 48,
+      "path": "tests/fixtures/illegal_imports/src/empirical_platform/application/bad_broker_order_submission_import.py",
+      "status": "new",
+      "ownership": "shared negative fixtures",
+      "lines": 9,
+      "surface": "quickfix"
+    },
+    {
+      "n": 49,
+      "path": "tests/fixtures/illegal_imports/src/empirical_platform/decision_candidate/bad_broker_order_submission_import.py",
+      "status": "new",
+      "ownership": "shared negative fixtures",
+      "lines": 10,
+      "surface": "alpaca"
+    },
+    {
+      "n": 50,
+      "path": "tests/fixtures/illegal_imports/src/empirical_platform/entrypoints/bad_broker_order_submission_import.py",
+      "status": "new",
+      "ownership": "shared negative fixtures",
+      "lines": 9,
+      "surface": "alpaca"
+    },
+    {
+      "n": 51,
+      "path": "tests/fixtures/illegal_imports/src/empirical_platform/usecases/bad_broker_order_submission_import.py",
+      "status": "new",
+      "ownership": "shared negative fixtures",
+      "lines": 8,
+      "surface": "IB"
+    },
+    {
+      "n": 52,
+      "path": "tests/integration/test_m084_authority_contract.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 323,
+      "surface": "contract, schema, TestTheContractIsValidAndClosed, TestTheClaimsMatchTheRunningCode, TestTheFrozenM083PackageIsUntouched"
+    },
+    {
+      "n": 53,
+      "path": "tests/integration/test_m084_concurrency.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 1111,
+      "surface": "engine, clean, RaceResult, race, seed_to_context, seed_to_proposal, seed_to_approved, TestConfigurationRaces, TestEvaluationContextRaces, TestProposalRaces, TestApprovalDecisionRaces, TestApprovedIntentRaces"
+    },
+    {
+      "n": 54,
+      "path": "tests/integration/test_m084_decision_to_approval_lifecycle.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 509,
+      "surface": "engine, clean, runtime, a_configuration, a_context, a_proposal, TestConfigurationPersistence, TestEvaluationContextPersistence, TestTheWholeFlow, TestDecisionAndIntentQueries"
+    },
+    {
+      "n": 55,
+      "path": "tests/integration/test_m084_decision_to_approval_postgres_attacks.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 1342,
+      "surface": "engine, upgraded_schema, db, TestConfigurationHardInvariantsInTheDatabase, TestConfigurationClosedEnumerations, TestConfigurationOrderingAndUniverse, TestEvaluationContextBinding, TestProposalTermConstraints, TestProposalStateMachine, TestRiskCheckEvidence, TestDecisionAdmission, TestIntentAdmission, TestIntentCannotBecomeASubmission, TestBypassAttempts, TestFrozenMilestonesArePreserved"
+    },
+    {
+      "n": 56,
+      "path": "tests/integration/test_m084_file_audit.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 147,
+      "surface": "matrix, TestTheMatrixIsInternallySound, TestTheMatrixMatchesTheFilesystem, TestTheMatrixMatchesTheDeclaredDiff, TestTheMatrixMatchesGit"
+    },
+    {
+      "n": 57,
+      "path": "tests/integration/test_m084_m083_compatibility.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 404,
+      "surface": "engine, at_head, TestM083SurvivesTheM084Migration, TestTheFrozenResetCannotRunAtTheM084Head, TestM083SurvivesTheM084Downgrade"
+    },
+    {
+      "n": 58,
+      "path": "tests/integration/test_m084_queue_index.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 186,
+      "surface": "populated, TestTheQueueIndexExistsAndIsCorrect, TestTheQueueQueryUsesIt"
+    },
+    {
+      "n": 59,
+      "path": "tests/unit/test_m084_cli_and_io.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 503,
+      "surface": "TestReadingAConfiguration, TestReadingMarketInputs, TestReadingAContextRequest, TestLoadingAFile, TestRendering, TestEntrypointArguments, TestEntrypointOutput, TestOutcomeJsonShape"
+    },
+    {
+      "n": 60,
+      "path": "tests/unit/test_m084_domain_core.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 1321,
+      "surface": "a_configuration, a_quote, an_account, a_session, an_instrument, a_liquidity, a_cost_estimate, evaluate, evaluate_for, evaluate_at, a_proposal, a_variant, a_watermark, TestConfigurationHardInvariants, TestConfigurationOrderingInvariants, TestConfigurationUniverseInvariants, TestMarketInputSnapshots, TestProposalHappyPath, TestSizingRespectsTheCapitalCap, TestProposalFingerprint, TestProposalConstructionInvariants, TestNoTradeReasons, TestNoTradeReporting, TestTransitionTable, TestOperatorDecision, an_approved_pair, TestApprovedOrderIntent, TestEvaluationContext"
+    },
+    {
+      "n": 61,
+      "path": "tests/unit/test_m084_operator_workflow.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 781,
+      "surface": "a_command, seeded_contexts, seeded_configurations, TestValidateConfiguration, TestShowConfiguration, TestKillSwitch, TestExplainNoTrade, TestInvalidateStaleProposals, TestSystemStatus, TestAuditHistory, TestEveryNewEntrypointRefusesAWrongArgumentCount, TestEveryOperatorCommandRefusesInsteadOfTracingBack"
+    },
+    {
+      "n": 62,
+      "path": "tests/unit/test_m084_repositories_and_handlers.py",
+      "status": "new",
+      "ownership": "M084 tests",
+      "lines": 1004,
+      "surface": "configuration_row, proposal_row, context_row, a_decision, decision_row, an_intent, intent_row, TestRowMappingRefusesRatherThanCoerces, TestConfigurationRepository, TestEvaluationContextRepository, TestTradeProposalRepository, TestDecisionRepository, TestIntentRepository, TestConfigurationHandler, TestOpenEvaluationContextHandler, TestPrepareTradeProposalHandler, TestDecideTradeProposalHandler, TestIssueApprovedOrderIntentHandler, TestQueryHandlers"
+    },
+    {
+      "n": 63,
+      "path": "tests/unit/test_secret_scan_targets.py",
+      "status": "modified",
+      "ownership": "M084 tests",
+      "lines": 463,
+      "surface": "test_secret_scan_targets_include_tracked_and_untracked_repository_files, test_secret_scan_targets_do_not_silently_become_empty, test_secret_scan_detects_tracked_secret_shaped_fixture, test_secret_scan_batches_long_argument_lists_without_dropping_targets, test_secret_scan_batching_keeps_single_oversized_target_in_its_own_batch, test_benign_migration_revision_findings_are_filtered, test_benign_migration_revision_findings_inside_complete_diff_are_filtered, test_benign_scope_document_migration_reference_is_filtered, test_non_benign_high_entropy_findings_are_preserved, test_fixture_sha256_evidence_constants_are_filtered, test_a_forty_hex_value_is_reported_whatever_name_carries_it, test_the_campaign_base_commit_needs_no_exemption_because_it_is_grouped, test_a_manifest_entry_is_cleared_only_when_the_blob_id_is_the_real_one, test_an_invented_blob_id_in_the_manifest_is_still_a_finding, test_a_real_blob_id_filed_under_the_wrong_path_is_still_a_finding, test_the_manifest_shape_outside_the_manifest_is_still_a_finding, test_the_manifest_rule_clears_nothing_where_git_cannot_answer"
+    },
+    {
+      "n": 64,
+      "path": "tools/check_architecture.py",
+      "status": "modified",
+      "ownership": "shared toolchain",
+      "lines": 238,
+      "surface": "module_for_path, imported_module, imported_top_level, check_path, main"
+    },
+    {
+      "n": 65,
+      "path": "tools/check_frozen_paths.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 283,
+      "surface": "owner_of, owned_paths, blob_id, base_digests, content_violations, violations, main"
+    },
+    {
+      "n": 66,
+      "path": "tools/m084_frozen_m083_acceptance.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 191,
+      "surface": "main"
+    },
+    {
+      "n": 67,
+      "path": "tools/m084_hostile_passes.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 2164,
+      "surface": "pass_one, pass_two, pass_three, pass_four, pass_five"
+    },
+    {
+      "n": 68,
+      "path": "tools/m084_hostile_review.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 314,
+      "surface": "Attack, Pass, rebuild_database, refused_by, allowed, render_markdown, main"
+    },
+    {
+      "n": 69,
+      "path": "tools/m084_mutation_campaign.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 685,
+      "surface": "Mutation, run_family, render_safety_crossreference, render_markdown, main"
+    },
+    {
+      "n": 70,
+      "path": "tools/m084_operator_walkthrough.sh",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 259,
+      "surface": "-"
+    },
+    {
+      "n": 71,
+      "path": "tools/m084_performance_campaign.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 597,
+      "surface": "Samples, rebuild_database, seed_prerequisites, seed_proposals, measure_engine, measure_query, measure_insert, measure_issue_intent, capture_plans, measure_lock_duration, run, render_markdown, main"
+    },
+    {
+      "n": 72,
+      "path": "tools/render_m084_authority.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 295,
+      "surface": "render, main"
+    },
+    {
+      "n": 73,
+      "path": "tools/render_m084_exhaustion_table.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 315,
+      "surface": "Item, render, main"
+    },
+    {
+      "n": 74,
+      "path": "tools/render_m084_file_audit.py",
+      "status": "new",
+      "ownership": "shared toolchain",
+      "lines": 342,
+      "surface": "AuditError, build, render_markdown, main"
+    },
+    {
+      "n": 75,
+      "path": "tools/secret_scan_targets.py",
+      "status": "modified",
+      "ownership": "shared toolchain",
+      "lines": 282,
+      "surface": "discover_secret_scan_targets, build_secret_scan_subprocess_env, scan_targets_for_secrets, main"
+    }
+  ]
+}
