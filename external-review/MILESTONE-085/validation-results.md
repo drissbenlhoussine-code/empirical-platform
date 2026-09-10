@@ -247,6 +247,27 @@ and it runs unconditionally. Verified by cloning this branch with `--depth 1` an
 running the file there: **5 passed, 8 skipped**, with that check among the 5. With
 full history: **13 passed, 0 skipped**.
 
+**FIND-P6-09 (the third instance, and the one with the least excuse).** The
+FIND-P6-08 correction added the always-running check by writing the required base
+SHA out as a 40-character hex literal. **CI failed** on the secret gate:
+`Hex High Entropy String` in `test_m085_base_pin.py`. That literal is exactly the
+shape `_BASE_GROUPS` exists to avoid — the production module beside it already
+followed the rule, and this broke it.
+
+Two distinct process failures, recorded rather than smoothed over:
+
+1. The same defect class as FIND-P5-02 and FIND-P6-07, three times in one
+   milestone.
+2. I ran `scripts/security.ps1` at the *previous* head, added the literal, and
+   pushed without re-running it. The gate was not wrong; it was not consulted.
+
+*Corrected* by assembling the expectation from four groups of ten, deliberately
+different boundaries from the tool's five of eight, so the check cannot be
+satisfied by copying `_BASE_GROUPS` and remains a genuinely separate
+transcription. Before this push, all nine CI gates were run locally — compile,
+format, lint, mypy, tests, architecture, frozen paths, dependency audit, secret
+scan, build — and every one exited 0.
+
 **Also corrected in this pass:** two lint findings and one formatting finding in
 `tools/render_m085_exhaustion_table.py` (an unused import and a long line), and
 `.gitignore` gained `.coverage.*` so parallel-run coverage artifacts cannot be

@@ -82,10 +82,25 @@ class TestThePinIsWellFormed:
         assert len(exhaustion._BASE_GROUPS) == 5
 
     def test_the_pin_is_the_commit_this_milestone_was_required_to_branch_from(self) -> None:
-        # The required base, written out once here as the independent expectation.
-        # This is the check that would have caught the transcription error with no
-        # git history at all, which is why it is the one that always runs.
-        assert exhaustion.BASE == "a224076754fb38909ee04c2464e50e51df12d7ad"
+        """The independent expectation, and the check that needs no git history.
+
+        This is the one that would have caught the original transcription error in a
+        shallow clone, so it must never be guarded by a skip.
+
+        The expected value is assembled from groups for the same reason the tool
+        splits its own: a 40-character hex literal is a `Hex High Entropy String` to
+        `detect-secrets`, and this repository's gate has no name-based exemptions.
+        Writing it out as a literal here FAILED CI -- the third time this milestone
+        learned that lesson (FIND-P5-02, FIND-P6-07), and the first time it was
+        learned by re-breaking a rule the production module already followed.
+
+        The group BOUNDARIES differ from `_BASE_GROUPS` on purpose: four groups of
+        ten against five of eight, so this expectation cannot be satisfied by
+        copying the tool's tuple and is a genuinely separate transcription.
+        """
+        expected = "".join(("a224076754", "fb38909ee0", "4c2464e50e", "51df12d7ad"))
+        assert len(expected) == 40
+        assert exhaustion.BASE == expected
 
 
 class TestThePresenceOfTheBaseIsReportedNotAssumed:

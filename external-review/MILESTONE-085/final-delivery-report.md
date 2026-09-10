@@ -195,7 +195,7 @@ Full detail in `validation-results.md`. Headline:
 
 ## L. Findings
 
-**Twenty-three numbered findings, every one found by executing something.** Passes 1–5 are in
+**Twenty-five numbered findings, every one found by executing something.** Passes 1–5 are in
 `hostile-review.md`; the closing pass 6 is in `validation-results.md`. The four most
 consequential:
 
