@@ -98,7 +98,8 @@ would mean every milestone breaking the one before it.
 ## Findings and corrections
 
 Every finding below was found by executing something, and every one was corrected
-except where explicitly recorded as out of scope.
+except where explicitly recorded as out of scope. Twenty-seven are numbered; the two
+from the market-open pass are in the last section.
 
 ### Passes 1–5 (recorded in full in `hostile-review.md`)
 
@@ -272,6 +273,78 @@ scan, build — and every one exited 0.
 `tools/render_m085_exhaustion_table.py` (an unused import and a long line), and
 `.gitignore` gained `.coverage.*` so parallel-run coverage artifacts cannot be
 committed by accident.
+
+### Pass 7 — the Owner-authorized market-open acceptance (2026-09-10)
+
+The Owner authorized exactly one bounded Paper submission during a verified open US
+session, through the installed-wheel operator path, with merge and freeze conditional
+on its success. **No order was dispatched. The exercise found a product defect, the
+defect was corrected, and this candidate now STOPS pending Owner review — it is not
+merged.**
+
+Timeline, from Alpaca's authenticated `/v2/clock` (never the local clock):
+
+| UTC | Event |
+|---|---|
+| 13:30:11 | Alpaca: session OPEN (09:30:12 ET). AAPL bid 318.49 / ask 318.63, quote 1.5 s "in the future" of the local clock, asset active/tradable. Executable by every committed tolerance. |
+| 13:30:28 – 13:31:55 | `tools/m085_operator_walkthrough.py`, UNMODIFIED, against a wheel built at `25e8c64` (sha256 `fed83824…`) installed outside the source tree, database rebuilt through the full migration history, observed step-by-step. Steps 01–17 on their declared exit codes. **Step 16 preview refused: "the captured quote is dated after this preview".** Steps 18–22 (authorize, dispatch, reconcile, cancel, reconcile) BLOCKED; 23–30 on their declared exit codes. 30 steps, 0 off expectation, 5 blocked. |
+| 13:35:55 | `tools/m085_paper_acceptance.py`, UNMODIFIED, the committed generator of `paper-acceptance-results.md`: market open, quote fresh, limit/bid 0.0127, the real M084 chain built — and the same preview refusal at step 4. MEASURED BLOCKED, zero dispatch (the refusal precedes authorization). |
+
+Hosts connected to by every process in both runs, measured by a socket observer loaded
+into each console-script process: `paper-api.alpaca.markets`, `data.alpaca.markets`,
+and pip's `pypi.org` during virtualenv preparation. **No live host.** Every persisted
+read-back afterwards: no attempt, no authorization, empty dispatch queue.
+
+**FIND-P7-01 (product defect — corrected — STOP pending Owner review).** The preview's
+`created_at` (and the dispatch re-check's `at`) is stamped by the entrypoint BEFORE the
+handler fetches the account, clock, asset, position and quote from the pinned host.
+The domain then refused any quote dated after that instant, a rule copied from M084's
+`_age_seconds`. That rule is right for M084, where the CALLER asserts the observations
+and then chooses the evaluation instant, so a future-dated observation means the
+caller's own data is inconsistent. It is wrong for M085, where the system fetches the
+quote itself after the instant: in an open market a new IEX quote arrives during the
+~2.4 s of round-trips almost every time, so the freshest quote was always "after" the
+preview and **the product could not authorize or dispatch while the market was open —
+the one condition it exists for.** Measured lead on the day: 3.15 s (2.4 s round-trips
++ 0.75 s clock lag). Why it was invisible: every prior real-endpoint run happened with
+the market closed, where the stale quote made the rule irrelevant; the hostile-HTTP
+suite and every unit fake used quotes captured BEFORE the instant; and the one domain
+test for the rule asserted the refusal itself.
+
+*Correction:* `MAXIMUM_QUOTE_LEAD_SECONDS = 10`, a typed, non-operator-settable domain
+constant (three times the measured lead), and the rule now refuses a quote dated more
+than that AFTER the preview instant, with the message stating the lead. The staleness
+tolerance is untouched and remains the operator's `quote_maximum_age_seconds`. This
+is a new safety constant and a change to a risk rule; under §5 of the closure
+authorization that is material, so it is pushed for review and **not merged**. The
+alternative considered — injecting a clock port so the preview is stamped after the
+fetch — changes command shapes across twelve entrypoints and still fails on a lagging
+operator clock, so the bounded lead was chosen; the Owner may prefer the other.
+
+*Regression, permanent:* domain — a 3.15 s lead is authorizable, the bound is
+inclusive, the bound is typed and strictly below the staleness tolerance, and a lead
+past the bound is refused (new parametrized case `override14`); handler layer through
+the fakes — a newer-than-instant quote is authorizable on the preview path and
+dispatches on the re-check path; mutation — new family `quote_lead_bound` (remove the
+bound → detected). Campaigns rerun at the corrected source: domain 81, handlers 54, the
+M085 PostgreSQL-off suites 447, PostgreSQL-ON lifecycle + concurrency + M084 audit
+126, **mutation 41 of 41 detected**, full PostgreSQL-off suite 3474 passed at
+**79.82 %** coverage against the unchanged 79 floor, mypy strict clean, ruff clean.
+
+**FIND-P7-02 (environment — recorded, not corrected).** This operator machine's
+clock is 0.75 s BEHIND Alpaca's (five samples, −0.667 to −0.809 s). `w32tm /query
+/status` reports the Windows time service **not synchronized**, last successful sync
+the previous day, root dispersion 10.3 s. This contributed 0.75 s of the 3.15 s lead
+and would on its own have refused a quote fetched within 0.75 s of its venue
+timestamp. Resynchronizing the clock is an elevated host-OS action outside this
+authorization; it is recommended (`w32tm /resync`, elevated) before the next
+market-open attempt. The corrected rule tolerates it; it does not depend on it.
+
+**What the corrected candidate has NOT done.** The corrected rule has not been
+exercised end-to-end against the open market. Doing so would be a dispatch through a
+product modified after the Owner's one-submission authorization was given, and §5
+requires STOP pending review instead. The market-open Paper exercise therefore
+remains **OUTSTANDING** and needs a fresh Owner authorization against this head.
 
 ## What this validation does NOT establish
 

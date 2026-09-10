@@ -1,6 +1,6 @@
 # MILESTONE-085 — Installed-Wheel Operator Walkthrough
 
-Run at `2026-09-10T00:06:35.837490+00:00` (UTC) against a wheel installed into a
+Run at `2026-09-10T13:31:55.163614+00:00` (UTC) against a wheel installed into a
 throwaway virtualenv **outside the source tree**. Every command below is an installed
 console script; none is `python -m` against `src/`.
 
@@ -44,7 +44,7 @@ as much a pass as one expecting success.
 
 ## Blocked steps
 
-**Reason:** the preview refuses authorization on real broker evidence: the quote is 14777s old, older than the 60s limit
+**Reason:** the preview refuses authorization on real broker evidence: the captured quote is dated after this preview
 
 These steps need an authorizable preview, which needs a fresh quote. The
 freshness tolerance was NOT widened to manufacture one -- that is the control

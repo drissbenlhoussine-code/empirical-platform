@@ -1,6 +1,11 @@
 # MILESTONE-085 — Alpaca Paper Execution with Exact Human Approval
 
-**Status: candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
+**Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
+
+The Owner-authorized market-open attempt on 2026-09-10 dispatched nothing: it found
+FIND-P7-01, a product defect that refused every fresh quote in an open market. It is
+corrected here and stops for review; the market-open exercise is outstanding. See
+`validation-results.md`, pass 7.
 
 ## What this milestone establishes, in one sentence
 
@@ -24,8 +29,9 @@ implicitly by an enthusiastic report:
 - **Not** eligibility for, or readiness for, a live Alpaca account.
 - **Not** Owner approval of anything. This package requests review; it does not
   record a decision.
-- **Not** a completed external submission. The bounded paper submission was
-  **measured BLOCKED**, and `paper-acceptance-results.md` says why.
+- **Not** a completed external submission. Both attempts were **measured BLOCKED**
+  with zero orders — the second by a defect this candidate corrects — and
+  `paper-acceptance-results.md` records the open-market one.
 
 ## Reading order
 
@@ -40,7 +46,7 @@ order:
 | 4 | `scope-and-design.md` | Why each refusal sits where it does. The design decisions, including the ones that were wrong first. |
 | 5 | `hostile-review.md` | Five independent adversarial passes over the candidate, and what each found. |
 | 6 | `paper-acceptance-results.md` | The bounded external run against the real paper endpoint, and its BLOCKED outcome. |
-| 7 | `mutation-matrix.md` | 40 mutation families, each proved to be DETECTED by a test. Anti-vacuity for the whole suite. |
+| 7 | `mutation-matrix.md` | 41 mutation families, each proved to be DETECTED by a test. Anti-vacuity for the whole suite. |
 | 8 | `hostile-http-results.md` | 102 attacks through the real adapter over a real socket. |
 | 9 | `concurrency-results.md` | 16 races on three independently rebuilt schemas. |
 | 10 | `operator-walkthrough.md` | 30 steps against an **installed wheel**, against declared exit codes. |

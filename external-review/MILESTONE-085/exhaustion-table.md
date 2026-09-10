@@ -19,10 +19,10 @@ passing.
 | 9 | Deterministic client_order_id enforced | **EXECUTED_PASS** | mutation detected (`mutation-matrix.md`) |
 | 10 | An ambiguous outcome cannot duplicate an order | **EXECUTED_PASS** | mutation detected (`mutation-matrix.md`) |
 | 11 | Database transitions enforced | **EXECUTED_PASS** | mutation detected (`mutation-matrix.md`) |
-| 12 | Bounded paper submission completed or honestly blocked | **EXECUTED_PASS** | BLOCKED and the refused alternatives are recorded — the only available quote is 12487s old, beyond the 60s freshness tolerance. The tolerance is a safety control and is NOT widened to get past this; the |
+| 12 | Bounded paper submission completed or honestly blocked | **EXECUTED_PASS** | BLOCKED and the refused alternatives are recorded — the preview refuses authorization: the captured quote is dated after this preview |
 | 13 | Three clean concurrency repetitions on rebuilt schemas | **EXECUTED_PASS** | recorded (`concurrency-results.md`) |
 | 14 | Hostile HTTP campaign passed | **EXECUTED_PASS** | recorded (`hostile-http-results.md`) |
-| 15 | All mutation families detected | **EXECUTED_PASS** | 40 of 40 families detected |
+| 15 | All mutation families detected | **EXECUTED_PASS** | 41 of 41 families detected |
 | 16 | Five hostile reviews completed independently | **EXECUTED_PASS** | five passes present (`hostile-review.md`) |
 | 17 | Every discovered blocker corrected | **EXECUTED_PASS** | recorded (`validation-results.md`) |
 | 18 | Installed-wheel walkthrough on declared exit codes | **EXECUTED_PASS** | 30 steps, 0 off their declared exit code |

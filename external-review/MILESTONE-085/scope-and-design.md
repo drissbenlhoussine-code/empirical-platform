@@ -173,6 +173,11 @@ The transition table exists in two places — the domain and a trigger — and a
   and the safe direction to err in.
 - An unmapped broker status leaves the state unchanged and requires an operator to
   look. Five real Alpaca statuses are deliberately unmapped.
-- **The bounded external paper submission was measured BLOCKED, not completed.** The
-  market was closed, the only available quote was over three hours old, and the
-  freshness tolerance was not widened to get past it.
+- **The bounded external paper submission was measured BLOCKED twice, not completed.**
+  First with the market closed on a three-hour-old quote; then at the open, by
+  FIND-P7-01 — the preview instant is stamped before the evidence is fetched, and the
+  first rule refused every quote newer than it. Corrected with a 10 s lead bound
+  (`MAXIMUM_QUOTE_LEAD_SECONDS`); the staleness tolerance was not widened either time.
+- **The operator's clock must not lag the broker's by more than the lead bound.** A
+  quote is judged against the caller-supplied instant; a machine whose clock is more
+  than 10 s behind will refuse every fresh quote, correctly, until it is synchronized.

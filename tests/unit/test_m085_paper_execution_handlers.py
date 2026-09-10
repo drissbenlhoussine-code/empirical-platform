@@ -36,6 +36,7 @@ from tests.unit._m085_fakes import (
     FakeKillSwitch,
     FakeMarketData,
     FakePreviews,
+    FakeQuote,
     FakeSnapshots,
     FakeView,
     a_preview,
@@ -43,6 +44,7 @@ from tests.unit._m085_fakes import (
 )
 
 from empirical_platform.decision_candidate.paper_execution import (
+    MAXIMUM_QUOTE_LEAD_SECONDS,
     PAPER_ENDPOINT_HOST,
     BrokerAcknowledgement,
     ExecutionAttempt,
@@ -207,6 +209,33 @@ class TestPreviewPaperSubmission:
         preview = self._handler(market_data=FakeMarketData(quote=None)).handle(self._command())
         assert any("no quote was captured" in reason for reason in preview.refusals)
         assert render_preview_json(preview)["quote_source"] == "absent"
+
+    def test_a_quote_newer_than_the_command_instant_is_authorizable(self) -> None:
+        """FIND-P7-01, at the layer where it actually bit.
+
+        The entrypoint stamps `created_at`, THEN the handler fetches the quote. In an
+        open market the fetched quote is newer than that instant almost every time.
+        This is the shape the real market-open run produced (3.15 s), and the first
+        version of the rule refused it as "from the future".
+        """
+
+        class LaterQuote(FakeQuote):
+            captured_at = _NOW + timedelta(seconds=3, milliseconds=150)
+
+        preview = self._handler(market_data=FakeMarketData(quote=LaterQuote())).handle(
+            self._command()
+        )
+        assert preview.is_authorizable is True, preview.refusals
+
+    def test_a_quote_far_ahead_of_the_command_instant_is_still_refused(self) -> None:
+        class FarAheadQuote(FakeQuote):
+            captured_at = _NOW + timedelta(seconds=MAXIMUM_QUOTE_LEAD_SECONDS + 1)
+
+        preview = self._handler(market_data=FakeMarketData(quote=FarAheadQuote())).handle(
+            self._command()
+        )
+        assert preview.is_authorizable is False
+        assert any("dated after this preview" in reason for reason in preview.refusals)
 
     def test_the_preview_version_comes_from_stored_rows(self) -> None:
         previews = FakePreviews()
@@ -417,6 +446,17 @@ class TestSubmitAuthorizedPaperOrder:
         assert [row.kind for row in world["acknowledgements"].rows] == ["SUBMIT"]
         assert render_submission_json(result)["dispatched"] is True
         assert "PAPER SUBMISSION RESULT" in render_submission_text(result)
+
+    def test_a_dispatch_whose_refreshed_quote_is_newer_than_its_instant_proceeds(self) -> None:
+        # FIND-P7-01 on the dispatch path: the re-check at `command.at` fetches a quote
+        # newer than `at`. That must not read as "conditions changed".
+        class LaterQuote(FakeQuote):
+            captured_at = _NOW + timedelta(seconds=3, milliseconds=150)
+
+        world = self._world(market_data=FakeMarketData(quote=LaterQuote()))
+        self._authorize(world)
+        result = self._handler(world).handle(self._command())
+        assert result.dispatched is True
 
     def test_the_derived_client_order_id_is_what_was_actually_sent(self) -> None:
         world = self._world()

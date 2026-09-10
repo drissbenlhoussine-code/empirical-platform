@@ -310,6 +310,16 @@ FAMILIES: tuple[Family, ...] = (
         expected_fragment="assert",
     ),
     Family(
+        name="quote_lead_bound",
+        rule="A quote dated further after the preview than the lead bound refuses it (FIND-P7-01)",
+        path=_DOMAIN,
+        original="        if age < -MAXIMUM_QUOTE_LEAD_SECONDS:",
+        mutated="        if False:",
+        detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
+        "::test_each_condition_produces_its_own_refusal[override14-dated after this preview]",
+        expected_fragment="assert",
+    ),
+    Family(
         name="buying_power_check",
         rule="A cost ceiling above paper buying power refuses a preview",
         path=_DOMAIN,

@@ -11,7 +11,7 @@ Branch `feature/m085-alpaca-paper-human-approved-execution`, based on required
 |---|---|
 | MILESTONE-083 | APPROVED_AND_FROZEN |
 | MILESTONE-084 | APPROVED_AND_FROZEN |
-| MILESTONE-085 | FINAL_EXHAUSTED_PAPER_EXECUTION_CANDIDATE_PENDING_OWNER_REVIEW |
+| MILESTONE-085 | CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW (FIND-P7-01; market-open exercise outstanding) |
 | MILESTONE-086 | NOT_STARTED |
 | Pull request | **OPEN / NOT MERGED** |
 
@@ -158,27 +158,41 @@ accepted it; repeating that would mean every milestone breaking the one before i
 
 | Campaign | Result |
 |---|---|
-| Domain unit tests | 78 passed |
+| Domain unit tests | 81 passed |
 | PostgreSQL integration | 54 passed, raw-SQL attacks on the database layer |
 | Concurrency | 49 passed — 16 races × 3 independently rebuilt schemas, barriers not sleeps |
 | Hostile HTTP | 102 passed — real socket, real adapter, host pinning preserved |
 | Authority contract | 51 passed — bijection of contract, runtime and domain |
-| Mutation (anti-vacuity) | **40 of 40 families detected**, SHA-256 restoration verified |
+| Mutation (anti-vacuity) | **41 of 41 families detected**, SHA-256 restoration verified |
 | Installed-wheel walkthrough | 30 steps, **0 off their declared exit code** |
 | Performance | measured plans; one index added because a measurement asked for it |
 | Pass-6 closing tests | 210 added — handlers, 12 CLI surfaces, composition, base pin |
 
-## J. The bounded external paper submission — MEASURED BLOCKED
+## J. The bounded external paper submission — attempted twice, MEASURED BLOCKED twice, zero orders
 
-**It was not completed, and nothing here pretends it was.** The market was closed;
-the only available quote was 12,487 s old against a 60 s freshness tolerance; the
-AAPL ask was `0`; limit/bid was `0.0133`.
+**First attempt (closed market).** Quote 12,487 s old against a 60 s tolerance; ask
+`0`. Blocked on staleness. No control relaxed.
 
-**No safety control was relaxed to get past it.** The notional ceiling was not
-raised, the order type was not changed to market, the freshness tolerance was **not
-widened**, and no cheaper asset was substituted. The exhaustion table's item 12
-passes only because the refusals are recorded; it verifies the words "was not
-widened" and "not raised" appear, so "blocked" cannot hide a shortcut.
+**Second attempt (Owner-authorized, open market, 2026-09-10 09:30 ET).** Through the
+installed-wheel walkthrough, unmodified, and then the committed acceptance generator,
+unmodified. Alpaca's clock said OPEN; the quote was fresh; the limit was 1.26 % of the
+bid; the real M084 chain produced the intent. **The preview refused: "the captured
+quote is dated after this preview."** That refusal is FIND-P7-01 — a product defect
+that made the product unable to authorize or dispatch in exactly the condition it
+exists for — and it is corrected in this candidate. Both runs were measured: only the
+two pinned hosts were contacted, no attempt or authorization was persisted, and the
+dispatch queue is empty.
+
+**No safety control was relaxed at either attempt.** The correction does not touch the
+60 s staleness tolerance; it bounds how far AFTER the preview instant a fetched quote
+may be dated (10 s, three times the measured 3.15 s lead) instead of refusing every
+such quote. It is a new safety constant, stated as such, for the Owner to accept or
+reject.
+
+**The corrected rule has not been exercised against an open market.** That would be a
+dispatch through a product changed after the one-submission authorization was given;
+the closure authorization requires a STOP pending review instead. The market-open
+exercise is OUTSTANDING and needs a fresh authorization against this head.
 
 ## K. Validation
 
@@ -195,7 +209,7 @@ Full detail in `validation-results.md`. Headline:
 
 ## L. Findings
 
-**Twenty-five numbered findings, every one found by executing something.** Passes 1–5 are in
+**Twenty-seven numbered findings, every one found by executing something.** Passes 1–5 are in
 `hostile-review.md`; the closing pass 6 is in `validation-results.md`. The four most
 consequential:
 
@@ -206,6 +220,10 @@ consequential:
 - **FIND-P6-01** — with PostgreSQL OFF, coverage was 76.22 % against the 79.0 floor:
   the entire operator-facing surface was unexercised in the environment that gates
   the merge. Closed with 210 real tests, floor untouched.
+- **FIND-P7-01** — at market open, with everything executable, the preview refused the
+  fresh quote as "dated after this preview": the instant is stamped before the fetch,
+  so a live market always produced a newer quote. The product could not dispatch in the
+  condition it exists for. Corrected with a bounded lead; **STOP pending Owner review.**
 - **FIND-P6-02** — the exhaustion table's base-commit pin held a one-character
   transcription error, and the gate reported it indistinguishably from a genuinely
   wrong base. A gate that cannot tell "you are on the wrong base" from "I cannot read
@@ -424,10 +442,15 @@ would still be hiding after everything above:
 
 ## X. Residual risk, stated rather than dissolved
 
-- **The end-to-end path has never placed a real paper order.** Every layer is
-  proved — hostile socket, real database, installed wheel — but the composition has
-  not been observed succeeding against Alpaca. Section J is the honest statement of
-  that, and it is the single largest gap in this milestone.
+- **The end-to-end path has never placed a real paper order — and the first live-market
+  attempt found a defect that would have prevented it.** Every layer is proved, but the
+  composition has been observed against an open market exactly once, and it refused for
+  a reason that was wrong (FIND-P7-01). The correction is tested at three layers and
+  under mutation, but it has NOT been observed succeeding against Alpaca. Section J is
+  the honest statement of that, and it remains the single largest gap.
+- **This operator machine's clock is not synchronized** (0.75 s behind the broker;
+  FIND-P7-02). The corrected rule tolerates it; a clock that drifts past 10 s would
+  block again, correctly.
 - **This milestone has now produced three instances of the same secret-gate defect**
   (FIND-P5-02, FIND-P6-07, FIND-P6-09) and two of the same
   property-of-the-checkout defect (FIND-P5-03, FIND-P6-08). Each was caught by a
@@ -453,11 +476,11 @@ not this milestone's to make.
 |---|---|
 | MILESTONE-083 | APPROVED_AND_FROZEN |
 | MILESTONE-084 | APPROVED_AND_FROZEN |
-| MILESTONE-085 | **FINAL_EXHAUSTED_PAPER_EXECUTION_CANDIDATE_PENDING_OWNER_REVIEW** |
+| MILESTONE-085 | **CORRECTED_CANDIDATE_PENDING_OWNER_REVIEW** — FIND-P7-01 corrected after the market-open attempt; market-open exercise OUTSTANDING |
 | MILESTONE-086 | NOT_STARTED |
 | Pull request | **OPEN / NOT MERGED** — one PR, to `master` |
 | CI at the final head | **green**, all 13 steps, on both the push and pull_request events |
-| Exhaustion | **31 of 31 EXECUTED_PASS, 0 blockers** |
+| Exhaustion | see `exhaustion-table.md` at this head |
 | Baseline comparison | **no new failure or error id** |
 | `master` | unchanged at `a224076754fb38909ee04c2464e50e51df12d7ad` |
 | Preserved M063 stash | `06c291ca93217d93477d42f8bf9c58e048dcac56`, recoverable, absent from the diff |
