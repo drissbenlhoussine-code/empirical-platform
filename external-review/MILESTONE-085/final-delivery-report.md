@@ -316,7 +316,7 @@ infer from an enthusiastic report:
 `M085 - Alpaca Paper Execution with Exact Human Approval`, whose body ends with
 `DO NOT MERGE WITHOUT OWNER APPROVAL.`
 
-Thirteen commits, each coherent. The final row carries no abbreviated hash because it is the commit that contains this report, and a report cannot state its own commit's identity without invalidating it:
+Every commit is coherent on its own. The eleven that build the milestone:
 
 | Commit | Subject |
 |---|---|
@@ -331,10 +331,16 @@ Thirteen commits, each coherent. The final row carries no abbreviated hash becau
 | `c9be6d2` | `fix(m085): the walkthrough found two defects; the wheel run is 30/30 on expectation` |
 | `0c6455c` | `fix(m085): clear the secret-scan gate without adding an exemption` |
 | `3fbea05` | `fix(m085): the CI failure, and an index the measurement asked for` |
-| `e44d78d` | `test(m085): close the PostgreSQL-OFF coverage gap, and two gates that could not fail` |
-| *(this one)* | `docs(m085): the review package, and the evidence each document is derived from` |
 
-`git log --oneline a224076754fb..HEAD` on the branch gives the exact sequence.
+Followed by the closing-pass commits: the PostgreSQL-OFF coverage gap and the two
+gates that could not fail (FIND-P6-01 to P6-07), this review package, and two
+corrections CI itself forced (FIND-P6-08, FIND-P6-09). Their hashes are deliberately
+not listed: a report cannot state the identity of the commit that contains it without
+invalidating the statement, and a list that has to be rewritten by its own correction
+is a list that will be wrong.
+
+`git log --oneline a224076754fb..HEAD` on the branch gives the exact and current
+sequence.
 
 ## T. How to review this efficiently
 
