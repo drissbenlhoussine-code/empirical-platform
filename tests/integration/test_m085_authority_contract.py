@@ -234,11 +234,24 @@ class TestTheDocumentIsTheRendering:
     ) -> None:
         assert DOCUMENT.read_text(encoding="utf-8") == render(contract)
 
-    def test_the_document_is_stored_with_lf_endings(self) -> None:
-        # So the rendering is the same bytes on Windows and on POSIX and `--check`
-        # cannot pass on one platform and fail on the other.
-        raw = DOCUMENT.read_bytes()
-        assert b"\r\n" not in raw
+    def test_the_rendering_carries_no_carriage_returns_on_any_platform(
+        self, contract: dict[str, Any]
+    ) -> None:
+        """The RENDERER's output, not the file on disk.
+
+        An earlier version of this test read the file's bytes and required no
+        CRLF. It passed locally and FAILED in CI -- correctly. `.md` carried no
+        `eol` attribute, so a Windows checkout materialises CRLF, and the test was
+        asserting a property of the CHECKOUT rather than of the content.
+
+        The real invariant is that the renderer emits the same bytes on every
+        platform, which is what makes `--check` behave identically on both. That
+        is what is asserted here. The checkout is pinned separately, by a narrow
+        `.gitattributes` rule for this package.
+        """
+        rendered = render(contract)
+        assert "\r\n" not in rendered
+        assert "\r" not in rendered
 
     def test_every_claim_appears_in_the_document(self, contract: dict[str, Any]) -> None:
         rendered = DOCUMENT.read_text(encoding="utf-8")

@@ -725,6 +725,17 @@ def _create_attempt_table() -> None:
         "paper_execution_attempt",
         ["state", "claimed_at"],
     )
+    # The operator queue orders by claim instant with NO state filter, so the
+    # composite index above cannot serve it: measurement showed a Seq Scan plus a
+    # Sort over every row. This index exists because the plan said so, not because
+    # an index on a timestamp seemed prudent -- see `performance-results.md`, which
+    # records the plan before and after. It matters because these tables are
+    # append-only and therefore only grow.
+    op.create_index(
+        "ix_paper_attempt_claimed_desc",
+        "paper_execution_attempt",
+        [sa.text("claimed_at DESC"), sa.text("attempt_id DESC")],
+    )
 
 
 def _create_acknowledgement_table() -> None:
