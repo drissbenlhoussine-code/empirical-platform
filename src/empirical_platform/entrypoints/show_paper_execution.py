@@ -34,6 +34,7 @@ def run_show_paper_execution(
 ) -> PaperExecutionStatus:
     with paper_execution_runtime(config) as context:
         handler = ShowPaperExecutionHandler(
+            intents=context.m084.approved_order_intents,
             attempts=context.paper.execution_attempts,
             authorizations=context.paper.execution_authorizations,
             previews=context.paper.submission_previews,

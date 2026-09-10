@@ -1155,19 +1155,37 @@ class PaperExecutionStatus:
 
 
 class ShowPaperExecutionHandler:
-    """The whole chain behind one intent, in one answer."""
+    """The whole chain behind one intent, in one answer.
 
-    __slots__ = ("_attempts", "_authorizations", "_previews", "_acknowledgements", "_events")
+    TAKES THE INTENT REPOSITORY ONLY TO REFUSE AN UNKNOWN ONE. Without it, an
+    intent that does not exist has no attempt, no authorization and no preview,
+    which `_overall_state` reads as NOT_DISPATCHED -- so a mistyped identifier
+    produced the reassuring answer "this has not been dispatched" about something
+    that was never there. The installed-wheel walkthrough found that: step 30
+    expected a refusal and got exit 0. An operator asking about the wrong
+    identifier must be told so.
+    """
+
+    __slots__ = (
+        "_intents",
+        "_attempts",
+        "_authorizations",
+        "_previews",
+        "_acknowledgements",
+        "_events",
+    )
 
     def __init__(
         self,
         *,
+        intents: ApprovedOrderIntentRepository,
         attempts: ExecutionAttemptRepository,
         authorizations: ExecutionAuthorizationRepository,
         previews: SubmissionPreviewRepository,
         acknowledgements: BrokerAcknowledgementRepository,
         events: PaperExecutionEventRepository,
     ) -> None:
+        self._intents = intents
         self._attempts = attempts
         self._authorizations = authorizations
         self._previews = previews
@@ -1175,6 +1193,8 @@ class ShowPaperExecutionHandler:
         self._events = events
 
     def handle(self, query: ShowPaperExecutionQuery) -> PaperExecutionStatus:
+        if self._intents.get(query.intent_governance_id) is None:
+            raise NotFoundError(f"no approved order intent {query.intent_governance_id!r} exists")
         attempt = self._attempts.for_intent(query.intent_governance_id)
         authorization = self._authorizations.latest_for_intent(query.intent_governance_id)
         preview = self._previews.latest_for_intent(query.intent_governance_id)
@@ -1233,22 +1253,31 @@ class PaperExecutionStatusQuery:
 
 
 class PaperExecutionStatusHandler:
-    """Just the state, for an operator who wants one word."""
+    """Just the state, for an operator who wants one word.
 
-    __slots__ = ("_attempts", "_authorizations", "_previews")
+    Refuses an unknown intent for the same reason as
+    `ShowPaperExecutionHandler`: NOT_DISPATCHED about a nonexistent intent is a
+    confident answer to a question nobody asked.
+    """
+
+    __slots__ = ("_intents", "_attempts", "_authorizations", "_previews")
 
     def __init__(
         self,
         *,
+        intents: ApprovedOrderIntentRepository,
         attempts: ExecutionAttemptRepository,
         authorizations: ExecutionAuthorizationRepository,
         previews: SubmissionPreviewRepository,
     ) -> None:
+        self._intents = intents
         self._attempts = attempts
         self._authorizations = authorizations
         self._previews = previews
 
     def handle(self, query: PaperExecutionStatusQuery) -> PaperExecutionState:
+        if self._intents.get(query.intent_governance_id) is None:
+            raise NotFoundError(f"no approved order intent {query.intent_governance_id!r} exists")
         return _overall_state(
             attempt=self._attempts.for_intent(query.intent_governance_id),
             authorization=self._authorizations.latest_for_intent(query.intent_governance_id),

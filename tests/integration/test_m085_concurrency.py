@@ -728,7 +728,15 @@ class TestTheThreeRepetitionsWereGenuinelyDistinct:
         If the per-repetition fixture ever stopped rebuilding, the identities would
         be equal and every "three clean repetitions" claim above would be one
         repetition described three times.
+
+        Skips with PostgreSQL off, and the skip is NOT a weakening: with the
+        database absent every repetition above skipped too, so there is nothing to
+        have been distinct. Without this guard the test failed in the
+        PostgreSQL-OFF regression mode -- which is how the four-mode comparison
+        earned its place.
         """
+        if not postgres_enabled():
+            pytest.skip("PostgreSQL is off, so no repetition ran and there is nothing to compare")
         assert sorted(_IDENTITIES) == list(_REPETITIONS), _IDENTITIES
         schema_oids = {identity["schema_oid"] for identity in _IDENTITIES.values()}
         attempt_oids = {identity["attempt_oid"] for identity in _IDENTITIES.values()}
