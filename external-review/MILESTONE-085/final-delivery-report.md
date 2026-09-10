@@ -166,7 +166,7 @@ accepted it; repeating that would mean every milestone breaking the one before i
 | Mutation (anti-vacuity) | **40 of 40 families detected**, SHA-256 restoration verified |
 | Installed-wheel walkthrough | 30 steps, **0 off their declared exit code** |
 | Performance | measured plans; one index added because a measurement asked for it |
-| Pass-6 closing tests | 208 added — handlers, 12 CLI surfaces, composition, base pin |
+| Pass-6 closing tests | 210 added — handlers, 12 CLI surfaces, composition, base pin |
 
 ## J. The bounded external paper submission — MEASURED BLOCKED
 
@@ -184,7 +184,7 @@ widened" and "not raised" appear, so "blocked" cannot hide a shortcut.
 
 Full detail in `validation-results.md`. Headline:
 
-- **PostgreSQL OFF (what CI runs): 0 failures, 0 errors, coverage 79.82 %** against
+- **PostgreSQL OFF (what CI runs): 3468 passed, 0 failures, 0 errors, coverage 79.82 %** against
   the `fail_under = 79` floor, which was **not lowered**.
 - **Baseline comparison: no new failure or error id**, in either mode, compared by
   test IDENTITY rather than by count.
@@ -205,11 +205,11 @@ consequential:
   audit row. Found by writing the attack, not by reading the code.
 - **FIND-P6-01** — with PostgreSQL OFF, coverage was 76.22 % against the 79.0 floor:
   the entire operator-facing surface was unexercised in the environment that gates
-  the merge. Closed with 208 real tests, floor untouched.
+  the merge. Closed with 210 real tests, floor untouched.
 - **FIND-P6-02** — the exhaustion table's base-commit pin held a one-character
   transcription error, and the gate reported it indistinguishably from a genuinely
   wrong base. A gate that cannot tell "you are on the wrong base" from "I cannot read
-  my own pin" is not a gate. Corrected and pinned by 11 tests.
+  my own pin" is not a gate. Corrected and pinned by 13 tests.
 
 **Two findings are recorded and deliberately NOT corrected**, because correcting them
 would exceed the authorized surface: FIND-F-03 (`tools/m084_hostile_passes.py` does

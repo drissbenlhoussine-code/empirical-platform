@@ -42,7 +42,7 @@ only ever run one way has only ever been validated one way.
 
 | Mode | Environment | Result |
 |---|---|---|
-| 1 | PostgreSQL OFF (what CI runs) | 3466 passed, **0 failures, 0 errors**, coverage 79.82% ≥ the 79.0 floor |
+| 1 | PostgreSQL OFF (what CI runs) | 3468 passed, **0 failures, 0 errors**, coverage 79.82% ≥ the 79.0 floor |
 | 2 | PostgreSQL ON, fresh database through the complete migration history | 4510 passed, 3 failures, 43 errors in 825s — **all pre-existing on `master`** |
 | 3 | Installed wheel, operator walkthrough | 30 steps, **0 off their declared exit code** |
 | 4 | Baseline `master` at `a224076754fb`, both modes | the comparison below |
@@ -55,12 +55,17 @@ regression. Both directions are printed.
 
 | Mode | Outcome | Baseline `a224076754fb` | Candidate final head |
 |---|---|---|---|
-| 1 | passed | 2995 | 3466 |
+| 1 | passed | 2995 | 3468 |
 | 1 | failures | 1 | **0** |
 | 1 | errors | 0 | **0** |
 | 2 | passed | 3936 | 4510 |
 | 2 | failures | 4 | **3** |
 | 2 | errors | 43 | **43** |
+
+> The mode-1 candidate figure is from a full clone. In CI, which checks out with
+> `fetch-depth: 1`, eight of `test_m085_base_pin.py`'s history-dependent tests skip
+> with a self-reporting reason and the count is correspondingly lower — see
+> FIND-P6-08. Nothing changes status; the skips are declared, not silent.
 
 **Result: no new failure or error id, in either mode.**
 
@@ -135,11 +140,11 @@ entrypoints 0%, `entrypoints/_paper_composition.py` 0%, `usecases/paper_executio
 SQL and hostile sockets, and none of that ran in the environment that gates the
 merge.
 
-*Correction, without touching the floor:* **208 new tests** across five files —
+*Correction, without touching the floor:* **210 new tests** across five files —
 `tests/unit/_m085_fakes.py` (shared in-memory fakes, following
 `tests/contract/_fakes.py`), `test_m085_paper_execution_handlers.py` (51),
 `test_m085_entrypoints.py` (116), `test_m085_paper_composition.py` (30),
-`test_m085_base_pin.py` (11). Coverage in PostgreSQL-OFF mode is now **79.82%**.
+`test_m085_base_pin.py` (13). Coverage in PostgreSQL-OFF mode is now **79.82%**.
 The fakes are dictionaries and lists with no behaviour of their own, so a passing
 test cannot be passing because a fake was clever; and following REV-004's rule, they
 never simulate what a trigger computes — they exercise the ORCHESTRATION's own
@@ -154,7 +159,7 @@ item 1 reported `EXECUTED_FAIL_BLOCKER — branch base is (unresolved)`. A wrong
 and a genuinely wrong BASE were indistinguishable in the output. The M084 tooling
 has a test pinning its commits across four tools, which is why this class of error
 was caught there; M085 pinned its base in one tool and tested it nowhere.
-*Corrected:* the pin, plus `tests/unit/test_m085_base_pin.py` — 11 tests including
+*Corrected:* the pin, plus `tests/unit/test_m085_base_pin.py` — 13 tests including
 that the pinned object is a real commit, that it IS this branch's merge-base, that
 merge-base returns a NON-EMPTY answer (so "unreadable pin" cannot masquerade as
 "wrong base"), and that flipping any single hex digit is detected.
@@ -215,6 +220,32 @@ receives an identical string. The gate now exits 0 over 1306 targets.
 
 Worth stating plainly: had the pass-6 tests been added without re-running this gate,
 CI would have failed on them.
+
+**FIND-P6-08 (I made FIND-P5-03's mistake again, and CI caught it again).** The
+first version of `test_m085_base_pin.py` asserted, unconditionally, that the pinned
+base commit exists in the repository and is this branch's merge-base. **CI failed**
+on all four such tests: GitHub Actions checks out with `fetch-depth: 1`, so the
+base commit is genuinely absent and every history question about it is unanswerable
+there. That is the same category of defect as FIND-P5-03 — a test asserting a
+property of the CHECKOUT rather than of the content — committed in the very file
+written to stop a pin defect.
+
+*Corrected* using the pattern `tests/integration/test_m084_file_audit.py` already
+established for exactly this: history-dependent checks skip when the history is
+absent, and **the skip reports itself** rather than passing quietly, because a
+suite that silently degrades its own strongest check is worse than one that never
+had it.
+
+The corruption checks are guarded too, and deliberately: with no history, a real
+pin and a corrupted one both resolve to nothing, so "a corrupted pin is detected"
+would hold for the wrong reason — the exact vacuity this file exists to prevent.
+
+What matters is that the defect this file was written for is still caught with **no
+history at all**. `test_the_pin_is_the_commit_this_milestone_was_required_to_branch_from`
+compares the assembled pin against the required base SHA written out independently,
+and it runs unconditionally. Verified by cloning this branch with `--depth 1` and
+running the file there: **5 passed, 8 skipped**, with that check among the 5. With
+full history: **13 passed, 0 skipped**.
 
 **Also corrected in this pass:** two lint findings and one formatting finding in
 `tools/render_m085_exhaustion_table.py` (an unused import and a long line), and
