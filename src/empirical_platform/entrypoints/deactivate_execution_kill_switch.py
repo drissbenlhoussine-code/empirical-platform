@@ -7,6 +7,10 @@ writes nothing.
 LIFTING THIS SWITCH AUTHORIZES NOTHING. It removes one refusal; it does not create
 an authorization, revive an expired one, or make an already-consumed one usable
 again. A dispatch still needs a fresh human authorization bound to the exact order.
+
+`run_deactivate_execution_kill_switch` is split out from `main()` so that argument
+handling and output formatting can be unit-tested by monkeypatching this one
+function.
 """
 
 from __future__ import annotations

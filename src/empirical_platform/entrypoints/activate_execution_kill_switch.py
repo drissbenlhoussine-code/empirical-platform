@@ -14,6 +14,9 @@ worse than no record.
 WHAT IT DOES NOT DO. It does not cancel or reconcile orders that are already at the
 broker. Those need `empirical-platform-cancel-paper-order` and
 `empirical-platform-reconcile-paper-order`.
+
+`run_activate_execution_kill_switch` is split out from `main()` so that argument handling and output
+formatting can be unit-tested by monkeypatching this one function.
 """
 
 from __future__ import annotations
