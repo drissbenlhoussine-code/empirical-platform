@@ -360,3 +360,108 @@ proved against a real hostile socket, a real database and a real installed wheel
 but not against a real accepted Paper order. That gap is real, it is stated in every
 document that touches it, and the correct response to it is a re-run when the market
 is open, not a widened tolerance.
+
+## V. Environment, and how to reproduce every number here
+
+| Component | Version |
+|---|---|
+| OS | Windows 11 Pro 26200 (CI: `windows-latest`) |
+| Python | 3.13.14 (`requires-python >=3.13,<3.14`) |
+| PostgreSQL | 16.13 on port 5432, role `empirical` (non-superuser) |
+| CI | `.github/workflows/foundation`, 13 steps, no PostgreSQL |
+
+```
+# The gates, in CI's order. All exit 0 at the final head.
+python -m compileall -q src tests tools migrations
+python -m ruff format --check .
+python -m ruff check .
+python -m mypy
+python -m pytest                       # PostgreSQL OFF -- what CI runs
+python tools/check_architecture.py .
+python -m pip_audit
+powershell -ExecutionPolicy Bypass -File .\scripts\security.ps1
+python -m build
+
+# The derived documents. Each fails if it disagrees with its source.
+python tools/render_m085_authority.py --check
+python tools/render_m085_exhaustion_table.py --check
+python tools/render_m084_file_audit.py --check
+python tools/check_frozen_paths.py
+
+# The PostgreSQL-ON regression, against a database built from scratch through
+# the complete migration history.
+EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1 python -m pytest
+```
+
+The bounded external run (`tools/m085_paper_acceptance.py`) needs the three paper
+credentials in the environment and **will refuse to run without them**; it contacts
+the paper endpoint only, and re-running it while the market is open is the correct
+way to close the gap in section J.
+
+## W. Where to attack this
+
+A reviewer with limited time should aim at these, because this is where a defect
+would still be hiding after everything above:
+
+1. **The reconciliation policy.** Two consecutive not-found observations and 60
+   seconds is a *choice*. If a real Alpaca 404 can occur for an order that later
+   materialises, this resolves an outcome it should not. Nothing here proves it
+   cannot.
+2. **The trigger instead of a foreign key.** The insert-time guarantee is
+   equivalent, but the parent can still be TRUNCATEd afterwards. Two tests execute
+   that hole rather than describing it — read those tests and decide whether the
+   residual is acceptable.
+3. **The one-attempt-per-intent rule.** A rejected dispatch cannot be retried
+   without a new M084 intent. That is deliberate and it is the safe direction, but
+   it is an operational constraint a reviewer may judge differently.
+4. **The five unmapped broker statuses.** They leave the state unchanged and
+   require a human to look. Check the list in `_BROKER_STATUS_TO_STATE` and decide
+   whether each really should be unmapped.
+5. **The fakes added in the closing pass.** They are new, and new test
+   infrastructure is where vacuity hides. `mutation-matrix.md` covers the domain
+   and database; these fakes are not under that campaign. Four of them initially
+   passed for the wrong reason and are recorded in `validation-results.md`.
+
+## X. Residual risk, stated rather than dissolved
+
+- **The end-to-end path has never placed a real paper order.** Every layer is
+  proved — hostile socket, real database, installed wheel — but the composition has
+  not been observed succeeding against Alpaca. Section J is the honest statement of
+  that, and it is the single largest gap in this milestone.
+- **This milestone has now produced three instances of the same secret-gate defect**
+  (FIND-P5-02, FIND-P6-07, FIND-P6-09) and two of the same
+  property-of-the-checkout defect (FIND-P5-03, FIND-P6-08). Each was caught by a
+  gate rather than by review, which is the system working — but the repetition
+  suggests the local pre-push habit, not the gates, is the weak point.
+- **The 43 pre-existing M083 errors remain.** They are not M085's to fix, and this
+  milestone deliberately avoided repeating their cause, but they mean the
+  PostgreSQL-ON suite has never been fully green on this repository.
+- **Coverage sits at 79.82% against a 79.0 floor.** That is a 0.82-point margin. A
+  future change that adds uncovered orchestration will breach it, and the correct
+  response then is the one taken here, not a lower floor.
+
+## Y. M086
+
+**Not started, not scoped, not designed, and deliberately not discussed here.** No
+M086 path exists in the repository. Section X names residual risk in M085; none of
+it should be read as a proposal for what comes next, which is the Owner's call and
+not this milestone's to make.
+
+## Z. Terminal status
+
+| Item | Status |
+|---|---|
+| MILESTONE-083 | APPROVED_AND_FROZEN |
+| MILESTONE-084 | APPROVED_AND_FROZEN |
+| MILESTONE-085 | **FINAL_EXHAUSTED_PAPER_EXECUTION_CANDIDATE_PENDING_OWNER_REVIEW** |
+| MILESTONE-086 | NOT_STARTED |
+| Pull request | **OPEN / NOT MERGED** — one PR, to `master` |
+| CI at the final head | **green**, all 13 steps, on both the push and pull_request events |
+| Exhaustion | **31 of 31 EXECUTED_PASS, 0 blockers** |
+| Baseline comparison | **no new failure or error id** |
+| `master` | unchanged at `a224076754fb38909ee04c2464e50e51df12d7ad` |
+| Preserved M063 stash | `06c291ca93217d93477d42f8bf9c58e048dcac56`, recoverable, absent from the diff |
+
+M085 is **not approved and not frozen**. It must not be merged without Owner
+approval.
+
