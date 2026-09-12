@@ -1,6 +1,8 @@
 # M085 temporal correction — implementation evidence
 
-Status: IMPLEMENTED_CANDIDATE_PENDING_CI_AND_OWNER_REVIEW. Not merged or frozen.
+Status: IMPLEMENTED_CANDIDATE — OWNER REVIEW REQUIRED. Not merged or frozen.
+Head-specific CI conclusions are recorded on PR #15 against the full candidate SHA;
+this document does not substitute for those checks or grant Owner approval.
 M086 remains NOT_STARTED. No external Paper or Live submission was performed.
 
 ## Starting identity and reproduced defect
@@ -136,3 +138,23 @@ No amend, rebase, force update, second PR, merge or freeze is used.
 - `tests/unit/test_m085_paper_execution_handlers.py`
 - `tests/unit/test_m085_paper_time.py`
 - `tools/m085_mutation_campaign.py`
+
+## CI evidence and final verification location
+
+The first implementation commit `bc5894f52c4ae5c3b003dbfcf8874a86d6116f34`
+passed Windows foundation push CI: 3486 passed, 1129 skipped, coverage 79.86%
+against the unchanged 79% floor; lint, types, architecture, security and build passed.
+Run: https://github.com/drissbenlhoussine-code/empirical-platform/actions/runs/34689222122
+
+The additional clock-bound and composition changes are in
+`7f7e9c44849430335cd770bd8303a3834ac8957f`; production changes stop at that commit.
+Later commits in this correction record evidence only. The final candidate's
+Windows and full-history PostgreSQL CI must be checked independently, rather than
+inheriting the preceding commit's result. Their exact run URLs, test counts and
+conclusions are recorded in the updated PR description after completion:
+https://github.com/drissbenlhoussine-code/empirical-platform/pull/15
+
+The `changed-files.txt` name-status contract was verified against the pinned base:
+70 PR paths, exact match. The focused correction changes the 24 paths listed above.
+Both the checkpoint and this checkout's exclude file retain their original hashes.
+External Paper acceptance remains outstanding; no order/merge/freeze is authorized.
