@@ -266,8 +266,9 @@ def _gather(
     account = _read_account_snapshot(broker=broker, snapshot_id=snapshot_id, captured_at=at)
     account = replace(account, captured_at=timing.now())
     clock_requested_at = timing.now()
+    clock_requested_monotonic = timing.last_monotonic
     clock = broker.fetch_clock()
-    timing.verify_broker(clock.timestamp, clock_requested_at)
+    timing.verify_broker(clock.timestamp, clock_requested_at, clock_requested_monotonic)
     asset = broker.fetch_asset(symbol)
     position = broker.fetch_position(symbol)
     quote = market_data.fetch_quote(symbol)

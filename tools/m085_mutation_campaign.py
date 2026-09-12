@@ -77,6 +77,35 @@ class Family:
 
 FAMILIES: tuple[Family, ...] = (
     Family(
+        name="broker_time_upper",
+        rule="Broker round-trip uncertainty ages deadlines",
+        path="src/empirical_platform/shared/brokerage/paper_time.py",
+        original=(
+            "upper = timestamp + timedelta(seconds=self._last.monotonic - requested_monotonic)"
+        ),
+        mutated="upper = timestamp",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_broker_round_trip_uncertainty_cannot_extend_a_permission",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="wall_clock_rollback",
+        rule="Backward wall clock refuses",
+        path="src/empirical_platform/shared/brokerage/paper_time.py",
+        original="current.utc < self._last.utc",
+        mutated="False",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_rollback_refuses[utc]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="clock_alignment",
+        rule="Uncertain broker/local alignment refuses",
+        path="src/empirical_platform/shared/brokerage/paper_time.py",
+        original="not requested_at <= timestamp <= received_at",
+        mutated="False",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_uncertain_absolute_alignment_refuses[1]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
         name="post_fetch_time",
         rule="Post-fetch evaluation uses current time",
         path=_USECASE,

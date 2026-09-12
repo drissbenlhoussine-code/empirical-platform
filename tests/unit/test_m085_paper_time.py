@@ -51,7 +51,7 @@ def test_rollback_refuses(field: str) -> None:
 def test_uncertain_absolute_alignment_refuses(offset: int) -> None:
     window = PaperTimeWindow(Clock())
     with pytest.raises(PaperTimeUncertainError, match="alignment"):
-        window.verify_broker(NOW + timedelta(seconds=offset), NOW)
+        window.verify_broker(NOW + timedelta(seconds=offset), NOW, 0.0)
 
 
 def test_forward_wall_step_does_not_extend_validity() -> None:
@@ -114,3 +114,14 @@ def test_final_guard_runs_after_connect_and_before_http_request(
     with pytest.raises(BrokerNotSentError):
         client.submit_order(a_preview().order, before_send=guard)
     assert events == ["connected", "guard", "closed"]
+
+
+def test_broker_round_trip_uncertainty_cannot_extend_a_permission() -> None:
+    clock = Clock()
+    window = PaperTimeWindow(clock)
+    clock.utc += timedelta(seconds=10)
+    clock.monotonic += 10
+    window.verify_broker(NOW + timedelta(seconds=9), NOW, 0.0)
+    assert window.now() == NOW + timedelta(seconds=19)
+    clock.monotonic += 2
+    assert window.now() == NOW + timedelta(seconds=21)

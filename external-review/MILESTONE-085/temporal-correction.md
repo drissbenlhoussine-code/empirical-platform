@@ -23,7 +23,9 @@ checked the pre-fetch command instant. No real broker was involved.
   later of sampled wall time and initial UTC plus elapsed monotonic time. A stalled
   wall clock cannot extend validity; a backward wall/monotonic reading refuses.
 - Broker clock timestamps must fall inside the measured request interval. No fixed
-  allowance is used for fetch latency or clock skew. Uncertain alignment refuses;
+  allowance is used for fetch latency or clock skew. The broker timestamp plus
+  the full monotonic round-trip duration forms an additional conservative upper
+  bound, propagated through subsequent elapsed time. Uncertain alignment refuses;
   clock synchronization/venue clock disagreement may therefore block an operator.
 - Quotes later than evaluation time refuse. The ten-second lead constant is removed.
   Quote maximum age remains unchanged; the bounded acceptance requirement remains 60s.
@@ -49,7 +51,7 @@ checked the pre-fetch command instant. No real broker was involved.
 - Baseline defect reproduced before production edits; regression passes after repair.
 - Targeted handlers, clock/transport, composition, authority and hostile HTTP:
   270 passed (before the final additional PostgreSQL regression file).
-- Nine selected mutation families detected, each green baseline -> intended failure ->
+- Twelve selected mutation families detected, each green baseline -> intended failure ->
   SHA-256 restoration -> green rerun; see `temporal-mutation-matrix.md`.
 - New real-PostgreSQL tests cover observed row-lock waiting, expiry during that wait,
   terminal refusal after a post-claim delay, and exactly one controlled submission.
@@ -93,3 +95,44 @@ No amend, rebase, force update, second PR, merge or freeze is used.
 - Secret scanner: zero findings after scanning staged source targets.
 - Windows foundation CI and real PostgreSQL CI remain required, not inferred from
   this local comparison.
+
+## Additional boundary verification
+
+- Propagation of broker round-trip time uncertainty has its own deterministic test
+  and detected mutation; it cannot extend the permission beyond a conservative time.
+- Actual preview/submit entrypoint functions are exercised through a supplied runtime
+  context and prove that the injected source is used by both handlers.
+- Updated temporal/handler/composition suites: 119 passed.
+- First real PostgreSQL CI at `bc5894f52c4ae5c3b003dbfcf8874a86d6116f34`:
+  119 passed, 10 skipped (shallow-history M084 audit checks), plus lock-time mutation
+  1/1 detected. The dedicated workflow now fetches complete history so those checks
+  can execute on the next candidate. https://github.com/drissbenlhoussine-code/empirical-platform/actions/runs/34689222158
+- Wheel and source distribution built successfully locally after installing the
+  declared build backend into the isolated virtualenv.
+
+## Exact correction paths relative to starting head
+
+- `.github/workflows/m085-temporal.yml`
+- `external-review/MILESTONE-085/README.md`
+- `external-review/MILESTONE-085/changed-files.txt`
+- `external-review/MILESTONE-085/final-delivery-report.md`
+- `external-review/MILESTONE-085/scope-and-design.md`
+- `external-review/MILESTONE-085/temporal-correction.md`
+- `external-review/MILESTONE-085/temporal-mutation-matrix.md`
+- `external-review/MILESTONE-085/validation-results.md`
+- `src/empirical_platform/decision_candidate/paper_execution.py`
+- `src/empirical_platform/decision_candidate/paper_execution_repositories.py`
+- `src/empirical_platform/entrypoints/_paper_composition.py`
+- `src/empirical_platform/entrypoints/preview_paper_submission.py`
+- `src/empirical_platform/entrypoints/submit_authorized_paper_order.py`
+- `src/empirical_platform/shared/brokerage/alpaca_paper.py`
+- `src/empirical_platform/shared/brokerage/paper_time.py`
+- `src/empirical_platform/shared/persistence/postgres_repositories/paper_execution_repositories.py`
+- `src/empirical_platform/usecases/paper_execution.py`
+- `tests/integration/test_m085_temporal_postgres.py`
+- `tests/unit/_m085_fakes.py`
+- `tests/unit/test_m085_paper_composition.py`
+- `tests/unit/test_m085_paper_execution_domain.py`
+- `tests/unit/test_m085_paper_execution_handlers.py`
+- `tests/unit/test_m085_paper_time.py`
+- `tools/m085_mutation_campaign.py`

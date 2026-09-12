@@ -1051,3 +1051,83 @@ class TestTheRenderersRefuseFloats:
             detail="broker_status=accepted",
         )
         assert render_event_json(event)["event_type"] == "PAPER_ORDER_SUBMITTED"
+
+
+def test_entrypoint_composition_uses_the_injected_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    from empirical_platform.entrypoints import preview_paper_submission as preview_cli
+    from empirical_platform.entrypoints import submit_authorized_paper_order as submit_cli
+    from empirical_platform.shared.brokerage.paper_time import (
+        PaperTimeReading,
+        SystemPaperTimeSource,
+    )
+
+    class Clock(SystemPaperTimeSource):
+        reads = 0
+
+        def read(self) -> PaperTimeReading:
+            self.reads += 1
+            return super().read()
+
+    clock = Clock()
+    helper = TestSubmitAuthorizedPaperOrder()
+    world = helper._world()
+    context = SimpleNamespace(
+        m084=SimpleNamespace(approved_order_intents=world["intents"]),
+        paper=SimpleNamespace(
+            paper_account_snapshots=world["snapshots"],
+            submission_previews=world["previews"],
+            execution_authorizations=world["authorizations"],
+            execution_attempts=world["attempts"],
+            broker_acknowledgements=world["acknowledgements"],
+            paper_execution_events=world["events"],
+            execution_kill_switch=world["kill_switch"],
+        ),
+        broker=world["broker"],
+        market_data=world["market_data"],
+        time_source=clock,
+    )
+
+    @contextmanager
+    def runtime(config: object) -> Iterator[SimpleNamespace]:
+        yield context
+
+    monkeypatch.setattr(preview_cli, "paper_execution_runtime", runtime)
+    monkeypatch.setattr(submit_cli, "paper_execution_runtime", runtime)
+    preview = preview_cli.run_preview_paper_submission(
+        intent_governance_id="INT-1",
+        preview_id="PVW-1",
+        snapshot_id="SNP-1",
+        maximum_notional=Decimal("5"),
+        quote_maximum_age_seconds=60,
+        approved_watchlist=frozenset({"AAPL"}),
+    )
+    assert preview.is_authorizable
+    assert clock.reads > 0
+    preview_reads = clock.reads
+    AuthorizePaperSubmissionHandler(
+        previews=world["previews"],
+        authorizations=world["authorizations"],
+        events=world["events"],
+    ).handle(
+        AuthorizePaperSubmissionCommand(
+            authorization_id="AUT-1",
+            preview_id="PVW-1",
+            expected_request_fingerprint=preview.request_fingerprint,
+            authorized_by="test-fixture",
+            authorized_at=_NOW,
+            validity_seconds=60,
+        )
+    )
+    result = submit_cli.run_submit_authorized_paper_order(
+        intent_governance_id="INT-1",
+        attempt_id="ATT-1",
+        snapshot_id="SNP-2",
+        maximum_notional=Decimal("5"),
+        quote_maximum_age_seconds=60,
+        approved_watchlist=frozenset({"AAPL"}),
+    )
+    assert clock.reads > preview_reads
+    assert result.dispatched and len(world["broker"].submitted) == 1
