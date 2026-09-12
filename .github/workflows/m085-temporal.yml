@@ -1,0 +1,54 @@
+name: M085 temporal PostgreSQL
+
+on:
+  push:
+    branches: [feature/m085-alpaca-paper-human-approved-execution]
+  pull_request:
+    paths:
+      - '.github/workflows/m085-temporal.yml'
+      - 'src/empirical_platform/**/paper_*.py'
+      - 'src/empirical_platform/shared/brokerage/alpaca_paper.py'
+      - 'tests/**/test_m085*.py'
+
+permissions:
+  contents: read
+
+jobs:
+  temporal-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: empirical
+          POSTGRES_DB: empirical_platform
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U empirical -d empirical_platform"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
+      EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform
+      EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[persistence,object-storage,test]'
+      - name: Set isolated database placeholder
+        run: echo "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
+      - name: Real PostgreSQL time boundaries and existing lifecycle/concurrency
+        run: >-
+          python -m pytest --no-cov -q
+          tests/integration/test_m085_temporal_postgres.py
+          tests/integration/test_m085_paper_execution_postgres.py
+          tests/integration/test_m085_concurrency.py
+          tests/integration/test_m084_file_audit.py
+      - name: PostgreSQL lock-time mutation (sequential, source restored)
+        run: >-
+          python tools/m085_mutation_campaign.py --family claim_time_after_lock
+          --output /tmp/m085-pg-mutation.md

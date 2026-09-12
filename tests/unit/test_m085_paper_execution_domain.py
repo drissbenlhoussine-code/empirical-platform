@@ -23,7 +23,6 @@ from empirical_platform.decision_candidate.paper_execution import (
     ALLOWED_PAPER_TRANSITIONS,
     CLIENT_ORDER_ID_PREFIX,
     MAXIMUM_BROKER_CLIENT_ORDER_ID_LENGTH,
-    MAXIMUM_QUOTE_LEAD_SECONDS,
     MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
     NOT_FOUND_ALONE_RESOLVES_UNKNOWN,
@@ -378,36 +377,15 @@ class TestThePreviewCollectsEveryRefusal:
         assert len(preview.refusals) >= 3
 
     def test_a_quote_further_ahead_than_the_lead_bound_is_refused(self) -> None:
-        # Beyond MAXIMUM_QUOTE_LEAD_SECONDS the two clocks genuinely disagree, and
+        # After evaluation time the two clocks genuinely disagree, and
         # that is still refused rather than treated as maximally fresh.
-        preview = a_preview(
-            quote_captured_at=_NOW + timedelta(seconds=MAXIMUM_QUOTE_LEAD_SECONDS + 1)
-        )
+        preview = a_preview(quote_captured_at=_NOW + timedelta(seconds=1))
         assert any("dated after this preview" in reason for reason in preview.refusals)
         assert preview.is_authorizable is False
 
-    def test_a_quote_fetched_after_the_preview_instant_is_fresh_not_from_the_future(self) -> None:
-        """FIND-P7-01 -- the market-open regression.
-
-        `created_at` is stamped before the handler fetches the evidence, and in an
-        open market a new quote arrives during the round-trips almost every time. The
-        first version of the rule refused that as "from the future", so the product
-        could not authorize or dispatch while the market was open. The measured lead on
-        the day it was found was 3.15 s.
-        """
-        preview = a_preview(quote_captured_at=_NOW + timedelta(seconds=3, milliseconds=150))
-        assert not preview.refusals
-        assert preview.is_authorizable is True
-
-    def test_the_lead_bound_is_inclusive_and_typed(self) -> None:
-        assert isinstance(MAXIMUM_QUOTE_LEAD_SECONDS, int)
-        assert 0 < MAXIMUM_QUOTE_LEAD_SECONDS < 60, "a lead bound is not a staleness tolerance"
-        at_bound = a_preview(quote_captured_at=_NOW + timedelta(seconds=MAXIMUM_QUOTE_LEAD_SECONDS))
-        assert at_bound.is_authorizable is True
-        past_bound = a_preview(
-            quote_captured_at=_NOW + timedelta(seconds=MAXIMUM_QUOTE_LEAD_SECONDS, milliseconds=1)
-        )
-        assert past_bound.is_authorizable is False
+    def test_quote_at_evaluation_is_fresh_but_future_quote_is_not(self) -> None:
+        assert a_preview(quote_captured_at=_NOW).is_authorizable
+        assert not a_preview(quote_captured_at=_NOW + timedelta(microseconds=1)).is_authorizable
 
     def test_an_expired_intent_is_refused(self) -> None:
         preview = a_preview(intent=an_intent(expires_at=_NOW - timedelta(seconds=1)))

@@ -51,6 +51,7 @@ import hashlib
 import http.client
 import json
 import ssl
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -445,7 +446,12 @@ class _StrictConnection:
         self._context = context if context is not None else ssl.create_default_context()
 
     def request(
-        self, method: str, path: str, *, body: str | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        body: str | None = None,
+        before_send: Callable[[], None] | None = None,
     ) -> tuple[int, dict[str, str], bytes]:
         if not path.startswith("/"):
             raise EndpointRefusedError("the request path must be absolute")
@@ -473,6 +479,15 @@ class _StrictConnection:
             # delivered, so it is ambiguous rather than safe to retry.
             if connection.sock is not None:
                 connection.sock.settimeout(self._read_timeout)
+            if before_send is not None:
+                try:
+                    before_send()
+                except BrokerNotSentError:
+                    raise
+                except Exception as error:
+                    raise BrokerNotSentError(
+                        f"pre-send validation failed: {type(error).__name__}"
+                    ) from error
             try:
                 connection.request(method, path, body=body, headers=headers)
             except (OSError, http.client.HTTPException) as error:
@@ -546,8 +561,20 @@ class AlpacaPaperClient:
     def endpoint_host(self) -> str:
         return self._endpoint.host
 
-    def _json(self, method: str, path: str, *, body: str | None = None) -> tuple[int, Any, str]:
-        status, _, raw = self._connection.request(method, path, body=body)
+    def _json(
+        self,
+        method: str,
+        path: str,
+        *,
+        body: str | None = None,
+        before_send: Callable[[], None] | None = None,
+    ) -> tuple[int, Any, str]:
+        if before_send is None:
+            status, _, raw = self._connection.request(method, path, body=body)
+        else:
+            status, _, raw = self._connection.request(
+                method, path, body=body, before_send=before_send
+            )
         sanitized = _sanitize(raw, self._credentials)
         if not raw:
             return status, None, sanitized
@@ -623,7 +650,9 @@ class AlpacaPaperClient:
             )
         return _PositionView(symbol=returned, quantity=int(quantity))
 
-    def submit_order(self, order: PaperOrderRequest) -> tuple[int, _OrderView | None, str]:
+    def submit_order(
+        self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
+    ) -> tuple[int, _OrderView | None, str]:
         """Send the one authorized order, exactly as authorized.
 
         The body is built HERE from the typed request, so there is no path by
@@ -644,7 +673,7 @@ class AlpacaPaperClient:
             payload["limit_price"] = format(order.limit_price, "f")
 
         status, body, sanitized = self._json(
-            "POST", "/v2/orders", body=json.dumps(payload, sort_keys=True)
+            "POST", "/v2/orders", body=json.dumps(payload, sort_keys=True), before_send=before_send
         )
         if status in {200, 201} and isinstance(body, dict):
             return status, self._validated_order_view(body, order=order), sanitized

@@ -357,3 +357,11 @@ remains **OUTSTANDING** and needs a fresh Owner authorization against this head.
   **measured BLOCKED** and no safety control was relaxed to get past it.
 - **Not** Owner approval, profitability, execution quality, that a paper fill
   predicts a live fill, or live-trading readiness.
+
+## Pass 8 — post-fetch time and final send boundary
+
+The Owner requested implementation of the independent timing finding at `6d011ae`.
+See [temporal-correction.md](temporal-correction.md) for the reproduced defect,
+implementation, targeted regressions, mutation evidence and current validation.
+Pass 7 above is preserved verbatim as historical evidence. No external order is
+claimed by this correction; no merge, freeze or M086 work is authorized.

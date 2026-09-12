@@ -19,11 +19,14 @@ the merge.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
+from freezegun import freeze_time
+from freezegun.api import FrozenDateTimeFactory
 from tests.unit._m085_fakes import (
     _DIGEST,
     _NOW,
@@ -44,7 +47,6 @@ from tests.unit._m085_fakes import (
 )
 
 from empirical_platform.decision_candidate.paper_execution import (
-    MAXIMUM_QUOTE_LEAD_SECONDS,
     PAPER_ENDPOINT_HOST,
     BrokerAcknowledgement,
     ExecutionAttempt,
@@ -105,6 +107,12 @@ from empirical_platform.usecases.paper_execution_io import (
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def operation_clock() -> Iterator[FrozenDateTimeFactory]:
+    with freeze_time(_NOW) as clock:
+        yield clock
 
 
 class TestVerifyPaperEnvironment:
@@ -210,7 +218,9 @@ class TestPreviewPaperSubmission:
         assert any("no quote was captured" in reason for reason in preview.refusals)
         assert render_preview_json(preview)["quote_source"] == "absent"
 
-    def test_a_quote_newer_than_the_command_instant_is_authorizable(self) -> None:
+    def test_a_quote_newer_than_the_command_instant_is_authorizable(
+        self, operation_clock: FrozenDateTimeFactory
+    ) -> None:
         """FIND-P7-01, at the layer where it actually bit.
 
         The entrypoint stamps `created_at`, THEN the handler fetches the quote. In an
@@ -222,14 +232,17 @@ class TestPreviewPaperSubmission:
         class LaterQuote(FakeQuote):
             captured_at = _NOW + timedelta(seconds=3, milliseconds=150)
 
-        preview = self._handler(market_data=FakeMarketData(quote=LaterQuote())).handle(
-            self._command()
-        )
+        class DelayedData(FakeMarketData):
+            def fetch_quote(self, symbol: str) -> object:
+                operation_clock.tick(delta=timedelta(seconds=4))
+                return LaterQuote()
+
+        preview = self._handler(market_data=DelayedData()).handle(self._command())
         assert preview.is_authorizable is True, preview.refusals
 
     def test_a_quote_far_ahead_of_the_command_instant_is_still_refused(self) -> None:
         class FarAheadQuote(FakeQuote):
-            captured_at = _NOW + timedelta(seconds=MAXIMUM_QUOTE_LEAD_SECONDS + 1)
+            captured_at = _NOW + timedelta(seconds=1)
 
         preview = self._handler(market_data=FakeMarketData(quote=FarAheadQuote())).handle(
             self._command()
@@ -430,6 +443,23 @@ class TestSubmitAuthorizedPaperOrder:
         assert world["broker"].submitted == []
         assert world["kill_switch"].reads >= 1
 
+    def test_authorization_expiring_during_fetch_never_submits(self) -> None:
+        from freezegun import freeze_time
+
+        with freeze_time(_NOW) as clock:
+            world = self._world()
+            self._authorize(world, validity_seconds=1)
+            original = world["market_data"].fetch_quote
+
+            def delayed_quote(symbol: str) -> object:
+                clock.tick(delta=timedelta(seconds=2))
+                return original(symbol)
+
+            world["market_data"].fetch_quote = delayed_quote
+            with pytest.raises(PaperExecutionRefusedError, match="expired"):
+                self._handler(world).handle(self._command())
+            assert world["broker"].submitted == []
+
     def test_a_happy_dispatch_claims_then_submits_then_records(self) -> None:
         world = self._world()
         self._authorize(world)
@@ -447,14 +477,23 @@ class TestSubmitAuthorizedPaperOrder:
         assert render_submission_json(result)["dispatched"] is True
         assert "PAPER SUBMISSION RESULT" in render_submission_text(result)
 
-    def test_a_dispatch_whose_refreshed_quote_is_newer_than_its_instant_proceeds(self) -> None:
+    def test_a_dispatch_whose_refreshed_quote_is_newer_than_its_instant_proceeds(
+        self, operation_clock: FrozenDateTimeFactory
+    ) -> None:
         # FIND-P7-01 on the dispatch path: the re-check at `command.at` fetches a quote
         # newer than `at`. That must not read as "conditions changed".
         class LaterQuote(FakeQuote):
             captured_at = _NOW + timedelta(seconds=3, milliseconds=150)
 
-        world = self._world(market_data=FakeMarketData(quote=LaterQuote()))
+        world = self._world()
         self._authorize(world)
+
+        class DelayedData(FakeMarketData):
+            def fetch_quote(self, symbol: str) -> object:
+                operation_clock.tick(delta=timedelta(seconds=4))
+                return LaterQuote()
+
+        world["market_data"] = DelayedData()
         result = self._handler(world).handle(self._command())
         assert result.dispatched is True
 
@@ -528,7 +567,9 @@ class TestSubmitAuthorizedPaperOrder:
             self._handler(world).handle(self._command())
         assert world["broker"].submitted == []
 
-    def test_an_expired_authorization_refuses_the_dispatch(self) -> None:
+    def test_an_expired_authorization_refuses_the_dispatch(
+        self, operation_clock: FrozenDateTimeFactory
+    ) -> None:
         # A SHORT validity, then a dispatch 30s later, so the quote is still inside
         # its 60s tolerance and expiry is the only thing wrong. Simply advancing the
         # clock past a 300s validity would have staled the quote too, and the
@@ -536,6 +577,7 @@ class TestSubmitAuthorizedPaperOrder:
         # expiry ever being checked.
         world = self._world()
         self._authorize(world, validity_seconds=10)
+        operation_clock.tick(delta=timedelta(seconds=30))
         with pytest.raises(PaperExecutionRefusedError, match="expired"):
             self._handler(world).handle(self._command(at=_NOW + timedelta(seconds=30)))
         assert world["broker"].submitted == []
@@ -568,6 +610,92 @@ class TestSubmitAuthorizedPaperOrder:
         # Recorded, and NOT guessed at.
         assert result.attempt.broker_status == "calculated"
         assert result.attempt.state is PaperExecutionState.PAPER_SUBMITTED
+
+    @pytest.mark.parametrize("phase", ["fetch", "snapshot", "claim", "prepare", "connect"])
+    @pytest.mark.parametrize("deadline", ["quote", "authorization", "intent", "session"])
+    def test_elapsed_work_cannot_extend_a_deadline(
+        self, operation_clock: FrozenDateTimeFactory, phase: str, deadline: str
+    ) -> None:
+        from dataclasses import replace
+
+        world = self._world()
+        self._authorize(world)
+        if deadline == "authorization":
+            auth = world["authorizations"].rows["AUT-1"]
+            world["authorizations"].rows["AUT-1"] = replace(
+                auth, expires_at=_NOW + timedelta(seconds=1)
+            )
+        if deadline == "intent":
+            world["intents"].rows["INT-1"] = an_intent(expires_at=_NOW + timedelta(seconds=1))
+        if deadline == "session":
+            original_clock = world["broker"].fetch_clock
+
+            def closing_clock() -> object:
+                value = original_clock()
+                value.next_close = _NOW + timedelta(seconds=1)
+                return value
+
+            world["broker"].fetch_clock = closing_clock
+        delay = 61 if deadline == "quote" else 2
+        target, method = {
+            "fetch": (world["market_data"], "fetch_quote"),
+            "snapshot": (world["snapshots"], "save"),
+            "claim": (world["attempts"], "claim_dispatch"),
+            "prepare": (world["attempts"], "transition"),
+            "connect": (world["broker"], "submit_order"),
+        }[phase]
+        original = getattr(target, method)
+
+        def delayed(*args: object, **kwargs: object) -> object:
+            operation_clock.tick(delta=timedelta(seconds=delay))
+            return original(*args, **kwargs)
+
+        setattr(target, method, delayed)
+        try:
+            result = self._handler(world).handle(self._command())
+        except ValueError:
+            pass
+        else:
+            assert not result.dispatched
+            assert result.attempt.state is PaperExecutionState.REJECTED
+            # A spent/claimed identity never becomes an automatic retry.
+            again = self._handler(world).handle(self._command())
+            assert not again.dispatched
+        assert world["broker"].submitted == []
+
+    def test_rollback_after_claim_refuses_without_a_retry(
+        self, operation_clock: FrozenDateTimeFactory
+    ) -> None:
+        world = self._world()
+        self._authorize(world)
+        original = world["broker"].submit_order
+
+        def rollback(*args: object, **kwargs: object) -> object:
+            operation_clock.tick(delta=timedelta(seconds=-1))
+            return original(*args, **kwargs)
+
+        world["broker"].submit_order = rollback
+        result = self._handler(world).handle(self._command())
+        assert not result.dispatched
+        assert "rollback" in result.attempt.failure_detail
+        assert world["broker"].submitted == []
+        assert not self._handler(world).handle(self._command()).dispatched
+
+    def test_broker_clock_uncertainty_refuses_before_claim(self) -> None:
+        world = self._world()
+        self._authorize(world)
+        original = world["broker"].fetch_clock
+
+        def future_clock() -> object:
+            value = original()
+            value.timestamp = _NOW + timedelta(seconds=1)
+            return value
+
+        world["broker"].fetch_clock = future_clock
+        with pytest.raises(ValueError, match="alignment is uncertain"):
+            self._handler(world).handle(self._command())
+        assert world["broker"].submitted == []
+        assert world["attempts"].rows == {}
 
 
 class TestReconcilePaperOrder:

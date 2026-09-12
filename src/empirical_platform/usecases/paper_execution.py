@@ -28,7 +28,8 @@ is better than the product silently deciding that `calculated` means `filled`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
@@ -68,6 +69,12 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
     BrokerNotSentError,
     BrokerResponseInvalidError,
+)
+from empirical_platform.shared.brokerage.paper_time import (
+    PaperTimeSource,
+    PaperTimeUncertainError,
+    PaperTimeWindow,
+    SystemPaperTimeSource,
 )
 from empirical_platform.usecases.decision_to_approval import NotFoundError
 
@@ -249,6 +256,7 @@ def _gather(
     symbol: str,
     snapshot_id: str,
     at: datetime,
+    timing: PaperTimeWindow,
 ) -> PaperEvidence:
     """One pass over every external fact a dispatch decision depends on.
 
@@ -256,7 +264,10 @@ def _gather(
     "the evidence" means. The kill switch is read LAST, closest to the decision.
     """
     account = _read_account_snapshot(broker=broker, snapshot_id=snapshot_id, captured_at=at)
+    account = replace(account, captured_at=timing.now())
+    clock_requested_at = timing.now()
     clock = broker.fetch_clock()
+    timing.verify_broker(clock.timestamp, clock_requested_at)
     asset = broker.fetch_asset(symbol)
     position = broker.fetch_position(symbol)
     quote = market_data.fetch_quote(symbol)
@@ -381,6 +392,7 @@ class PreviewPaperSubmissionHandler:
         "_broker",
         "_market_data",
         "_kill_switch",
+        "_time_source",
     )
 
     def __init__(
@@ -393,6 +405,7 @@ class PreviewPaperSubmissionHandler:
         broker: PaperBrokerPort,
         market_data: PaperMarketDataPort,
         kill_switch: ExecutionKillSwitchRepository,
+        time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
         self._snapshots = snapshots
@@ -401,12 +414,14 @@ class PreviewPaperSubmissionHandler:
         self._broker = broker
         self._market_data = market_data
         self._kill_switch = kill_switch
+        self._time_source = time_source or SystemPaperTimeSource()
 
     def handle(self, command: PreviewPaperSubmissionCommand) -> SubmissionPreview:
         intent = self._intents.get(command.intent_governance_id)
         if intent is None:
             raise NotFoundError(f"no approved order intent {command.intent_governance_id!r} exists")
 
+        timing = PaperTimeWindow(self._time_source)
         evidence = _gather(
             broker=self._broker,
             market_data=self._market_data,
@@ -414,14 +429,17 @@ class PreviewPaperSubmissionHandler:
             symbol=intent.symbol,
             snapshot_id=command.account_snapshot_id,
             at=command.created_at,
+            timing=timing,
         )
         self._snapshots.save(evidence.account)
 
+        version = self._previews.next_version_for_intent(intent.intent_governance_id)
+        evaluated_at = timing.now()
         preview = build_submission_preview(
             preview_id=command.preview_id,
             intent=intent,
             account=evidence.account,
-            preview_version=self._previews.next_version_for_intent(intent.intent_governance_id),
+            preview_version=version,
             market_is_open=evidence.market_is_open,
             market_next_open=evidence.market_next_open,
             market_next_close=evidence.market_next_close,
@@ -439,7 +457,7 @@ class PreviewPaperSubmissionHandler:
             quote_maximum_age_seconds=command.quote_maximum_age_seconds,
             existing_position_quantity=evidence.existing_position_quantity,
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
-            created_at=command.created_at,
+            created_at=evaluated_at,
         )
         stored = self._previews.save(preview)
         self._events.append(
@@ -448,7 +466,7 @@ class PreviewPaperSubmissionHandler:
                 intent_governance_id=stored.intent_governance_id,
                 attempt_id=None,
                 event_type="PREVIEW_CREATED",
-                occurred_at=command.created_at,
+                occurred_at=evaluated_at,
                 detail=(
                     f"v{stored.preview_version} authorizable={stored.is_authorizable} "
                     f"refusals={len(stored.refusals)}"
@@ -571,6 +589,7 @@ class SubmitAuthorizedPaperOrderHandler:
         "_broker",
         "_market_data",
         "_kill_switch",
+        "_time_source",
     )
 
     def __init__(
@@ -586,6 +605,7 @@ class SubmitAuthorizedPaperOrderHandler:
         broker: PaperBrokerPort,
         market_data: PaperMarketDataPort,
         kill_switch: ExecutionKillSwitchRepository,
+        time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
         self._previews = previews
@@ -597,6 +617,7 @@ class SubmitAuthorizedPaperOrderHandler:
         self._broker = broker
         self._market_data = market_data
         self._kill_switch = kill_switch
+        self._time_source = time_source or SystemPaperTimeSource()
 
     def handle(self, command: SubmitAuthorizedPaperOrderCommand) -> PaperSubmissionResult:
         intent = self._intents.get(command.intent_governance_id)
@@ -630,6 +651,7 @@ class SubmitAuthorizedPaperOrderHandler:
                 "the execution kill switch is engaged; no order may be dispatched"
             )
 
+        timing = PaperTimeWindow(self._time_source)
         evidence = _gather(
             broker=self._broker,
             market_data=self._market_data,
@@ -637,6 +659,7 @@ class SubmitAuthorizedPaperOrderHandler:
             symbol=intent.symbol,
             snapshot_id=command.account_snapshot_id,
             at=command.at,
+            timing=timing,
         )
         if evidence.kill_switch_engaged:
             raise PaperExecutionRefusedError(
@@ -646,6 +669,7 @@ class SubmitAuthorizedPaperOrderHandler:
 
         # REBUILT from fresh evidence. Every refusal a preview would have raised
         # is re-raised here against the numbers that are true NOW.
+        evaluated_at = timing.now()
         fresh = build_submission_preview(
             preview_id=f"{command.attempt_id}-RECHECK",
             intent=intent,
@@ -668,7 +692,7 @@ class SubmitAuthorizedPaperOrderHandler:
             quote_maximum_age_seconds=command.quote_maximum_age_seconds,
             existing_position_quantity=evidence.existing_position_quantity,
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
-            created_at=command.at,
+            created_at=evaluated_at,
         )
         if not fresh.is_authorizable:
             raise PaperExecutionRefusedError(
@@ -686,7 +710,7 @@ class SubmitAuthorizedPaperOrderHandler:
         refusal = authorization.refusal_against(
             request_fingerprint_now=fingerprint_now,
             account_reference_now=evidence.account.account_reference,
-            instant=command.at,
+            instant=timing.now(),
         )
         if refusal is not None:
             raise PaperExecutionRefusedError(f"this dispatch is not authorized: {refusal}")
@@ -698,7 +722,8 @@ class SubmitAuthorizedPaperOrderHandler:
             authorization=authorization,
             request_fingerprint_now=fingerprint_now,
             account_reference_now=evidence.account.account_reference,
-            claimed_at=command.at,
+            claimed_at=timing.now(),
+            claim_clock=timing.now,
         )
         if not claim.won:
             return PaperSubmissionResult(
@@ -715,21 +740,72 @@ class SubmitAuthorizedPaperOrderHandler:
         attempt = self._attempts.transition(
             attempt_id=claim.attempt.attempt_id,
             target=PaperExecutionState.SUBMISSION_IN_PROGRESS,
-            at=command.at,
+            at=timing.last_safe_at,
         )
+
+        def before_send() -> None:
+            # The transport invokes this AFTER connect, immediately before HTTP send.
+            # Read the kill switch before sampling time: a DB wait must age evidence.
+            try:
+                if self._kill_switch.is_engaged():
+                    raise PaperExecutionRefusedError("the execution kill switch is engaged")
+                instant = timing.now()
+                refusal = authorization.refusal_against(
+                    request_fingerprint_now=fingerprint_now,
+                    account_reference_now=evidence.account.account_reference,
+                    instant=instant,
+                )
+                if refusal is not None or instant < authorization.authorized_at:
+                    raise PaperExecutionRefusedError(refusal or "authorization is future-dated")
+                if instant >= intent.expires_at or instant >= intent.mandatory_liquidation_at:
+                    raise PaperExecutionRefusedError(
+                        "the approved intent or liquidation deadline expired"
+                    )
+                if (
+                    not evidence.market_is_open
+                    or evidence.market_next_close is None
+                    or instant >= evidence.market_next_close
+                ):
+                    raise PaperExecutionRefusedError("the regular market session is closed")
+                quote_at = evidence.quote_captured_at
+                if (
+                    quote_at is None
+                    or not 0
+                    <= (instant - quote_at).total_seconds()
+                    <= command.quote_maximum_age_seconds
+                ):
+                    raise PaperExecutionRefusedError(
+                        "quote freshness cannot be established before send"
+                    )
+            except (PaperExecutionRefusedError, PaperTimeUncertainError) as error:
+                raise BrokerNotSentError(str(error)) from error
+
         return self._dispatch(
-            attempt=attempt, order=fresh.order, intent_id=intent.intent_governance_id, at=command.at
+            attempt=attempt,
+            order=fresh.order,
+            intent_id=intent.intent_governance_id,
+            at=timing.last_safe_at,
+            before_send=before_send,
+            timing=timing,
         )
 
     def _dispatch(
-        self, *, attempt: ExecutionAttempt, order: object, intent_id: str, at: datetime
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        order: object,
+        intent_id: str,
+        at: datetime,
+        before_send: Callable[[], None],
+        timing: PaperTimeWindow,
     ) -> PaperSubmissionResult:
         from empirical_platform.decision_candidate.paper_execution import PaperOrderRequest
 
         assert isinstance(order, PaperOrderRequest)
         try:
-            status, view, sanitized = self._broker.submit_order(order)
+            status, view, sanitized = self._broker.submit_order(order, before_send=before_send)
         except BrokerNotSentError as error:
+            at = timing.last_safe_at
             # DEFINITELY not sent. Safe to close without reconciliation, because
             # there is nothing at the broker to reconcile against.
             final = self._attempts.transition(
@@ -748,6 +824,7 @@ class SubmitAuthorizedPaperOrderHandler:
                 note="the request never reached the broker; no order exists",
             )
         except BrokerAmbiguousDispatchError as error:
+            at = timing.last_safe_at
             # MAY have been delivered. This must never become a second order.
             final = self._attempts.transition(
                 attempt_id=attempt.attempt_id,
@@ -770,6 +847,7 @@ class SubmitAuthorizedPaperOrderHandler:
                 ),
             )
 
+        at = timing.last_safe_at
         sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
         self._acknowledgements.append(
             BrokerAcknowledgement(

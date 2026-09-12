@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from empirical_platform.shared.brokerage.alpaca_paper import (
     AlpacaPaperClient,
@@ -31,6 +31,7 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
     PaperEndpoint,
     credentials_from_environment,
 )
+from empirical_platform.shared.brokerage.paper_time import PaperTimeSource, SystemPaperTimeSource
 from empirical_platform.shared.config.settings import (
     PostgreSQLConfigSnapshot,
     resolve_foundation_config,
@@ -67,6 +68,7 @@ class PaperExecutionContext:
     paper: PostgresPaperExecutionRuntime
     broker: AlpacaPaperClient
     market_data: AlpacaPaperMarketDataClient
+    time_source: PaperTimeSource = field(default_factory=SystemPaperTimeSource)
 
 
 @contextmanager

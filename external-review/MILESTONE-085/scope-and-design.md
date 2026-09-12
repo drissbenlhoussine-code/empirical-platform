@@ -1,5 +1,10 @@
 # MILESTONE-085 — Scope and Design
 
+> Current temporal correction: see [temporal-correction.md](temporal-correction.md).
+> The ten-second lead workaround described below is superseded. Earlier test counts
+> and market-open results below are historical evidence, not validation of this correction.
+
+
 ## What this milestone establishes, and nothing more
 
 A persisted MILESTONE-084 approved order intent may be dispatched to the Alpaca

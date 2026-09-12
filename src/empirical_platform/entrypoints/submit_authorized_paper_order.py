@@ -71,6 +71,7 @@ def run_submit_authorized_paper_order(
             broker=context.broker,
             market_data=context.market_data,
             kill_switch=context.paper.execution_kill_switch,
+            time_source=context.time_source,
         )
         return handler.handle(
             SubmitAuthorizedPaperOrderCommand(

@@ -38,7 +38,7 @@ composition.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -734,6 +734,7 @@ class PostgresExecutionAttemptRepository:
         request_fingerprint_now: str,
         account_reference_now: str,
         claimed_at: datetime,
+        claim_clock: Callable[[], datetime] | None = None,
     ) -> PaperDispatchClaim:
         """Consume the authorization and create the one attempt, atomically.
 
@@ -751,6 +752,23 @@ class PostgresExecutionAttemptRepository:
             raise ValueError(f"this dispatch is not authorized: {refusal}")
 
         with self._service.unit_of_work() as work:
+            if claim_clock is not None:
+                # Wait for the row lock FIRST. The production handler supplies its
+                # guarded clock, so consumed_at cannot predate an unmeasured lock wait.
+                locked = work.execute(
+                    _AUTHORIZATION_SELECT_BY_ID + " FOR UPDATE",
+                    {"authorization_id": authorization.authorization_id},
+                )
+                if not locked:
+                    raise ValueError("the authorization no longer exists")
+                claimed_at = claim_clock()
+                refusal = authorization.refusal_against(
+                    request_fingerprint_now=request_fingerprint_now,
+                    account_reference_now=account_reference_now,
+                    instant=claimed_at,
+                )
+                if refusal is not None:
+                    raise ValueError(f"this dispatch is not authorized: {refusal}")
             claimed = list(
                 work.execute(
                     _AUTHORIZATION_CONSUME,

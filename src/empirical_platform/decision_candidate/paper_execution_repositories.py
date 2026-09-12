@@ -22,6 +22,7 @@ nothing else.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Protocol
 
@@ -138,6 +139,7 @@ class ExecutionAttemptRepository(Protocol):
         request_fingerprint_now: str,
         account_reference_now: str,
         claimed_at: datetime,
+        claim_clock: Callable[[], datetime] | None = None,
     ) -> DispatchClaim:
         """Atomically consume the authorization and create the one attempt.
 
@@ -314,7 +316,9 @@ class PaperBrokerPort(Protocol):
 
     def fetch_position(self, symbol: str) -> BrokerPositionView | None: ...
 
-    def submit_order(self, order: PaperOrderRequest) -> tuple[int, BrokerOrderView | None, str]:
+    def submit_order(
+        self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
+    ) -> tuple[int, BrokerOrderView | None, str]:
         """Send the one authorized order. Returns (status, view, sanitized body).
 
         Raises a transport-ambiguity error -- never a generic exception -- when

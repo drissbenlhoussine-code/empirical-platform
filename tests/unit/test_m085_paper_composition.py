@@ -216,6 +216,7 @@ class TestTheCredentialIsContained:
                 "paper",
                 "broker",
                 "market_data",
+                "time_source",
             }
 
     def test_a_credential_does_not_appear_in_any_public_attribute_value(
@@ -333,3 +334,13 @@ class TestTheRuntimeLifecycle:
         with paper_execution_runtime(a_config) as context:
             assert len(FakeService.instances) == 1
             assert context.m084 is not context.paper
+
+
+def test_composition_provides_an_injectable_time_source(
+    composition: type[FakeService], a_config: PostgreSQLConfigSnapshot
+) -> None:
+    from empirical_platform.shared.brokerage.paper_time import SystemPaperTimeSource
+
+    with paper_execution_runtime(a_config) as context:
+        assert isinstance(context.time_source, SystemPaperTimeSource)
+        assert context.time_source.read().utc.tzinfo is not None

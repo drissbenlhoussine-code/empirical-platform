@@ -1,5 +1,10 @@
 # MILESTONE-085 — Final Delivery Report
 
+> Current temporal correction: see [temporal-correction.md](temporal-correction.md).
+> The ten-second lead workaround described below is superseded. Earlier test counts
+> and market-open results below are historical evidence, not validation of this correction.
+
+
 **Alpaca Paper Execution with Exact Human Approval**
 
 Branch `feature/m085-alpaca-paper-human-approved-execution`, based on required

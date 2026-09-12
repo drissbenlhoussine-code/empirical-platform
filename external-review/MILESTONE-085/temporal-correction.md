@@ -1,0 +1,95 @@
+# M085 temporal correction — implementation evidence
+
+Status: IMPLEMENTED_CANDIDATE_PENDING_CI_AND_OWNER_REVIEW. Not merged or frozen.
+M086 remains NOT_STARTED. No external Paper or Live submission was performed.
+
+## Starting identity and reproduced defect
+
+Base master: `a224076754fb38909ee04c2464e50e51df12d7ad`.
+Starting PR #15 head: `6d011ae150b2b6f0810548f0bb6f77d63896a758`.
+Fresh Linux checkout, clean tree, matching origin branch; no AGENTS.md or CLAUDE.md.
+
+Before editing production, `test_authorization_expiring_during_fetch_never_submits`
+failed at the expected refusal assertion: `DID NOT RAISE PaperExecutionRefusedError`.
+The controlled clock advanced two seconds during quote fetching against a one-second
+permission. The original handler still submitted to its in-memory broker because it
+checked the pre-fetch command instant. No real broker was involved.
+
+## Corrected temporal contract
+
+- Command receipt timestamps are not evaluation authority. Preview creation and
+  submission rechecks use an injected M085 time source after evidence/DB preparation.
+- The source supplies aware UTC plus finite monotonic time. Each operation uses the
+  later of sampled wall time and initial UTC plus elapsed monotonic time. A stalled
+  wall clock cannot extend validity; a backward wall/monotonic reading refuses.
+- Broker clock timestamps must fall inside the measured request interval. No fixed
+  allowance is used for fetch latency or clock skew. Uncertain alignment refuses;
+  clock synchronization/venue clock disagreement may therefore block an operator.
+- Quotes later than evaluation time refuse. The ten-second lead constant is removed.
+  Quote maximum age remains unchanged; the bounded acceptance requirement remains 60s.
+- Production claiming supplies a guarded clock callback. PostgreSQL obtains the
+  authorization row lock first, then samples time and checks expiry before the atomic
+  consumption/update and attempt insertion. Existing raw persistence callers retain
+  their explicit timestamp API; that API alone is not proof of current wall time.
+- The final gate executes inside the pinned HTTPS transport, after connection/TLS
+  preparation and immediately before `HTTPConnection.request`. It reads the kill
+  switch before its time sample and checks authorization, intent/liquidation expiry,
+  known open regular session and its closing deadline, and quote freshness again.
+- A failure after claim is recorded as NOT_SENT/REJECTED, with the authorization
+  consumed and the deterministic identity retained. Repeating submission returns the
+  existing attempt; it cannot create another order. Unexpected guard errors are also
+  classified definitely-not-sent by the transport. Database cleanup failure can leave
+  an already-claimed attempt requiring recovery, but cannot permit a retry.
+- This is an application send boundary, not a guarantee about broker receipt time.
+  OS scheduling and network time after the final check remain outside that boundary.
+  Broker evidence is a sampled observation, not a guarantee of future venue state.
+
+## Verification
+
+- Baseline defect reproduced before production edits; regression passes after repair.
+- Targeted handlers, clock/transport, composition, authority and hostile HTTP:
+  270 passed (before the final additional PostgreSQL regression file).
+- Nine selected mutation families detected, each green baseline -> intended failure ->
+  SHA-256 restoration -> green rerun; see `temporal-mutation-matrix.md`.
+- New real-PostgreSQL tests cover observed row-lock waiting, expiry during that wait,
+  terminal refusal after a post-claim delay, and exactly one controlled submission.
+- A dedicated PostgreSQL 16 CI job rebuilds the complete migration history and runs
+  those tests plus existing M085 lifecycle/concurrency and M084 audit tests. It also
+  runs the lock-time mutation separately, restoring the source afterward.
+- Full repository checks and CI results are recorded below after completion.
+
+## Preservation and access limits
+
+No M083/M084 production behavior, frozen authority or PROJECT_CHECKPOINT.md changed.
+Historical market-open reports and the historical 41-family mutation matrix remain
+unchanged; neither is relabeled as successful external acceptance.
+
+This is a different machine from the Windows operator. Its M063 stash and Windows
+exclude backup are inaccessible and have not been verified or restored here. The
+fresh checkout has no stash. Its own `.git/info/exclude` SHA-256 before work is
+`6671fe83b7a07c8932ee89164d1f2793b2318058eb8b98dc5c06ee0a5a3b0ec1`.
+PROJECT_CHECKPOINT.md SHA-256 is
+`37dccb45b9c8dc67f4fee85a1c7798a66c7fbfe2bd5eac2b15e7f93eae6c311e`.
+
+Local Python 3.13.15 was installed in a separate virtualenv. Local PostgreSQL package
+installation was unavailable because this container cannot perform apt's required
+UID/group transitions. Real PostgreSQL verification is performed in CI, not claimed
+as a local result. No Alpaca credentials are needed or read for this correction.
+
+Direct git push lacks an authenticated credential helper here. Publication uses the
+connected GitHub Git-data API to create a normal single-parent commit and update the
+existing branch with force=false, followed by fetch and local tree/SHA verification.
+No amend, rebase, force update, second PR, merge or freeze is used.
+
+## Local verification completed
+
+- Full PostgreSQL-OFF on Linux: 3486 passed, 1109 skipped, 8 failed and 12 errors;
+  coverage 79.75%, unchanged floor 79%.
+- All 20 failing/error node IDs were reproduced unchanged on a detached worktree
+  of the original `6d011ae` (targeted affected legacy modules: 50 passed, 8 failed,
+  12 errors). They concern pre-existing M063/M064/M065 LF/CRLF byte-seal assumptions.
+  No new failure/error node ID; the frozen fixtures and tests were not changed.
+- mypy: 365 source files clean; ruff check/format, compileall and architecture clean.
+- Secret scanner: zero findings after scanning staged source targets.
+- Windows foundation CI and real PostgreSQL CI remain required, not inferred from
+  this local comparison.

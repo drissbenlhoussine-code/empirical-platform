@@ -103,27 +103,6 @@ MAXIMUM_BROKER_CLIENT_ORDER_ID_LENGTH = 128
 
 CLIENT_ORDER_ID_PREFIX = "m085-"
 
-#: How far AFTER the preview instant a fetched quote may be dated and still be fresh.
-#:
-#: FOUND AT MARKET OPEN, NOT IN A TEST (FIND-P7-01). The first version of the rule
-#: below refused ANY quote dated after `created_at`, copied from M084's `_age_seconds`.
-#: That is right for M084, where the CALLER asserts the observations and then picks
-#: the evaluation instant, so a future-dated observation means the caller's own data
-#: is inconsistent. It is wrong here: `created_at` is stamped by the entrypoint BEFORE
-#: the handler fetches the evidence, and the fetch takes several round-trips to the
-#: pinned host. In an open market a new quote arrives during those round-trips almost
-#: every time, so the freshest quote was always "after" the preview and the product
-#: could not authorize or dispatch while the market was open -- the one condition it
-#: exists for. Every prior real-endpoint run had happened with the market closed,
-#: where the stale quote made the rule irrelevant.
-#:
-#: The measured lead on the day it was found was 3.15 s: about 2.4 s of round-trips
-#: plus 0.75 s of operator-clock lag behind the broker's clock. This bound is three
-#: times that. It is NOT the staleness tolerance (`quote_maximum_age_seconds`, an
-#: operator argument) and is not operator-settable: a quote further ahead than this
-#: still means the two clocks genuinely disagree, and that is still refused.
-MAXIMUM_QUOTE_LEAD_SECONDS: int = 10
-
 #: What a "not found" answer during reconciliation is allowed to mean.
 #:
 #: Measured against the real paper endpoint: an unknown `client_order_id`
@@ -833,6 +812,8 @@ def build_submission_preview(
         refusals.append(
             f"a position of {existing_position_quantity} already exists in {intent.symbol}"
         )
+    if not market_is_open or market_next_close is None or market_next_close <= created_at:
+        refusals.append("the regular market session is closed or cannot be established")
     if intent.expires_at <= created_at:
         refusals.append("the approved intent has expired")
     if intent.mandatory_liquidation_at <= created_at:
@@ -853,11 +834,8 @@ def build_submission_preview(
         refusals.append("no quote was captured, so its freshness cannot be established")
     else:
         age = (created_at - quote_captured_at).total_seconds()
-        if age < -MAXIMUM_QUOTE_LEAD_SECONDS:
-            refusals.append(
-                f"the captured quote is dated after this preview by {int(-age)}s, more than "
-                f"the {MAXIMUM_QUOTE_LEAD_SECONDS}s a fetch and clock skew can explain"
-            )
+        if age < 0:
+            refusals.append("the captured quote is dated after this preview")
         elif age > quote_maximum_age_seconds:
             refusals.append(
                 f"the quote is {int(age)}s old, older than the {quote_maximum_age_seconds}s limit"

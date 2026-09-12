@@ -1,5 +1,10 @@
 # MILESTONE-085 — Alpaca Paper Execution with Exact Human Approval
 
+> Current temporal correction: see [temporal-correction.md](temporal-correction.md).
+> The ten-second lead workaround described below is superseded. Earlier test counts
+> and market-open results below are historical evidence, not validation of this correction.
+
+
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
 
 The Owner-authorized market-open attempt on 2026-09-10 dispatched nothing: it found

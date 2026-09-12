@@ -13,6 +13,7 @@ transitions, because the order is part of what the handlers must get right.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -217,7 +218,10 @@ class FakeAttempts:
         request_fingerprint_now: str,
         account_reference_now: str,
         claimed_at: datetime,
+        claim_clock: Callable[[], datetime] | None = None,
     ) -> FakeClaim:
+        if claim_clock is not None:
+            claimed_at = claim_clock()
         refusal = authorization.refusal_against(
             request_fingerprint_now=request_fingerprint_now,
             account_reference_now=account_reference_now,
@@ -473,7 +477,9 @@ class FakeBroker:
         return 200, payload
 
     def fetch_clock(self) -> FakeClock:
-        return FakeClock()
+        clock = FakeClock()
+        clock.timestamp = datetime.now(UTC)
+        return clock
 
     def fetch_asset(self, symbol: str) -> FakeAsset:
         del symbol
@@ -483,7 +489,11 @@ class FakeBroker:
         del symbol
         return self.position
 
-    def submit_order(self, order: PaperOrderRequest) -> tuple[int, object | None, str]:
+    def submit_order(
+        self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
+    ) -> tuple[int, object | None, str]:
+        if before_send is not None:
+            before_send()
         self.submitted.append(order)
         if self.submit_raises is not None:
             raise self.submit_raises

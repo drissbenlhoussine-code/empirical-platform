@@ -77,6 +77,83 @@ class Family:
 
 FAMILIES: tuple[Family, ...] = (
     Family(
+        name="post_fetch_time",
+        rule="Post-fetch evaluation uses current time",
+        path=_USECASE,
+        original="        evaluated_at = timing.now()\n        preview = build_submission_preview(",
+        mutated=(
+            "        evaluated_at = command.created_at\n        preview = build_submission_preview("
+        ),
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestPreviewPaperSubmission::test_a_quote_newer_than_the_command_instant_is_authorizable",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_authorization_expiry",
+        rule="Authorization is still valid at HTTP send",
+        path=_USECASE,
+        original="if refusal is not None or instant < authorization.authorized_at:",
+        mutated="if False:",
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[authorization-connect]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_intent_expiry",
+        rule="Intent expiry is checked after preparation",
+        path=_USECASE,
+        original="instant >= intent.expires_at",
+        mutated="False",
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[intent-prepare]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_session_close",
+        rule="Market close is checked after preparation",
+        path=_USECASE,
+        original="or instant >= evidence.market_next_close",
+        mutated="or False",
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[session-prepare]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_quote_freshness",
+        rule="Quote remains fresh after connection",
+        path=_USECASE,
+        original="<= command.quote_maximum_age_seconds",
+        mutated='<= float("inf")',
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[quote-connect]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="monotonic_elapsed",
+        rule="Elapsed work ages a stalled wall clock",
+        path="src/empirical_platform/shared/brokerage/paper_time.py",
+        original="upper = max(current.utc, self._first.utc + timedelta(seconds=elapsed))",
+        mutated="upper = current.utc",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_stalled_wall_clock_does_not_stop_expiry",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="http_final_guard",
+        rule="Guard runs after connect before HTTP send",
+        path=_ADAPTER,
+        original=(
+            "            if before_send is not None:\n"
+            "                try:\n                    before_send()"
+        ),
+        mutated="            if False:\n                try:\n                    before_send()",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_final_guard_runs_after_connect_and_before_http_request[False]",
+        expected_fragment="order bytes",
+    ),
+    Family(
+        name="claim_time_after_lock",
+        rule="Lock waits cannot consume expired approval",
+        path=_REPOSITORY,
+        original="                claimed_at = claim_clock()",
+        mutated="                claimed_at = claimed_at",
+        detecting_test="tests/integration/test_m085_temporal_postgres.py::test_real_row_lock_wait_cannot_consume_expired_permission",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
         name="paper_hostname_pin",
         rule="Only paper-api.alpaca.markets may receive an order",
         path=_DOMAIN,
@@ -310,10 +387,10 @@ FAMILIES: tuple[Family, ...] = (
         expected_fragment="assert",
     ),
     Family(
-        name="quote_lead_bound",
-        rule="A quote dated further after the preview than the lead bound refuses it (FIND-P7-01)",
+        name="quote_future_timestamp",
+        rule="A quote after post-fetch evaluation time refuses authorization",
         path=_DOMAIN,
-        original="        if age < -MAXIMUM_QUOTE_LEAD_SECONDS:",
+        original="        if age < 0:",
         mutated="        if False:",
         detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
         "::test_each_condition_produces_its_own_refusal[override14-dated after this preview]",
@@ -612,6 +689,9 @@ def run_family(family: Family) -> Result:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--family", action="append", help="run only these families")
+    parser.add_argument(
+        "--output", type=Path, default=MATRIX, help="write this campaign separately"
+    )
     parser.add_argument("--list", action="store_true", help="print family names and exit")
     arguments = parser.parse_args(argv)
 
@@ -671,8 +751,9 @@ def main(argv: list[str] | None = None) -> int:
         lines.append("")
 
     PACKAGE.mkdir(parents=True, exist_ok=True)
-    MATRIX.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
-    print(f"\nwrote {MATRIX.relative_to(REPO_ROOT)}")
+    arguments.output.parent.mkdir(parents=True, exist_ok=True)
+    arguments.output.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+    print(f"\nwrote {arguments.output}")
     print(f"{detected}/{len(results)} detected, {len(blockers)} blockers")
     return 1 if blockers else 0
 
