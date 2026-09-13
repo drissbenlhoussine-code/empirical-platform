@@ -318,3 +318,241 @@ been submitted, no Owner approval exists, nothing is merged or frozen. Item 12 o
 exhaustion table still records the 2026-09-10 run as BLOCKED; that record stands as
 history and is not evidence that the corrected product has been accepted by the
 broker. A green internal checklist does not complete external acceptance.
+
+---
+
+# SUPERSEDED AGAIN — the persisted basis had one pairing and one provenance, and both were wrong
+
+Everything above is PRESERVED as the record of what was implemented and believed at
+`ddce3c83ad3a1941c1b6e9ccc38009af5ab1a473`. Direct source review found two concrete
+defects in the persisted broker time basis described under *"The correction: a
+persisted broker time basis"*. Both were reproduced deterministically on that commit
+BEFORE any production change; the output is quoted below.
+
+## What is superseded, precisely
+
+- *"stores two readings taken at the SAME moment: `basis_host_at` and
+  `basis_broker_earliest_at`"* — **false.** `basis_host_at` was the entrypoint's
+  `authorized_at`, stamped before `GET /v2/clock` was sent; `basis_broker_earliest_at`
+  was the broker's reply. They were never simultaneous, and nothing recorded the
+  interval between them.
+- *"It is used ONLY to place a stored host deadline on the broker timeline"* and the
+  claim that M084's `expires_at` and `mandatory_liquidation_at` are enforced on the
+  broker timeline through that basis — **unsound.** A basis measured when a human
+  authorized cannot translate deadlines written when the intent was issued.
+- *"A row with no basis cannot be mapped and is refused rather than backfilled"* —
+  **half true.** It could not be mapped, but the dispatch path did not refuse it:
+  `_refuse_expired_m084_deadlines_on_broker_time` returned early and
+  `refusal_against` skipped every broker check when no basis existed. Found while
+  reproducing Defect 1, reproduced, and corrected with the rest.
+- The mutation families `broker_basis_recorded`, `broker_basis_required`,
+  `broker_basis_authorization_expiry` and `m084_deadline_on_broker_time`, and the
+  **57 of 57** result, describe rules that no longer exist in that form. They are
+  replaced by the families listed under *Mutation campaign* below.
+
+## Defect 1 — the authorization basis was not simultaneous
+
+REPRODUCED at `ddce3c8`, before any production edit (controlled clock; 120 s
+`GET /v2/clock` round trip; broker clock truthful, stamped as it replied):
+
+    basis_host_at             2026-09-10 14:00:00+00:00
+    basis_broker_earliest_at  2026-09-10 14:02:00+00:00
+    effective broker deadline 2026-09-10 14:07:00+00:00 vs allowed 2026-09-10 14:05:00+00:00
+    ... dispatch 350 s later, host clock an hour behind: Failed: DID NOT RAISE
+
+The fetch latency was added to the host-to-broker offset, and every mapped expiry
+moved later by exactly that latency.
+
+### The repair: an interval, and the pairing it justifies
+
+`PaperTimeWindow.measure_broker_basis` records four readings around the ONE clock
+request: this host's conservative reading as the request leaves
+(`basis_host_requested_at`), the broker's reported timestamp
+(`basis_broker_earliest_at`), this host's conservative reading once the response is
+read (`basis_host_at`), and the timestamp plus the measured monotonic round trip
+(`basis_broker_latest_at`).
+
+The mapping pairs the broker timestamp with the host reading taken AFTER the
+response. The broker sampled its clock at an unknown instant `s` inside the round
+trip; this host's clock at `s` read no later than `basis_host_at`, so the true offset
+at `s` is at least `basis_broker_earliest_at - basis_host_at`. That smallest offset
+places every mapped deadline at the soonest broker instant the evidence allows. The
+readings are NOT described as simultaneous anywhere; the interval is stored.
+
+`authorized_at` keeps its audit meaning — the instant the human act was recorded —
+and is not the mapping basis. It may not postdate `basis_host_at` (domain and a
+database CHECK), because the expiry is `authorized_at + validity` and a later
+`authorized_at` would push the mapped expiry later.
+
+ASSUMED, NOT MEASURED: that this host's wall clock does not step backward and forward
+again inside the round trip (a net backward step between the two readings refuses),
+and that the offset when a deadline was written equals the offset measured for it.
+
+## Defect 2 — an authorization-time basis cannot translate an older M084 intent
+
+REPRODUCED at `ddce3c8`, before any production edit, in exactly the requested sequence:
+(1) intent issued with host and broker agreeing; (2) host clock moved back one hour;
+(3) authorization taken; (4) a new dispatch process 20 minutes after the real M084
+deadline, host clock still behind:
+
+    M084 expires_at (host A)       2026-09-10 14:10:00+00:00
+    mapped via authorization basis 2026-09-10 15:10:00+00:00
+    ... Failed: DID NOT RAISE
+
+### The repair: distinct provenance
+
+- **Authorization deadlines** use only the basis measured for that authorization.
+  `ExecutionAuthorization.on_broker_timeline` is documented, and tested, as
+  translating that authorization's own expiry only.
+- **M084 intent and liquidation deadlines** use only `paper_intent_time_basis`, an
+  M085-owned, append-only evidence row per intent. `m084_deadline_refusal_on_broker_time`
+  takes no authorization at all.
+- **Binding to issuance.** `empirical-platform-issue-paper-bound-order-intent`
+  (`IssuePaperBoundOrderIntentHandler`) measures the basis first, then calls
+  MILESTONE-084's own `IssueApprovedOrderIntentHandler`, unchanged, with that exact
+  host reading as `created_at`, then records the evidence. `intent_created_at` must
+  equal `basis_host_at` (domain and database CHECK), so a basis measured later cannot
+  describe an intent that already exists; the handler also refuses an existing intent.
+- **Binding to the exact intent.** The fingerprint and the three M084 instants are
+  copied into the evidence and compared on every use; a database insert guard
+  compares them against the stored `approved_order_intent` row.
+- **No backfill, no reinterpretation.** No migration writes a basis into an existing
+  row. An intent issued through M084 alone, a legacy authorization carrying only the
+  pair, and evidence describing another intent are all refused at preview and at
+  dispatch; the intent check runs before any broker call.
+- **M084 untouched.** No M084 file, table, column, constraint or trigger changed;
+  M084's `issue-order-intent` still works and still issues M084 intents — they are
+  simply not dispatchable by M085. The frozen-path gate is green.
+
+A crash between issuing the intent and recording its evidence leaves an intent with no
+evidence: refused, never repaired.
+
+## Residual limits, stated
+
+- M084 derives `expires_at` and `mandatory_liquidation_at` when the PROPOSAL is
+  evaluated, before issuance. A host clock that moved between proposal evaluation and
+  intent issuance is not measured by the intent-time basis; that interval is bounded
+  only by M084's own approval expiry.
+- The database enforces the SHAPE of both bases and binds evidence to the exact
+  stored intent. It cannot know a measurement happened: a writer with INSERT authority
+  could copy an intent's own `created_at` into a fabricated evidence row. The
+  application has no such path; this is the same boundary as a disabled trigger or a
+  superuser.
+- Every bound is relative to the broker's clock. The four non-guarantees listed under
+  *"WHAT IT IS NOT"* above still apply unchanged.
+- Direct-SQL immutability gap closed in passing: before `d4f18a6c2e97` the
+  authorization guard did not freeze the basis columns, so the single permitted
+  consuming UPDATE could have rewritten them. The replaced guard freezes all four;
+  the downgrade restores the exact prior function.
+
+## Migration
+
+`d4f18a6c2e97` (down revision `c7a41f0b52de`), additive: two nullable interval
+columns with a pairing CHECK and a shape CHECK on `paper_execution_authorization`; the
+authorization guard replaced to freeze all four basis columns; table
+`paper_intent_time_basis` with fingerprint, endpoint, interval and issuance-binding
+CHECKs, an insert guard against the stored M084 intent, and the M085 append-only
+trigger. Downgrade removes exactly those objects and restores the prior guard text.
+
+## Proof
+
+Every row below is deterministic: controlled clocks, fake or controlled brokers, no
+network, no real broker. PostgreSQL rows ran locally against PostgreSQL 16.13 in the
+disposable database `m085_pgon_c7a41f0`, rebuilt from the complete migration history.
+
+| Required proof | Where |
+|---|---|
+| broker-fetch latency cannot extend authorization validity | `test_broker_fetch_latency_cannot_extend_the_authorization_deadline` (unit, reproduces the defect's exact scenario); `TestBrokerFetchLatencyCannotExtendAnAuthorization` (PostgreSQL, separate processes, host clock behind) |
+| host and broker bases conservatively associated | `test_a_basis_pairs_the_broker_timestamp_with_the_host_reading_after_the_response`; `test_the_mapping_never_places_a_host_instant_later_than_the_broker_really_was` (15 cases: stamp early/mid/late in the round trip, host ahead/behind/exact); `test_the_interval_is_recorded_rather_than_a_single_moment`; stored interval asserted through PostgreSQL |
+| host offset changes between M084 intent issuance and M085 authorization | `test_a_host_clock_moved_between_intent_and_authorization_cannot_extend_the_m084_deadline` (unit, the requested 4-step sequence) and `TestAnIntentsDeadlinesUseTheBasisOfItsOwnIssuance` (PostgreSQL); negative halves that still dispatch inside both real deadlines |
+| restart between intent, authorization and dispatch | `test_issue_authorize_and_dispatch_as_three_processes_dispatch_exactly_once` and every PostgreSQL scenario: each command is its own service and time window |
+| missing or mismatched intent-time basis | M084-only intent refused at preview and at dispatch before any broker call; mismatched fingerprint / created_at / expires_at / liquidation refused in domain, handler and database; backfill refused by the issuance handler, the domain and the database CHECK; crash between issue and record leaves the intent undispatchable |
+| authorization expiry and M084 deadlines independent | `test_authorization_expiry_and_intent_deadlines_do_not_borrow_each_others_basis`; `test_a_host_clock_ahead_only_while_authorizing_cannot_extend_the_authorization`; legacy pair-only and basis-less authorizations refused |
+| expiry during fetch, lock wait and connection preparation | existing `test_elapsed_work_cannot_extend_a_deadline` (now with matching evidence), `test_real_row_lock_wait_cannot_consume_expired_permission`; new `test_an_m084_deadline_passing_only_on_the_broker_clock_never_submits[fetch/claim/prepare/connect]` and the PostgreSQL deadline-inside-the-claim case |
+| zero broker submissions on every refusal | asserted in every refusal test above (`broker.submitted == []`, no attempt, authorization unconsumed where refused before claim) |
+| migration up/down/up | `test_the_migration_goes_down_and_up_again`: head -> `c7a41f0b52de` (table, columns, constraints and insert guard gone; prior guard text restored) -> head, catalog identical |
+| direct-SQL pair and integrity constraints | half interval, interval without pair, inverted host/broker interval, authorized_at after basis, half pair, basis columns rewritten by the consuming UPDATE, evidence mismatch, unknown intent, not bound to issuance, inverted evidence intervals, append-only, one row per intent -- each with an accepted control |
+
+| Gate (final tree, before commit) | Result |
+|---|---|
+| Full suite, PostgreSQL OFF, Windows 11, Python 3.13.14 | **3619 passed, 1142 skipped, 0 failed**; coverage **80.06%** against the unchanged 79% floor |
+| PostgreSQL ON: time-basis, temporal, lifecycle, concurrency, M084 file audit | **162 passed, 0 failed** |
+| M085 authority contract, hostile HTTP, architecture tests | 196 passed |
+| `ruff format --check` / `ruff check` / `mypy` (366 files) / `compileall` | clean |
+| `tools/check_architecture.py` / negative fixture | clean / correctly refused |
+| `tools/check_frozen_paths.py` | 27 governed paths unmodified since `707161a1e8ed` |
+| secret scan and dependency audit (`scripts/security.ps1`) | clean: 1317 targets scanned, no secret; pip-audit found no known vulnerability (the unpublished package itself is skipped as not on PyPI). First attempt used a system Python without pip-audit and did not run; a second run reported one high-entropy revision literal in the new PostgreSQL test, which was re-spelled |
+| `python -m build` | sdist and wheel built |
+
+## Mutation campaign
+
+Families are listed by the basis they protect, each with its detecting test named first
+(`tools/m085_mutation_campaign.py`). Authorization-time basis:
+`authorization_basis_pairs_the_post_response_host_reading`,
+`authorization_basis_interval_required`, `broker_basis_required`,
+`broker_basis_authorization_expiry`, `authorization_not_future_dated_against_its_basis`,
+`database_basis_interval_shape`, `database_basis_immutable`. Intent-time basis:
+`m084_deadline_on_intent_time_basis`, `intent_basis_required`,
+`intent_basis_matches_the_exact_intent`, `intent_basis_bound_to_issuance`,
+`issuance_uses_the_measured_host_reading`, `database_intent_basis_matches_intent`,
+`database_intent_basis_bound_to_issuance`. All run sequentially with PostgreSQL on
+(disposable database `m085_pgon_c7a41f0`), nothing else writing to the tree.
+Restoration was checked per family by SHA-256 and, around every run, over EVERY
+tracked and untracked file (1317, including JSON, schema and migrations).
+
+| Run | Scope | Result | Tree-wide restoration |
+|---|---|---|---|
+| 1 | all 67 families | **64 of 67 detected, 3 blockers** | 1317 files, 0 changed / removed / added |
+| 2 | the 3 blockers + 3 families sharing the tightened test | 6 of 6 | 1317 files, 0 changed |
+| 3 | all 67 families, final tree | **67 of 67 detected, 0 blockers** | 1317 files, 0 changed / removed / added |
+
+The three run-1 blockers, each corrected in the TEST OR TARGET, never in the rule:
+
+- `post_fetch_time` survived. The preview's new broker-timeline check on the intent's
+  own basis refuses the same expired intent when host and broker agree, so freezing
+  the preview's host instant before the fetch still produced a refusal. Defence in
+  depth, but the named test no longer isolated the post-fetch HOST instant. It now
+  issues the intent with the host an hour behind the broker, so only the host check
+  can refuse, and asserts the refusal is not the broker-clock one.
+- `final_intent_expiry` survived because of a defect THIS correction introduced in the
+  test suite: `test_elapsed_work_cannot_extend_a_deadline[intent-*]` replaced the
+  intent after authorization but kept evidence for the original, so dispatch was
+  refused up front for mismatched evidence and the `except ValueError: pass` accepted
+  it. Every `[intent-*]` case was vacuous. The evidence is now replaced with the intent,
+  and a refusal about basis evidence fails the test.
+- `database_single_use_trigger` survived because `d4f18a6c2e97` replaces the
+  authorization guard, so the guard enforced at head is that migration's copy; the
+  family still mutated the original text in `b1e9d47c30a5`. It now targets the enforced
+  copy. The authority contract test still reads its enforcement fragments from
+  `b1e9d47c30a5`, where they also remain -- a limit of that check, recorded here.
+
+`mutation-matrix.md` is run 3. The previous **57 of 57** result is superseded.
+
+## Collection reconciliation
+
+Collected with PostgreSQL off. Baseline collected in a detached worktree at
+`ddce3c8` with that commit's own `src` first on the path (a first collection that
+imported the working tree's source gave the identical list).
+
+| | Nodes |
+|---|---|
+| baseline `ddce3c8` | 4667 |
+| retained | 4666 |
+| removed | 1 |
+| added | 95 |
+| head | 4761 |
+
+Removed: `test_m085_entrypoints.py::TestTheTableCoversEveryConsoleScript::test_there_are_exactly_twelve`,
+renamed `test_there_are_exactly_thirteen` because the Paper-bound issuance command is a
+thirteenth M085 console script. Added: 32 in `test_m085_time_basis_postgres.py`, 19 in
+`test_m085_paper_execution_domain.py`, 19 in `test_m085_paper_time.py`, 16 in
+`test_m085_paper_execution_handlers.py`, 8 in `test_m085_entrypoints.py` (the new
+command across the parametrized CLI properties, and the renamed count), 1 in
+`test_m085_paper_execution_postgres.py` (the new append-only table).
+
+## External Paper acceptance: still PENDING
+
+Unchanged by this correction and not closed by it. No Paper or Live order was
+submitted; no Owner approval, merge, freeze, checkpoint change or M086 work occurred.
+The only broker calls this correction adds are read-only `GET /v2/clock` requests, and
+none was made against the real broker: every test uses controlled clocks.

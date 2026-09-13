@@ -515,3 +515,20 @@ candidate for Owner review, not approved, not frozen, not merged.
 The gap named in section J is also unchanged. The bounded external submission has
 still never been accepted by the Paper broker, and nothing in this correction
 changes that. External Paper acceptance is PENDING.
+
+---
+
+## Addendum — the persisted basis corrected again
+
+The addendum above says the cross-process gap was "corrected with a persisted broker
+time basis". SUPERSEDED: that basis had two defects, both reproduced before any change.
+Its host reading preceded the broker fetch, so fetch latency extended every mapped
+expiry; and it translated MILESTONE-084's older deadlines, so a host clock that moved
+between intent issuance and authorization shifted them. The authorization basis is now
+a stored interval paired with the post-response host reading, and M084 deadlines use
+only an intent-time basis recorded when the intent is issued through the new Paper-bound
+issuance command (migration `d4f18a6c2e97`). Intents and authorizations without that
+evidence are refused, not backfilled. See `temporal-correction.md`.
+
+M085 remains a candidate for Owner review: not approved, not frozen, not merged.
+External Paper acceptance is PENDING.

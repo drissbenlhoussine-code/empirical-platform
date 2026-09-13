@@ -3,6 +3,12 @@
 > Current temporal correction: see [temporal-correction.md](temporal-correction.md).
 > The ten-second lead workaround described below is superseded. Earlier test counts
 > and market-open results below are historical evidence, not validation of this correction.
+>
+> **Superseded again:** the persisted broker time basis described there was neither
+> simultaneous nor of the right provenance. See *"SUPERSEDED AGAIN"* in
+> `temporal-correction.md`. Intents must now be issued with
+> `empirical-platform-issue-paper-bound-order-intent` to be dispatchable, so the operator
+> CLI is 13 console scripts, not 12. Counts below are historical.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**

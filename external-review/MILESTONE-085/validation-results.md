@@ -390,3 +390,25 @@ boundaries. Prior rows above are preserved and were not re-edited.
 WHAT THESE RUNS DO NOT ESTABLISH. They do not establish that the corrected product
 has placed a Paper order, that Alpaca accepted one, or that external acceptance is
 complete. That remains PENDING and is unaffected by every row above.
+
+
+---
+
+## Final temporal-basis correction — verification runs
+
+Superseding the persisted basis of the section above; see `temporal-correction.md`,
+*"SUPERSEDED AGAIN"*. Rows above are preserved and were not re-edited.
+
+| Gate | Result |
+|---|---|
+| Defects reproduced at `ddce3c8` before any production change | both, plus a basis-less authorization not refused at dispatch |
+| Full suite, PostgreSQL OFF | 3619 passed, 1142 skipped, 0 failed; coverage 80.06% against the unchanged 79 floor |
+| PostgreSQL ON (`m085_pgon_c7a41f0`, head `d4f18a6c2e97`) | 162 passed, 0 failed |
+| Mutation campaign, sequential, PostgreSQL ON | run 1: 64 of 67 (3 blockers, corrected in tests/target); run 3 on the final tree: **67 of 67**, 0 blockers; tree-wide restoration 1317 files, 0 changed, after every run |
+| Test collection vs `ddce3c8` | 4667 baseline, 1 removed (renamed), 4666 retained, 95 added, 4761 total |
+| `ruff` / `mypy` strict (366 files) / architecture / frozen paths / build | clean / clean / clean / 27 governed paths unmodified / built |
+| Secret scan and dependency audit | clean: 1317 targets scanned, no secret; pip-audit found no known vulnerability (the unpublished package itself is skipped as not on PyPI). First attempt used a system Python without pip-audit and did not run; a second run reported one high-entropy revision literal in the new PostgreSQL test, which was re-spelled |
+
+WHAT THESE RUNS DO NOT ESTABLISH. No Paper or Live order was submitted, no real broker
+was contacted, and external Paper acceptance remains PENDING. Windows foundation CI and
+the PostgreSQL CI workflow at the pushed head are recorded on PR #15, not inferred here.
