@@ -1,5 +1,4 @@
 A	.github/workflows/m085-temporal.yml
-A	external-review/MILESTONE-085/README.md
 A	external-review/MILESTONE-085/alpaca-contract-evidence.md
 A	external-review/MILESTONE-085/changed-files.txt
 A	external-review/MILESTONE-085/concurrency-results.md
@@ -14,6 +13,8 @@ A	external-review/MILESTONE-085/mutation-matrix.md
 A	external-review/MILESTONE-085/operator-walkthrough.md
 A	external-review/MILESTONE-085/paper-acceptance-results.md
 A	external-review/MILESTONE-085/performance-results.md
+A	external-review/MILESTONE-085/provenance-mutation-matrix.md
+A	external-review/MILESTONE-085/README.md
 A	external-review/MILESTONE-085/scope-and-design.md
 A	external-review/MILESTONE-085/temporal-correction.md
 A	external-review/MILESTONE-085/temporal-mutation-matrix.md
@@ -21,6 +22,7 @@ A	external-review/MILESTONE-085/validation-results.md
 A	migrations/versions/b1e9d47c30a5_create_m085_paper_execution_schema.py
 A	migrations/versions/c7a41f0b52de_add_m085_broker_time_basis.py
 A	migrations/versions/d4f18a6c2e97_add_m085_intent_time_basis.py
+A	migrations/versions/e61b3f9a4c27_add_m085_proposal_and_decision_time_basis.py
 A	src/empirical_platform/decision_candidate/paper_execution.py
 A	src/empirical_platform/decision_candidate/paper_execution_repositories.py
 A	src/empirical_platform/entrypoints/_paper_composition.py
@@ -28,10 +30,12 @@ A	src/empirical_platform/entrypoints/activate_execution_kill_switch.py
 A	src/empirical_platform/entrypoints/authorize_paper_submission.py
 A	src/empirical_platform/entrypoints/cancel_paper_order.py
 A	src/empirical_platform/entrypoints/deactivate_execution_kill_switch.py
+A	src/empirical_platform/entrypoints/decide_paper_bound_trade_proposal.py
 A	src/empirical_platform/entrypoints/inspect_paper_account.py
 A	src/empirical_platform/entrypoints/issue_paper_bound_order_intent.py
 A	src/empirical_platform/entrypoints/list_paper_executions.py
 A	src/empirical_platform/entrypoints/paper_execution_status.py
+A	src/empirical_platform/entrypoints/prepare_paper_bound_trade_proposal.py
 A	src/empirical_platform/entrypoints/preview_paper_submission.py
 A	src/empirical_platform/entrypoints/reconcile_paper_order.py
 A	src/empirical_platform/entrypoints/show_paper_execution.py

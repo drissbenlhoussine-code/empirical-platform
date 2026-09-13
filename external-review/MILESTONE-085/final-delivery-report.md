@@ -532,3 +532,29 @@ evidence are refused, not backfilled. See `temporal-correction.md`.
 
 M085 remains a candidate for Owner review: not approved, not frozen, not merged.
 External Paper acceptance is PENDING.
+
+---
+
+## Addendum — each deadline carries the provenance of the act that wrote it
+
+The addendum above says M084 deadlines "use only an intent-time basis recorded when the
+intent is issued". SUPERSEDED: those deadlines are written when the proposal is
+evaluated and the approval recorded, not at issuance. With host and broker agreeing at
+evaluation and approval, then broker time an hour on while the host clock fell back, the
+issuance basis mapped the proposal expiry an hour late and the chain reached the broker
+fake with one submission — reproduced at `73a2f96` through PostgreSQL and real M084
+code before any change.
+
+The proposal's expiry and liquidation deadline are now translated only through a basis
+measured when the proposal is evaluated, and the approval's expiry only through a basis
+measured when the human decides (new commands
+`empirical-platform-prepare-paper-bound-trade-proposal` and
+`empirical-platform-decide-paper-bound-trade-proposal`, migration `e61b3f9a4c27`).
+Approval and issuance are refused when a deadline they rely on may have passed on the
+broker's clock; issuance is refused before M084 writes. Records created through M084
+alone have no basis and are refused for Paper, never backfilled. The authority contract
+now checks the SQL installed at migration head rather than the first migration file.
+See `temporal-correction.md` and `provenance-mutation-matrix.md`.
+
+M085 remains a candidate for Owner review: not approved, not frozen, not merged. No
+Paper authorization or submission occurred. External Paper acceptance is PENDING.

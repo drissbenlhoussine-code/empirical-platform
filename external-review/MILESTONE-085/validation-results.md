@@ -412,3 +412,24 @@ Superseding the persisted basis of the section above; see `temporal-correction.m
 WHAT THESE RUNS DO NOT ESTABLISH. No Paper or Live order was submitted, no real broker
 was contacted, and external Paper acceptance remains PENDING. Windows foundation CI and
 the PostgreSQL CI workflow at the pushed head are recorded on PR #15, not inferred here.
+
+## Per-act deadline provenance — verification runs
+
+Superseding the intent-time translation of M084 deadlines in the section above; see
+`temporal-correction.md`, *"SUPERSEDED A THIRD TIME"*. Rows above are preserved and were
+not re-edited. Only affected tests and mutation families were run; performance,
+hostile-review and external acceptance campaigns were not repeated.
+
+| Gate | Result |
+|---|---|
+| Defect reproduced at `73a2f96` before any production change | stale proposal and approval reached the broker fake: 1 submission |
+| Full suite, PostgreSQL OFF | 3669 passed, 1160 skipped, 0 failed; coverage 80.10% against the unchanged 79 floor |
+| PostgreSQL ON (`m085_pgon_c7a41f0`, head `e61b3f9a4c27`) | 180 passed, 0 failed |
+| Affected mutation families, sequential, PostgreSQL ON | run 1: 23 of 24 (1 blocker, expected failure reason corrected in the campaign); run 2: 1 of 1; **24 of 24**; tree-wide restoration 1320 files, 0 changed, after each run |
+| Test collection vs `73a2f96` | 4761 baseline, 19 removed (replaced), 4742 retained, 87 added, 4829 total |
+| `ruff` / `mypy` strict (368 files) / architecture / frozen paths / build | clean / clean / clean / 27 governed paths unmodified / built |
+| Secret scan and dependency audit | clean: 1320 targets scanned, no secret; pip-audit found no known vulnerability (the unpublished package itself is skipped) |
+
+WHAT THESE RUNS DO NOT ESTABLISH. No Paper or Live order was submitted, no Paper
+authorization was given, no real broker was contacted, and external Paper acceptance
+remains PENDING. CI at the pushed head is recorded on PR #15, not inferred here.

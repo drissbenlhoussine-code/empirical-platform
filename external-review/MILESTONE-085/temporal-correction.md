@@ -556,3 +556,213 @@ Unchanged by this correction and not closed by it. No Paper or Live order was
 submitted; no Owner approval, merge, freeze, checkpoint change or M086 work occurred.
 The only broker calls this correction adds are read-only `GET /v2/clock` requests, and
 none was made against the real broker: every test uses controlled clocks.
+
+---
+
+# SUPERSEDED A THIRD TIME — a deadline was translated through a basis measured after it was written
+
+Everything above is PRESERVED as the record of what was implemented and believed at
+`73a2f968b61909f3ae97c2d957fb85ae975e461c`. An independent review traced one concrete
+path through it that reaches the broker with an expired proposal and approval. It was
+reproduced deterministically on that commit, through real PostgreSQL and real
+MILESTONE-084 code, BEFORE any production change.
+
+## What is superseded, precisely
+
+- *"M084 intent and liquidation deadlines use only `paper_intent_time_basis`"* and
+  *"Only an issuance basis can translate them"* — **unsound.** `expires_at` and
+  `mandatory_liquidation_at` are written when the PROPOSAL is evaluated and copied
+  unchanged into the intent. A basis measured at issuance maps them by whatever the host
+  clock did between evaluation and issuance.
+- The residual limit *"that interval is bounded only by M084's own approval expiry"* —
+  **false.** The approval expiry is written on the same host timeline and checked again
+  by M084 on the host clock at issuance, so a backward host step defeats it too.
+- The mutation family `m084_deadline_on_intent_time_basis` in `mutation-matrix.md`
+  (run 3, **67 of 67**) protected the rule that WAS the defect. It is replaced by
+  `m084_deadline_on_proposal_time_basis` and the families listed under *Mutation
+  campaign* below. The other 66 rows of run 3 are unaffected and were not re-run.
+- *"The authority contract test still reads its enforcement fragments from
+  `b1e9d47c30a5`, where they also remain -- a limit of that check, recorded here."* —
+  **no longer a limit.** The contract now checks the SQL installed at migration head.
+
+## The defect, reproduced at `73a2f96`
+
+The requested sequence, each step its own process against PostgreSQL 16.13
+(`m085_pgon_c7a41f0`, rebuilt from the complete migration history):
+
+1. Proposal evaluated and approved with host and broker agreeing: proposal expiry
+   +300 s, approval expiry +120 s from the decision.
+2. Real broker time advances one hour; this host's clock falls back to just after the
+   evaluation.
+3. `IssuePaperBoundOrderIntentHandler` measures its basis. Every M084 host-clock check
+   passes; the issuance basis maps the proposal expiry an hour late;
+   `m084_deadline_refusal_on_broker_time` returns None.
+4. Preview, authorization and dispatch follow.
+
+    FAILED tests/integration/test_m085_time_basis_postgres.py::TestAStaleProposalAndApprovalCannotReachTheBroker::test_the_chain_is_refused_somewhere_and_nothing_is_sent
+    E   AssertionError: a proposal and approval that expired an hour ago on the broker's clock reached the broker: 1 submission(s)
+    E    +  where True = PaperSubmissionResult(... dispatched=True, http_status=200, broker_status='accepted', ...).dispatched
+
+The broker fake received one submission.
+
+## The repair: each deadline carries the provenance of the act that wrote it
+
+| Deadline | Written when | Translated ONLY through |
+|---|---|---|
+| proposal `expires_at` (= intent `expires_at`) | proposal evaluation | `paper_proposal_time_basis` |
+| proposal `mandatory_liquidation_at` (= intent's) | proposal evaluation | `paper_proposal_time_basis` |
+| approval `expires_at` | human decision | `paper_decision_time_basis` |
+| authorization `expires_at` | human authorization | the authorization's own interval (unchanged) |
+
+- **Measured in the act.** `empirical-platform-prepare-paper-bound-trade-proposal`
+  (`PreparePaperBoundTradeProposalHandler`) reads `GET /v2/clock`, then runs
+  MILESTONE-084's own `PrepareTradeProposalHandler`, unchanged, with the post-response
+  host reading as `evaluated_at`, then records the evidence.
+  `empirical-platform-decide-paper-bound-trade-proposal`
+  (`DecidePaperBoundTradeProposalHandler`) does the same for M084's
+  `DecideTradeProposalHandler` with `decided_at`. Neither command accepts an instant.
+- **Bound to the act.** `proposal_created_at` and `decided_at` must equal the basis host
+  reading (domain `ValueError` and database CHECK), so a basis measured later cannot
+  describe a record that already exists; both handlers also refuse an existing record.
+- **Bound to the exact record.** Proposal evidence copies the version, fingerprint,
+  `expires_at` and `mandatory_liquidation_at`; decision evidence the decision,
+  proposal, version, fingerprint, `decided_at` and approval expiry. They are compared on
+  every use and, at insert, by database guards against the stored M084 rows.
+- **Chronology, each deadline through its own basis.** An approval is refused when the
+  proposal may have expired on the broker's clock at the decision. Issuance is refused
+  — BEFORE M084 writes an intent — when the issuance interval may be at or after the
+  proposal expiry, the liquidation deadline, or the approval expiry. Every act's own
+  broker interval is used; an interval that might reach a deadline counts as after it.
+- **The issuance basis translates no deadline.** It records WHEN the intent was issued,
+  so the chronology can be checked again at preview and dispatch.
+- **At preview, pre-claim and the final send boundary** the intent deadlines are mapped
+  through the proposal-time basis only, and all three provenance rows plus the
+  chronology are re-verified.
+- **No backfill.** No migration writes evidence. A proposal or approval created through
+  MILESTONE-084 alone has none; it is refused at approval, at issuance, at preview and
+  at dispatch, and none is derived later.
+- **Unchanged:** deterministic `client_order_id`, the atomic single-use claim, and the
+  separate final human execution authorization. No M084 file changed; M084's own
+  commands still work and still write M084 records — they are simply not usable for
+  Paper.
+
+## Migration
+
+`e61b3f9a4c27` (down revision `d4f18a6c2e97`), additive: tables
+`paper_proposal_time_basis` and `paper_decision_time_basis`, each with endpoint, host
+and broker interval, fingerprint, act-binding and expiry-follows CHECKs, a
+`SET search_path` insert guard against the stored M084 row, and the M085 append-only
+trigger. M084's `trade_proposal` and `trade_approval_decision` gain nothing. Downgrade
+removes exactly those objects.
+
+## The authority contract now reads the SQL installed at head
+
+`test_m085_authority_contract.py` read only `b1e9d47c30a5`, while `d4f18a6c2e97`
+replaces the authorization guard with `CREATE OR REPLACE FUNCTION`. The contract now
+renders the whole M085 chain's upgrade SQL with Alembic offline, takes each function's
+LAST definition (a later DROP removes it), and checks every enforcement claim against
+that installed state. It pins that the chain is exactly the four M085 revisions ending
+at head, that every function definition was parsed, that the installed authorization
+guard is `d4f18a6c2e97`'s and the original is superseded, and — with a synthetic chain —
+that a rule surviving only in a replaced or dropped definition is not installed.
+
+New claims, each checked mechanically: `proves`
+`each_m084_deadline_is_translated_only_through_the_basis_of_the_act_that_wrote_it`
+(parsed: the receivers of `on_broker_timeline` in the two deadline rules);
+`database_enforcement` `time_basis_evidence_describes_the_exact_proposal_approval_or_intent_by_trigger`,
+`time_basis_evidence_is_bound_to_the_instant_of_its_own_act_by_check_constraint`,
+`time_basis_evidence_is_append_only_and_never_backfilled`; `structural_limitations`
+`an_m084_only_proposal_approval_or_intent_has_no_time_basis_and_is_never_dispatchable`,
+`a_writer_with_insert_privilege_can_store_correctly_shaped_evidence_nobody_measured`.
+
+## Residual limits, stated
+
+- ASSUMED, NOT MEASURED: that the host-to-broker offset while M084 computed a deadline
+  equals the offset measured in the same command around that computation.
+- The database binds evidence to the exact record and the instant of its act. It cannot
+  know that a broker clock was read: a writer with INSERT privilege could store
+  correctly shaped evidence nobody measured. The application has no such path.
+- Every bound is relative to the broker's clock, as before.
+
+## Proof
+
+Deterministic throughout: controlled clocks, fake or controlled brokers, no network.
+PostgreSQL rows ran against PostgreSQL 16.13 in `m085_pgon_c7a41f0`, rebuilt from the
+complete migration history.
+
+| Required proof | Where |
+|---|---|
+| the reviewed path, end to end, zero submissions | `TestAStaleProposalAndApprovalCannotReachTheBroker::test_the_chain_is_refused_somewhere_and_nothing_is_sent` (PostgreSQL, separate processes): refused at issuance with *"the proposal had expired on the broker's clock when the intent was issued"*, `broker.submitted == []`, no M084 intent and no intent evidence written. FAILED at `73a2f96` with one submission |
+| a proposal and approval created through M084 alone | `test_a_native_m084_proposal_and_approval_cannot_be_issued_for_paper` (PostgreSQL): refused *"no proposal-time broker basis"*, zero submissions, no intent; `test_a_proposal_or_approval_without_its_own_basis_is_refused_before_m084_writes` (handler, both rows, no clock read); an M084-only intent refused at preview and dispatch |
+| a proposal that expired on the broker's clock cannot be approved | `test_a_proposal_that_expired_on_the_broker_clock_cannot_be_approved` (handler and PostgreSQL): nothing written |
+| proposal deadlines through the evaluation basis only | `test_the_intent_deadline_is_mapped_through_the_proposal_basis`, `test_the_mandatory_liquidation_deadline_is_mapped_too`, `test_an_issuance_basis_cannot_rescue_deadlines_written_at_evaluation` |
+| approval expiry through the decision basis only | `test_an_approval_that_expired_before_issuance_is_refused`, `test_an_approval_recorded_after_the_proposal_expired_is_refused` |
+| each basis bound to its own act and exact record | domain `ValueError` on a basis not at the act's instant; handler tests that `evaluated_at` / `decided_at` / `created_at` are the post-response host reading; mismatched proposal and decision evidence refused at preview; database: exact copies accepted, another fingerprint / expiry / liquidation / instant refused by the insert guards, a later basis refused by `ck_paper_proposal_time_basis_bound_to_evaluation` and `ck_paper_decision_time_basis_bound_to_decision`, unknown records refused, append-only and one row per record |
+| migration up/down/up | `test_the_provenance_migration_goes_down_and_up_again` (head -> `d4f18a6c2e97` -> head; the intent-time table untouched); the existing `test_the_migration_goes_down_and_up_again` crosses it; every new guard function pins `search_path` |
+| deterministic `client_order_id`, atomic single-use claim, final human authorization | unchanged; their existing unit, PostgreSQL and concurrency tests pass unmodified in intent |
+| authority contract tests the SQL installed at head | `TestTheContractReadsTheSqlInstalledAtHead`, `TestTheTemporalProvenanceRulesAreInstalled`, and every enforcement claim checked against installed SQL |
+
+## Mutation campaign
+
+Only the affected families were run: `provenance-mutation-matrix.md`, **24 of 24**
+detected on the final source over two sequential runs (run 1: 23 of 24, one blocker whose
+expected failure reason was corrected in the campaign; run 2: 1 of 1), each bracketed by
+a SHA-256 digest of every tracked and untracked file (1320, 0 changed). The same
+authority-family mutation SURVIVED the replaced contract at `73a2f96` (15 passed).
+Performance, hostile-review and external acceptance campaigns were not repeated: this
+correction does not change them.
+
+## Collection reconciliation
+
+Collected with PostgreSQL off. Baseline in a detached worktree at `73a2f96` with that
+commit's own `src` first on the path.
+
+| | Nodes |
+|---|---|
+| baseline `73a2f96` | 4761 |
+| retained | 4742 |
+| removed | 19 |
+| added | 87 |
+| head | 4829 |
+
+Removed, each replaced: 15 parametrized cases and one test of
+`test_every_database_enforcement_claim_names_something_in_the_migration` /
+`test_the_migration_declares_no_foreign_key_into_the_m084_intent`, renamed to
+`..._names_sql_installed_at_head` (now 24 cases) and
+`test_the_installed_schema_declares_no_foreign_key_into_the_m084_intent` because they no
+longer read one migration file; `test_there_are_exactly_thirteen`, renamed
+`test_there_are_exactly_fifteen` for the two new console scripts;
+`test_missing_intent_evidence_refuses_the_preview`, replaced by the parametrized
+`test_missing_evidence_for_any_act_refuses_the_preview` over all three acts; and
+`test_the_intent_deadline_is_mapped_through_the_intent_basis`, which asserted the
+superseded rule and is replaced by `test_the_intent_deadline_is_mapped_through_the_proposal_basis`.
+Added: 36 in `test_m085_authority_contract.py`, 16 in `test_m085_time_basis_postgres.py`,
+15 in `test_m085_entrypoints.py`, 9 in `test_m085_paper_execution_domain.py`, 9 in
+`test_m085_paper_execution_handlers.py`, 2 in `test_m085_paper_execution_postgres.py`.
+
+## Gates
+
+| Gate (final tree, before commit) | Result |
+|---|---|
+| Reproduction at `73a2f96`, before any production change | the reviewed path reached the broker fake: 1 submission, `dispatched=True` |
+| Full suite, PostgreSQL OFF, Windows 11, Python 3.13 | **3669 passed, 1160 skipped, 0 failed**; coverage **80.10%** against the unchanged 79% floor |
+| PostgreSQL ON (`m085_pgon_c7a41f0`, head `e61b3f9a4c27`): temporal, time-basis, lifecycle, concurrency, M084 file audit | **180 passed, 0 failed** |
+| M085 authority contract | 71 passed (offline Alembic rendering, no database) |
+| Affected mutation families, sequential, PostgreSQL ON | **24 of 24** over two runs; tree-wide restoration 1320 files, 0 changed, after each |
+| Test collection vs `73a2f96` | 4761 baseline, 19 removed (each replaced, listed above), 4742 retained, 87 added, 4829 total |
+| `ruff format --check` / `ruff check` / `mypy` (368 files) / `compileall` | clean |
+| `tools/check_architecture.py` / negative fixture | clean / correctly refused |
+| `tools/check_frozen_paths.py` | 27 governed paths unmodified since `707161a1e8ed`; no M083 or M084 file changed |
+| `tools/render_m085_authority.py --check` | the document is the rendering of the contract |
+| secret scan and dependency audit (`scripts/security.ps1`, venv on PATH) | clean: 1320 targets scanned, no secret; pip-audit found no known vulnerability (the unpublished package itself is skipped as not on PyPI) |
+| `python -m build` | sdist and wheel built |
+
+## External Paper acceptance: still PENDING
+
+Unchanged by this correction and not closed by it. No Paper or Live order was
+submitted; no Paper authorization, Owner approval, merge, freeze, checkpoint change or
+M086 work occurred. The broker calls this correction adds are read-only
+`GET /v2/clock` requests in the two new commands, and none was made against the real
+broker: every test uses controlled clocks. `tools/m085_paper_acceptance.py` and
+`tools/m085_operator_walkthrough.py` now evaluate and approve through the Paper-bound
+commands; neither was run.

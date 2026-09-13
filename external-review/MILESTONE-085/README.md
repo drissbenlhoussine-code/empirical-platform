@@ -9,6 +9,15 @@
 > `temporal-correction.md`. Intents must now be issued with
 > `empirical-platform-issue-paper-bound-order-intent` to be dispatchable, so the operator
 > CLI is 13 console scripts, not 12. Counts below are historical.
+>
+> **Superseded a third time:** the intent-time basis translated deadlines written
+> earlier, when the proposal was evaluated and approved. See *"SUPERSEDED A THIRD TIME"*
+> in `temporal-correction.md`. Every deadline now carries the basis of the act that
+> wrote it: proposals must be evaluated with
+> `empirical-platform-prepare-paper-bound-trade-proposal` and approved with
+> `empirical-platform-decide-paper-bound-trade-proposal` to be issuable for Paper, so the
+> operator CLI is 15 console scripts. The affected mutation families are in
+> `provenance-mutation-matrix.md`.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
