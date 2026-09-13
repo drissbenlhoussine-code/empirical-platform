@@ -62,6 +62,7 @@ def run_submit_authorized_paper_order(
     with paper_execution_runtime(config) as context:
         handler = SubmitAuthorizedPaperOrderHandler(
             intents=context.m084.approved_order_intents,
+            intent_time_bases=context.paper.intent_time_bases,
             previews=context.paper.submission_previews,
             authorizations=context.paper.execution_authorizations,
             attempts=context.paper.execution_attempts,

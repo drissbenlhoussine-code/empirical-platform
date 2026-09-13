@@ -47,10 +47,16 @@ jobs:
         run: >-
           python -m pytest --no-cov -q
           tests/integration/test_m085_temporal_postgres.py
+          tests/integration/test_m085_time_basis_postgres.py
           tests/integration/test_m085_paper_execution_postgres.py
           tests/integration/test_m085_concurrency.py
           tests/integration/test_m084_file_audit.py
-      - name: PostgreSQL lock-time mutation (sequential, source restored)
+      - name: PostgreSQL time-basis mutations (sequential, sources restored)
         run: >-
-          python tools/m085_mutation_campaign.py --family claim_time_after_lock
+          python tools/m085_mutation_campaign.py
+          --family claim_time_after_lock
+          --family database_basis_interval_shape
+          --family database_basis_immutable
+          --family database_intent_basis_matches_intent
+          --family database_intent_basis_bound_to_issuance
           --output /tmp/m085-pg-mutation.md

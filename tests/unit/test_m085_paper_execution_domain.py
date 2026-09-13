@@ -25,31 +25,59 @@ from empirical_platform.decision_candidate.paper_execution import (
     MAXIMUM_BROKER_CLIENT_ORDER_ID_LENGTH,
     MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
+    NO_AUTHORIZATION_TIME_BASIS,
+    NO_INTENT_TIME_BASIS,
     NOT_FOUND_ALONE_RESOLVES_UNKNOWN,
     PAPER_ENDPOINT_HOST,
     RECONCILIATION_UNKNOWN_POLICY,
     TERMINAL_PAPER_STATES,
     ExecutionAttempt,
     ExecutionAuthorization,
+    IntentTimeBasis,
     PaperAccountSnapshot,
     PaperEnvironment,
     PaperExecutionState,
     PaperOrderRequest,
     authorize_submission,
+    bind_intent_time_basis,
     build_submission_preview,
     derive_client_order_id,
     is_paper_transition_allowed,
+    m084_deadline_refusal_on_broker_time,
     request_fingerprint,
 )
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
     SubmissionState,
 )
-from empirical_platform.shared.brokerage.paper_time import BoundedInstant
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant, BrokerTimeBasis
 
 _NOW = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
 _DIGEST = "a" * 64
 _WATCHLIST = frozenset({"AAPL"})
+
+
+def _basis(
+    at: datetime = _NOW,
+    *,
+    broker_offset: timedelta = timedelta(0),
+    round_trip: timedelta = timedelta(0),
+) -> BrokerTimeBasis:
+    """A measured basis: host readings bracketing `at`, the broker `broker_offset` ahead."""
+    return BrokerTimeBasis(
+        host_requested_at=at - round_trip,
+        host_at=at,
+        broker_earliest_at=at + broker_offset - round_trip,
+        broker_latest_at=at + broker_offset,
+    )
+
+
+def _evidence(intent: ApprovedOrderIntent, **basis: timedelta) -> IntentTimeBasis:
+    return bind_intent_time_basis(
+        intent=intent,
+        time_basis=_basis(intent.created_at, **basis),
+        broker_endpoint_host=PAPER_ENDPOINT_HOST,
+    )
 
 
 def an_intent(**overrides: object) -> ApprovedOrderIntent:
@@ -130,6 +158,8 @@ def a_preview(**overrides: object):  # noqa: ANN201 - returns SubmissionPreview
         "broker_now": BoundedInstant(earliest=_NOW, latest=_NOW),
     }
     arguments.update(overrides)
+    if "intent_time_basis" not in overrides:
+        arguments["intent_time_basis"] = _evidence(arguments["intent"])  # type: ignore[arg-type]
     return build_submission_preview(**arguments)  # type: ignore[arg-type]
 
 
@@ -471,7 +501,7 @@ class TestAuthorizationIsNarrowAndExpiring:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=60,
-                broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+                time_basis=_basis(_NOW),
             )
 
     @pytest.mark.parametrize("validity", [0, -1])
@@ -483,7 +513,7 @@ class TestAuthorizationIsNarrowAndExpiring:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=validity,
-                broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+                time_basis=_basis(_NOW),
             )
 
     def test_there_is_no_way_to_express_an_unexpiring_authorization(self) -> None:
@@ -495,7 +525,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=1,
-            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+            time_basis=_basis(_NOW),
         )
         assert authorization.expires_at > authorization.authorized_at
         assert authorization.is_expired_at(authorization.expires_at) is True
@@ -508,7 +538,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
-            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+            time_basis=_basis(_NOW),
         )
         assert (
             authorization.refusal_against(
@@ -538,7 +568,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
-            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+            time_basis=_basis(_NOW),
         )
         arguments: dict[str, object] = {
             "request_fingerprint_now": preview.request_fingerprint,
@@ -561,7 +591,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
-            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+            time_basis=_basis(_NOW),
         )
         refusal = authorization.refusal_against(
             request_fingerprint_now=authorization.request_fingerprint,
@@ -592,21 +622,26 @@ class TestAuthorizationIsNarrowAndExpiring:
             legacy.on_broker_timeline(_NOW)
 
     def test_the_basis_maps_a_host_instant_by_the_measured_difference(self) -> None:
-        # The mapping is exactly the difference between two readings taken
-        # together -- no scaling, no allowance, no assumed accuracy.
+        # The mapping is the broker's reported timestamp minus this host's reading
+        # AFTER the response -- the smallest offset the measured round trip allows.
+        # SUPERSEDED: this comment used to say "two readings taken together".
         authorization = authorize_submission(
             authorization_id="AUT-1",
             preview=a_preview(),
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
-            broker_now=BoundedInstant(
-                earliest=_NOW + timedelta(seconds=7), latest=_NOW + timedelta(seconds=8)
+            # Host reads _NOW before and _NOW+1s after; broker stamped _NOW+8s at
+            # the latest, so its earliest is _NOW+7s and the offset is exactly +6s.
+            time_basis=_basis(
+                _NOW + timedelta(seconds=1),
+                broker_offset=timedelta(seconds=7),
+                round_trip=timedelta(seconds=1),
             ),
         )
-        assert authorization.on_broker_timeline(_NOW) == _NOW + timedelta(seconds=7)
+        assert authorization.on_broker_timeline(_NOW) == _NOW + timedelta(seconds=6)
         assert authorization.on_broker_timeline(authorization.expires_at) == _NOW + timedelta(
-            seconds=67
+            seconds=66
         )
 
     def test_a_consumed_authorization_permits_nothing_further(self) -> None:
@@ -617,7 +652,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
-            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+            time_basis=_basis(_NOW),
         )
         consumed = ExecutionAuthorization(
             authorization_id=base.authorization_id,
@@ -675,6 +710,226 @@ class TestAuthorizationIsNarrowAndExpiring:
                 consumed_at=None,
                 consumed_by_attempt_id=None,
             )
+
+
+def _legacy_authorization(**basis: datetime | None) -> ExecutionAuthorization:
+    return ExecutionAuthorization(
+        authorization_id="AUT-OLD",
+        intent_governance_id="INT-1",
+        preview_id="PVW-1",
+        preview_version=1,
+        request_fingerprint=_DIGEST,
+        account_reference="ref:abc123",
+        client_order_id="m085-x",
+        authorized_by="owner",
+        authorized_at=_NOW,
+        expires_at=_NOW + timedelta(seconds=60),
+        consumed_at=None,
+        consumed_by_attempt_id=None,
+        **basis,  # type: ignore[arg-type]
+    )
+
+
+class TestTheTwoTimeBasesHaveDistinctProvenance:
+    """An authorization's basis and an intent's basis are measured in different acts."""
+
+    def test_fetch_latency_does_not_move_the_mapped_authorization_expiry(self) -> None:
+        # The command instant precedes a 120 s clock fetch; the broker's truthful
+        # reply arrives as this host reads 120 s later. Paired with that later host
+        # reading, the permission ends at the command instant plus its validity.
+        authorization = authorize_submission(
+            authorization_id="AUT-1",
+            preview=a_preview(),
+            authorized_by="owner",
+            authorized_at=_NOW,
+            validity_seconds=300,
+            time_basis=BrokerTimeBasis(
+                host_requested_at=_NOW,
+                host_at=_NOW + timedelta(seconds=120),
+                broker_earliest_at=_NOW + timedelta(seconds=120),
+                broker_latest_at=_NOW + timedelta(seconds=240),
+            ),
+        )
+        assert authorization.on_broker_timeline(authorization.expires_at) == _NOW + timedelta(
+            seconds=300
+        )
+
+    def test_the_replaced_pre_fetch_pairing_is_no_longer_trusted(self) -> None:
+        # The shape the defect wrote -- host reading equal to the pre-fetch command
+        # instant, no interval -- would have mapped the same expiry 120 s later.
+        legacy = _legacy_authorization(
+            basis_host_at=_NOW, basis_broker_earliest_at=_NOW + timedelta(seconds=120)
+        )
+        assert legacy.time_basis is None
+        assert legacy.has_broker_time_basis is False
+        refusal = legacy.refusal_against(
+            request_fingerprint_now=_DIGEST,
+            account_reference_now="ref:abc123",
+            instant=_NOW,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+        )
+        assert refusal == NO_AUTHORIZATION_TIME_BASIS
+
+    def test_an_authorization_with_no_basis_at_all_is_not_dispatchable(self) -> None:
+        refusal = _legacy_authorization().refusal_against(
+            request_fingerprint_now=_DIGEST,
+            account_reference_now="ref:abc123",
+            instant=_NOW,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+        )
+        assert refusal == NO_AUTHORIZATION_TIME_BASIS
+
+    def test_a_future_dated_authorization_cannot_be_mapped(self) -> None:
+        with pytest.raises(ValueError, match="future-dated"):
+            authorize_submission(
+                authorization_id="AUT-1",
+                preview=a_preview(),
+                authorized_by="owner",
+                authorized_at=_NOW + timedelta(seconds=1),
+                validity_seconds=60,
+                time_basis=_basis(_NOW),
+            )
+
+    @pytest.mark.parametrize("missing", ["basis_host_requested_at", "basis_broker_latest_at"])
+    def test_half_an_interval_is_refused(self, missing: str) -> None:
+        readings: dict[str, datetime | None] = {
+            "basis_host_at": _NOW,
+            "basis_broker_earliest_at": _NOW,
+            "basis_host_requested_at": _NOW,
+            "basis_broker_latest_at": _NOW,
+        }
+        readings[missing] = None
+        with pytest.raises(ValueError, match="set together"):
+            _legacy_authorization(**readings)
+
+    def test_an_interval_without_the_readings_it_bounds_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="requires the basis readings"):
+            _legacy_authorization(basis_host_requested_at=_NOW, basis_broker_latest_at=_NOW)
+
+    def test_intent_evidence_cannot_be_attached_after_issuance(self) -> None:
+        intent = an_intent()
+        with pytest.raises(ValueError, match="after the fact"):
+            bind_intent_time_basis(
+                intent=intent,
+                time_basis=_basis(intent.created_at + timedelta(minutes=5)),
+                broker_endpoint_host=PAPER_ENDPOINT_HOST,
+            )
+
+    def test_intent_evidence_must_come_from_the_paper_host(self) -> None:
+        intent = an_intent()
+        with pytest.raises(ValueError, match="broker_endpoint_host"):
+            bind_intent_time_basis(
+                intent=intent,
+                time_basis=_basis(intent.created_at),
+                broker_endpoint_host="api.alpaca.markets",
+            )
+
+    def test_missing_intent_evidence_refuses_the_preview(self) -> None:
+        preview = a_preview(intent_time_basis=None)
+        assert NO_INTENT_TIME_BASIS in preview.refusals
+        assert preview.is_authorizable is False
+
+    @pytest.mark.parametrize(
+        ("change", "field"),
+        [
+            ({"intent_governance_id": "INT-2"}, "intent_governance_id"),
+            ({"approved_fingerprint": "b" * 64}, "approved_fingerprint"),
+            ({"created_at": _NOW - timedelta(minutes=2)}, "created_at"),
+            ({"expires_at": _NOW + timedelta(hours=2)}, "expires_at"),
+            ({"mandatory_liquidation_at": _NOW + timedelta(hours=4)}, "mandatory_liquidation_at"),
+        ],
+    )
+    def test_evidence_for_a_different_intent_refuses_the_preview(
+        self, change: dict[str, object], field: str
+    ) -> None:
+        preview = a_preview(intent_time_basis=_evidence(an_intent(**change)))
+        assert preview.is_authorizable is False
+        assert any(
+            "does not describe this exact intent" in reason and f"({field})" in reason
+            for reason in preview.refusals
+        ), preview.refusals
+
+    def test_the_intent_deadline_is_mapped_through_the_intent_basis(self) -> None:
+        # Issued while the host clock ran an hour BEHIND the broker, so the stored
+        # host expiry (_NOW+1h) is _NOW+2h on the broker's clock.
+        intent = an_intent()
+        evidence = _evidence(intent, broker_offset=timedelta(hours=1))
+        just_before = _NOW + timedelta(hours=2) - timedelta(seconds=1)
+        assert (
+            m084_deadline_refusal_on_broker_time(
+                intent=intent,
+                evidence=evidence,
+                broker_now=BoundedInstant(earliest=just_before, latest=just_before),
+            )
+            is None
+        )
+        at_it = _NOW + timedelta(hours=2)
+        refusal = m084_deadline_refusal_on_broker_time(
+            intent=intent,
+            evidence=evidence,
+            broker_now=BoundedInstant(earliest=at_it, latest=at_it),
+        )
+        assert refusal == "the approved intent has expired on the broker's clock"
+
+    def test_the_mandatory_liquidation_deadline_is_mapped_too(self) -> None:
+        intent = an_intent(expires_at=_NOW + timedelta(hours=5))
+        at_liquidation = intent.mandatory_liquidation_at
+        refusal = m084_deadline_refusal_on_broker_time(
+            intent=intent,
+            evidence=_evidence(intent),
+            broker_now=BoundedInstant(earliest=at_liquidation, latest=at_liquidation),
+        )
+        assert refusal == "the mandatory liquidation deadline has passed on the broker's clock"
+
+    def test_missing_evidence_is_a_refusal_not_a_skipped_check(self) -> None:
+        refusal = m084_deadline_refusal_on_broker_time(
+            intent=an_intent(), evidence=None, broker_now=BoundedInstant(earliest=_NOW, latest=_NOW)
+        )
+        assert refusal == NO_INTENT_TIME_BASIS
+
+    def test_authorization_expiry_and_intent_deadlines_do_not_borrow_each_others_basis(
+        self,
+    ) -> None:
+        # The intent was issued with this host an hour behind the broker; the human
+        # authorized with this host correct. Each basis decides only its own question.
+        intent = an_intent()
+        evidence = _evidence(intent, broker_offset=timedelta(hours=1))
+        preview = a_preview(intent=intent, intent_time_basis=evidence)
+        authorization = authorize_submission(
+            authorization_id="AUT-1",
+            preview=preview,
+            authorized_by="owner",
+            authorized_at=_NOW,
+            validity_seconds=7200,
+            time_basis=_basis(_NOW),
+        )
+        ninety_minutes = BoundedInstant(
+            earliest=_NOW + timedelta(minutes=90), latest=_NOW + timedelta(minutes=90)
+        )
+        # Through its own basis the intent expires at _NOW+2h, so it has not. Through
+        # the authorization's it would be _NOW+1h -- already passed -- which is the
+        # borrowed answer this design refuses to use.
+        assert (
+            m084_deadline_refusal_on_broker_time(
+                intent=intent, evidence=evidence, broker_now=ninety_minutes
+            )
+            is None
+        )
+        assert authorization.on_broker_timeline(intent.expires_at) == _NOW + timedelta(hours=1)
+        # And the authorization's own expiry is not shifted by the intent's offset.
+        arguments: dict[str, object] = {
+            "request_fingerprint_now": preview.request_fingerprint,
+            "account_reference_now": preview.account_reference,
+            "instant": _NOW,
+        }
+        assert authorization.refusal_against(**arguments, broker_now=ninety_minutes) is None  # type: ignore[arg-type]
+        two_hours = BoundedInstant(
+            earliest=_NOW + timedelta(hours=2), latest=_NOW + timedelta(hours=2)
+        )
+        assert (
+            authorization.refusal_against(**arguments, broker_now=two_hours)  # type: ignore[arg-type]
+            == "the authorization has expired on the broker's clock"
+        )
 
 
 class TestTheStateMachineIsClosed:

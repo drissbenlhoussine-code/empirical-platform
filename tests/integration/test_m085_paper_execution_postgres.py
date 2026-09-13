@@ -35,8 +35,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from tests.integration._m085_support import (
     EVALUATED_AT,
+    a_basis_at,
     a_configuration,
     an_approved_intent,
+    an_intent_time_basis_for,
     build_engine,
     config,
     database_identity,
@@ -157,6 +159,7 @@ def a_full_chain(
             earliest=EVALUATED_AT + timedelta(seconds=25),
             latest=EVALUATED_AT + timedelta(seconds=25),
         ),
+        intent_time_basis=an_intent_time_basis_for(intent),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)
@@ -176,7 +179,7 @@ def a_full_chain(
         authorized_by="owner",
         authorized_at=authorized_at,
         validity_seconds=validity_seconds,
-        broker_now=BoundedInstant(earliest=authorized_at, latest=authorized_at),
+        time_basis=a_basis_at(authorized_at),
     )
     paper.execution_authorizations.save(authorization)
     return intent.intent_governance_id, authorization
@@ -965,6 +968,12 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
                 "UPDATE public.paper_broker_acknowledgement SET observed_at = now()",
                 "DELETE FROM public.paper_broker_acknowledgement",
             ),
+            (
+                "paper_intent_time_basis",
+                "SELECT count(*) AS n FROM public.paper_intent_time_basis",
+                "UPDATE public.paper_intent_time_basis SET basis_host_at = basis_host_at",
+                "DELETE FROM public.paper_intent_time_basis",
+            ),
         ],
     )
     def test_update_and_delete_are_both_refused(
@@ -980,6 +989,19 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
         # matches nothing fires no row trigger and the test would pass without
         # having attacked anything.
         intent_id, authorization = a_full_chain(paper)
+        # An exact copy of the stored intent's instants: the shape the database
+        # accepts, so the row exists to be attacked.
+        with clean.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO public.paper_intent_time_basis SELECT intent_governance_id, "
+                    "approved_fingerprint, created_at, expires_at, mandatory_liquidation_at, "
+                    "'paper-api.alpaca.markets', created_at, created_at, created_at, "
+                    "created_at FROM public.approved_order_intent "
+                    "WHERE intent_governance_id = :intent"
+                ),
+                {"intent": intent_id},
+            )
         paper.execution_kill_switch.engage(
             changed_by="owner", changed_at=EVALUATED_AT, reason="test"
         )
@@ -1052,6 +1074,7 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
             "paper_execution_event",
             "paper_execution_kill_switch",
             "paper_broker_acknowledgement",
+            "paper_intent_time_basis",
         }
 
 

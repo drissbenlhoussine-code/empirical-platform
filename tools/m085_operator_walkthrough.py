@@ -420,9 +420,12 @@ def main(argv: list[str] | None = None) -> int:
         [cli("decide-trade-proposal"), "PRP-WALK85", "DEC-WALK85", "APPROVE", "operator-1", AT],
     )
     walk.run(
-        "derive the single order intent the approval permits",
+        # Through the Paper-bound issuance command: an intent issued by M084's
+        # `issue-order-intent` alone carries no intent-time broker basis and is not
+        # dispatchable. The issuance instant is measured, so no AT is passed.
+        "derive the single order intent the approval permits, with its time basis",
         0,
-        [cli("issue-order-intent"), "INT-WALK85", "PRP-WALK85", "IDEM-WALK85", AT],
+        [cli("issue-paper-bound-order-intent"), "INT-WALK85", "PRP-WALK85", "IDEM-WALK85"],
     )
     walk.run("read the intent back -- NOT_SUBMITTED", 0, [cli("get-order-intent"), "INT-WALK85"])
 

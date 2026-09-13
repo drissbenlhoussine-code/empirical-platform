@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from tests.integration._m085_support import (
     EVALUATED_AT,
-    an_approved_intent,
+    a_paper_bound_intent,
     build_engine,
     config,
     truncate_all,
@@ -69,7 +69,6 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
     try:
         m084 = PostgresRepositoryRuntime(service)
         paper = PostgresPaperExecutionRuntime(service)
-        intent = an_approved_intent(m084)
         clock = Clock()
 
         class Broker(FakeBroker):
@@ -89,8 +88,12 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
 
         broker = Broker()
         data = MarketData()
+        # Issued through the Paper-bound command, so the intent-time basis is
+        # MEASURED against the controlled clock rather than written by the fixture.
+        intent = a_paper_bound_intent(m084, paper, broker=broker, time_source=clock)
         preview = PreviewPaperSubmissionHandler(
             intents=m084.approved_order_intents,
+            intent_time_bases=paper.intent_time_bases,
             snapshots=paper.paper_account_snapshots,
             previews=paper.submission_previews,
             events=paper.paper_execution_events,
@@ -155,6 +158,7 @@ def handler(
     paper = world["paper"]
     return SubmitAuthorizedPaperOrderHandler(
         intents=world["m084"].approved_order_intents,
+        intent_time_bases=paper.intent_time_bases,
         previews=paper.submission_previews,
         authorizations=paper.execution_authorizations,
         attempts=attempts or paper.execution_attempts,

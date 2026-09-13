@@ -30,6 +30,7 @@ from empirical_platform.decision_candidate.paper_execution import (
 )
 from empirical_platform.usecases.decision_to_approval_io import render_money
 from empirical_platform.usecases.paper_execution import (
+    PaperBoundIntent,
     PaperExecutionStatus,
     PaperSubmissionResult,
     VerifyPaperEnvironmentResult,
@@ -46,6 +47,8 @@ __all__ = [
     "render_environment_json",
     "render_environment_text",
     "render_event_json",
+    "render_paper_bound_intent_json",
+    "render_paper_bound_intent_text",
     "render_preview_json",
     "render_preview_text",
     "render_status_json",
@@ -53,6 +56,49 @@ __all__ = [
     "render_submission_json",
     "render_submission_text",
 ]
+
+
+def render_paper_bound_intent_json(issued: PaperBoundIntent) -> dict[str, Any]:
+    basis = issued.time_basis
+    return {
+        "intent_governance_id": issued.intent.intent_governance_id,
+        "proposal_governance_id": issued.intent.proposal_governance_id,
+        "approved_fingerprint": issued.intent.approved_fingerprint,
+        "submission_state": issued.intent.submission_state.value,
+        "created_at": issued.intent.created_at.isoformat(),
+        "expires_at": issued.intent.expires_at.isoformat(),
+        "mandatory_liquidation_at": issued.intent.mandatory_liquidation_at.isoformat(),
+        "broker_endpoint_host": basis.broker_endpoint_host,
+        "basis_host_requested_at": basis.basis_host_requested_at.isoformat(),
+        "basis_host_at": basis.basis_host_at.isoformat(),
+        "basis_broker_earliest_at": basis.basis_broker_earliest_at.isoformat(),
+        "basis_broker_latest_at": basis.basis_broker_latest_at.isoformat(),
+    }
+
+
+def render_paper_bound_intent_text(issued: PaperBoundIntent) -> str:
+    intent = issued.intent
+    basis = issued.time_basis
+    lines = [
+        f"intent              : {intent.intent_governance_id} ({intent.submission_state.value})",
+        f"proposal            : {intent.proposal_governance_id}",
+        f"approved fingerprint: {intent.approved_fingerprint}",
+        f"issued at (host)    : {intent.created_at.isoformat()}",
+        f"expires at (host)   : {intent.expires_at.isoformat()}",
+        f"liquidate by (host) : {intent.mandatory_liquidation_at.isoformat()}",
+        "",
+        "INTENT-TIME BROKER BASIS (measured as an interval, not a single moment):",
+        f"  broker host       : {basis.broker_endpoint_host}",
+        f"  host before read  : {basis.basis_host_requested_at.isoformat()}",
+        f"  host after read   : {basis.basis_host_at.isoformat()}",
+        f"  broker clock from : {basis.basis_broker_earliest_at.isoformat()}",
+        f"  broker clock to   : {basis.basis_broker_latest_at.isoformat()}",
+        "",
+        "NOTHING HAS BEEN SENT. This intent may be previewed for paper dispatch; it still",
+        "requires a preview, a fresh human authorization and a separate dispatch command.",
+        "",
+    ]
+    return "\n".join(lines)
 
 
 def _money(value: object) -> str | None:

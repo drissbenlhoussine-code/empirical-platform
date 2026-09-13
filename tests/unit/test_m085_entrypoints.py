@@ -1,6 +1,6 @@
 """MILESTONE-085 operator CLI surfaces: argument handling, output, exit codes.
 
-Every one of the twelve modules under test documents the same promise -- "`run_X`
+Every one of the thirteen modules under test documents the same promise -- "`run_X`
 is split out from `main()` so that argument handling and output formatting can be
 unit-tested by monkeypatching this one function" -- and this file is that promise
 being kept. `run_X` is replaced, so no test here opens a socket, a database
@@ -36,7 +36,10 @@ from tests.unit._m085_fakes import (
     FakeAttempts,
     FakeAuthorizations,
     a_preview,
+    a_time_basis,
     an_account,
+    an_intent,
+    an_intent_time_basis,
 )
 
 from empirical_platform.decision_candidate.paper_execution import (
@@ -51,6 +54,7 @@ from empirical_platform.entrypoints import (
     cancel_paper_order,
     deactivate_execution_kill_switch,
     inspect_paper_account,
+    issue_paper_bound_order_intent,
     list_paper_executions,
     paper_execution_status,
     preview_paper_submission,
@@ -59,19 +63,23 @@ from empirical_platform.entrypoints import (
     submit_authorized_paper_order,
     verify_paper_environment,
 )
-from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.usecases.decision_to_approval import NotFoundError
 from empirical_platform.usecases.paper_execution import (
+    PaperBoundIntent,
     PaperExecutionRefusedError,
     PaperExecutionStatus,
     PaperSubmissionResult,
     VerifyPaperEnvironmentResult,
 )
 
-# The twelve M085 console scripts, each paired with the single function its
+# The thirteen M085 console scripts, each paired with the single function its
 # module docstring promises is the seam. If a module is ever added without a
 # seam, or renames one, these tables are what fails.
 _MODULES: dict[str, tuple[Any, str]] = {
+    "issue-paper-bound-order-intent": (
+        issue_paper_bound_order_intent,
+        "run_issue_paper_bound_order_intent",
+    ),
     "verify-paper-environment": (verify_paper_environment, "run_verify_paper_environment"),
     "inspect-paper-account": (inspect_paper_account, "run_inspect_paper_account"),
     "preview-paper-submission": (preview_paper_submission, "run_preview_paper_submission"),
@@ -97,6 +105,7 @@ _MODULES: dict[str, tuple[Any, str]] = {
 
 #: One valid argument vector per command, so the happy path of each can be run.
 _VALID_ARGUMENTS: dict[str, list[str]] = {
+    "issue-paper-bound-order-intent": ["INT-1", "PRP-1", "IDEM-1"],
     "verify-paper-environment": [],
     "inspect-paper-account": ["SNP-1"],
     "preview-paper-submission": ["INT-1", "PVW-1", "SNP-1", "5", "60", "AAPL"],
@@ -113,6 +122,7 @@ _VALID_ARGUMENTS: dict[str, list[str]] = {
 
 #: Argument vectors that must be refused with a usage message.
 _WRONG_ARITY: dict[str, list[str]] = {
+    "issue-paper-bound-order-intent": ["INT-1", "PRP-1", "IDEM-1", "2026-09-10T14:00:00+00:00"],
     "verify-paper-environment": ["unexpected"],
     "inspect-paper-account": [],
     "preview-paper-submission": ["INT-1"],
@@ -159,7 +169,7 @@ def _dispatched_attempt() -> tuple[FakeAttempts, ExecutionAuthorization]:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=300,
-            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+            time_basis=a_time_basis(_NOW),
         )
     )
     attempts = FakeAttempts()
@@ -213,6 +223,9 @@ def _an_environment_report() -> VerifyPaperEnvironmentResult:
 
 #: What each seam should return on a happy path.
 _RETURNS: dict[str, Any] = {
+    "issue-paper-bound-order-intent": lambda: PaperBoundIntent(
+        intent=an_intent(), time_basis=an_intent_time_basis()
+    ),
     "verify-paper-environment": _an_environment_report,
     "inspect-paper-account": an_account,
     "preview-paper-submission": a_preview,
@@ -269,8 +282,10 @@ class TestTheTableCoversEveryConsoleScript:
             f"tested but not declared: {sorted(set(_MODULES) - declared)}"
         )
 
-    def test_there_are_exactly_twelve(self) -> None:
-        assert len(_MODULES) == 12
+    def test_there_are_exactly_thirteen(self) -> None:
+        # Twelve until the Paper-bound issuance command was added: an intent issued
+        # through M084 alone carries no intent-time broker basis.
+        assert len(_MODULES) == 13
 
     def test_each_row_names_a_function_the_module_actually_has(self) -> None:
         # A renamed seam would otherwise be caught only as a confusing
@@ -288,7 +303,7 @@ class TestTheTableCoversEveryConsoleScript:
 
 @pytest.mark.parametrize("command", sorted(_MODULES))
 class TestEveryCommand:
-    """The three properties every one of the twelve must have."""
+    """The three properties every one of the thirteen must have."""
 
     def test_a_wrong_argument_count_prints_usage_and_exits_two(
         self, command: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

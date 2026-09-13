@@ -30,6 +30,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     BrokerAcknowledgement,
     ExecutionAttempt,
     ExecutionAuthorization,
+    IntentTimeBasis,
     PaperAccountSnapshot,
     PaperExecutionEvent,
     PaperExecutionState,
@@ -49,12 +50,27 @@ __all__ = [
     "ExecutionAttemptRepository",
     "ExecutionAuthorizationRepository",
     "ExecutionKillSwitchRepository",
+    "IntentTimeBasisRepository",
     "PaperAccountSnapshotRepository",
     "PaperBrokerPort",
     "PaperExecutionEventRepository",
     "PaperMarketDataPort",
     "SubmissionPreviewRepository",
 ]
+
+
+class IntentTimeBasisRepository(Protocol):
+    """Append-only, one row per intent: the basis measured when the intent was issued.
+
+    There is no `update`, no `replace` and no `attach`. The only writer is the
+    Paper-bound issuance command, which records the basis in the same act that
+    issues the intent. An intent issued any other way has no row, and nothing here
+    can give it one after the fact.
+    """
+
+    def record(self, evidence: IntentTimeBasis) -> IntentTimeBasis: ...
+
+    def get(self, intent_governance_id: str) -> IntentTimeBasis | None: ...
 
 
 class ExecutionKillSwitchRepository(Protocol):

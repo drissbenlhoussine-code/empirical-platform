@@ -24,19 +24,21 @@ from empirical_platform.decision_candidate.paper_execution import (
     BrokerAcknowledgement,
     ExecutionAttempt,
     ExecutionAuthorization,
+    IntentTimeBasis,
     PaperAccountSnapshot,
     PaperEnvironment,
     PaperExecutionEvent,
     PaperExecutionState,
     PaperOrderRequest,
     SubmissionPreview,
+    bind_intent_time_basis,
     build_submission_preview,
 )
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
     SubmissionState,
 )
-from empirical_platform.shared.brokerage.paper_time import BoundedInstant
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant, BrokerTimeBasis
 
 _NOW = datetime(2026, 9, 10, 14, 0, tzinfo=UTC)
 _DIGEST = "a" * 64
@@ -45,6 +47,38 @@ _ACCOUNT_REFERENCE = "ref:0123456789abcdef0123456789abcdef"
 # ---------------------------------------------------------------------------
 # Builders
 # ---------------------------------------------------------------------------
+
+
+def a_time_basis(
+    at: datetime = _NOW,
+    *,
+    broker_offset: timedelta = timedelta(0),
+    round_trip: timedelta = timedelta(0),
+) -> BrokerTimeBasis:
+    """A measured basis: host readings at `at`, the broker `broker_offset` ahead.
+
+    Zero-width by default because these fakes answer instantly; the width and
+    the pairing are exercised against a scripted clock in the handler and time
+    suites.
+    """
+    return BrokerTimeBasis(
+        host_requested_at=at - round_trip,
+        host_at=at,
+        broker_earliest_at=at + broker_offset - round_trip,
+        broker_latest_at=at + broker_offset,
+    )
+
+
+def an_intent_time_basis(
+    intent: ApprovedOrderIntent | None = None, *, broker_offset: timedelta = timedelta(0)
+) -> IntentTimeBasis:
+    """The evidence the Paper-bound issuance command would have recorded for `intent`."""
+    issued = an_intent() if intent is None else intent
+    return bind_intent_time_basis(
+        intent=issued,
+        time_basis=a_time_basis(issued.created_at, broker_offset=broker_offset),
+        broker_endpoint_host=PAPER_ENDPOINT_HOST,
+    )
 
 
 def an_intent(**overrides: object) -> ApprovedOrderIntent:
@@ -125,6 +159,10 @@ def a_preview(**overrides: object) -> SubmissionPreview:
         "broker_now": BoundedInstant(earliest=_NOW, latest=_NOW),
     }
     arguments.update(overrides)
+    if "intent_time_basis" not in overrides:
+        # Evidence for whichever intent the preview is about, so overriding the
+        # intent cannot silently turn a test into a mismatched-evidence refusal.
+        arguments["intent_time_basis"] = an_intent_time_basis(arguments["intent"])  # type: ignore[arg-type]
     return build_submission_preview(**arguments)  # type: ignore[arg-type]
 
 
@@ -138,6 +176,20 @@ class FakeIntents:
         self.rows = {intent.intent_governance_id: intent for intent in intents}
 
     def get(self, intent_governance_id: str) -> ApprovedOrderIntent | None:
+        return self.rows.get(intent_governance_id)
+
+
+class FakeIntentTimeBases:
+    def __init__(self, *evidence: IntentTimeBasis) -> None:
+        self.rows = {row.intent_governance_id: row for row in evidence}
+
+    def record(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
+        if evidence.intent_governance_id in self.rows:
+            raise ValueError("an intent-time basis is recorded once per intent")
+        self.rows[evidence.intent_governance_id] = evidence
+        return evidence
+
+    def get(self, intent_governance_id: str) -> IntentTimeBasis | None:
         return self.rows.get(intent_governance_id)
 
 

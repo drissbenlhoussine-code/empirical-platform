@@ -80,18 +80,29 @@ observations), or too uncertain to decide the question being asked. The last one
 is not a new constant: the caller states the tightest margin the answer feeds --
 the quote freshness ceiling -- and evidence whose uncertainty is not smaller than
 that margin cannot decide it.
+
+SUPERSEDED IN PART: PERSISTED DEADLINES ARE NOW ALSO MAPPED. The paragraph above
+on persisted deadlines describes the host-timeline check, which still runs. It
+was found insufficient across processes, and each persisted deadline is now ALSO
+placed on the broker timeline through a `BrokerTimeBasis`. The basis is an
+INTERVAL, not two readings "taken at the same moment": one broker timestamp
+sampled at an unknown instant inside a measured round trip, bracketed by this
+host's readings before the request and after the response. See `BrokerTimeBasis`
+for why the reading AFTER the response is the one the mapping uses.
 """
 
 from __future__ import annotations
 
 import math
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 __all__ = [
     "BoundedInstant",
+    "BrokerTimeBasis",
     "PaperTimeReading",
     "PaperTimeSource",
     "PaperTimeUncertainError",
@@ -161,6 +172,63 @@ class BoundedInstant:
             (self.earliest - captured_at).total_seconds(),
             (self.latest - captured_at).total_seconds(),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class BrokerTimeBasis:
+    """One MEASURED association between this host's clock and the broker's.
+
+    NOT TWO SIMULTANEOUS READINGS. The broker reports one `timestamp`, sampled at
+    an unknown instant `s` somewhere inside a round trip this host measured. The
+    four fields record that interval rather than pretending to a single moment:
+
+      host_requested_at   this host's conservative reading as the request left
+      host_at             this host's conservative reading once the response was read
+      broker_earliest_at  the broker's reported timestamp (its clock at `s`)
+      broker_latest_at    broker_earliest_at plus the measured monotonic round trip
+
+    WHY `host_at` IS THE READING THE MAPPING PAIRS WITH THE BROKER TIMESTAMP. At `s`
+    this host's clock read no later than `host_at`, because `host_at` is an upper
+    bound taken after the response arrived. The true host-to-broker offset at `s`
+    is therefore at least `broker_earliest_at - host_at`, and mapping with that
+    smallest offset places a host deadline at the soonest broker instant the
+    evidence allows. Pairing the broker timestamp with a host reading taken BEFORE
+    the request instead -- which is what the replaced code did with the command's
+    `authorized_at` -- adds the whole round trip to the offset, and every mapped
+    deadline moves later by exactly the broker-fetch latency.
+
+    ASSUMED, NOT MEASURED. That this host's wall clock does not step backward and
+    forward again inside the round trip (a net backward step between the two
+    readings is refused by `PaperTimeWindow.now`), and that the offset at the
+    moment a host deadline was WRITTEN equals the offset measured here. The
+    second assumption is why a basis may only translate deadlines written in the
+    same act it was measured for: an authorization-time basis the authorization's
+    own expiry, and an intent-time basis the intent's deadlines, never each other's.
+    """
+
+    host_requested_at: datetime
+    host_at: datetime
+    broker_earliest_at: datetime
+    broker_latest_at: datetime
+
+    def __post_init__(self) -> None:
+        for name in ("host_requested_at", "host_at", "broker_earliest_at", "broker_latest_at"):
+            value = getattr(self, name)
+            if not isinstance(value, datetime) or value.utcoffset() is None:
+                raise PaperTimeUncertainError(f"the basis reading {name} must be timezone-aware")
+        if self.host_at < self.host_requested_at:
+            raise PaperTimeUncertainError(
+                "the host reading after the broker response precedes the reading before "
+                "the request; the basis interval is inconsistent"
+            )
+        if self.broker_latest_at < self.broker_earliest_at:
+            raise PaperTimeUncertainError("a broker basis interval cannot end before it starts")
+
+    def on_broker_timeline(self, host_instant: datetime) -> datetime:
+        """The soonest broker instant a deadline written on this host could mean."""
+        if not isinstance(host_instant, datetime) or host_instant.utcoffset() is None:
+            raise PaperTimeUncertainError("a host instant to be mapped must be timezone-aware")
+        return host_instant + (self.broker_earliest_at - self.host_at)
 
 
 def _validated(reading: PaperTimeReading) -> PaperTimeReading:
@@ -255,6 +323,28 @@ class PaperTimeWindow:
 
         self._broker = (earliest, latest, received_monotonic)
         return BoundedInstant(earliest=earliest, latest=latest)
+
+    def measure_broker_basis(self, read_broker_clock: Callable[[], datetime]) -> BrokerTimeBasis:
+        """Read the broker's clock once and return the interval that bounds the reading.
+
+        Both host readings come from `now()`, the conservative upper bound, and each
+        carries its own monotonic sample, so the round trip the broker bound is
+        derived from is exactly the interval between the two host readings. The
+        broker call happens between them, which is what makes the later one a valid
+        upper bound on this host's clock at the unknown broker sampling instant.
+        """
+        host_requested_at = self.now()
+        sent_monotonic = self._last.monotonic
+        timestamp = read_broker_clock()
+        host_at = self.now()
+        received_monotonic = self._last.monotonic
+        bounded = self.observe_broker_clock(timestamp, sent_monotonic, received_monotonic)
+        return BrokerTimeBasis(
+            host_requested_at=host_requested_at,
+            host_at=host_at,
+            broker_earliest_at=bounded.earliest,
+            broker_latest_at=bounded.latest,
+        )
 
     def broker_now(self) -> BoundedInstant:
         """The bounded CURRENT instant on the BROKER's clock.

@@ -41,13 +41,17 @@ from empirical_platform.decision_candidate.paper_execution import (
     BrokerAcknowledgement,
     ExecutionAttempt,
     ExecutionAuthorization,
+    IntentTimeBasis,
     PaperAccountSnapshot,
     PaperEnvironment,
     PaperExecutionEvent,
     PaperExecutionState,
     SubmissionPreview,
     authorize_submission,
+    bind_intent_time_basis,
     build_submission_preview,
+    intent_time_basis_refusal,
+    m084_deadline_refusal_on_broker_time,
     request_fingerprint,
 )
 from empirical_platform.decision_candidate.paper_execution_repositories import (
@@ -56,6 +60,7 @@ from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
     ExecutionAuthorizationRepository,
     ExecutionKillSwitchRepository,
+    IntentTimeBasisRepository,
     PaperAccountSnapshotRepository,
     PaperBrokerPort,
     PaperExecutionEventRepository,
@@ -63,7 +68,9 @@ from empirical_platform.decision_candidate.paper_execution_repositories import (
     SubmissionPreviewRepository,
 )
 from empirical_platform.decision_candidate.product_repositories import (
+    ApprovalDecisionRepository,
     ApprovedOrderIntentRepository,
+    TradeProposalRepository,
 )
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
 from empirical_platform.shared.brokerage.alpaca_paper import (
@@ -78,7 +85,11 @@ from empirical_platform.shared.brokerage.paper_time import (
     PaperTimeWindow,
     SystemPaperTimeSource,
 )
-from empirical_platform.usecases.decision_to_approval import NotFoundError
+from empirical_platform.usecases.decision_to_approval import (
+    IssueApprovedOrderIntentCommand,
+    IssueApprovedOrderIntentHandler,
+    NotFoundError,
+)
 
 #: Re-exported for `entrypoints`, which may import `usecases` but not
 #: `decision_candidate` (see the MILESTONE-083 REV-005 note in
@@ -91,11 +102,15 @@ __all__ = [
     "CancelPaperOrderHandler",
     "InspectPaperAccountCommand",
     "InspectPaperAccountHandler",
+    "IntentTimeBasis",
+    "IssuePaperBoundOrderIntentCommand",
+    "IssuePaperBoundOrderIntentHandler",
     "ListPaperExecutionsHandler",
     "ListPaperExecutionsQuery",
     "ExecutionAttempt",
     "ExecutionAuthorization",
     "PaperAccountSnapshot",
+    "PaperBoundIntent",
     "PaperExecutionState",
     "SubmissionPreview",
     "PaperEvidence",
@@ -391,6 +406,7 @@ class PreviewPaperSubmissionHandler:
 
     __slots__ = (
         "_intents",
+        "_intent_time_bases",
         "_snapshots",
         "_previews",
         "_events",
@@ -404,6 +420,7 @@ class PreviewPaperSubmissionHandler:
         self,
         *,
         intents: ApprovedOrderIntentRepository,
+        intent_time_bases: IntentTimeBasisRepository,
         snapshots: PaperAccountSnapshotRepository,
         previews: SubmissionPreviewRepository,
         events: PaperExecutionEventRepository,
@@ -413,6 +430,7 @@ class PreviewPaperSubmissionHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
+        self._intent_time_bases = intent_time_bases
         self._snapshots = snapshots
         self._previews = previews
         self._events = events
@@ -468,6 +486,7 @@ class PreviewPaperSubmissionHandler:
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
             broker_now=broker_instant,
+            intent_time_basis=self._intent_time_bases.get(intent.intent_governance_id),
         )
         stored = self._previews.save(preview)
         self._events.append(
@@ -544,10 +563,13 @@ class AuthorizePaperSubmissionHandler:
         # be written needs a time basis that survives this process exiting, and
         # the only clock that does is the broker's. Without it a host clock that
         # later steps backward silently extends the permission.
+        #
+        # The basis is an INTERVAL around that one call. It is NOT paired with
+        # `command.authorized_at`, which the entrypoint stamped before this handler
+        # ran: pairing a pre-fetch host reading with the broker's reply put the
+        # whole fetch latency into the mapping and extended every mapped expiry.
         timing = PaperTimeWindow(self._time_source)
-        sent_monotonic = timing.read_monotonic()
-        clock = self._broker.fetch_clock()
-        timing.observe_broker_clock(clock.timestamp, sent_monotonic, timing.read_monotonic())
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
 
         authorization = authorize_submission(
             authorization_id=command.authorization_id,
@@ -555,7 +577,7 @@ class AuthorizePaperSubmissionHandler:
             authorized_by=command.authorized_by,
             authorized_at=command.authorized_at,
             validity_seconds=command.validity_seconds,
-            broker_now=timing.broker_now(),
+            time_basis=time_basis,
         )
         stored = self._authorizations.save(authorization)
         self._events.append(
@@ -574,38 +596,143 @@ class AuthorizePaperSubmissionHandler:
 
 
 # ---------------------------------------------------------------------------
+# Paper-bound intent issuance
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class IssuePaperBoundOrderIntentCommand:
+    """Issue one M084 intent AND record the broker time basis of that issuance.
+
+    No `created_at`, deliberately. The issuance instant IS the conservative host
+    reading taken after the broker clock response; a caller-supplied instant would
+    let a basis describe a moment it was not measured at.
+    """
+
+    intent_governance_id: str
+    proposal_governance_id: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperBoundIntent:
+    """An issued M084 intent together with the basis measured when it was issued."""
+
+    intent: ApprovedOrderIntent
+    time_basis: IntentTimeBasis
+
+
+class IssuePaperBoundOrderIntentHandler:
+    """MILESTONE-084's own issuance, unchanged, composed with an intent-time basis.
+
+    WHY THIS EXISTS. MILESTONE-084 writes an intent's deadlines with the host clock
+    of the process that issues it, and records nothing about how that clock related
+    to the broker's. A later authorization's basis cannot stand in for that: a host
+    clock that moved between issuance and authorization would shift the deadlines by
+    the movement. Only a basis measured IN THE ACT OF ISSUING can translate them.
+
+    WHAT IT DOES NOT CHANGE. `IssueApprovedOrderIntentHandler` and every M084 file
+    are used exactly as they are. The only thing supplied differently is
+    `created_at`, which is the measured host reading instead of an unmeasured one;
+    M084 already accepts any aware instant there and checks the proposal and
+    approval against it -- against an upper bound, so conservatively.
+
+    ORDER, AND WHAT A CRASH LEAVES. Measure the basis, issue the intent with that
+    reading as `created_at`, record the evidence. A crash between the last two
+    leaves an intent WITHOUT evidence, which is refused at dispatch and never
+    repaired: the basis cannot be measured again for an instant that has passed.
+
+    THE ONE BROKER CALL IS `GET /v2/clock`, READ-ONLY. Nothing here can place an order.
+    """
+
+    __slots__ = (
+        "_approval_decisions",
+        "_intents",
+        "_proposals",
+        "_intent_time_bases",
+        "_broker",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        approval_decisions: ApprovalDecisionRepository,
+        intents: ApprovedOrderIntentRepository,
+        proposals: TradeProposalRepository,
+        intent_time_bases: IntentTimeBasisRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._approval_decisions = approval_decisions
+        self._intents = intents
+        self._proposals = proposals
+        self._intent_time_bases = intent_time_bases
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: IssuePaperBoundOrderIntentCommand) -> PaperBoundIntent:
+        if self._intents.get(command.intent_governance_id) is not None:
+            raise PaperExecutionRefusedError(
+                f"intent {command.intent_governance_id!r} already exists; an intent-time "
+                "basis is measured only in the act of issuing an intent and is never "
+                "attached to one afterwards"
+            )
+
+        timing = PaperTimeWindow(self._time_source)
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        intent = IssueApprovedOrderIntentHandler(
+            approval_decision_repository=self._approval_decisions,
+            approved_order_intent_repository=self._intents,
+            trade_proposal_repository=self._proposals,
+        ).handle(
+            IssueApprovedOrderIntentCommand(
+                intent_governance_id=command.intent_governance_id,
+                proposal_governance_id=command.proposal_governance_id,
+                idempotency_key=command.idempotency_key,
+                created_at=time_basis.host_at,
+            )
+        )
+        evidence = bind_intent_time_basis(
+            intent=intent,
+            time_basis=time_basis,
+            broker_endpoint_host=self._broker.endpoint_host,
+        )
+        return PaperBoundIntent(intent=intent, time_basis=self._intent_time_bases.record(evidence))
+
+
+# ---------------------------------------------------------------------------
 # Submit
 # ---------------------------------------------------------------------------
 
 
-def _refuse_expired_m084_deadlines_on_broker_time(
+def _refuse_m084_deadlines_on_intent_time_basis(
     *,
-    authorization: ExecutionAuthorization,
     intent: ApprovedOrderIntent,
+    intent_time_basis: IntentTimeBasis | None,
     broker_now: BoundedInstant,
 ) -> None:
     """Enforce M084's deadlines on the broker's clock as well as this host's.
 
-    MILESTONE-084 writes `expires_at` and `mandatory_liquidation_at` with the
-    approving host's wall clock, and those stored values are frozen: they are not
-    rewritten, reinterpreted or relaxed here, and the host-timeline checks on them
-    still run unchanged. What this adds is a SECOND enforcement of the same two
-    deadlines, placed on the broker timeline through the basis measured at the
-    moment a human authorized. It exists because a host clock that steps backward
-    after the approving process exits makes both stored values look further away,
-    and nothing inside one dispatch process can notice that on its own.
+    MILESTONE-084 writes `expires_at` and `mandatory_liquidation_at` with the host
+    clock of the process that evaluated and issued the intent, and those stored
+    values are frozen: they are not rewritten, reinterpreted or relaxed here, and
+    the host-timeline checks on them still run unchanged. This is a SECOND
+    enforcement of the same two deadlines, on the broker timeline, through the
+    basis measured when THE INTENT WAS ISSUED.
 
-    An authorization with no basis cannot be mapped, and is refused by
-    `refusal_against` before this is reached.
+    SUPERSEDED. This used to map them through the authorization's basis. That basis
+    was measured later, in a different act; a host clock that moved between intent
+    issuance and authorization shifted both deadlines by exactly that movement,
+    and a dispatch after the real M084 deadline was permitted. Reproduced before
+    this change. An intent with no basis of its own, or a basis describing a
+    different intent, is refused here rather than mapped with a borrowed one.
     """
-    if not authorization.has_broker_time_basis:
-        return
-    for deadline, label in (
-        (intent.expires_at, "the approved intent"),
-        (intent.mandatory_liquidation_at, "the mandatory liquidation deadline"),
-    ):
-        if broker_now.possibly_at_or_after(authorization.on_broker_timeline(deadline)):
-            raise PaperExecutionRefusedError(f"{label} expired on the broker's clock")
+    refusal = m084_deadline_refusal_on_broker_time(
+        intent=intent, evidence=intent_time_basis, broker_now=broker_now
+    )
+    if refusal is not None:
+        raise PaperExecutionRefusedError(refusal)
 
 
 @dataclass(frozen=True, slots=True)
@@ -635,6 +762,7 @@ class SubmitAuthorizedPaperOrderHandler:
 
     __slots__ = (
         "_intents",
+        "_intent_time_bases",
         "_previews",
         "_authorizations",
         "_attempts",
@@ -651,6 +779,7 @@ class SubmitAuthorizedPaperOrderHandler:
         self,
         *,
         intents: ApprovedOrderIntentRepository,
+        intent_time_bases: IntentTimeBasisRepository,
         previews: SubmissionPreviewRepository,
         authorizations: ExecutionAuthorizationRepository,
         attempts: ExecutionAttemptRepository,
@@ -663,6 +792,7 @@ class SubmitAuthorizedPaperOrderHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
+        self._intent_time_bases = intent_time_bases
         self._previews = previews
         self._authorizations = authorizations
         self._attempts = attempts
@@ -698,6 +828,16 @@ class SubmitAuthorizedPaperOrderHandler:
             raise PaperExecutionRefusedError(
                 "no human authorization exists for this intent; nothing may be dispatched"
             )
+
+        # THE INTENT'S OWN TIME BASIS, BEFORE ANY BROKER CALL. An intent issued
+        # without one -- through M084 alone -- or with evidence describing some
+        # other intent is refused here, and no basis is borrowed from the
+        # authorization or derived now. The authorization's basis is judged
+        # separately, by `refusal_against`, against its own expiry only.
+        intent_time_basis = self._intent_time_bases.get(intent.intent_governance_id)
+        intent_basis_refusal = intent_time_basis_refusal(intent=intent, evidence=intent_time_basis)
+        if intent_basis_refusal is not None:
+            raise PaperExecutionRefusedError(intent_basis_refusal)
 
         # THE KILL SWITCH IS READ FIRST, and the evidence refreshed after it, so
         # that a switch engaged during the refresh still blocks the dispatch.
@@ -750,6 +890,7 @@ class SubmitAuthorizedPaperOrderHandler:
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
             broker_now=timing.broker_now(),
+            intent_time_basis=intent_time_basis,
         )
         if not fresh.is_authorizable:
             raise PaperExecutionRefusedError(
@@ -773,12 +914,12 @@ class SubmitAuthorizedPaperOrderHandler:
         if refusal is not None:
             raise PaperExecutionRefusedError(f"this dispatch is not authorized: {refusal}")
 
-        # M084's deadlines, on the broker's clock, BEFORE anything is claimed.
-        # The host-timeline copies of these were already enforced by the rebuilt
-        # preview above; this is the one that survives a host clock that moved
-        # between the approving process and this one.
-        _refuse_expired_m084_deadlines_on_broker_time(
-            authorization=authorization, intent=intent, broker_now=timing.broker_now()
+        # M084's deadlines, on the broker's clock, BEFORE anything is claimed, through
+        # the basis measured when the intent was issued. The host-timeline copies
+        # were already enforced by the rebuilt preview above; this is the one that
+        # survives a host clock that moved after the intent was issued.
+        _refuse_m084_deadlines_on_intent_time_basis(
+            intent=intent, intent_time_basis=intent_time_basis, broker_now=timing.broker_now()
         )
 
         # CLAIM BEFORE THE NETWORK. Everything above is a check; this is the
@@ -844,8 +985,8 @@ class SubmitAuthorizedPaperOrderHandler:
                     raise PaperExecutionRefusedError(
                         "the approved intent or liquidation deadline expired"
                     )
-                _refuse_expired_m084_deadlines_on_broker_time(
-                    authorization=authorization, intent=intent, broker_now=broker_instant
+                _refuse_m084_deadlines_on_intent_time_basis(
+                    intent=intent, intent_time_basis=intent_time_basis, broker_now=broker_instant
                 )
 
                 # -- broker timeline: what the broker reported ------------------

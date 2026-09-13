@@ -33,8 +33,10 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from tests.integration._m085_support import (
     EVALUATED_AT,
+    a_basis_at,
     alembic_config,
     an_approved_intent,
+    an_intent_time_basis_for,
     config,
     database_identity,
     postgres_enabled,
@@ -197,6 +199,7 @@ def a_chain(
             earliest=EVALUATED_AT + timedelta(seconds=25),
             latest=EVALUATED_AT + timedelta(seconds=25),
         ),
+        intent_time_basis=an_intent_time_basis_for(intent),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)
@@ -209,7 +212,7 @@ def a_chain(
         authorized_by="owner",
         authorized_at=_authorized_at,
         validity_seconds=validity_seconds,
-        broker_now=BoundedInstant(earliest=_authorized_at, latest=_authorized_at),
+        time_basis=a_basis_at(_authorized_at),
     )
     paper.execution_authorizations.save(authorization)
     return intent.intent_governance_id, authorization

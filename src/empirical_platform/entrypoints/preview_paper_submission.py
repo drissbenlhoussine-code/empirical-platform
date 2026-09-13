@@ -50,6 +50,7 @@ def run_preview_paper_submission(
     with paper_execution_runtime(config) as context:
         handler = PreviewPaperSubmissionHandler(
             intents=context.m084.approved_order_intents,
+            intent_time_bases=context.paper.intent_time_bases,
             snapshots=context.paper.paper_account_snapshots,
             previews=context.paper.submission_previews,
             events=context.paper.paper_execution_events,

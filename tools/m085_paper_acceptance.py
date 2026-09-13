@@ -140,7 +140,6 @@ def build_m084_chain(log: Log) -> object:
     )
     from empirical_platform.decision_candidate.trade_approval import (
         OperatorAction,
-        build_approved_order_intent,
         record_operator_decision,
     )
     from empirical_platform.decision_candidate.trade_proposal import (
@@ -296,14 +295,32 @@ def build_m084_chain(log: Log) -> object:
         approved = m084.trade_proposals.set_status(
             proposal.proposal_governance_id, ProposalStatus.APPROVED
         )
-        intent = build_approved_order_intent(
-            intent_governance_id=_IDS["intent"],
-            proposal=approved,
-            decision=decision,
-            created_at=datetime.now(UTC),
-            idempotency_key="IDEM-085-ACCEPT",
+        # Issued through the Paper-bound command, not `approved_order_intents.issue`
+        # directly: an intent without an intent-time broker basis is not
+        # dispatchable, and the basis can only be measured in the act of issuing.
+        from empirical_platform.entrypoints._paper_composition import paper_execution_runtime
+        from empirical_platform.usecases.paper_execution import (
+            IssuePaperBoundOrderIntentCommand,
+            IssuePaperBoundOrderIntentHandler,
         )
-        stored = m084.approved_order_intents.issue(intent)
+
+        with paper_execution_runtime() as paper_context:
+            issued = IssuePaperBoundOrderIntentHandler(
+                approval_decisions=paper_context.m084.approval_decisions,
+                intents=paper_context.m084.approved_order_intents,
+                proposals=paper_context.m084.trade_proposals,
+                intent_time_bases=paper_context.paper.intent_time_bases,
+                broker=paper_context.broker,
+                time_source=paper_context.time_source,
+            ).handle(
+                IssuePaperBoundOrderIntentCommand(
+                    intent_governance_id=_IDS["intent"],
+                    proposal_governance_id=approved.proposal_governance_id,
+                    idempotency_key="IDEM-085-ACCEPT",
+                )
+            )
+        stored = issued.intent
+        log.fact("intent-time basis host reading", issued.time_basis.basis_host_at.isoformat())
         log.fact("M084 intent", stored.intent_governance_id)
         log.fact("M084 submission_state", stored.submission_state.value)
         return stored
@@ -421,6 +438,7 @@ def main(argv: list[str] | None = None) -> int:
         with paper_execution_runtime() as context:
             preview = PreviewPaperSubmissionHandler(
                 intents=context.m084.approved_order_intents,
+                intent_time_bases=context.paper.intent_time_bases,
                 snapshots=context.paper.paper_account_snapshots,
                 previews=context.paper.submission_previews,
                 events=context.paper.paper_execution_events,
@@ -486,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
         with paper_execution_runtime() as context:
             result = SubmitAuthorizedPaperOrderHandler(
                 intents=context.m084.approved_order_intents,
+                intent_time_bases=context.paper.intent_time_bases,
                 previews=context.paper.submission_previews,
                 authorizations=context.paper.execution_authorizations,
                 attempts=context.paper.execution_attempts,

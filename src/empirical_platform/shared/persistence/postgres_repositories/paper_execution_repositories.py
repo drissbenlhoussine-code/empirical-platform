@@ -50,6 +50,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     BrokerAcknowledgement,
     ExecutionAttempt,
     ExecutionAuthorization,
+    IntentTimeBasis,
     PaperAccountSnapshot,
     PaperEnvironment,
     PaperExecutionEvent,
@@ -509,27 +510,32 @@ _AUTHORIZATION_INSERT = (
     "INSERT INTO public.paper_execution_authorization "
     "(authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at) "
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+    "basis_host_requested_at, basis_broker_latest_at) "
     "VALUES (:authorization_id, :intent_governance_id, :preview_id, :preview_version, "
     ":request_fingerprint, :account_reference, :client_order_id, :authorized_by, "
     ":authorized_at, :expires_at, :consumed_at, :consumed_by_attempt_id, "
-    ":basis_host_at, :basis_broker_earliest_at) "
+    ":basis_host_at, :basis_broker_earliest_at, :basis_host_requested_at, "
+    ":basis_broker_latest_at) "
     "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at"
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+    "basis_host_requested_at, basis_broker_latest_at"
 )
 
 _AUTHORIZATION_SELECT_BY_ID = (
     "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at "
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+    "basis_host_requested_at, basis_broker_latest_at "
     "FROM public.paper_execution_authorization WHERE authorization_id = :authorization_id"
 )
 
 _AUTHORIZATION_SELECT_LATEST = (
     "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at "
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+    "basis_host_requested_at, basis_broker_latest_at "
     "FROM public.paper_execution_authorization WHERE intent_governance_id = :intent "
     "ORDER BY authorized_at DESC, authorization_id DESC LIMIT 1"
 )
@@ -542,7 +548,8 @@ _AUTHORIZATION_CONSUME = (
     "WHERE authorization_id = :authorization_id AND consumed_at IS NULL "
     "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at"
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+    "basis_host_requested_at, basis_broker_latest_at"
 )
 
 
@@ -560,6 +567,8 @@ def _row_to_authorization(row: Mapping[str, Any]) -> ExecutionAuthorization:
         expires_at=_instant(row, "expires_at"),
         basis_host_at=_optional_instant(row, "basis_host_at"),
         basis_broker_earliest_at=_optional_instant(row, "basis_broker_earliest_at"),
+        basis_host_requested_at=_optional_instant(row, "basis_host_requested_at"),
+        basis_broker_latest_at=_optional_instant(row, "basis_broker_latest_at"),
         consumed_at=_optional_instant(row, "consumed_at"),
         consumed_by_attempt_id=_optional_str(row, "consumed_by_attempt_id"),
     )
@@ -590,6 +599,8 @@ class PostgresExecutionAuthorizationRepository:
                     "expires_at": authorization.expires_at,
                     "basis_host_at": authorization.basis_host_at,
                     "basis_broker_earliest_at": authorization.basis_broker_earliest_at,
+                    "basis_host_requested_at": authorization.basis_host_requested_at,
+                    "basis_broker_latest_at": authorization.basis_broker_latest_at,
                     "consumed_at": authorization.consumed_at,
                     "consumed_by_attempt_id": authorization.consumed_by_attempt_id,
                 },
@@ -1039,12 +1050,86 @@ class PostgresPaperExecutionEventRepository:
 
 
 # ---------------------------------------------------------------------------
+# Intent-time broker basis
+# ---------------------------------------------------------------------------
+
+_INTENT_TIME_BASIS_INSERT = (
+    "INSERT INTO public.paper_intent_time_basis "
+    "(intent_governance_id, approved_fingerprint, intent_created_at, intent_expires_at, "
+    "intent_mandatory_liquidation_at, broker_endpoint_host, basis_host_requested_at, "
+    "basis_host_at, basis_broker_earliest_at, basis_broker_latest_at) "
+    "VALUES (:intent_governance_id, :approved_fingerprint, :intent_created_at, "
+    ":intent_expires_at, :intent_mandatory_liquidation_at, :broker_endpoint_host, "
+    ":basis_host_requested_at, :basis_host_at, :basis_broker_earliest_at, "
+    ":basis_broker_latest_at) "
+    "RETURNING intent_governance_id, approved_fingerprint, intent_created_at, "
+    "intent_expires_at, intent_mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at"
+)
+
+_INTENT_TIME_BASIS_SELECT = (
+    "SELECT intent_governance_id, approved_fingerprint, intent_created_at, "
+    "intent_expires_at, intent_mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at "
+    "FROM public.paper_intent_time_basis WHERE intent_governance_id = :intent"
+)
+
+
+def _row_to_intent_time_basis(row: Mapping[str, Any]) -> IntentTimeBasis:
+    return IntentTimeBasis(
+        intent_governance_id=_str(row, "intent_governance_id"),
+        approved_fingerprint=_str(row, "approved_fingerprint"),
+        intent_created_at=_instant(row, "intent_created_at"),
+        intent_expires_at=_instant(row, "intent_expires_at"),
+        intent_mandatory_liquidation_at=_instant(row, "intent_mandatory_liquidation_at"),
+        broker_endpoint_host=_str(row, "broker_endpoint_host"),
+        basis_host_requested_at=_instant(row, "basis_host_requested_at"),
+        basis_host_at=_instant(row, "basis_host_at"),
+        basis_broker_earliest_at=_instant(row, "basis_broker_earliest_at"),
+        basis_broker_latest_at=_instant(row, "basis_broker_latest_at"),
+    )
+
+
+class PostgresIntentTimeBasisRepository:
+    """Append-only, one row per intent, written only in the act of issuing it."""
+
+    __slots__ = ("_service",)
+
+    def __init__(self, service: PostgresPersistenceService) -> None:
+        self._service = service
+
+    def record(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                _INTENT_TIME_BASIS_INSERT,
+                {
+                    "intent_governance_id": evidence.intent_governance_id,
+                    "approved_fingerprint": evidence.approved_fingerprint,
+                    "intent_created_at": evidence.intent_created_at,
+                    "intent_expires_at": evidence.intent_expires_at,
+                    "intent_mandatory_liquidation_at": evidence.intent_mandatory_liquidation_at,
+                    "broker_endpoint_host": evidence.broker_endpoint_host,
+                    "basis_host_requested_at": evidence.basis_host_requested_at,
+                    "basis_host_at": evidence.basis_host_at,
+                    "basis_broker_earliest_at": evidence.basis_broker_earliest_at,
+                    "basis_broker_latest_at": evidence.basis_broker_latest_at,
+                },
+            )
+        return _row_to_intent_time_basis(rows[0])
+
+    def get(self, intent_governance_id: str) -> IntentTimeBasis | None:
+        with self._service.unit_of_work() as work:
+            rows = list(work.execute(_INTENT_TIME_BASIS_SELECT, {"intent": intent_governance_id}))
+        return _row_to_intent_time_basis(rows[0]) if rows else None
+
+
+# ---------------------------------------------------------------------------
 # Runtime composition
 # ---------------------------------------------------------------------------
 
 
 class PostgresPaperExecutionRuntime:
-    """The seven MILESTONE-085 repositories over one caller-owned service.
+    """The eight MILESTONE-085 repositories over one caller-owned service.
 
     A separate class from `PostgresRepositoryRuntime` on purpose: that file is
     MILESTONE-084 production code and this milestone does not modify it. Both
@@ -1084,3 +1169,7 @@ class PostgresPaperExecutionRuntime:
     @property
     def paper_execution_events(self) -> PostgresPaperExecutionEventRepository:
         return PostgresPaperExecutionEventRepository(self._service)
+
+    @property
+    def intent_time_bases(self) -> PostgresIntentTimeBasisRepository:
+        return PostgresIntentTimeBasisRepository(self._service)

@@ -41,6 +41,11 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
     OrderType,
     TradingSession,
 )
+from empirical_platform.decision_candidate.paper_execution import (
+    PAPER_ENDPOINT_HOST,
+    IntentTimeBasis,
+    bind_intent_time_basis,
+)
 from empirical_platform.decision_candidate.product_market_inputs import (
     AccountSnapshot,
     DataFeedKind,
@@ -52,6 +57,7 @@ from empirical_platform.decision_candidate.product_market_inputs import (
     TradingCostEstimate,
 )
 from empirical_platform.decision_candidate.trade_approval import (
+    ApprovalDecision,
     ApprovedOrderIntent,
     OperatorAction,
     build_approved_order_intent,
@@ -62,6 +68,7 @@ from empirical_platform.decision_candidate.trade_proposal import (
     TradeProposal,
     evaluate_trade_proposal,
 )
+from empirical_platform.shared.brokerage.paper_time import BrokerTimeBasis, PaperTimeSource
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
@@ -70,12 +77,17 @@ from empirical_platform.shared.persistence.postgres_repositories.paper_execution
 from empirical_platform.shared.persistence.postgres_repositories.runtime import (
     PostgresRepositoryRuntime,
 )
+from empirical_platform.usecases.paper_execution import (
+    IssuePaperBoundOrderIntentCommand,
+    IssuePaperBoundOrderIntentHandler,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVALUATED_AT = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
 
 #: The M085 tables, in dependency order for TRUNCATE.
 M085_TABLES = (
+    "paper_intent_time_basis",
     "paper_execution_event",
     "paper_broker_acknowledgement",
     "paper_execution_attempt",
@@ -315,9 +327,36 @@ def an_approved_intent(
 ) -> ApprovedOrderIntent:
     """The whole real M084 chain, ending in one persisted approved intent.
 
-    This is MILESTONE-085's entire input. Every M085 suite starts from a row
-    produced exactly this way.
+    Issued through M084 alone, so it carries NO intent-time broker basis and is
+    not dispatchable by M085. Suites that attack the database directly start
+    here; suites that dispatch start from `a_paper_bound_intent`.
     """
+    approved, decision = an_approved_proposal(
+        runtime,
+        proposal_id=proposal_id,
+        context_id=context_id,
+        watermark_id=watermark_id,
+        configuration_id=configuration_id,
+    )
+    intent = build_approved_order_intent(
+        intent_governance_id=intent_id,
+        proposal=approved,
+        decision=decision,
+        created_at=EVALUATED_AT + timedelta(seconds=20),
+        idempotency_key=f"IDEM-{intent_id}",
+    )
+    return runtime.approved_order_intents.issue(intent)
+
+
+def an_approved_proposal(
+    runtime: PostgresRepositoryRuntime,
+    *,
+    proposal_id: str = "PRP-085-0001",
+    context_id: str = "ECX-085-0001",
+    watermark_id: str = "WM-085-0001",
+    configuration_id: str = "CFG-085-0001",
+) -> tuple[TradeProposal, ApprovalDecision]:
+    """The real M084 chain up to a human approval, with no intent issued yet."""
     configuration = a_configuration(configuration_governance_id=configuration_id)
     runtime.operator_trading_configurations.save(configuration)
     context = a_context(runtime, configuration, context_id=context_id, watermark_id=watermark_id)
@@ -337,14 +376,64 @@ def an_approved_intent(
     approved = runtime.trade_proposals.set_status(
         proposal.proposal_governance_id, ProposalStatus.APPROVED
     )
-    intent = build_approved_order_intent(
-        intent_governance_id=intent_id,
-        proposal=approved,
-        decision=decision,
-        created_at=EVALUATED_AT + timedelta(seconds=20),
-        idempotency_key=f"IDEM-{intent_id}",
+    return approved, decision
+
+
+def a_paper_bound_intent(
+    runtime: PostgresRepositoryRuntime,
+    paper: PostgresPaperExecutionRuntime,
+    *,
+    broker: object,
+    time_source: PaperTimeSource,
+    intent_id: str = "INT-085-0001",
+    proposal_id: str = "PRP-085-0001",
+    context_id: str = "ECX-085-0001",
+    watermark_id: str = "WM-085-0001",
+    configuration_id: str = "CFG-085-0001",
+) -> ApprovedOrderIntent:
+    """The same chain, with the intent issued through the Paper-bound issuance command.
+
+    The intent-time basis is MEASURED by the real handler against `broker` and
+    `time_source`, never written by the fixture.
+    """
+    approved, _ = an_approved_proposal(
+        runtime,
+        proposal_id=proposal_id,
+        context_id=context_id,
+        watermark_id=watermark_id,
+        configuration_id=configuration_id,
     )
-    return runtime.approved_order_intents.issue(intent)
+    issued = IssuePaperBoundOrderIntentHandler(
+        approval_decisions=runtime.approval_decisions,
+        intents=runtime.approved_order_intents,
+        proposals=runtime.trade_proposals,
+        intent_time_bases=paper.intent_time_bases,
+        broker=broker,  # type: ignore[arg-type]
+        time_source=time_source,
+    ).handle(
+        IssuePaperBoundOrderIntentCommand(
+            intent_governance_id=intent_id,
+            proposal_governance_id=approved.proposal_governance_id,
+            idempotency_key=f"IDEM-{intent_id}",
+        )
+    )
+    return issued.intent
+
+
+def a_basis_at(at: datetime) -> BrokerTimeBasis:
+    """A zero-width basis for database tests that attack rows rather than time."""
+    return BrokerTimeBasis(
+        host_requested_at=at, host_at=at, broker_earliest_at=at, broker_latest_at=at
+    )
+
+
+def an_intent_time_basis_for(intent: ApprovedOrderIntent) -> IntentTimeBasis:
+    """Domain evidence for building an authorizable preview in a row-level test."""
+    return bind_intent_time_basis(
+        intent=intent,
+        time_basis=a_basis_at(intent.created_at),
+        broker_endpoint_host=PAPER_ENDPOINT_HOST,
+    )
 
 
 def paper_runtime(service: PostgresPersistenceService) -> PostgresPaperExecutionRuntime:

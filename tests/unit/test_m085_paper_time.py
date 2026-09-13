@@ -26,6 +26,7 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
 )
 from empirical_platform.shared.brokerage.paper_time import (
     BoundedInstant,
+    BrokerTimeBasis,
     PaperTimeReading,
     PaperTimeUncertainError,
     PaperTimeWindow,
@@ -90,6 +91,104 @@ def test_aware_finite_time_is_required() -> None:
 # ---------------------------------------------------------------------------
 # The broker timeline. Bounded from one round trip, never assumed to agree.
 # ---------------------------------------------------------------------------
+
+
+def _slow_clock_request(
+    clock: Clock, *, round_trip: float, stamp_fraction: float, host_behind: float = 0.0
+) -> datetime:
+    """The broker reads its truthful clock `stamp_fraction` of the way through the trip."""
+    true_start = clock.utc + timedelta(seconds=host_behind)
+    clock.utc += timedelta(seconds=round_trip)
+    clock.monotonic += round_trip
+    return true_start + timedelta(seconds=round_trip * stamp_fraction)
+
+
+# ---------------------------------------------------------------------------
+# A persisted basis is an interval, and the mapping uses its later host reading.
+# ---------------------------------------------------------------------------
+
+
+def test_a_basis_pairs_the_broker_timestamp_with_the_host_reading_after_the_response() -> None:
+    clock = Clock()
+    window = PaperTimeWindow(clock)
+    basis = window.measure_broker_basis(
+        lambda: _slow_clock_request(clock, round_trip=120, stamp_fraction=1.0)
+    )
+    assert basis.host_requested_at == NOW
+    assert basis.host_at == NOW + timedelta(seconds=120)
+    assert basis.broker_earliest_at == NOW + timedelta(seconds=120)
+    assert basis.broker_latest_at == NOW + timedelta(seconds=240)
+    # A deadline this host wrote as NOW+300 is NOW+300 on the broker -- not NOW+420,
+    # which is where pairing with the pre-request reading put it.
+    assert basis.on_broker_timeline(NOW + timedelta(seconds=300)) == NOW + timedelta(seconds=300)
+
+
+@pytest.mark.parametrize("stamp_fraction", [0.0, 0.5, 1.0])
+@pytest.mark.parametrize("host_behind", [-3600.0, -0.1, 0.0, 0.1, 3600.0])
+def test_the_mapping_never_places_a_host_instant_later_than_the_broker_really_was(
+    stamp_fraction: float, host_behind: float
+) -> None:
+    # Wherever inside a 2 s round trip the broker stamped, and whatever this host's
+    # error, the mapped instant is at or before the broker's true reading at it.
+    clock = Clock()
+    window = PaperTimeWindow(clock)
+    basis = window.measure_broker_basis(
+        lambda: _slow_clock_request(
+            clock, round_trip=2, stamp_fraction=stamp_fraction, host_behind=host_behind
+        )
+    )
+    true_broker_now = clock.utc + timedelta(seconds=host_behind)
+    mapped = basis.on_broker_timeline(clock.utc)
+    assert mapped <= true_broker_now
+    # And no earlier than the round trip allows: the bound is the measured width.
+    assert true_broker_now - mapped <= timedelta(seconds=2)
+
+
+def test_the_interval_is_recorded_rather_than_a_single_moment() -> None:
+    clock = Clock()
+    window = PaperTimeWindow(clock)
+    basis = window.measure_broker_basis(
+        lambda: _slow_clock_request(clock, round_trip=3, stamp_fraction=0.0)
+    )
+    assert basis.host_at - basis.host_requested_at == timedelta(seconds=3)
+    assert basis.broker_latest_at - basis.broker_earliest_at == timedelta(seconds=3)
+
+
+def test_a_host_clock_stepping_back_during_the_basis_round_trip_refuses() -> None:
+    clock = Clock()
+    window = PaperTimeWindow(clock)
+
+    def stepped_back() -> datetime:
+        clock.utc -= timedelta(seconds=5)
+        clock.monotonic += 1
+        return NOW
+
+    with pytest.raises(PaperTimeUncertainError, match="rollback"):
+        window.measure_broker_basis(stepped_back)
+
+
+def test_an_inconsistent_basis_cannot_be_constructed() -> None:
+    with pytest.raises(PaperTimeUncertainError, match="precedes"):
+        BrokerTimeBasis(
+            host_requested_at=NOW,
+            host_at=NOW - timedelta(seconds=1),
+            broker_earliest_at=NOW,
+            broker_latest_at=NOW,
+        )
+    with pytest.raises(PaperTimeUncertainError, match="cannot end before"):
+        BrokerTimeBasis(
+            host_requested_at=NOW,
+            host_at=NOW,
+            broker_earliest_at=NOW,
+            broker_latest_at=NOW - timedelta(seconds=1),
+        )
+    with pytest.raises(PaperTimeUncertainError, match="timezone-aware"):
+        BrokerTimeBasis(
+            host_requested_at=datetime(2026, 9, 10),  # noqa: DTZ001 - deliberately naive
+            host_at=NOW,
+            broker_earliest_at=NOW,
+            broker_latest_at=NOW,
+        )
 
 
 def _observe(clock: Clock, window: PaperTimeWindow, *, broker: datetime, trip: float) -> None:

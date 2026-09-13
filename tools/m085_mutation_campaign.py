@@ -84,13 +84,19 @@ _FINAL_INTENT_RULE = """\
                     raise PaperExecutionRefusedError(
                         "the approved intent or liquidation deadline expired"
                     )
-                _refuse_expired_m084_deadlines_on_broker_time(
-                    authorization=authorization, intent=intent, broker_now=broker_instant
+                _refuse_m084_deadlines_on_intent_time_basis(
+                    intent=intent, intent_time_basis=intent_time_basis, broker_now=broker_instant
                 )"""
 
-_BASIS_EXPIRY_RULE = (
-    "            and broker_now.possibly_at_or_after(self.on_broker_timeline(self.expires_at))"
-)
+_BASIS_EXPIRY_RULE = """\
+            and broker_now.possibly_at_or_after(
+                authorization_basis.on_broker_timeline(self.expires_at)
+            )"""
+
+_PAPER_TIME = "src/empirical_platform/shared/brokerage/paper_time.py"
+_BASIS_MIGRATION = "migrations/versions/d4f18a6c2e97_add_m085_intent_time_basis.py"
+_HANDLERS = "tests/unit/test_m085_paper_execution_handlers.py"
+_TIME_BASIS_POSTGRES = "tests/integration/test_m085_time_basis_postgres.py"
 
 #: Re-reading time AFTER the row lock is acquired, on both clocks. As with the
 #: send-boundary rule above, the two re-reads express one rule while a process
@@ -143,44 +149,116 @@ FAMILIES: tuple[Family, ...] = (
         detecting_test="tests/unit/test_m085_paper_time.py::test_uncertainty_at_or_beyond_the_margin_is_refused[60.0]",
         expected_fragment="DID NOT RAISE",
     ),
+    # -- the AUTHORIZATION-time basis: measured when a human authorizes --------
     Family(
-        name="broker_basis_recorded",
-        rule="Authorizing records the broker time basis",
+        name="authorization_basis_pairs_the_post_response_host_reading",
+        rule="The basis pairs the broker timestamp with the host reading AFTER the response",
+        path=_PAPER_TIME,
+        original="        host_at = self.now()",
+        mutated="        host_at = host_requested_at",
+        detecting_test=f"{_HANDLERS}::TestSubmitAuthorizedPaperOrder"
+        "::test_broker_fetch_latency_cannot_extend_the_authorization_deadline",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="authorization_basis_interval_required",
+        rule="An authorization without an interval-shaped basis is not dispatchable",
         path=_DOMAIN,
-        original="        basis_host_at=authorized_at,",
-        mutated="        basis_host_at=None,",
-        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_a_backward_host_clock_step_between_processes_cannot_extend_an_approval",
-        expected_fragment="DID NOT RAISE",
+        original=(
+            "        if authorization_basis is None:\n"
+            "            return NO_AUTHORIZATION_TIME_BASIS"
+        ),
+        mutated="        if False:\n            return NO_AUTHORIZATION_TIME_BASIS",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_the_replaced_pre_fetch_pairing_is_no_longer_trusted",
+        expected_fragment="assert",
     ),
     Family(
         name="broker_basis_required",
         rule="An authorization carrying a basis cannot be checked without broker time",
         path=_DOMAIN,
-        original="        if self.has_broker_time_basis and broker_now is None:",
+        original="        if broker_now is None:",
         mutated="        if False:",
-        detecting_test="tests/unit/test_m085_paper_execution_domain.py::TestAuthorizationIsNarrowAndExpiring::test_a_basis_cannot_be_checked_without_broker_time",
+        detecting_test=f"{_UNIT}::TestAuthorizationIsNarrowAndExpiring"
+        "::test_a_basis_cannot_be_checked_without_broker_time",
         expected_fragment="assert",
     ),
     Family(
         name="broker_basis_authorization_expiry",
-        rule="An approval expires on the broker's clock, not only this host's",
+        rule="An approval expires on the broker's clock, through its own basis",
         path=_DOMAIN,
         original=_BASIS_EXPIRY_RULE,
         mutated="            and False",
-        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_a_backward_host_clock_step_between_processes_cannot_extend_an_approval",
+        detecting_test=f"{_HANDLERS}::TestSubmitAuthorizedPaperOrder"
+        "::test_a_host_clock_ahead_only_while_authorizing_cannot_extend_the_authorization",
         expected_fragment="DID NOT RAISE",
     ),
     Family(
-        name="m084_deadline_on_broker_time",
-        rule="M084 intent deadlines are enforced on the broker's clock too",
-        path=_USECASE,
+        name="authorization_not_future_dated_against_its_basis",
+        rule="authorized_at may not postdate the host reading its expiry is mapped with",
+        path=_DOMAIN,
         original=(
-            "        if broker_now.possibly_at_or_after("
-            "authorization.on_broker_timeline(deadline)):"
+            "        if authorization_basis is not None and "
+            "self.authorized_at > authorization_basis.host_at:"
         ),
         mutated="        if False:",
-        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_a_backward_host_clock_step_cannot_extend_the_m084_intent_deadline",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_a_future_dated_authorization_cannot_be_mapped",
         expected_fragment="DID NOT RAISE",
+    ),
+    # -- the INTENT-time basis: measured when the M084 intent is issued ------
+    Family(
+        name="m084_deadline_on_intent_time_basis",
+        rule="M084 deadlines are enforced on the broker's clock through the intent's own basis",
+        path=_DOMAIN,
+        original=(
+            "        if broker_now.possibly_at_or_after("
+            "evidence.time_basis.on_broker_timeline(deadline)):"
+        ),
+        mutated="        if False:",
+        detecting_test=f"{_HANDLERS}::TestSubmitAuthorizedPaperOrder"
+        "::test_a_host_clock_moved_between_intent_and_authorization_cannot_extend_the_m084_deadline",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="intent_basis_required",
+        rule="An intent issued without its own basis is not dispatchable",
+        path=_DOMAIN,
+        original="    if evidence is None:\n        return NO_INTENT_TIME_BASIS",
+        mutated="    if evidence is None:\n        return None",
+        detecting_test=f"{_HANDLERS}::TestSubmitAuthorizedPaperOrder"
+        "::test_an_intent_without_its_own_basis_is_refused_before_any_broker_call",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="intent_basis_matches_the_exact_intent",
+        rule="Evidence describing a different intent is refused",
+        path=_DOMAIN,
+        original='            ("expires_at", intent.expires_at, evidence.intent_expires_at),\n',
+        mutated="",
+        detecting_test=f"{_HANDLERS}::TestSubmitAuthorizedPaperOrder"
+        "::test_evidence_describing_a_different_intent_is_refused[expires_at]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="intent_basis_bound_to_issuance",
+        rule="An intent-time basis cannot be attached after the intent was issued",
+        path=_DOMAIN,
+        original="        if self.intent_created_at != self.basis_host_at:",
+        mutated="        if False:",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_intent_evidence_cannot_be_attached_after_issuance",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="issuance_uses_the_measured_host_reading",
+        rule="The intent is issued at the basis host reading, not at an unmeasured instant",
+        path=_USECASE,
+        original="                created_at=time_basis.host_at,",
+        mutated="                created_at=time_basis.host_requested_at,",
+        detecting_test=f"{_HANDLERS}::TestIssuePaperBoundOrderIntent"
+        "::test_the_intent_is_issued_at_the_host_reading_taken_after_the_clock_response",
+        expected_fragment="after the fact",
     ),
     Family(
         name="wall_clock_rollback",
@@ -678,7 +756,11 @@ FAMILIES: tuple[Family, ...] = (
     Family(
         name="database_single_use_trigger",
         rule="The database refuses a second consumption",
-        path=_MIGRATION,
+        # `d4f18a6c2e97` replaces the authorization guard (to freeze the basis
+        # columns), so the guard ENFORCED at head is that migration's copy. Mutating
+        # the original text in `b1e9d47c30a5` changed nothing that runs, and the
+        # family survived until it was pointed here.
+        path=_BASIS_MIGRATION,
         original="    IF OLD.consumed_at IS NOT NULL THEN",
         mutated="    IF FALSE THEN",
         detecting_test=f"{_POSTGRES}::TestTheDatabaseEnforcesSingleUse"
@@ -703,6 +785,50 @@ FAMILIES: tuple[Family, ...] = (
         mutated="    IF FALSE AND NOT EXISTS (\n        SELECT 1 FROM public.approved_order_intent",
         detecting_test=f"{_POSTGRES}::TestMilestone084IsUntouched"
         "::test_a_paper_row_naming_an_unknown_intent_is_still_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    # -- the two bases, at the database boundary ------------------------------
+    Family(
+        name="database_basis_interval_shape",
+        rule="The database refuses an authorization dated after its basis host reading",
+        path=_BASIS_MIGRATION,
+        original='        " AND authorized_at <= basis_host_at)",',
+        mutated='        ")",',
+        detecting_test=f"{_TIME_BASIS_POSTGRES}::TestTheDatabaseRefusesAMalformedAuthorizationBasis"
+        "::test_a_malformed_basis_is_refused[authorized-after-the-basis-reading]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_basis_immutable",
+        rule="The consuming UPDATE cannot rewrite the authorization basis",
+        path=_BASIS_MIGRATION,
+        original=(
+            "        OR NEW.basis_broker_earliest_at IS DISTINCT FROM "
+            "OLD.basis_broker_earliest_at\n"
+        ),
+        mutated="",
+        detecting_test=f"{_TIME_BASIS_POSTGRES}::TestTheDatabaseRefusesAMalformedAuthorizationBasis"
+        "::test_the_basis_cannot_be_rewritten_by_the_consuming_update[basis_broker_earliest_at]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_intent_basis_matches_intent",
+        rule="The database refuses evidence that does not describe the exact stored intent",
+        path=_BASIS_MIGRATION,
+        original="        OR intent_row.expires_at IS DISTINCT FROM NEW.intent_expires_at\n",
+        mutated="",
+        detecting_test=f"{_TIME_BASIS_POSTGRES}::TestTheDatabaseBindsIntentEvidenceToTheExactIntent"
+        "::test_evidence_describing_another_intent_is_refused[expires_at]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_intent_basis_bound_to_issuance",
+        rule="The database refuses evidence whose host reading is not the issuance instant",
+        path=_BASIS_MIGRATION,
+        original='            "intent_created_at = basis_host_at",',
+        mutated='            "true",',
+        detecting_test=f"{_TIME_BASIS_POSTGRES}::TestTheDatabaseBindsIntentEvidenceToTheExactIntent"
+        "::test_evidence_not_bound_to_the_issuance_instant_is_refused",
         expected_fragment="DID NOT RAISE",
     ),
     Family(

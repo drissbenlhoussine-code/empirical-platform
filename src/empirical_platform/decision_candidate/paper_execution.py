@@ -59,7 +59,7 @@ from types import MappingProxyType
 
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
-from empirical_platform.shared.brokerage.paper_time import BoundedInstant
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant, BrokerTimeBasis
 
 __all__ = [
     "ALLOWED_PAPER_TRANSITIONS",
@@ -68,6 +68,8 @@ __all__ = [
     "MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS",
     "MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS",
     "NOT_FOUND_ALONE_RESOLVES_UNKNOWN",
+    "NO_AUTHORIZATION_TIME_BASIS",
+    "NO_INTENT_TIME_BASIS",
     "PAPER_ENDPOINT_HOST",
     "RECONCILIATION_UNKNOWN_POLICY",
     "RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT",
@@ -76,6 +78,7 @@ __all__ = [
     "BrokerAcknowledgement",
     "ExecutionAttempt",
     "ExecutionAuthorization",
+    "IntentTimeBasis",
     "PaperAccountSnapshot",
     "PaperEnvironment",
     "PaperExecutionEvent",
@@ -83,11 +86,29 @@ __all__ = [
     "PaperOrderRequest",
     "SubmissionPreview",
     "authorize_submission",
+    "bind_intent_time_basis",
     "build_submission_preview",
     "derive_client_order_id",
+    "intent_time_basis_refusal",
     "is_paper_transition_allowed",
+    "m084_deadline_refusal_on_broker_time",
     "request_fingerprint",
 ]
+
+#: Why an authorization without an interval-shaped basis cannot be dispatched.
+NO_AUTHORIZATION_TIME_BASIS = (
+    "this authorization carries no authorization-time broker basis measured as an "
+    "interval, so its expiry cannot be placed on the broker's clock; it is not "
+    "dispatchable, and no basis is derived for it later"
+)
+
+#: Why an intent without its own intent-time basis cannot be dispatched. One string,
+#: so the preview, pre-claim and send-boundary refusals cannot drift apart.
+NO_INTENT_TIME_BASIS = (
+    "this approved intent carries no intent-time broker basis: it was not issued through "
+    "the Paper-bound issuance command, so its deadlines cannot be placed on the broker's "
+    "clock. It is not dispatchable, and no basis is derived for it after the fact"
+)
 
 _MAXIMUM_IDENTIFIER_LENGTH = 64
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -577,14 +598,20 @@ class ExecutionAuthorization:
     expires_at: datetime
     consumed_at: datetime | None
     consumed_by_attempt_id: str | None
-    #: THE BROKER TIME BASIS. Two readings taken at the SAME moment the human
-    #: authorized: this host's clock, and the earliest instant the broker's clock
-    #: could then have been showing. Their difference is a measured, conservative
-    #: host-to-broker mapping, and it is what makes a stored host deadline
-    #: survive a host clock that later moves. Nullable because a row written
-    #: before this basis existed has none; such a row cannot be dispatched.
+    #: THE AUTHORIZATION-TIME BROKER BASIS, measured as an interval when the human
+    #: authorized. `basis_host_at` is this host's conservative reading AFTER the
+    #: broker clock response was read, and `basis_broker_earliest_at` the broker's
+    #: reported timestamp; `basis_host_requested_at` and `basis_broker_latest_at`
+    #: record the round trip that justifies pairing them. See `BrokerTimeBasis`.
+    #:
+    #: SUPERSEDED: until `d4f18a6c2e97` this comment said the pair was "taken at the
+    #: SAME moment". It was not -- `basis_host_at` was the pre-fetch command instant,
+    #: and the fetch latency extended every mapped expiry. A row carrying only the
+    #: pair is that legacy shape: it is readable, but not dispatchable.
     basis_host_at: datetime | None = None
     basis_broker_earliest_at: datetime | None = None
+    basis_host_requested_at: datetime | None = None
+    basis_broker_latest_at: datetime | None = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -610,43 +637,80 @@ class ExecutionAuthorization:
             )
         if self.consumed_at is not None:
             _require_aware(self.consumed_at, field="consumed_at")
+        if (self.basis_host_at is None) != (self.basis_broker_earliest_at is None):
+            raise ValueError(
+                "basis_host_at and basis_broker_earliest_at are set together or not at all"
+            )
+        if (self.basis_host_requested_at is None) != (self.basis_broker_latest_at is None):
+            raise ValueError(
+                "basis_host_requested_at and basis_broker_latest_at are set together or not at all"
+            )
+        if self.basis_host_requested_at is not None and self.basis_host_at is None:
+            raise ValueError("a basis interval requires the basis readings it bounds")
+        authorization_basis = self.time_basis
+        if authorization_basis is not None and self.authorized_at > authorization_basis.host_at:
+            # The expiry is `authorized_at + validity`. An `authorized_at` later than
+            # the host reading the basis pairs with would push the mapped expiry
+            # later by exactly that difference, so it is refused rather than mapped.
+            raise ValueError(
+                "authorized_at is later than the host reading the broker basis was "
+                "measured at; a future-dated authorization cannot be mapped"
+            )
 
     def is_expired_at(self, instant: datetime) -> bool:
         _require_aware(instant, field="instant")
         return instant >= self.expires_at
 
     @property
+    def time_basis(self) -> BrokerTimeBasis | None:
+        """The interval-shaped authorization-time basis, or None when there is none.
+
+        None both for a row with no basis and for a legacy row carrying only the
+        pair: that pair's host reading preceded the broker fetch, which is the
+        defect the interval replaces, so it is neither trusted nor repaired.
+        """
+        if (
+            self.basis_host_requested_at is None
+            or self.basis_host_at is None
+            or self.basis_broker_earliest_at is None
+            or self.basis_broker_latest_at is None
+        ):
+            return None
+        return BrokerTimeBasis(
+            host_requested_at=self.basis_host_requested_at,
+            host_at=self.basis_host_at,
+            broker_earliest_at=self.basis_broker_earliest_at,
+            broker_latest_at=self.basis_broker_latest_at,
+        )
+
+    @property
     def has_broker_time_basis(self) -> bool:
-        return self.basis_host_at is not None and self.basis_broker_earliest_at is not None
+        return self.time_basis is not None
 
     def on_broker_timeline(self, host_instant: datetime) -> datetime:
-        """Map an instant written by THIS host onto the broker's timeline.
+        """Map THIS AUTHORIZATION's own host-written expiry onto the broker's timeline.
 
-        WHY THIS EXISTS. `expires_at`, and MILESTONE-084's `expires_at` and
-        `mandatory_liquidation_at`, are absolute instants produced by this host's
-        wall clock. Monotonic time protects them only while one process runs. Once
-        the approving process exits, a host clock that steps BACKWARD makes every
-        stored deadline look further away, and a new dispatch process has no
-        memory with which to notice. Measured, not argued: with the basis removed,
-        an hour-long backward step let a 300-second approval dispatch.
+        WHY THIS EXISTS. `expires_at` is an absolute instant produced by this host's
+        wall clock. Monotonic time protects it only while one process runs. Once the
+        approving process exits, a host clock that steps BACKWARD makes the stored
+        expiry look further away, and a new dispatch process has no memory with
+        which to notice.
 
-        The mapping is the difference between two readings taken at the same
-        moment, so it carries no assumption about either clock's accuracy. The
-        EARLIEST broker reading is used, which makes every mapped deadline the
-        soonest it could be -- the conservative direction for expiry.
-
-        This does not reinterpret the MILESTONE-084 record. That value is frozen,
-        is still stored and rendered exactly as M084 wrote it, and is still
-        enforced on the host timeline as well; this is an ADDITIONAL M085 bound
-        measured at the moment a human authorized.
+        WHAT IT MAY TRANSLATE. Only deadlines written in the act this basis was
+        measured for -- the authorization's own expiry. MILESTONE-084's intent
+        deadlines were written earlier, under whatever host offset held when the
+        intent was issued; translating them through this basis shifts them by any
+        host clock movement between issuance and authorization. That was the
+        second defect, and those deadlines now use `IntentTimeBasis` instead.
         """
         _require_aware(host_instant, field="host_instant")
-        if self.basis_host_at is None or self.basis_broker_earliest_at is None:
+        authorization_basis = self.time_basis
+        if authorization_basis is None:
             raise ValueError(
-                "this authorization carries no broker time basis and cannot be "
-                "mapped onto the broker timeline"
+                "this authorization carries no broker time basis measured as an interval "
+                "and cannot be mapped onto the broker timeline"
             )
-        return host_instant + (self.basis_broker_earliest_at - self.basis_host_at)
+        return authorization_basis.on_broker_timeline(host_instant)
 
     @property
     def is_consumed(self) -> bool:
@@ -669,23 +733,28 @@ class ExecutionAuthorization:
         `instant` is this host's conservative current instant, and `broker_now`
         bounds the broker's. BOTH must permit: the host check catches elapsed work
         inside this process, and the broker check catches a host clock that moved
-        between the approving process and this one. A caller that supplies no
-        `broker_now` gets the host check alone and is refused outright once a
-        basis exists, because the stronger of the two must never be skippable.
+        between the approving process and this one. An authorization with no
+        interval-shaped basis is refused outright, and so is a caller that supplies
+        no `broker_now`, because the stronger of the two must never be skippable.
         """
         if self.is_consumed:
             return "the authorization has already been used"
         if self.is_expired_at(instant):
             return "the authorization has expired"
-        if self.has_broker_time_basis and broker_now is None:
+        authorization_basis = self.time_basis
+        if authorization_basis is None:
+            return NO_AUTHORIZATION_TIME_BASIS
+        if broker_now is None:
             return (
                 "this authorization carries a broker time basis and cannot be "
                 "checked without the broker's current instant"
             )
         if (
-            self.has_broker_time_basis
-            and broker_now is not None
-            and broker_now.possibly_at_or_after(self.on_broker_timeline(self.expires_at))
+            broker_now is not None
+            and authorization_basis is not None
+            and broker_now.possibly_at_or_after(
+                authorization_basis.on_broker_timeline(self.expires_at)
+            )
         ):
             return "the authorization has expired on the broker's clock"
         if self.request_fingerprint != request_fingerprint_now:
@@ -696,6 +765,165 @@ class ExecutionAuthorization:
         if self.account_reference != account_reference_now:
             return "the authorization was granted for a different paper account"
         return None
+
+
+@dataclass(frozen=True, slots=True)
+class IntentTimeBasis:
+    """The broker time basis measured AT THE ISSUANCE of one exact M084 intent.
+
+    WHY AN AUTHORIZATION'S BASIS CANNOT DO THIS JOB. MILESTONE-084's `expires_at`
+    and `mandatory_liquidation_at` were written under whatever host-to-broker
+    offset held when the intent was issued. An authorization is measured later.
+    If the host clock moved in between, translating the intent's deadlines through
+    the authorization's basis shifts them by that whole movement. Reproduced
+    before this type existed: intent issued with the host correct, host clock then
+    stepped back an hour, authorization taken, and a new dispatch process after the
+    real intent deadline was permitted because the deadline mapped an hour late.
+
+    WHAT BINDS IT TO ISSUANCE. `intent_created_at` must EQUAL `basis_host_at`. The
+    Paper-bound issuance command measures the basis first and hands that exact
+    conservative host reading to MILESTONE-084's own handler as `created_at`. A
+    basis measured afterwards cannot equal the `created_at` of an intent that
+    already exists, which makes a backfill unrepresentable rather than discouraged.
+
+    WHAT BINDS IT TO THE EXACT INTENT. The fingerprint and the three M084 instants
+    are copied here and compared against the stored intent on every use; the
+    database compares them again at insert. The M084 record is read, never
+    rewritten, reinterpreted or relaxed, and its host-timeline checks still run.
+
+    WHAT IT DOES NOT COVER. M084 derives both deadlines when the PROPOSAL is
+    evaluated, before the intent is issued. A host clock that moved between
+    proposal evaluation and intent issuance is not measured here; that interval is
+    bounded only by M084's own approval expiry. Recorded as a residual limit.
+    """
+
+    intent_governance_id: str
+    approved_fingerprint: str
+    intent_created_at: datetime
+    intent_expires_at: datetime
+    intent_mandatory_liquidation_at: datetime
+    broker_endpoint_host: str
+    basis_host_requested_at: datetime
+    basis_host_at: datetime
+    basis_broker_earliest_at: datetime
+    basis_broker_latest_at: datetime
+
+    def __post_init__(self) -> None:
+        _require_identifier(self.intent_governance_id, field="intent_governance_id")
+        _require_digest(self.approved_fingerprint, field="approved_fingerprint")
+        for field_name in (
+            "intent_created_at",
+            "intent_expires_at",
+            "intent_mandatory_liquidation_at",
+            "basis_host_requested_at",
+            "basis_host_at",
+            "basis_broker_earliest_at",
+            "basis_broker_latest_at",
+        ):
+            _require_aware(getattr(self, field_name), field=field_name)
+        if self.broker_endpoint_host != PAPER_ENDPOINT_HOST:
+            raise ValueError(f"broker_endpoint_host must be exactly {PAPER_ENDPOINT_HOST}")
+        if self.intent_created_at != self.basis_host_at:
+            raise ValueError(
+                "the intent was not issued at the instant this basis measured; an "
+                "intent-time basis cannot be attached to an intent after the fact"
+            )
+        if self.intent_expires_at <= self.intent_created_at:
+            raise ValueError("intent_expires_at must follow intent_created_at")
+        # Constructing the basis validates the interval's own ordering.
+        _ = self.time_basis
+
+    @property
+    def time_basis(self) -> BrokerTimeBasis:
+        return BrokerTimeBasis(
+            host_requested_at=self.basis_host_requested_at,
+            host_at=self.basis_host_at,
+            broker_earliest_at=self.basis_broker_earliest_at,
+            broker_latest_at=self.basis_broker_latest_at,
+        )
+
+
+def bind_intent_time_basis(
+    *, intent: ApprovedOrderIntent, time_basis: BrokerTimeBasis, broker_endpoint_host: str
+) -> IntentTimeBasis:
+    """Record the basis measured for issuing `intent`. Refuses any other intent."""
+    if not isinstance(intent, ApprovedOrderIntent):
+        raise ValueError("intent must be an ApprovedOrderIntent")
+    if not isinstance(time_basis, BrokerTimeBasis):
+        raise ValueError("time_basis must be a BrokerTimeBasis")
+    return IntentTimeBasis(
+        intent_governance_id=intent.intent_governance_id,
+        approved_fingerprint=intent.approved_fingerprint,
+        intent_created_at=intent.created_at,
+        intent_expires_at=intent.expires_at,
+        intent_mandatory_liquidation_at=intent.mandatory_liquidation_at,
+        broker_endpoint_host=broker_endpoint_host,
+        basis_host_requested_at=time_basis.host_requested_at,
+        basis_host_at=time_basis.host_at,
+        basis_broker_earliest_at=time_basis.broker_earliest_at,
+        basis_broker_latest_at=time_basis.broker_latest_at,
+    )
+
+
+def intent_time_basis_refusal(
+    *, intent: ApprovedOrderIntent, evidence: IntentTimeBasis | None
+) -> str | None:
+    """Why `evidence` cannot place this intent's deadlines on the broker's clock."""
+    if evidence is None:
+        return NO_INTENT_TIME_BASIS
+    mismatched = [
+        label
+        for label, stored, recorded in (
+            ("intent_governance_id", intent.intent_governance_id, evidence.intent_governance_id),
+            ("approved_fingerprint", intent.approved_fingerprint, evidence.approved_fingerprint),
+            ("created_at", intent.created_at, evidence.intent_created_at),
+            ("expires_at", intent.expires_at, evidence.intent_expires_at),
+            (
+                "mandatory_liquidation_at",
+                intent.mandatory_liquidation_at,
+                evidence.intent_mandatory_liquidation_at,
+            ),
+        )
+        if stored != recorded
+    ]
+    if mismatched:
+        return (
+            "the intent-time broker basis does not describe this exact intent ("
+            + ", ".join(mismatched)
+            + "); it cannot be used, and the intent is not dispatchable"
+        )
+    return None
+
+
+def m084_deadline_refusal_on_broker_time(
+    *,
+    intent: ApprovedOrderIntent,
+    evidence: IntentTimeBasis | None,
+    broker_now: BoundedInstant,
+) -> str | None:
+    """MILESTONE-084's two deadlines, on the broker's clock, through THEIR OWN basis.
+
+    Takes no authorization, on purpose: the authorization's basis was measured in
+    a different act, and the only basis that may translate these deadlines is the
+    one measured when the intent was issued.
+    """
+    refusal = intent_time_basis_refusal(intent=intent, evidence=evidence)
+    if refusal is not None:
+        return refusal
+    if evidence is None:
+        # Unreachable while the rule above stands. It falls through rather than
+        # raising so that removing that rule is observable as a dispatch.
+        return None
+    for deadline, label in (
+        (intent.expires_at, "the approved intent has expired on the broker's clock"),
+        (
+            intent.mandatory_liquidation_at,
+            "the mandatory liquidation deadline has passed on the broker's clock",
+        ),
+    ):
+        if broker_now.possibly_at_or_after(evidence.time_basis.on_broker_timeline(deadline)):
+            return label
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -826,8 +1054,13 @@ def build_submission_preview(
     execution_kill_switch_engaged: bool,
     created_at: datetime,
     broker_now: BoundedInstant,
+    intent_time_basis: IntentTimeBasis | None,
 ) -> SubmissionPreview:
     """Freeze exactly what a human will be shown, refusals included.
+
+    `intent_time_basis` is REQUIRED as an argument and may be None only so that its
+    absence becomes a stated refusal. An intent issued without one cannot be
+    authorized, because its deadlines cannot be placed on the broker's clock.
 
     Every refusal is COLLECTED rather than raised, so that an operator sees all
     of the reasons at once instead of fixing them one round-trip at a time. A
@@ -902,6 +1135,14 @@ def build_submission_preview(
         refusals.append("the approved intent has expired")
     if intent.mandatory_liquidation_at <= created_at:
         refusals.append("the mandatory liquidation deadline has already passed")
+    # BROKER TIMELINE, THROUGH THE INTENT'S OWN BASIS. The same two deadlines, placed
+    # on the broker's clock with the basis measured when the intent was issued --
+    # never with an authorization's, which was measured in a different act.
+    broker_deadline_refusal = m084_deadline_refusal_on_broker_time(
+        intent=intent, evidence=intent_time_basis, broker_now=broker_now
+    )
+    if broker_deadline_refusal is not None:
+        refusals.append(broker_deadline_refusal)
 
     ceiling = order.notional_ceiling
     if ceiling is None:
@@ -973,16 +1214,23 @@ def authorize_submission(
     authorized_by: str,
     authorized_at: datetime,
     validity_seconds: int,
-    broker_now: BoundedInstant,
+    time_basis: BrokerTimeBasis,
 ) -> ExecutionAuthorization:
     """Turn one human act into one narrow, expiring permission.
 
     Refuses a preview that carries refusals, and refuses a non-positive or
     unbounded validity. There is no parameter here that could express "approve
     everything like this" or "approve until further notice".
+
+    `authorized_at` keeps its audit meaning -- the instant the human act was
+    recorded -- and is NOT the mapping basis. `time_basis` is the interval measured
+    for this authorization; an `authorized_at` later than its post-response host
+    reading is refused, because it would push the mapped expiry later.
     """
     if not isinstance(preview, SubmissionPreview):
         raise ValueError("preview must be a SubmissionPreview")
+    if not isinstance(time_basis, BrokerTimeBasis):
+        raise ValueError("time_basis must be the BrokerTimeBasis measured for this authorization")
     _require_aware(authorized_at, field="authorized_at")
     if isinstance(validity_seconds, bool) or not isinstance(validity_seconds, int):
         raise ValueError("validity_seconds must be an int")
@@ -1006,8 +1254,11 @@ def authorize_submission(
         expires_at=authorized_at + timedelta(seconds=validity_seconds),
         consumed_at=None,
         consumed_by_attempt_id=None,
-        # Both readings are taken at THIS moment, which is what makes their
-        # difference a measurement rather than an assumption.
-        basis_host_at=authorized_at,
-        basis_broker_earliest_at=broker_now.earliest,
+        # The measured interval, stored whole. SUPERSEDED: this used to pair the
+        # pre-fetch `authorized_at` with the broker's reply and call the two "taken
+        # at THIS moment"; the fetch latency then extended every mapped expiry.
+        basis_host_at=time_basis.host_at,
+        basis_broker_earliest_at=time_basis.broker_earliest_at,
+        basis_host_requested_at=time_basis.host_requested_at,
+        basis_broker_latest_at=time_basis.broker_latest_at,
     )
