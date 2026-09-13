@@ -45,6 +45,7 @@ from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
     SubmissionState,
 )
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 
 _NOW = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
 _DIGEST = "a" * 64
@@ -126,6 +127,7 @@ def a_preview(**overrides: object):  # noqa: ANN201 - returns SubmissionPreview
         "existing_position_quantity": 0,
         "execution_kill_switch_engaged": False,
         "created_at": _NOW,
+        "broker_now": BoundedInstant(earliest=_NOW, latest=_NOW),
     }
     arguments.update(overrides)
     return build_submission_preview(**arguments)  # type: ignore[arg-type]
@@ -357,7 +359,10 @@ class TestThePreviewCollectsEveryRefusal:
             ({"account": an_account(buying_power=Decimal("1"))}, "exceeds paper buying power"),
             ({"quote_captured_at": None}, "no quote was captured"),
             ({"quote_maximum_age_seconds": 1}, "older than the"),
-            ({"quote_captured_at": _NOW + timedelta(seconds=11)}, "dated after this preview"),
+            (
+                {"quote_captured_at": _NOW + timedelta(seconds=11)},
+                "dated after the latest possible",
+            ),
         ],
     )
     def test_each_condition_produces_its_own_refusal(
@@ -376,12 +381,59 @@ class TestThePreviewCollectsEveryRefusal:
         )
         assert len(preview.refusals) >= 3
 
-    def test_a_quote_further_ahead_than_the_lead_bound_is_refused(self) -> None:
-        # After evaluation time the two clocks genuinely disagree, and
-        # that is still refused rather than treated as maximally fresh.
+    def test_a_quote_after_the_latest_possible_broker_instant_is_refused(self) -> None:
+        # A quote dated after every instant the broker's clock could now be
+        # showing is inconsistent evidence, not a maximally fresh quote.
         preview = a_preview(quote_captured_at=_NOW + timedelta(seconds=1))
-        assert any("dated after this preview" in reason for reason in preview.refusals)
+        assert any("dated after the latest possible" in reason for reason in preview.refusals)
         assert preview.is_authorizable is False
+
+    def test_an_age_interval_straddling_the_limit_is_refused(self) -> None:
+        # Age bounded by [59s, 61s] against a 60s ceiling. The limit holds at one
+        # end and not the other, so it does not hold THROUGHOUT the justified
+        # interval and the preview must refuse. Testing the midpoint, or the
+        # youngest end, would permit an order whose quote may already be stale.
+        quote_at = _NOW - timedelta(seconds=61)
+        preview = a_preview(
+            quote_captured_at=quote_at,
+            quote_maximum_age_seconds=60,
+            broker_now=BoundedInstant(earliest=_NOW - timedelta(seconds=2), latest=_NOW),
+        )
+        assert any("older than the 60s limit" in reason for reason in preview.refusals)
+        assert preview.is_authorizable is False
+
+    def test_an_age_interval_wholly_inside_the_limit_is_accepted(self) -> None:
+        # The same width, moved so that BOTH ends satisfy the ceiling.
+        quote_at = _NOW - timedelta(seconds=59)
+        assert a_preview(
+            quote_captured_at=quote_at,
+            quote_maximum_age_seconds=60,
+            broker_now=BoundedInstant(earliest=_NOW - timedelta(seconds=2), latest=_NOW),
+        ).is_authorizable
+
+    def test_a_session_close_inside_the_interval_is_treated_as_passed(self) -> None:
+        # The close falls between the earliest and latest instants the broker's
+        # clock could now be showing: it MIGHT already have passed, so it counts
+        # as passed.
+        close = _NOW + timedelta(seconds=1)
+        preview = a_preview(
+            market_next_close=close,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW + timedelta(seconds=2)),
+        )
+        assert any("market session is closed" in reason for reason in preview.refusals)
+        assert preview.is_authorizable is False
+
+    def test_a_quote_inside_the_measured_uncertainty_is_not_refused(self) -> None:
+        # The replaced model refused this: it compared the quote against a single
+        # instant, so any quote arriving during the fetch round trips looked
+        # future-dated. The allowance here is the MEASURED round trip, not a
+        # constant -- widen the bound and the same quote becomes usable.
+        quote_at = _NOW + timedelta(milliseconds=400)
+        assert not a_preview(quote_captured_at=quote_at).is_authorizable
+        assert a_preview(
+            quote_captured_at=quote_at,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW + timedelta(milliseconds=500)),
+        ).is_authorizable
 
     def test_quote_at_evaluation_is_fresh_but_future_quote_is_not(self) -> None:
         assert a_preview(quote_captured_at=_NOW).is_authorizable
@@ -419,6 +471,7 @@ class TestAuthorizationIsNarrowAndExpiring:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=60,
+                broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
             )
 
     @pytest.mark.parametrize("validity", [0, -1])
@@ -430,6 +483,7 @@ class TestAuthorizationIsNarrowAndExpiring:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=validity,
+                broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
             )
 
     def test_there_is_no_way_to_express_an_unexpiring_authorization(self) -> None:
@@ -441,6 +495,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=1,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
         )
         assert authorization.expires_at > authorization.authorized_at
         assert authorization.is_expired_at(authorization.expires_at) is True
@@ -453,12 +508,14 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
         )
         assert (
             authorization.refusal_against(
                 request_fingerprint_now=preview.request_fingerprint,
                 account_reference_now=preview.account_reference,
                 instant=_NOW,
+                broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
             )
             is None
         )
@@ -481,16 +538,76 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
         )
         arguments: dict[str, object] = {
             "request_fingerprint_now": preview.request_fingerprint,
             "account_reference_now": preview.account_reference,
             "instant": _NOW,
+            "broker_now": BoundedInstant(earliest=_NOW, latest=_NOW),
         }
         arguments.update(mutation)
         refusal = authorization.refusal_against(**arguments)  # type: ignore[arg-type]
         assert refusal is not None
         assert fragment in refusal
+
+    def test_a_basis_cannot_be_checked_without_broker_time(self) -> None:
+        # The broker check must not be skippable. A caller that omits the broker's
+        # instant does not fall back to the weaker host-only answer; it is refused,
+        # so there is no call shape that quietly drops the stronger guarantee.
+        authorization = authorize_submission(
+            authorization_id="AUT-1",
+            preview=a_preview(),
+            authorized_by="owner",
+            authorized_at=_NOW,
+            validity_seconds=60,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
+        )
+        refusal = authorization.refusal_against(
+            request_fingerprint_now=authorization.request_fingerprint,
+            account_reference_now=authorization.account_reference,
+            instant=_NOW,
+        )
+        assert refusal is not None
+        assert "without the broker's current instant" in refusal
+
+    def test_an_authorization_without_a_basis_cannot_be_mapped(self) -> None:
+        # A row written before the basis existed is neither trusted nor guessed at.
+        legacy = ExecutionAuthorization(
+            authorization_id="AUT-OLD",
+            intent_governance_id="INT-1",
+            preview_id="PVW-1",
+            preview_version=1,
+            request_fingerprint=_DIGEST,
+            account_reference="ref:abc123",
+            client_order_id="m085-x",
+            authorized_by="owner",
+            authorized_at=_NOW,
+            expires_at=_NOW + timedelta(seconds=60),
+            consumed_at=None,
+            consumed_by_attempt_id=None,
+        )
+        assert legacy.has_broker_time_basis is False
+        with pytest.raises(ValueError, match="no broker time basis"):
+            legacy.on_broker_timeline(_NOW)
+
+    def test_the_basis_maps_a_host_instant_by_the_measured_difference(self) -> None:
+        # The mapping is exactly the difference between two readings taken
+        # together -- no scaling, no allowance, no assumed accuracy.
+        authorization = authorize_submission(
+            authorization_id="AUT-1",
+            preview=a_preview(),
+            authorized_by="owner",
+            authorized_at=_NOW,
+            validity_seconds=60,
+            broker_now=BoundedInstant(
+                earliest=_NOW + timedelta(seconds=7), latest=_NOW + timedelta(seconds=8)
+            ),
+        )
+        assert authorization.on_broker_timeline(_NOW) == _NOW + timedelta(seconds=7)
+        assert authorization.on_broker_timeline(authorization.expires_at) == _NOW + timedelta(
+            seconds=67
+        )
 
     def test_a_consumed_authorization_permits_nothing_further(self) -> None:
         preview = a_preview()
@@ -500,6 +617,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=60,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
         )
         consumed = ExecutionAuthorization(
             authorization_id=base.authorization_id,

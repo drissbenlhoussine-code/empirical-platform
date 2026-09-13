@@ -59,6 +59,7 @@ from empirical_platform.entrypoints import (
     submit_authorized_paper_order,
     verify_paper_environment,
 )
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.usecases.decision_to_approval import NotFoundError
 from empirical_platform.usecases.paper_execution import (
     PaperExecutionRefusedError,
@@ -158,6 +159,7 @@ def _dispatched_attempt() -> tuple[FakeAttempts, ExecutionAuthorization]:
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=300,
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
         )
     )
     attempts = FakeAttempts()

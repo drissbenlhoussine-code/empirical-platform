@@ -468,6 +468,7 @@ def main(argv: list[str] | None = None) -> int:
                 previews=context.paper.submission_previews,
                 authorizations=context.paper.execution_authorizations,
                 events=context.paper.paper_execution_events,
+                broker=context.broker,
             ).handle(
                 AuthorizePaperSubmissionCommand(
                     authorization_id=_IDS["authorization"],

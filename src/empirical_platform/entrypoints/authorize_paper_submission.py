@@ -53,6 +53,10 @@ def run_authorize_paper_submission(
             previews=context.paper.submission_previews,
             authorizations=context.paper.execution_authorizations,
             events=context.paper.paper_execution_events,
+            # Read-only `GET /v2/clock`. This command still sends no order; it
+            # now records the broker time basis the permission is bound to.
+            broker=context.broker,
+            time_source=context.time_source,
         )
         return handler.handle(
             AuthorizePaperSubmissionCommand(

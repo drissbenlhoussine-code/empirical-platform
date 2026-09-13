@@ -36,6 +36,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperOrderRequest,
     SubmissionPreview,
 )
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 
 __all__ = [
     "BrokerAcknowledgementRepository",
@@ -140,6 +141,7 @@ class ExecutionAttemptRepository(Protocol):
         account_reference_now: str,
         claimed_at: datetime,
         claim_clock: Callable[[], datetime] | None = None,
+        broker_clock: Callable[[], BoundedInstant] | None = None,
     ) -> DispatchClaim:
         """Atomically consume the authorization and create the one attempt.
 

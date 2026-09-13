@@ -57,6 +57,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperOrderRequest,
     SubmissionPreview,
 )
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 
@@ -508,26 +509,27 @@ _AUTHORIZATION_INSERT = (
     "INSERT INTO public.paper_execution_authorization "
     "(authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id) "
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at) "
     "VALUES (:authorization_id, :intent_governance_id, :preview_id, :preview_version, "
     ":request_fingerprint, :account_reference, :client_order_id, :authorized_by, "
-    ":authorized_at, :expires_at, :consumed_at, :consumed_by_attempt_id) "
+    ":authorized_at, :expires_at, :consumed_at, :consumed_by_attempt_id, "
+    ":basis_host_at, :basis_broker_earliest_at) "
     "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id"
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at"
 )
 
 _AUTHORIZATION_SELECT_BY_ID = (
     "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id "
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at "
     "FROM public.paper_execution_authorization WHERE authorization_id = :authorization_id"
 )
 
 _AUTHORIZATION_SELECT_LATEST = (
     "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id "
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at "
     "FROM public.paper_execution_authorization WHERE intent_governance_id = :intent "
     "ORDER BY authorized_at DESC, authorization_id DESC LIMIT 1"
 )
@@ -540,7 +542,7 @@ _AUTHORIZATION_CONSUME = (
     "WHERE authorization_id = :authorization_id AND consumed_at IS NULL "
     "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id"
+    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at"
 )
 
 
@@ -556,6 +558,8 @@ def _row_to_authorization(row: Mapping[str, Any]) -> ExecutionAuthorization:
         authorized_by=_str(row, "authorized_by"),
         authorized_at=_instant(row, "authorized_at"),
         expires_at=_instant(row, "expires_at"),
+        basis_host_at=_optional_instant(row, "basis_host_at"),
+        basis_broker_earliest_at=_optional_instant(row, "basis_broker_earliest_at"),
         consumed_at=_optional_instant(row, "consumed_at"),
         consumed_by_attempt_id=_optional_str(row, "consumed_by_attempt_id"),
     )
@@ -584,6 +588,8 @@ class PostgresExecutionAuthorizationRepository:
                     "authorized_by": authorization.authorized_by,
                     "authorized_at": authorization.authorized_at,
                     "expires_at": authorization.expires_at,
+                    "basis_host_at": authorization.basis_host_at,
+                    "basis_broker_earliest_at": authorization.basis_broker_earliest_at,
                     "consumed_at": authorization.consumed_at,
                     "consumed_by_attempt_id": authorization.consumed_by_attempt_id,
                 },
@@ -735,6 +741,7 @@ class PostgresExecutionAttemptRepository:
         account_reference_now: str,
         claimed_at: datetime,
         claim_clock: Callable[[], datetime] | None = None,
+        broker_clock: Callable[[], BoundedInstant] | None = None,
     ) -> PaperDispatchClaim:
         """Consume the authorization and create the one attempt, atomically.
 
@@ -747,6 +754,7 @@ class PostgresExecutionAttemptRepository:
             request_fingerprint_now=request_fingerprint_now,
             account_reference_now=account_reference_now,
             instant=claimed_at,
+            broker_now=None if broker_clock is None else broker_clock(),
         )
         if refusal is not None:
             raise ValueError(f"this dispatch is not authorized: {refusal}")
@@ -762,10 +770,12 @@ class PostgresExecutionAttemptRepository:
                 if not locked:
                     raise ValueError("the authorization no longer exists")
                 claimed_at = claim_clock()
+                # The lock wait ages BOTH timelines, so both are re-read here.
                 refusal = authorization.refusal_against(
                     request_fingerprint_now=request_fingerprint_now,
                     account_reference_now=account_reference_now,
                     instant=claimed_at,
+                    broker_now=None if broker_clock is None else broker_clock(),
                 )
                 if refusal is not None:
                     raise ValueError(f"this dispatch is not authorized: {refusal}")

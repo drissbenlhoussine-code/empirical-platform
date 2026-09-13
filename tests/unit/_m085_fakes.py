@@ -36,6 +36,7 @@ from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
     SubmissionState,
 )
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 
 _NOW = datetime(2026, 9, 10, 14, 0, tzinfo=UTC)
 _DIGEST = "a" * 64
@@ -121,6 +122,7 @@ def a_preview(**overrides: object) -> SubmissionPreview:
         "existing_position_quantity": 0,
         "execution_kill_switch_engaged": False,
         "created_at": _NOW,
+        "broker_now": BoundedInstant(earliest=_NOW, latest=_NOW),
     }
     arguments.update(overrides)
     return build_submission_preview(**arguments)  # type: ignore[arg-type]
@@ -219,6 +221,7 @@ class FakeAttempts:
         account_reference_now: str,
         claimed_at: datetime,
         claim_clock: Callable[[], datetime] | None = None,
+        broker_clock: Callable[[], BoundedInstant] | None = None,
     ) -> FakeClaim:
         if claim_clock is not None:
             claimed_at = claim_clock()
@@ -226,6 +229,13 @@ class FakeAttempts:
             request_fingerprint_now=request_fingerprint_now,
             account_reference_now=account_reference_now,
             instant=claimed_at,
+            broker_now=broker_clock()
+            if broker_clock is not None
+            else (
+                BoundedInstant(earliest=claimed_at, latest=claimed_at)
+                if authorization.has_broker_time_basis
+                else None
+            ),
         )
         if refusal is not None:
             raise ValueError(f"this dispatch is not authorized: {refusal}")

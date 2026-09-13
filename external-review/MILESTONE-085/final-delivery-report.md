@@ -493,3 +493,25 @@ not this milestone's to make.
 M085 is **not approved and not frozen**. It must not be merged without Owner
 approval.
 
+
+
+---
+
+## Addendum — temporal model corrected after this report was written
+
+Two conclusions in this report were superseded by measurement. The broker/host
+alignment rule required apparent agreement between two clocks and refused an
+ordinary Windows host that was 0.10 s slow; it is replaced by a bounded-uncertainty
+model derived from the round trip. Separately, persisted authorization and M084
+intent deadlines did not survive a host clock stepping backward between the
+approving process and the dispatching one — reproduced deterministically, then
+corrected with a persisted broker time basis (migration `c7a41f0b52de`).
+
+`temporal-correction.md` carries the derivation, the four things the interval does
+NOT bound, the measured single-observation replay boundary, and the exact list of
+removed test nodes. The recommendation in section U is unchanged: this is a
+candidate for Owner review, not approved, not frozen, not merged.
+
+The gap named in section J is also unchanged. The bounded external submission has
+still never been accepted by the Paper broker, and nothing in this correction
+changes that. External Paper acceptance is PENDING.

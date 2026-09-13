@@ -19,8 +19,8 @@ the merge.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from datetime import timedelta
+from collections.abc import Callable, Iterator
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -58,6 +58,12 @@ from empirical_platform.decision_candidate.paper_execution import (
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
     BrokerNotSentError,
+)
+from empirical_platform.shared.brokerage.paper_time import (
+    BoundedInstant,
+    PaperTimeReading,
+    PaperTimeSource,
+    PaperTimeUncertainError,
 )
 from empirical_platform.usecases.decision_to_approval import NotFoundError
 from empirical_platform.usecases.paper_execution import (
@@ -107,6 +113,16 @@ from empirical_platform.usecases.paper_execution_io import (
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+def _broker_basis(at: object = None) -> BoundedInstant:
+    """The broker time basis a real authorization records.
+
+    Zero width here because these fakes answer instantly; the width is
+    exercised directly in test_m085_paper_time.py.
+    """
+    moment = _NOW if at is None else at
+    return BoundedInstant(earliest=moment, latest=moment)  # type: ignore[arg-type]
 
 
 @pytest.fixture(autouse=True)
@@ -248,7 +264,27 @@ class TestPreviewPaperSubmission:
             self._command()
         )
         assert preview.is_authorizable is False
-        assert any("dated after this preview" in reason for reason in preview.refusals)
+        assert any("dated after the latest possible" in reason for reason in preview.refusals)
+
+    def test_an_intent_expiring_during_the_fetch_is_refused(
+        self, operation_clock: FrozenDateTimeFactory
+    ) -> None:
+        # The evaluation instant must be read AFTER the evidence is fetched. The
+        # command's own timestamp was taken before the account, clock, asset,
+        # position and quote round trips; using it would forgive every second
+        # those took. Here the intent expires during the fetch, so only a
+        # post-fetch instant can refuse it.
+        class SlowData(FakeMarketData):
+            def fetch_quote(self, symbol: str) -> object:
+                operation_clock.tick(delta=timedelta(seconds=4))
+                return FakeQuote()
+
+        preview = self._handler(
+            intents=FakeIntents(an_intent(expires_at=_NOW + timedelta(seconds=2))),
+            market_data=SlowData(),
+        ).handle(self._command())
+        assert preview.is_authorizable is False
+        assert any("has expired" in reason for reason in preview.refusals)
 
     def test_the_preview_version_comes_from_stored_rows(self) -> None:
         previews = FakePreviews()
@@ -261,7 +297,10 @@ class TestPreviewPaperSubmission:
 class TestAuthorizePaperSubmission:
     def _handler(self, previews: FakePreviews, authorizations: FakeAuthorizations):  # noqa: ANN202
         return AuthorizePaperSubmissionHandler(
-            previews=previews, authorizations=authorizations, events=FakeEvents()
+            previews=previews,
+            authorizations=authorizations,
+            events=FakeEvents(),
+            broker=FakeBroker(),
         )
 
     def test_an_unknown_preview_is_not_found(self) -> None:
@@ -382,6 +421,9 @@ class TestSubmitAuthorizedPaperOrder:
             previews=world["previews"],
             authorizations=world["authorizations"],
             events=world["events"],
+            # The world's own broker, so a test that changes the clock changes
+            # the basis this authorization is bound to.
+            broker=world["broker"],
         ).handle(
             AuthorizePaperSubmissionCommand(
                 authorization_id="AUT-1",
@@ -393,8 +435,11 @@ class TestSubmitAuthorizedPaperOrder:
             )
         )
 
-    def _handler(self, world: dict[str, Any]) -> SubmitAuthorizedPaperOrderHandler:
+    def _handler(
+        self, world: dict[str, Any], *, time_source: PaperTimeSource | None = None
+    ) -> SubmitAuthorizedPaperOrderHandler:
         return SubmitAuthorizedPaperOrderHandler(
+            time_source=time_source,
             intents=world["intents"],
             previews=world["previews"],
             authorizations=world["authorizations"],
@@ -458,6 +503,193 @@ class TestSubmitAuthorizedPaperOrder:
             world["market_data"].fetch_quote = delayed_quote
             with pytest.raises(PaperExecutionRefusedError, match="expired"):
                 self._handler(world).handle(self._command())
+            assert world["broker"].submitted == []
+
+    def test_a_deadline_crossed_during_a_database_lock_wait_never_submits(self) -> None:
+        # The claim is where a contended row makes a process WAIT. Time spent
+        # waiting must age the evidence: the claim re-reads the clock through
+        # `claim_clock`, so an authorization that expires during the wait is
+        # refused there, with nothing sent.
+        with freeze_time(_NOW) as clock:
+            world = self._world()
+            self._authorize(world, validity_seconds=1)
+            original = world["attempts"].claim_dispatch
+
+            def contended_claim(**kwargs: object) -> object:
+                clock.tick(delta=timedelta(seconds=5))
+                return original(**kwargs)
+
+            world["attempts"].claim_dispatch = contended_claim
+            with pytest.raises((PaperExecutionRefusedError, ValueError), match="expired"):
+                self._handler(world).handle(self._command())
+            assert world["broker"].submitted == []
+
+    def _dispatch_in_a_new_process(
+        self,
+        world: dict[str, Any],
+        *,
+        host_now: object,
+        broker_time: datetime | None = None,
+    ) -> object:
+        """Dispatch as a FRESH process would: no monotonic memory of the approval.
+
+        `broker_time` is what the broker's clock says -- real elapsed time, which
+        a host clock step cannot alter. `host_now` is what THIS machine believes.
+        Driving the two independently is the whole point: the dangerous case is
+        real time passing while the host clock disagrees.
+        """
+        broker_time = _NOW if broker_time is None else broker_time
+        original_clock = world["broker"].fetch_clock
+
+        def truthful_broker_clock() -> object:
+            value = original_clock()
+            value.timestamp = broker_time
+            value.next_close = broker_time + timedelta(hours=2)
+            return value
+
+        class TruthfulQuote(FakeQuote):
+            captured_at = broker_time - timedelta(seconds=5)
+
+        world["broker"].fetch_clock = truthful_broker_clock
+        world["market_data"] = FakeMarketData(quote=TruthfulQuote())
+        with freeze_time(host_now):
+            return self._handler(world).handle(self._command())
+
+    def test_a_backward_host_clock_step_between_processes_cannot_extend_an_approval(
+        self,
+    ) -> None:
+        # THE CROSS-PROCESS DEFECT. An hour of REAL time passes -- the broker's
+        # clock proves it -- but the approving process has exited and the host
+        # clock has stepped back, so the stored host expiry still looks far away
+        # and monotonic time has no memory to contradict it. Without the broker
+        # basis this dispatched a 300-second permission an hour late.
+        world = self._world()
+        self._authorize(world, validity_seconds=300)
+        with pytest.raises(PaperExecutionRefusedError, match="expired"):
+            self._dispatch_in_a_new_process(
+                world,
+                host_now=_NOW - timedelta(hours=1),
+                # Ten minutes of real broker time: past the 300-second approval,
+                # but well inside the intent's one-hour expiry, so ONLY the
+                # approval rule can produce this refusal.
+                broker_time=_NOW + timedelta(minutes=10),
+            )
+        assert world["broker"].submitted == []
+        assert world["attempts"].rows == {}
+
+    def test_a_backward_host_clock_step_cannot_extend_the_m084_intent_deadline(self) -> None:
+        # The same attack against MILESTONE-084's deadline rather than M085's own.
+        # M084's stored value is frozen and untouched; it is additionally placed on
+        # the broker timeline using the basis measured when the human authorized,
+        # so real elapsed time expires it even though the host clock says otherwise.
+        world = self._world(intents=FakeIntents(an_intent(expires_at=_NOW + timedelta(minutes=10))))
+        self._authorize(world, validity_seconds=7200)
+        with pytest.raises(PaperExecutionRefusedError, match="expired"):
+            self._dispatch_in_a_new_process(
+                world,
+                host_now=_NOW - timedelta(hours=1),
+                broker_time=_NOW + timedelta(minutes=30),
+            )
+        assert world["broker"].submitted == []
+        assert world["attempts"].rows == {}
+
+    def test_a_forward_host_clock_step_between_processes_still_expires_the_approval(
+        self,
+    ) -> None:
+        # The safe direction must stay safe: a host clock jumped forward past the
+        # expiry must refuse, and must not be rescued by the broker basis either.
+        world = self._world()
+        self._authorize(world, validity_seconds=300)
+        with pytest.raises(PaperExecutionRefusedError, match="expired|uncertain|clock"):
+            self._dispatch_in_a_new_process(world, host_now=_NOW + timedelta(hours=1))
+        assert world["broker"].submitted == []
+        assert world["attempts"].rows == {}
+
+    def test_an_unmoved_host_clock_in_a_new_process_still_dispatches(self) -> None:
+        # The guard must not break the ordinary case: a restart with a correct
+        # clock, inside the validity window, still dispatches exactly once.
+        world = self._world()
+        self._authorize(world, validity_seconds=300)
+        result = self._dispatch_in_a_new_process(world, host_now=_NOW + timedelta(seconds=5))
+        assert result.dispatched is True  # type: ignore[attr-defined]
+        assert len(world["broker"].submitted) == 1
+
+    def test_an_interval_crossing_the_approval_expiry_refuses_the_submission(self) -> None:
+        # The authorization expiry was written by THIS host's clock, so it is
+        # judged on the host timeline -- and on the CONSERVATIVE end of it. An
+        # operation whose uncertainty straddles the expiry is refused rather
+        # than resolved in favour of sending.
+        with freeze_time(_NOW) as clock:
+            world = self._world()
+            self._authorize(world, validity_seconds=2)
+            original = world["market_data"].fetch_quote
+
+            def straddling_fetch(symbol: str) -> object:
+                # Elapsed work carries the operation across the expiry instant.
+                clock.tick(delta=timedelta(seconds=3))
+                return original(symbol)
+
+            world["market_data"].fetch_quote = straddling_fetch
+            with pytest.raises(PaperExecutionRefusedError, match="expired"):
+                self._handler(world).handle(self._command())
+            assert world["broker"].submitted == []
+            assert world["attempts"].rows == {}
+
+    def test_a_deadline_crossed_during_connection_preparation_never_submits(self) -> None:
+        # Connecting takes time, and the pre-send guard runs AFTER connect. An
+        # authorization that was valid when the claim was taken but has expired
+        # by the time the socket is up must stop the order at the guard.
+        with freeze_time(_NOW) as clock:
+            world = self._world()
+            self._authorize(world, validity_seconds=60)
+            original = world["broker"].submit_order
+
+            def slow_connect(
+                order: object, *, before_send: Callable[[], None] | None = None
+            ) -> tuple[int, object | None, str]:
+                def guard() -> None:
+                    clock.tick(delta=timedelta(seconds=120))
+                    if before_send is not None:
+                        before_send()
+
+                return original(order, before_send=guard)
+
+            world["broker"].submit_order = slow_connect
+            result = self._handler(world).handle(self._command())
+            assert result.dispatched is False
+            assert world["broker"].submitted == []
+
+    def test_a_market_close_crossed_during_preparation_never_submits(self) -> None:
+        # The session close is the BROKER's deadline, so it is judged on the
+        # broker timeline. A close that might already have passed counts as
+        # passed, and nothing is sent.
+        with freeze_time(_NOW) as clock:
+            world = self._world()
+            self._authorize(world)
+
+            original_clock = world["broker"].fetch_clock
+
+            def closing_soon() -> object:
+                value = original_clock()
+                value.next_close = _NOW + timedelta(seconds=30)
+                return value
+
+            world["broker"].fetch_clock = closing_soon
+            original = world["broker"].submit_order
+
+            def slow_connect(
+                order: object, *, before_send: Callable[[], None] | None = None
+            ) -> tuple[int, object | None, str]:
+                def guard() -> None:
+                    clock.tick(delta=timedelta(seconds=90))
+                    if before_send is not None:
+                        before_send()
+
+                return original(order, before_send=guard)
+
+            world["broker"].submit_order = slow_connect
+            result = self._handler(world).handle(self._command())
+            assert result.dispatched is False
             assert world["broker"].submitted == []
 
     def test_a_happy_dispatch_claims_then_submits_then_records(self) -> None:
@@ -681,19 +913,43 @@ class TestSubmitAuthorizedPaperOrder:
         assert world["broker"].submitted == []
         assert not self._handler(world).handle(self._command()).dispatched
 
-    def test_broker_clock_uncertainty_refuses_before_claim(self) -> None:
+    def test_a_host_broker_clock_difference_alone_does_not_refuse(self) -> None:
+        # THE CORRECTED RULE. The replaced model refused here, because a broker
+        # reading outside the local request interval meant "the two clocks do not
+        # appear to agree". Apparent agreement was never the safety property. What
+        # matters is that every deadline still holds across the bounded
+        # uncertainty, and at a one-second difference every one of them does.
         world = self._world()
         self._authorize(world)
         original = world["broker"].fetch_clock
 
-        def future_clock() -> object:
+        def offset_clock() -> object:
             value = original()
             value.timestamp = _NOW + timedelta(seconds=1)
             return value
 
-        world["broker"].fetch_clock = future_clock
-        with pytest.raises(ValueError, match="alignment is uncertain"):
-            self._handler(world).handle(self._command())
+        world["broker"].fetch_clock = offset_clock
+        result = self._handler(world).handle(self._command())
+        assert result.dispatched
+        assert len(world["broker"].submitted) == 1
+
+    def test_broker_time_too_uncertain_to_decide_freshness_refuses_before_claim(self) -> None:
+        # The uncertainty bound is not a chosen constant: it is the MEASURED round
+        # trip. When that round trip is not smaller than the freshness ceiling the
+        # evidence cannot tell a fresh quote from a stale one, so it is refused --
+        # before anything is claimed and before anything is sent.
+        class SlowRoundTrip:
+            def __init__(self) -> None:
+                self.monotonic = 0.0
+
+            def read(self) -> PaperTimeReading:
+                self.monotonic += 90.0
+                return PaperTimeReading(_NOW, self.monotonic)
+
+        world = self._world()
+        self._authorize(world)
+        with pytest.raises(PaperTimeUncertainError, match="uncertain"):
+            self._handler(world, time_source=SlowRoundTrip()).handle(self._command())
         assert world["broker"].submitted == []
         assert world["attempts"].rows == {}
 
@@ -709,6 +965,7 @@ class TestReconcilePaperOrder:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=300,
+                broker_now=_broker_basis(),
             )
         )
         attempts = FakeAttempts()
@@ -857,6 +1114,7 @@ class TestCancelPaperOrder:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=300,
+                broker_now=_broker_basis(),
             )
         )
         attempts = FakeAttempts()
@@ -927,6 +1185,7 @@ class TestQueries:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=300,
+                broker_now=_broker_basis(),
             )
         )
         state = PaperExecutionStatusHandler(
@@ -947,6 +1206,7 @@ class TestQueries:
                 authorized_by="owner",
                 authorized_at=_NOW,
                 validity_seconds=300,
+                broker_now=_broker_basis(),
             )
         )
         events = FakeEvents()
@@ -1059,10 +1319,7 @@ def test_entrypoint_composition_uses_the_injected_clock(monkeypatch: pytest.Monk
 
     from empirical_platform.entrypoints import preview_paper_submission as preview_cli
     from empirical_platform.entrypoints import submit_authorized_paper_order as submit_cli
-    from empirical_platform.shared.brokerage.paper_time import (
-        PaperTimeReading,
-        SystemPaperTimeSource,
-    )
+    from empirical_platform.shared.brokerage.paper_time import SystemPaperTimeSource
 
     class Clock(SystemPaperTimeSource):
         reads = 0
@@ -1111,6 +1368,7 @@ def test_entrypoint_composition_uses_the_injected_clock(monkeypatch: pytest.Monk
         previews=world["previews"],
         authorizations=world["authorizations"],
         events=world["events"],
+        broker=FakeBroker(),
     ).handle(
         AuthorizePaperSubmissionCommand(
             authorization_id="AUT-1",

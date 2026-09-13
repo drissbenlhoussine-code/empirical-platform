@@ -65,12 +65,14 @@ from empirical_platform.decision_candidate.paper_execution_repositories import (
 from empirical_platform.decision_candidate.product_repositories import (
     ApprovedOrderIntentRepository,
 )
+from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
     BrokerNotSentError,
     BrokerResponseInvalidError,
 )
 from empirical_platform.shared.brokerage.paper_time import (
+    BoundedInstant,
     PaperTimeSource,
     PaperTimeUncertainError,
     PaperTimeWindow,
@@ -265,10 +267,12 @@ def _gather(
     """
     account = _read_account_snapshot(broker=broker, snapshot_id=snapshot_id, captured_at=at)
     account = replace(account, captured_at=timing.now())
-    clock_requested_at = timing.now()
-    clock_requested_monotonic = timing.last_monotonic
+    # The round trip is measured on the monotonic clock alone, so a wrong or
+    # stepping wall clock cannot widen or narrow the bound derived from it.
+    sent_monotonic = timing.read_monotonic()
     clock = broker.fetch_clock()
-    timing.verify_broker(clock.timestamp, clock_requested_at, clock_requested_monotonic)
+    received_monotonic = timing.read_monotonic()
+    timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
     asset = broker.fetch_asset(symbol)
     position = broker.fetch_position(symbol)
     quote = market_data.fetch_quote(symbol)
@@ -435,7 +439,11 @@ class PreviewPaperSubmissionHandler:
         self._snapshots.save(evidence.account)
 
         version = self._previews.next_version_for_intent(intent.intent_governance_id)
+        # Refuse broker time too uncertain to decide the tightest margin it feeds.
+        # The margin is the caller's own freshness ceiling, not a new constant.
+        timing.require_broker_certainty_within(command.quote_maximum_age_seconds)
         evaluated_at = timing.now()
+        broker_instant = timing.broker_now()
         preview = build_submission_preview(
             preview_id=command.preview_id,
             intent=intent,
@@ -459,6 +467,7 @@ class PreviewPaperSubmissionHandler:
             existing_position_quantity=evidence.existing_position_quantity,
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
+            broker_now=broker_instant,
         )
         stored = self._previews.save(preview)
         self._events.append(
@@ -498,7 +507,7 @@ class AuthorizePaperSubmissionCommand:
 class AuthorizePaperSubmissionHandler:
     """One human act becomes one narrow, expiring, single-use permission."""
 
-    __slots__ = ("_previews", "_authorizations", "_events")
+    __slots__ = ("_previews", "_authorizations", "_events", "_broker", "_time_source")
 
     def __init__(
         self,
@@ -506,10 +515,14 @@ class AuthorizePaperSubmissionHandler:
         previews: SubmissionPreviewRepository,
         authorizations: ExecutionAuthorizationRepository,
         events: PaperExecutionEventRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
     ) -> None:
         self._previews = previews
         self._authorizations = authorizations
         self._events = events
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
 
     def handle(self, command: AuthorizePaperSubmissionCommand) -> ExecutionAuthorization:
         preview = self._previews.get(command.preview_id)
@@ -526,12 +539,23 @@ class AuthorizePaperSubmissionHandler:
                 "this preview cannot be authorized: " + "; ".join(preview.refusals)
             )
 
+        # THE ONE BROKER CALL THIS COMMAND MAKES, AND IT SENDS NO ORDER.
+        # `GET /v2/clock` is read-only. It is here because the permission about to
+        # be written needs a time basis that survives this process exiting, and
+        # the only clock that does is the broker's. Without it a host clock that
+        # later steps backward silently extends the permission.
+        timing = PaperTimeWindow(self._time_source)
+        sent_monotonic = timing.read_monotonic()
+        clock = self._broker.fetch_clock()
+        timing.observe_broker_clock(clock.timestamp, sent_monotonic, timing.read_monotonic())
+
         authorization = authorize_submission(
             authorization_id=command.authorization_id,
             preview=preview,
             authorized_by=command.authorized_by,
             authorized_at=command.authorized_at,
             validity_seconds=command.validity_seconds,
+            broker_now=timing.broker_now(),
         )
         stored = self._authorizations.save(authorization)
         self._events.append(
@@ -552,6 +576,36 @@ class AuthorizePaperSubmissionHandler:
 # ---------------------------------------------------------------------------
 # Submit
 # ---------------------------------------------------------------------------
+
+
+def _refuse_expired_m084_deadlines_on_broker_time(
+    *,
+    authorization: ExecutionAuthorization,
+    intent: ApprovedOrderIntent,
+    broker_now: BoundedInstant,
+) -> None:
+    """Enforce M084's deadlines on the broker's clock as well as this host's.
+
+    MILESTONE-084 writes `expires_at` and `mandatory_liquidation_at` with the
+    approving host's wall clock, and those stored values are frozen: they are not
+    rewritten, reinterpreted or relaxed here, and the host-timeline checks on them
+    still run unchanged. What this adds is a SECOND enforcement of the same two
+    deadlines, placed on the broker timeline through the basis measured at the
+    moment a human authorized. It exists because a host clock that steps backward
+    after the approving process exits makes both stored values look further away,
+    and nothing inside one dispatch process can notice that on its own.
+
+    An authorization with no basis cannot be mapped, and is refused by
+    `refusal_against` before this is reached.
+    """
+    if not authorization.has_broker_time_basis:
+        return
+    for deadline, label in (
+        (intent.expires_at, "the approved intent"),
+        (intent.mandatory_liquidation_at, "the mandatory liquidation deadline"),
+    ):
+        if broker_now.possibly_at_or_after(authorization.on_broker_timeline(deadline)):
+            raise PaperExecutionRefusedError(f"{label} expired on the broker's clock")
 
 
 @dataclass(frozen=True, slots=True)
@@ -670,6 +724,7 @@ class SubmitAuthorizedPaperOrderHandler:
 
         # REBUILT from fresh evidence. Every refusal a preview would have raised
         # is re-raised here against the numbers that are true NOW.
+        timing.require_broker_certainty_within(command.quote_maximum_age_seconds)
         evaluated_at = timing.now()
         fresh = build_submission_preview(
             preview_id=f"{command.attempt_id}-RECHECK",
@@ -694,6 +749,7 @@ class SubmitAuthorizedPaperOrderHandler:
             existing_position_quantity=evidence.existing_position_quantity,
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
+            broker_now=timing.broker_now(),
         )
         if not fresh.is_authorizable:
             raise PaperExecutionRefusedError(
@@ -712,9 +768,18 @@ class SubmitAuthorizedPaperOrderHandler:
             request_fingerprint_now=fingerprint_now,
             account_reference_now=evidence.account.account_reference,
             instant=timing.now(),
+            broker_now=timing.broker_now(),
         )
         if refusal is not None:
             raise PaperExecutionRefusedError(f"this dispatch is not authorized: {refusal}")
+
+        # M084's deadlines, on the broker's clock, BEFORE anything is claimed.
+        # The host-timeline copies of these were already enforced by the rebuilt
+        # preview above; this is the one that survives a host clock that moved
+        # between the approving process and this one.
+        _refuse_expired_m084_deadlines_on_broker_time(
+            authorization=authorization, intent=intent, broker_now=timing.broker_now()
+        )
 
         # CLAIM BEFORE THE NETWORK. Everything above is a check; this is the
         # commitment, and it happens while nothing has been sent.
@@ -725,6 +790,7 @@ class SubmitAuthorizedPaperOrderHandler:
             account_reference_now=evidence.account.account_reference,
             claimed_at=timing.now(),
             claim_clock=timing.now,
+            broker_clock=timing.broker_now,
         )
         if not claim.won:
             return PaperSubmissionResult(
@@ -750,31 +816,53 @@ class SubmitAuthorizedPaperOrderHandler:
             try:
                 if self._kill_switch.is_engaged():
                     raise PaperExecutionRefusedError("the execution kill switch is engaged")
+
+                # Time is re-derived HERE, after connect and after every database
+                # wait, so elapsed preparation ages the evidence rather than being
+                # forgiven. Both timelines are re-read; neither is assumed to have
+                # stood still, and neither is compared against the other.
+                timing.require_broker_certainty_within(command.quote_maximum_age_seconds)
                 instant = timing.now()
+                broker_instant = timing.broker_now()
+
+                # -- host timeline: what this host recorded ---------------------
                 refusal = authorization.refusal_against(
                     request_fingerprint_now=fingerprint_now,
                     account_reference_now=evidence.account.account_reference,
                     instant=instant,
+                    broker_now=broker_instant,
                 )
                 if refusal is not None or instant < authorization.authorized_at:
                     raise PaperExecutionRefusedError(refusal or "authorization is future-dated")
+                # M084'S DEADLINES, ENFORCED ON BOTH CLOCKS. One rule, two
+                # implementations, deliberately kept together: the host check is
+                # cheap and independent, and the broker check is the one that
+                # survives the approving process exiting and the host clock moving
+                # underneath the stored value. Removing either alone leaves the
+                # rule standing, which is why the mutation campaign removes both.
                 if instant >= intent.expires_at or instant >= intent.mandatory_liquidation_at:
                     raise PaperExecutionRefusedError(
                         "the approved intent or liquidation deadline expired"
                     )
+                _refuse_expired_m084_deadlines_on_broker_time(
+                    authorization=authorization, intent=intent, broker_now=broker_instant
+                )
+
+                # -- broker timeline: what the broker reported ------------------
+                # A close that MIGHT already have passed counts as passed.
                 if (
                     not evidence.market_is_open
                     or evidence.market_next_close is None
-                    or instant >= evidence.market_next_close
+                    or broker_instant.possibly_at_or_after(evidence.market_next_close)
                 ):
                     raise PaperExecutionRefusedError("the regular market session is closed")
                 quote_at = evidence.quote_captured_at
-                if (
-                    quote_at is None
-                    or not 0
-                    <= (instant - quote_at).total_seconds()
-                    <= command.quote_maximum_age_seconds
-                ):
+                if quote_at is None:
+                    raise PaperExecutionRefusedError(
+                        "quote freshness cannot be established before send"
+                    )
+                oldest_age = broker_instant.age_of(quote_at)[1]
+                if oldest_age > command.quote_maximum_age_seconds or oldest_age < 0:
                     raise PaperExecutionRefusedError(
                         "quote freshness cannot be established before send"
                     )

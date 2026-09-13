@@ -114,6 +114,8 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
             previews=paper.submission_previews,
             authorizations=paper.execution_authorizations,
             events=paper.paper_execution_events,
+            broker=broker,
+            time_source=clock,
         ).handle(
             AuthorizePaperSubmissionCommand(
                 authorization_id="AUT-TIME",

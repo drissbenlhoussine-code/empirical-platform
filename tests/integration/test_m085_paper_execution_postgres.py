@@ -57,6 +57,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     build_submission_preview,
 )
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
@@ -139,7 +140,7 @@ def a_full_chain(
         market_next_close=EVALUATED_AT + timedelta(hours=3),
         quote_bid=Decimal("199.95"),
         quote_ask=Decimal("200.10"),
-        quote_captured_at=EVALUATED_AT + timedelta(seconds=24),
+        quote_captured_at=EVALUATED_AT - timedelta(seconds=5),
         quote_source="alpaca-iex",
         asset_tradable=True,
         asset_status="active",
@@ -152,6 +153,10 @@ def a_full_chain(
         existing_position_quantity=0,
         execution_kill_switch_engaged=False,
         created_at=EVALUATED_AT + timedelta(seconds=25),
+        broker_now=BoundedInstant(
+            earliest=EVALUATED_AT + timedelta(seconds=25),
+            latest=EVALUATED_AT + timedelta(seconds=25),
+        ),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)
@@ -161,12 +166,17 @@ def a_full_chain(
     # refuses consuming an expired authorization -- correctly. Anchoring the
     # window here keeps those tests attacking what they mean to attack instead
     # of all failing on expiry.
+    # The basis must be read at the SAME moment as `authorized_at`: its whole
+    # meaning is the difference between two clocks sampled together. Anchoring it
+    # to the fixture's historical instant instead would claim a three-month offset.
+    authorized_at = datetime.now(UTC)
     authorization = authorize_submission(
         authorization_id="AUT-085-0001",
         preview=preview,
         authorized_by="owner",
-        authorized_at=datetime.now(UTC),
+        authorized_at=authorized_at,
         validity_seconds=validity_seconds,
+        broker_now=BoundedInstant(earliest=authorized_at, latest=authorized_at),
     )
     paper.execution_authorizations.save(authorization)
     return intent.intent_governance_id, authorization
@@ -184,6 +194,7 @@ class TestTheChainRoundTrips:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         assert claim.won is True
@@ -222,6 +233,7 @@ class TestTheDatabaseEnforcesSingleUse:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
@@ -244,6 +256,7 @@ class TestTheDatabaseEnforcesSingleUse:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         with pytest.raises(sa.exc.DatabaseError), clean.begin() as connection:
@@ -347,6 +360,7 @@ class TestTheDatabaseEnforcesOneDispatchPerIntent:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         # The INSERT GUARD refuses this before the UNIQUE constraint is even
@@ -385,6 +399,7 @@ class TestTheDatabaseEnforcesOneDispatchPerIntent:
             authorization=first,
             request_fingerprint_now=first.request_fingerprint,
             account_reference_now=first.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         second = ExecutionAuthorization(
@@ -694,6 +709,7 @@ class TestTheTransitionTableIsClosedInTheDatabase:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         paper.execution_attempts.transition(
@@ -720,6 +736,7 @@ class TestTheTransitionTableIsClosedInTheDatabase:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         for statement, value in (
@@ -763,6 +780,17 @@ _PREVIEW_INSERT_PROBE = (
     ":asset_status, :asset_class, :asset_exchange, CAST(:asset_fractionable AS boolean), "
     ":refusals, CAST(:created_at AS timestamptz))"
 )
+
+
+def _broker_clock() -> BoundedInstant:
+    """The broker instant a real dispatch supplies to the claim.
+
+    The production handler passes `PaperTimeWindow.broker_now`; these raw
+    repository tests pass the equivalent so the claim is exercised through the
+    same contract rather than a weaker one.
+    """
+    moment = datetime.now(UTC)
+    return BoundedInstant(earliest=moment, latest=moment)
 
 
 class TestTheHardProductInvariantsAreCheckConstraints:
@@ -970,6 +998,7 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         paper.broker_acknowledgements.append(
@@ -1041,6 +1070,7 @@ class TestTheReadPathFailsClosed:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         # BOTH the trigger and the CHECK have to be stood down to create such a
@@ -1314,6 +1344,7 @@ class TestMilestone084IsUntouched:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         paper.execution_attempts.transition(

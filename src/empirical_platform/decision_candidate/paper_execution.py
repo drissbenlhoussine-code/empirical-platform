@@ -59,6 +59,7 @@ from types import MappingProxyType
 
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 
 __all__ = [
     "ALLOWED_PAPER_TRANSITIONS",
@@ -576,6 +577,14 @@ class ExecutionAuthorization:
     expires_at: datetime
     consumed_at: datetime | None
     consumed_by_attempt_id: str | None
+    #: THE BROKER TIME BASIS. Two readings taken at the SAME moment the human
+    #: authorized: this host's clock, and the earliest instant the broker's clock
+    #: could then have been showing. Their difference is a measured, conservative
+    #: host-to-broker mapping, and it is what makes a stored host deadline
+    #: survive a host clock that later moves. Nullable because a row written
+    #: before this basis existed has none; such a row cannot be dispatched.
+    basis_host_at: datetime | None = None
+    basis_broker_earliest_at: datetime | None = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -607,6 +616,39 @@ class ExecutionAuthorization:
         return instant >= self.expires_at
 
     @property
+    def has_broker_time_basis(self) -> bool:
+        return self.basis_host_at is not None and self.basis_broker_earliest_at is not None
+
+    def on_broker_timeline(self, host_instant: datetime) -> datetime:
+        """Map an instant written by THIS host onto the broker's timeline.
+
+        WHY THIS EXISTS. `expires_at`, and MILESTONE-084's `expires_at` and
+        `mandatory_liquidation_at`, are absolute instants produced by this host's
+        wall clock. Monotonic time protects them only while one process runs. Once
+        the approving process exits, a host clock that steps BACKWARD makes every
+        stored deadline look further away, and a new dispatch process has no
+        memory with which to notice. Measured, not argued: with the basis removed,
+        an hour-long backward step let a 300-second approval dispatch.
+
+        The mapping is the difference between two readings taken at the same
+        moment, so it carries no assumption about either clock's accuracy. The
+        EARLIEST broker reading is used, which makes every mapped deadline the
+        soonest it could be -- the conservative direction for expiry.
+
+        This does not reinterpret the MILESTONE-084 record. That value is frozen,
+        is still stored and rendered exactly as M084 wrote it, and is still
+        enforced on the host timeline as well; this is an ADDITIONAL M085 bound
+        measured at the moment a human authorized.
+        """
+        _require_aware(host_instant, field="host_instant")
+        if self.basis_host_at is None or self.basis_broker_earliest_at is None:
+            raise ValueError(
+                "this authorization carries no broker time basis and cannot be "
+                "mapped onto the broker timeline"
+            )
+        return host_instant + (self.basis_broker_earliest_at - self.basis_host_at)
+
+    @property
     def is_consumed(self) -> bool:
         return self.consumed_at is not None
 
@@ -616,17 +658,36 @@ class ExecutionAuthorization:
         request_fingerprint_now: str,
         account_reference_now: str,
         instant: datetime,
+        broker_now: BoundedInstant | None = None,
     ) -> str | None:
         """Why this authorization does not permit the dispatch being attempted.
 
         Returns None when it does. Expressed as a single function so that every
         caller asks the same question the same way -- a check spread across call
         sites is a check one call site will omit.
+
+        `instant` is this host's conservative current instant, and `broker_now`
+        bounds the broker's. BOTH must permit: the host check catches elapsed work
+        inside this process, and the broker check catches a host clock that moved
+        between the approving process and this one. A caller that supplies no
+        `broker_now` gets the host check alone and is refused outright once a
+        basis exists, because the stronger of the two must never be skippable.
         """
         if self.is_consumed:
             return "the authorization has already been used"
         if self.is_expired_at(instant):
             return "the authorization has expired"
+        if self.has_broker_time_basis and broker_now is None:
+            return (
+                "this authorization carries a broker time basis and cannot be "
+                "checked without the broker's current instant"
+            )
+        if (
+            self.has_broker_time_basis
+            and broker_now is not None
+            and broker_now.possibly_at_or_after(self.on_broker_timeline(self.expires_at))
+        ):
+            return "the authorization has expired on the broker's clock"
         if self.request_fingerprint != request_fingerprint_now:
             return (
                 "the order changed after it was authorized; the authorized "
@@ -764,6 +825,7 @@ def build_submission_preview(
     existing_position_quantity: int,
     execution_kill_switch_engaged: bool,
     created_at: datetime,
+    broker_now: BoundedInstant,
 ) -> SubmissionPreview:
     """Freeze exactly what a human will be shown, refusals included.
 
@@ -771,6 +833,21 @@ def build_submission_preview(
     of the reasons at once instead of fixing them one round-trip at a time. A
     preview carrying refusals cannot be authorized -- see `is_authorizable` --
     so collecting them is not the same as tolerating them.
+
+    TWO CLOCKS, AND THEY ARE NOT INTERCHANGEABLE. `created_at` is this HOST's
+    conservative current instant and is the only thing host-recorded deadlines
+    are judged against -- the approved intent's expiry and its mandatory
+    liquidation deadline were both written by this host's clock. `broker_now`
+    bounds the BROKER's current instant and is the only thing broker-sourced
+    facts are judged against -- the market session close, and the quote, which
+    is stamped by Alpaca's market-data host.
+
+    THE ONE CROSS-HOST ASSUMPTION, STATED. Quote freshness is evaluated on the
+    broker timeline because `data.alpaca.markets` and `paper-api.alpaca.markets`
+    are operated together and are taken to share a time base. This product
+    cannot verify that from one observation, so it is recorded here as an
+    assumption rather than a measurement. It replaces the previous, weaker
+    assumption that the market-data host agreed with THIS machine's wall clock.
     """
     if not isinstance(intent, ApprovedOrderIntent):
         raise ValueError("intent must be an ApprovedOrderIntent")
@@ -812,8 +889,15 @@ def build_submission_preview(
         refusals.append(
             f"a position of {existing_position_quantity} already exists in {intent.symbol}"
         )
-    if not market_is_open or market_next_close is None or market_next_close <= created_at:
+    # BROKER TIMELINE. The session close is the broker's own fact, so a close
+    # that MIGHT already have passed is treated as passed.
+    if (
+        not market_is_open
+        or market_next_close is None
+        or broker_now.possibly_at_or_after(market_next_close)
+    ):
         refusals.append("the regular market session is closed or cannot be established")
+    # HOST TIMELINE. Both deadlines below were written by this host's clock.
     if intent.expires_at <= created_at:
         refusals.append("the approved intent has expired")
     if intent.mandatory_liquidation_at <= created_at:
@@ -833,13 +917,22 @@ def build_submission_preview(
     if quote_captured_at is None:
         refusals.append("no quote was captured, so its freshness cannot be established")
     else:
-        age = (created_at - quote_captured_at).total_seconds()
-        if age < 0:
-            refusals.append("the captured quote is dated after this preview")
-        elif age > quote_maximum_age_seconds:
+        # Freshness is a SAFETY bound and must hold across the whole interval, so
+        # it is tested against the OLDEST age the evidence permits.
+        oldest = broker_now.age_of(quote_captured_at)[1]
+        if oldest > quote_maximum_age_seconds:
             refusals.append(
-                f"the quote is {int(age)}s old, older than the {quote_maximum_age_seconds}s limit"
+                f"the quote is {int(oldest)}s old, older than the "
+                f"{quote_maximum_age_seconds}s limit"
             )
+        elif oldest < 0:
+            # A future-dated quote is a CONSISTENCY problem, not a safety margin,
+            # so it is refused only when it is future-dated even at the latest
+            # instant the broker's clock could now be showing. Refusing on
+            # `youngest < 0` instead would refuse sub-second feed skew on a quote
+            # that is milliseconds old -- which is precisely the defect that made
+            # every fresh quote unusable in an open market.
+            refusals.append("the captured quote is dated after the latest possible current time")
 
     return SubmissionPreview(
         preview_id=preview_id,
@@ -880,6 +973,7 @@ def authorize_submission(
     authorized_by: str,
     authorized_at: datetime,
     validity_seconds: int,
+    broker_now: BoundedInstant,
 ) -> ExecutionAuthorization:
     """Turn one human act into one narrow, expiring permission.
 
@@ -912,4 +1006,8 @@ def authorize_submission(
         expires_at=authorized_at + timedelta(seconds=validity_seconds),
         consumed_at=None,
         consumed_by_attempt_id=None,
+        # Both readings are taken at THIS moment, which is what makes their
+        # difference a measurement rather than an assumption.
+        basis_host_at=authorized_at,
+        basis_broker_earliest_at=broker_now.earliest,
     )

@@ -51,6 +51,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     build_submission_preview,
 )
 from empirical_platform.entrypoints._composition import postgres_repository_runtime
+from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
@@ -58,6 +59,18 @@ from empirical_platform.shared.persistence.postgres_repositories.paper_execution
 )
 
 pytestmark = pytest.mark.integration
+
+
+def _broker_clock() -> BoundedInstant:
+    """The broker instant a real dispatch supplies to the claim.
+
+    The production handler passes `PaperTimeWindow.broker_now`; these raw
+    repository tests pass the equivalent so the claim is exercised through the
+    same contract rather than a weaker one.
+    """
+    moment = datetime.now(UTC)
+    return BoundedInstant(earliest=moment, latest=moment)
+
 
 _REPETITIONS = (1, 2, 3)
 _WATCHLIST = frozenset({"AAPL", "MSFT"})
@@ -167,7 +180,7 @@ def a_chain(
         market_next_close=EVALUATED_AT + timedelta(hours=3),
         quote_bid=Decimal("199.95"),
         quote_ask=Decimal("200.10"),
-        quote_captured_at=EVALUATED_AT + timedelta(seconds=24),
+        quote_captured_at=EVALUATED_AT - timedelta(seconds=5),
         quote_source="alpaca-iex",
         asset_tradable=True,
         asset_status="active",
@@ -180,15 +193,23 @@ def a_chain(
         existing_position_quantity=0,
         execution_kill_switch_engaged=False,
         created_at=EVALUATED_AT + timedelta(seconds=25),
+        broker_now=BoundedInstant(
+            earliest=EVALUATED_AT + timedelta(seconds=25),
+            latest=EVALUATED_AT + timedelta(seconds=25),
+        ),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)
+    # The basis must be read at the SAME moment as `authorized_at`: its whole
+    # meaning is the difference between two clocks sampled together.
+    _authorized_at = datetime.now(UTC)
     authorization = authorize_submission(
         authorization_id=authorization_id,
         preview=preview,
         authorized_by="owner",
-        authorized_at=datetime.now(UTC),
+        authorized_at=_authorized_at,
         validity_seconds=validity_seconds,
+        broker_now=BoundedInstant(earliest=_authorized_at, latest=_authorized_at),
     )
     paper.execution_authorizations.save(authorization)
     return intent.intent_governance_id, authorization
@@ -209,6 +230,7 @@ class TestTwoWorkersCannotBothClaimOneDispatch:
                 authorization=authorization,
                 request_fingerprint_now=authorization.request_fingerprint,
                 account_reference_now=authorization.account_reference,
+                broker_clock=_broker_clock,
                 claimed_at=datetime.now(UTC),
             )
 
@@ -257,6 +279,7 @@ class TestTwoWorkersCannotBothClaimOneDispatch:
                     authorization=authorization,
                     request_fingerprint_now=authorization.request_fingerprint,
                     account_reference_now=authorization.account_reference,
+                    broker_clock=_broker_clock,
                     claimed_at=datetime.now(UTC),
                 )
             except (FoundationError, ValueError, sa.exc.DatabaseError):
@@ -331,6 +354,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         # A NEW service and runtime, as a restarted process would have.
@@ -347,6 +371,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
                     authorization=reloaded,
                     request_fingerprint_now=reloaded.request_fingerprint,
                     account_reference_now=reloaded.account_reference,
+                    broker_clock=_broker_clock,
                     claimed_at=datetime.now(UTC),
                 )
         finally:
@@ -364,6 +389,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
                 authorization=authorization,
                 request_fingerprint_now=authorization.request_fingerprint,
                 account_reference_now=authorization.account_reference,
+                broker_clock=_broker_clock,
                 claimed_at=authorization.expires_at + timedelta(seconds=1),
             )
 
@@ -377,6 +403,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
                 authorization=authorization,
                 request_fingerprint_now="f" * 64,
                 account_reference_now=authorization.account_reference,
+                broker_clock=_broker_clock,
                 claimed_at=datetime.now(UTC),
             )
 
@@ -390,6 +417,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
                 authorization=authorization,
                 request_fingerprint_now=authorization.request_fingerprint,
                 account_reference_now="ref:somebody-else",
+                broker_clock=_broker_clock,
                 claimed_at=datetime.now(UTC),
             )
 
@@ -410,6 +438,7 @@ class TestCrashesLeaveNothingPartial:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         # The worker dies here. Nothing else runs.
@@ -482,6 +511,7 @@ class TestAcknowledgementsAndReconciliationAreSafeConcurrently:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         attempt_id = claim.attempt.attempt_id
@@ -537,6 +567,7 @@ class TestAcknowledgementsAndReconciliationAreSafeConcurrently:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         paper.execution_attempts.transition(
@@ -588,6 +619,7 @@ class TestAcknowledgementsAndReconciliationAreSafeConcurrently:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         for target in (
@@ -706,6 +738,7 @@ class TestConstraintNamesAreHonest:
             authorization=authorization,
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
+            broker_clock=_broker_clock,
             claimed_at=datetime.now(UTC),
         )
         with pytest.raises(sa.exc.IntegrityError) as raised, rebuilt.begin() as connection:

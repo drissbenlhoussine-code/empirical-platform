@@ -365,3 +365,28 @@ See [temporal-correction.md](temporal-correction.md) for the reproduced defect,
 implementation, targeted regressions, mutation evidence and current validation.
 Pass 7 above is preserved verbatim as historical evidence. No external order is
 claimed by this correction; no merge, freeze or M086 work is authorized.
+
+
+---
+
+## Temporal model correction — verification runs
+
+Superseding the alignment rule and the cross-process deadline gap; see
+`temporal-correction.md` for the derivation, the assumptions and the measured
+boundaries. Prior rows above are preserved and were not re-edited.
+
+| Gate | Result |
+|---|---|
+| Full suite, PostgreSQL OFF | 3558 passed, 1109 skipped, coverage 79.97% against the unchanged 79 floor |
+| PostgreSQL ON (`m085_pgon_c7a41f0`, migrated to head `c7a41f0b52de`) | 598 passed, 2 skipped, 0 failed |
+| Mutation campaign, sequential, PostgreSQL ON | 57 of 57 detected, 0 blockers; restoration verified by SHA-256 over 731 files |
+| Test collection vs `2e5c38c` | 4617 baseline, 6 removed (all intentional contract changes), 4611 retained, 56 added, 4667 total |
+| `ruff format --check` / `ruff check` | clean |
+| `mypy` strict | clean, 365 source files |
+| `tools/check_architecture.py` | clean |
+| `tools/check_frozen_paths.py` | 27 governed paths unmodified since `707161a1e8ed` |
+| Read-only broker verification through the installed wheel | endpoint and market-data host pinned and proven; account ACTIVE and dispatchable |
+
+WHAT THESE RUNS DO NOT ESTABLISH. They do not establish that the corrected product
+has placed a Paper order, that Alpaca accepted one, or that external acceptance is
+complete. That remains PENDING and is unaffected by every row above.

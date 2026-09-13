@@ -75,17 +75,112 @@ class Family:
     expected_fragment: str
 
 
+#: The M084 deadline rule at the send boundary, in BOTH of its enforcement points.
+#: They express the same condition while one process runs, so removing either alone
+#: leaves the rule standing -- that is defence in depth working, not a missing test.
+#: The campaign therefore mutates the RULE rather than one copy of it.
+_FINAL_INTENT_RULE = """\
+                if instant >= intent.expires_at or instant >= intent.mandatory_liquidation_at:
+                    raise PaperExecutionRefusedError(
+                        "the approved intent or liquidation deadline expired"
+                    )
+                _refuse_expired_m084_deadlines_on_broker_time(
+                    authorization=authorization, intent=intent, broker_now=broker_instant
+                )"""
+
+_BASIS_EXPIRY_RULE = (
+    "            and broker_now.possibly_at_or_after(self.on_broker_timeline(self.expires_at))"
+)
+
+#: Re-reading time AFTER the row lock is acquired, on both clocks. As with the
+#: send-boundary rule above, the two re-reads express one rule while a process
+#: runs, so the campaign removes both: it replaces them with the stale, pre-lock
+#: instant and no broker instant at all, which is exactly the defect the rule
+#: exists to prevent -- a lock wait that does not age the permission.
+_CLAIM_LOCK_RULE = """\
+                claimed_at = claim_clock()
+                # The lock wait ages BOTH timelines, so both are re-read here.
+                refusal = authorization.refusal_against(
+                    request_fingerprint_now=request_fingerprint_now,
+                    account_reference_now=account_reference_now,
+                    instant=claimed_at,
+                    broker_now=None if broker_clock is None else broker_clock(),
+                )"""
+
+_CLAIM_LOCK_MUTATED = """\
+                refusal = authorization.refusal_against(
+                    request_fingerprint_now=request_fingerprint_now,
+                    account_reference_now=account_reference_now,
+                    instant=claimed_at,
+                    broker_now=None,
+                )"""
+
 FAMILIES: tuple[Family, ...] = (
     Family(
-        name="broker_time_upper",
-        rule="Broker round-trip uncertainty ages deadlines",
+        name="broker_uncertainty_width",
+        rule="The bound is as wide as the measured round trip",
         path="src/empirical_platform/shared/brokerage/paper_time.py",
-        original=(
-            "upper = timestamp + timedelta(seconds=self._last.monotonic - requested_monotonic)"
-        ),
-        mutated="upper = timestamp",
-        detecting_test="tests/unit/test_m085_paper_time.py::test_broker_round_trip_uncertainty_cannot_extend_a_permission",
+        original="latest = timestamp + timedelta(seconds=round_trip)",
+        mutated="latest = timestamp",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_the_uncertainty_width_is_exactly_the_measured_round_trip",
         expected_fragment="assert",
+    ),
+    Family(
+        name="broker_clock_monotonicity",
+        rule="A broker clock moving backwards refuses",
+        path="src/empirical_platform/shared/brokerage/paper_time.py",
+        original="if latest < previous_earliest + timedelta(seconds=elapsed):",
+        mutated="if False:",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_a_broker_clock_that_moves_backwards_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="broker_certainty_margin",
+        rule="Time too uncertain to decide the freshness margin refuses",
+        path="src/empirical_platform/shared/brokerage/paper_time.py",
+        original="if uncertainty >= margin_seconds:",
+        mutated="if False:",
+        detecting_test="tests/unit/test_m085_paper_time.py::test_uncertainty_at_or_beyond_the_margin_is_refused[60.0]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="broker_basis_recorded",
+        rule="Authorizing records the broker time basis",
+        path=_DOMAIN,
+        original="        basis_host_at=authorized_at,",
+        mutated="        basis_host_at=None,",
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_a_backward_host_clock_step_between_processes_cannot_extend_an_approval",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="broker_basis_required",
+        rule="An authorization carrying a basis cannot be checked without broker time",
+        path=_DOMAIN,
+        original="        if self.has_broker_time_basis and broker_now is None:",
+        mutated="        if False:",
+        detecting_test="tests/unit/test_m085_paper_execution_domain.py::TestAuthorizationIsNarrowAndExpiring::test_a_basis_cannot_be_checked_without_broker_time",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="broker_basis_authorization_expiry",
+        rule="An approval expires on the broker's clock, not only this host's",
+        path=_DOMAIN,
+        original=_BASIS_EXPIRY_RULE,
+        mutated="            and False",
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_a_backward_host_clock_step_between_processes_cannot_extend_an_approval",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="m084_deadline_on_broker_time",
+        rule="M084 intent deadlines are enforced on the broker's clock too",
+        path=_USECASE,
+        original=(
+            "        if broker_now.possibly_at_or_after("
+            "authorization.on_broker_timeline(deadline)):"
+        ),
+        mutated="        if False:",
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_a_backward_host_clock_step_cannot_extend_the_m084_intent_deadline",
+        expected_fragment="DID NOT RAISE",
     ),
     Family(
         name="wall_clock_rollback",
@@ -97,23 +192,20 @@ FAMILIES: tuple[Family, ...] = (
         expected_fragment="DID NOT RAISE",
     ),
     Family(
-        name="clock_alignment",
-        rule="Uncertain broker/local alignment refuses",
-        path="src/empirical_platform/shared/brokerage/paper_time.py",
-        original="not requested_at <= timestamp <= received_at",
-        mutated="False",
-        detecting_test="tests/unit/test_m085_paper_time.py::test_uncertain_absolute_alignment_refuses[1]",
-        expected_fragment="DID NOT RAISE",
-    ),
-    Family(
         name="post_fetch_time",
         rule="Post-fetch evaluation uses current time",
         path=_USECASE,
-        original="        evaluated_at = timing.now()\n        preview = build_submission_preview(",
-        mutated=(
-            "        evaluated_at = command.created_at\n        preview = build_submission_preview("
+        original=(
+            "        evaluated_at = timing.now()\n"
+            "        broker_instant = timing.broker_now()\n"
+            "        preview = build_submission_preview("
         ),
-        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestPreviewPaperSubmission::test_a_quote_newer_than_the_command_instant_is_authorizable",
+        mutated=(
+            "        evaluated_at = command.created_at\n"
+            "        broker_instant = timing.broker_now()\n"
+            "        preview = build_submission_preview("
+        ),
+        detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestPreviewPaperSubmission::test_an_intent_expiring_during_the_fetch_is_refused",
         expected_fragment="assert",
     ),
     Family(
@@ -129,8 +221,8 @@ FAMILIES: tuple[Family, ...] = (
         name="final_intent_expiry",
         rule="Intent expiry is checked after preparation",
         path=_USECASE,
-        original="instant >= intent.expires_at",
-        mutated="False",
+        original=_FINAL_INTENT_RULE,
+        mutated="                pass",
         detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[intent-prepare]",
         expected_fragment="assert",
     ),
@@ -138,7 +230,7 @@ FAMILIES: tuple[Family, ...] = (
         name="final_session_close",
         rule="Market close is checked after preparation",
         path=_USECASE,
-        original="or instant >= evidence.market_next_close",
+        original="or broker_instant.possibly_at_or_after(evidence.market_next_close)",
         mutated="or False",
         detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[session-prepare]",
         expected_fragment="assert",
@@ -147,8 +239,8 @@ FAMILIES: tuple[Family, ...] = (
         name="final_quote_freshness",
         rule="Quote remains fresh after connection",
         path=_USECASE,
-        original="<= command.quote_maximum_age_seconds",
-        mutated='<= float("inf")',
+        original="if oldest_age > command.quote_maximum_age_seconds or oldest_age < 0:",
+        mutated="if False:",
         detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[quote-connect]",
         expected_fragment="assert",
     ),
@@ -175,12 +267,17 @@ FAMILIES: tuple[Family, ...] = (
     ),
     Family(
         name="claim_time_after_lock",
-        rule="Lock waits cannot consume expired approval",
+        rule="A row-lock wait ages the permission: time is re-read after the lock",
         path=_REPOSITORY,
-        original="                claimed_at = claim_clock()",
-        mutated="                claimed_at = claimed_at",
+        original=_CLAIM_LOCK_RULE,
+        mutated=_CLAIM_LOCK_MUTATED,
         detecting_test="tests/integration/test_m085_temporal_postgres.py::test_real_row_lock_wait_cannot_consume_expired_permission",
-        expected_fragment="DID NOT RAISE",
+        #: Removing the post-lock re-reads does not merely fail to expire the
+        #: permission -- it cannot even be expressed, because the claim then has no
+        #: broker instant and the basis guard refuses outright. That refusal is the
+        #: intended detection, and naming it here keeps the failure specific rather
+        #: than accepting any assertion error as proof.
+        expected_fragment="cannot be checked without the broker's current instant",
     ),
     Family(
         name="paper_hostname_pin",
@@ -409,7 +506,7 @@ FAMILIES: tuple[Family, ...] = (
         name="quote_freshness",
         rule="A stale quote refuses a preview",
         path=_DOMAIN,
-        original="        elif age > quote_maximum_age_seconds:",
+        original="        if oldest > quote_maximum_age_seconds:",
         mutated="        elif False:",
         detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
         "::test_each_condition_produces_its_own_refusal[override13-older than the]",
@@ -419,10 +516,11 @@ FAMILIES: tuple[Family, ...] = (
         name="quote_future_timestamp",
         rule="A quote after post-fetch evaluation time refuses authorization",
         path=_DOMAIN,
-        original="        if age < 0:",
-        mutated="        if False:",
+        original="        elif oldest < 0:",
+        mutated="        elif False:",
         detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
-        "::test_each_condition_produces_its_own_refusal[override14-dated after this preview]",
+        "::test_each_condition_produces_its_own_refusal"
+        "[override14-dated after the latest possible]",
         expected_fragment="assert",
     ),
     Family(
