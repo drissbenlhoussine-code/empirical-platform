@@ -19,6 +19,7 @@ A	external-review/MILESTONE-085/temporal-correction.md
 A	external-review/MILESTONE-085/temporal-mutation-matrix.md
 A	external-review/MILESTONE-085/validation-results.md
 A	migrations/versions/b1e9d47c30a5_create_m085_paper_execution_schema.py
+A	migrations/versions/c7a41f0b52de_add_m085_broker_time_basis.py
 A	src/empirical_platform/decision_candidate/paper_execution.py
 A	src/empirical_platform/decision_candidate/paper_execution_repositories.py
 A	src/empirical_platform/entrypoints/_paper_composition.py

@@ -35,7 +35,7 @@ passing.
 | 25 | Type checking is strict and clean | **EXECUTED_PASS** | mypy strict — exit 0 |
 | 26 | Lint and format gates hold | **EXECUTED_PASS** | ruff check — exit 0 |
 | 27 | Documentation matches the executable evidence | **EXECUTED_PASS** | recorded (`validation-results.md`) |
-| 28 | The changed-files list is exact | **EXECUTED_PASS** | 70 paths, identical to `git diff --name-status` |
+| 28 | The changed-files list is exact | **EXECUTED_PASS** | 71 paths, identical to `git diff --name-status` |
 | 29 | PROJECT_CHECKPOINT.md untouched | **EXECUTED_PASS** | PROJECT_CHECKPOINT.md is not in the diff |
 | 30 | No M086 path exists | **EXECUTED_PASS** | tracked M086 paths: none |
-| 31 | Working tree clean | **EXECUTED_FAIL_BLOCKER** | working tree: ['M external-review/MILESTONE-085/exhaustion-table.md', ' M external-review/MILESTONE-085/mutation-matrix.md', ' M src/empirical_platform/decision_candidate/paper_execution.py'] |
+| 31 | Working tree clean | **EXECUTED_FAIL_BLOCKER** | working tree: ['M  external-review/MILESTONE-085/changed-files.txt', 'M  external-review/MILESTONE-085/exhaustion-table.md'] |
