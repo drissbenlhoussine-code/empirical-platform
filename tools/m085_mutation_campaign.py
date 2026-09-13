@@ -84,8 +84,8 @@ _FINAL_INTENT_RULE = """\
                     raise PaperExecutionRefusedError(
                         "the approved intent or liquidation deadline expired"
                     )
-                _refuse_m084_deadlines_on_intent_time_basis(
-                    intent=intent, intent_time_basis=intent_time_basis, broker_now=broker_instant
+                _refuse_m084_deadlines_on_their_own_bases(
+                    intent=intent, provenance=provenance, broker_now=broker_instant
                 )"""
 
 _BASIS_EXPIRY_RULE = """\
@@ -95,6 +95,9 @@ _BASIS_EXPIRY_RULE = """\
 
 _PAPER_TIME = "src/empirical_platform/shared/brokerage/paper_time.py"
 _BASIS_MIGRATION = "migrations/versions/d4f18a6c2e97_add_m085_intent_time_basis.py"
+_PROVENANCE_MIGRATION = (
+    "migrations/versions/e61b3f9a4c27_add_m085_proposal_and_decision_time_basis.py"
+)
 _HANDLERS = "tests/unit/test_m085_paper_execution_handlers.py"
 _TIME_BASIS_POSTGRES = "tests/integration/test_m085_time_basis_postgres.py"
 
@@ -206,20 +209,135 @@ FAMILIES: tuple[Family, ...] = (
         "::test_a_future_dated_authorization_cannot_be_mapped",
         expected_fragment="DID NOT RAISE",
     ),
-    # -- the INTENT-time basis: measured when the M084 intent is issued ------
+    # -- PER-ACT PROVENANCE: each deadline through the basis of the act that wrote it
+    # SUPERSEDED: `m084_deadline_on_intent_time_basis` mutated the rule that mapped
+    # the intent's deadlines through the ISSUANCE basis. That rule was the defect
+    # reproduced at `73a2f96`, so the family now mutates the proposal-time rule.
     Family(
-        name="m084_deadline_on_intent_time_basis",
-        rule="M084 deadlines are enforced on the broker's clock through the intent's own basis",
+        name="m084_deadline_on_proposal_time_basis",
+        rule="M084 deadlines are enforced on the broker's clock through the proposal's own basis",
         path=_DOMAIN,
         original=(
             "        if broker_now.possibly_at_or_after("
-            "evidence.time_basis.on_broker_timeline(deadline)):"
+            "proposal_basis.on_broker_timeline(deadline)):"
         ),
         mutated="        if False:",
-        detecting_test=f"{_HANDLERS}::TestSubmitAuthorizedPaperOrder"
-        "::test_a_host_clock_moved_between_intent_and_authorization_cannot_extend_the_m084_deadline",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_the_intent_deadline_is_mapped_through_the_proposal_basis",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="m084_deadline_never_through_a_later_basis",
+        rule="A deadline written at evaluation is never translated through the issuance basis",
+        path=_DOMAIN,
+        original="    proposal_basis = provenance.proposal.time_basis",
+        mutated="    proposal_basis = (provenance.intent or provenance.proposal).time_basis",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_the_intent_deadline_is_mapped_through_the_proposal_basis",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="proposal_basis_required",
+        rule="A proposal evaluated without its own basis cannot be issued for Paper",
+        path=_DOMAIN,
+        original="    if evidence is None:\n        return NO_PROPOSAL_TIME_BASIS",
+        mutated="    if evidence is None:\n        return None",
+        detecting_test=f"{_HANDLERS}::TestIssuePaperBoundOrderIntent"
+        "::test_a_proposal_or_approval_without_its_own_basis_is_refused_before_m084_writes",
         expected_fragment="DID NOT RAISE",
     ),
+    Family(
+        name="decision_basis_required",
+        rule="An approval recorded without its own basis cannot be issued for Paper",
+        path=_DOMAIN,
+        original="    if evidence is None:\n        return NO_DECISION_TIME_BASIS",
+        mutated="    if evidence is None:\n        return None",
+        detecting_test=f"{_HANDLERS}::TestIssuePaperBoundOrderIntent"
+        "::test_a_proposal_or_approval_without_its_own_basis_is_refused_before_m084_writes",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="proposal_basis_matches_the_exact_proposal",
+        rule="Proposal evidence describing different deadlines is refused",
+        path=_DOMAIN,
+        original='            ("expires_at", expires_at, evidence.proposal_expires_at),\n',
+        mutated="",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_proposal_evidence_describing_another_proposal_refuses_the_preview",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="approval_before_proposal_expiry_on_broker_time",
+        rule="An approval recorded after the proposal expired on the broker's clock is refused",
+        path=_DOMAIN,
+        original="    if _broker_interval(decision_basis).possibly_at_or_after(proposal_expiry):",
+        mutated="    if False:",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_an_approval_recorded_after_the_proposal_expired_is_refused",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="approval_expiry_at_issuance_through_the_decision_basis",
+        rule="An intent issued after the approval expired on the broker's clock is refused",
+        path=_DOMAIN,
+        original=(
+            "        (\n"
+            "            decision_basis.on_broker_timeline(decision.decision_expires_at),\n"
+            "            \"the approval had expired on the broker's clock when the intent "
+            'was issued",\n'
+            "        ),\n"
+        ),
+        mutated="",
+        detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
+        "::test_an_approval_that_expired_before_issuance_is_refused",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="stale_proposal_refused_at_issuance",
+        rule="Issuance is refused when a deadline it relies on passed on the broker's clock",
+        path=_USECASE,
+        original=(
+            "            if chronology is not None:\n"
+            "                raise PaperExecutionRefusedError(chronology)"
+        ),
+        mutated="            del chronology",
+        detecting_test=f"{_TIME_BASIS_POSTGRES}::TestAStaleProposalAndApprovalCannotReachTheBroker"
+        "::test_the_chain_is_refused_somewhere_and_nothing_is_sent",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="approval_refused_for_a_proposal_expired_on_broker_time",
+        rule="A human cannot approve a proposal that may have expired on the broker's clock",
+        path=_USECASE,
+        original="            if deciding.possibly_at_or_after(",
+        mutated="            if False and deciding.possibly_at_or_after(",
+        detecting_test=f"{_HANDLERS}::TestDecidePaperBoundTradeProposal"
+        "::test_a_proposal_that_expired_on_the_broker_clock_cannot_be_approved",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="evaluation_uses_the_measured_host_reading",
+        rule="The proposal is evaluated at the basis host reading, not at an unmeasured instant",
+        path=_USECASE,
+        original="                evaluated_at=time_basis.host_at,",
+        mutated="                evaluated_at=time_basis.host_requested_at,",
+        detecting_test=f"{_HANDLERS}::TestPreparePaperBoundTradeProposal"
+        "::test_the_proposal_is_evaluated_at_the_host_reading_taken_after_the_clock_response",
+        # The real binder refuses first: evidence whose host reading is not the
+        # evaluation instant cannot be built. Run 1 named `assert` and was a blocker.
+        expected_fragment="after the fact",
+    ),
+    Family(
+        name="decision_uses_the_measured_host_reading",
+        rule="The approval is decided at the basis host reading, not at an unmeasured instant",
+        path=_USECASE,
+        original="                decided_at=time_basis.host_at,",
+        mutated="                decided_at=time_basis.host_requested_at,",
+        detecting_test=f"{_HANDLERS}::TestDecidePaperBoundTradeProposal"
+        "::test_an_approval_is_decided_at_the_host_reading_taken_after_the_clock_response",
+        expected_fragment="assert",
+    ),
+    # -- the INTENT-time basis: measured when the M084 intent is issued ------
     Family(
         name="intent_basis_required",
         rule="An intent issued without its own basis is not dispatchable",
@@ -830,6 +948,63 @@ FAMILIES: tuple[Family, ...] = (
         detecting_test=f"{_TIME_BASIS_POSTGRES}::TestTheDatabaseBindsIntentEvidenceToTheExactIntent"
         "::test_evidence_not_bound_to_the_issuance_instant_is_refused",
         expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_proposal_basis_matches_proposal",
+        rule="The database refuses proposal evidence that does not describe the stored proposal",
+        path=_PROVENANCE_MIGRATION,
+        original="        OR proposal_row.expires_at IS DISTINCT FROM NEW.proposal_expires_at\n",
+        mutated="",
+        detecting_test=f"{_TIME_BASIS_POSTGRES}"
+        "::TestTheDatabaseBindsProposalAndDecisionEvidenceToTheirActs"
+        "::test_proposal_evidence_describing_another_proposal_is_refused[expires_at]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_decision_basis_matches_approval",
+        rule="The database refuses decision evidence that does not describe the stored approval",
+        path=_PROVENANCE_MIGRATION,
+        original="        OR decision_row.expires_at IS DISTINCT FROM NEW.decision_expires_at\n",
+        mutated="",
+        detecting_test=f"{_TIME_BASIS_POSTGRES}"
+        "::TestTheDatabaseBindsProposalAndDecisionEvidenceToTheirActs"
+        "::test_decision_evidence_describing_another_approval_is_refused[decision_expires_at]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_proposal_basis_bound_to_evaluation",
+        rule="The database refuses proposal evidence whose host reading is not the evaluation",
+        path=_PROVENANCE_MIGRATION,
+        original='            "proposal_created_at = basis_host_at",',
+        mutated='            "true",',
+        detecting_test=f"{_TIME_BASIS_POSTGRES}"
+        "::TestTheDatabaseBindsProposalAndDecisionEvidenceToTheirActs"
+        "::test_proposal_evidence_not_bound_to_the_evaluation_instant_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_decision_basis_bound_to_decision",
+        rule="The database refuses decision evidence whose host reading is not the decision",
+        path=_PROVENANCE_MIGRATION,
+        original='            "decided_at = basis_host_at",',
+        mutated='            "true",',
+        detecting_test=f"{_TIME_BASIS_POSTGRES}"
+        "::TestTheDatabaseBindsProposalAndDecisionEvidenceToTheirActs"
+        "::test_decision_evidence_not_bound_to_the_decision_instant_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="authority_contract_reads_the_sql_installed_at_head",
+        rule="An enforcement claim is checked against the guard installed at head",
+        # The expiry rule ENFORCED at head is `d4f18a6c2e97`'s replacement guard. The
+        # original text in `b1e9d47c30a5` still contains the same message, so a contract
+        # reading only that file -- as it did until this correction -- survived this.
+        path=_BASIS_MIGRATION,
+        original="            'authorization % expired at % and cannot be consumed at %',",
+        mutated="            'authorization % expired at %',",
+        detecting_test=f"{_AUTHORITY}::TestTheMechanicalClaimsMatchTheCode"
+        "::test_every_database_enforcement_claim_names_sql_installed_at_head",
+        expected_fragment="expired_authorization_cannot_be_consumed",
     ),
     Family(
         name="dispatch_claim_lease",

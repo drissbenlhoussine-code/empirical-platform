@@ -22,15 +22,26 @@ from typing import Any
 
 from empirical_platform.decision_candidate.paper_execution import (
     BrokerAcknowledgement,
+    DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
     PaperAccountSnapshot,
     PaperExecutionEvent,
+    ProposalTimeBasis,
     SubmissionPreview,
 )
-from empirical_platform.usecases.decision_to_approval_io import render_money
+from empirical_platform.usecases.decision_to_approval_io import (
+    render_decision_json,
+    render_decision_text,
+    render_money,
+    render_outcome_json,
+    render_outcome_text,
+    render_proposal_json,
+)
 from empirical_platform.usecases.paper_execution import (
+    PaperBoundDecision,
     PaperBoundIntent,
+    PaperBoundProposal,
     PaperExecutionStatus,
     PaperSubmissionResult,
     VerifyPaperEnvironmentResult,
@@ -47,8 +58,12 @@ __all__ = [
     "render_environment_json",
     "render_environment_text",
     "render_event_json",
+    "render_paper_bound_decision_json",
+    "render_paper_bound_decision_text",
     "render_paper_bound_intent_json",
     "render_paper_bound_intent_text",
+    "render_paper_bound_proposal_json",
+    "render_paper_bound_proposal_text",
     "render_preview_json",
     "render_preview_text",
     "render_status_json",
@@ -56,6 +71,66 @@ __all__ = [
     "render_submission_json",
     "render_submission_text",
 ]
+
+
+def _basis_json(evidence: ProposalTimeBasis | DecisionTimeBasis) -> dict[str, Any]:
+    return {
+        "broker_endpoint_host": evidence.broker_endpoint_host,
+        "basis_host_requested_at": evidence.basis_host_requested_at.isoformat(),
+        "basis_host_at": evidence.basis_host_at.isoformat(),
+        "basis_broker_earliest_at": evidence.basis_broker_earliest_at.isoformat(),
+        "basis_broker_latest_at": evidence.basis_broker_latest_at.isoformat(),
+    }
+
+
+def _basis_text(evidence: ProposalTimeBasis | DecisionTimeBasis, heading: str) -> list[str]:
+    return [
+        f"{heading} (measured as an interval, not a single moment):",
+        f"  broker host       : {evidence.broker_endpoint_host}",
+        f"  host before read  : {evidence.basis_host_requested_at.isoformat()}",
+        f"  host after read   : {evidence.basis_host_at.isoformat()}",
+        f"  broker clock from : {evidence.basis_broker_earliest_at.isoformat()}",
+        f"  broker clock to   : {evidence.basis_broker_latest_at.isoformat()}",
+    ]
+
+
+def render_paper_bound_proposal_json(prepared: PaperBoundProposal) -> dict[str, Any]:
+    return {
+        "outcome": render_outcome_json(prepared.outcome),
+        "proposal_time_basis": (
+            None if prepared.time_basis is None else _basis_json(prepared.time_basis)
+        ),
+    }
+
+
+def render_paper_bound_proposal_text(prepared: PaperBoundProposal) -> str:
+    lines = [render_outcome_text(prepared.outcome).rstrip("\n"), ""]
+    if prepared.time_basis is None:
+        lines.append("NO PROPOSAL, SO NO PROPOSAL-TIME BROKER BASIS WAS RECORDED.")
+    else:
+        lines.extend(_basis_text(prepared.time_basis, "PROPOSAL-TIME BROKER BASIS"))
+    lines.extend(["", "NOTHING HAS BEEN SENT.", ""])
+    return "\n".join(lines)
+
+
+def render_paper_bound_decision_json(decided: PaperBoundDecision) -> dict[str, Any]:
+    return {
+        "decision": render_decision_json(decided.outcome.decision),
+        "proposal": render_proposal_json(decided.outcome.proposal),
+        "decision_time_basis": (
+            None if decided.time_basis is None else _basis_json(decided.time_basis)
+        ),
+    }
+
+
+def render_paper_bound_decision_text(decided: PaperBoundDecision) -> str:
+    lines = [render_decision_text(decided.outcome.decision).rstrip("\n"), ""]
+    if decided.time_basis is None:
+        lines.append("NOT AN APPROVAL, SO NO DECISION-TIME BROKER BASIS WAS RECORDED.")
+    else:
+        lines.extend(_basis_text(decided.time_basis, "DECISION-TIME BROKER BASIS"))
+    lines.extend(["", "NOTHING HAS BEEN SENT.", ""])
+    return "\n".join(lines)
 
 
 def render_paper_bound_intent_json(issued: PaperBoundIntent) -> dict[str, Any]:

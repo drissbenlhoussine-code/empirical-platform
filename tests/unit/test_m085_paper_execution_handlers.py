@@ -20,8 +20,10 @@ the merge.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -37,27 +39,31 @@ from tests.unit._m085_fakes import (
     FakeClock,
     FakeEvents,
     FakeIntents,
-    FakeIntentTimeBases,
     FakeKillSwitch,
     FakeMarketData,
     FakePreviews,
     FakeQuote,
     FakeSnapshots,
+    FakeTimeBases,
     FakeView,
     a_preview,
+    a_provenance,
     a_time_basis,
     an_intent,
     an_intent_time_basis,
+    time_bases_for,
 )
 
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
     BrokerAcknowledgement,
+    DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
     IntentTimeBasis,
     PaperExecutionEvent,
     PaperExecutionState,
+    ProposalTimeBasis,
     SubmissionPreview,
     authorize_submission,
 )
@@ -72,23 +78,31 @@ from empirical_platform.shared.brokerage.paper_time import (
 )
 from empirical_platform.usecases import paper_execution as paper_execution_usecases
 from empirical_platform.usecases.decision_to_approval import (
+    DecideTradeProposalCommand,
     IssueApprovedOrderIntentCommand,
     NotFoundError,
+    OperatorAction,
+    PrepareTradeProposalCommand,
 )
 from empirical_platform.usecases.paper_execution import (
     AuthorizePaperSubmissionCommand,
     AuthorizePaperSubmissionHandler,
     CancelPaperOrderCommand,
     CancelPaperOrderHandler,
+    DecidePaperBoundTradeProposalCommand,
+    DecidePaperBoundTradeProposalHandler,
     InspectPaperAccountCommand,
     InspectPaperAccountHandler,
     IssuePaperBoundOrderIntentCommand,
     IssuePaperBoundOrderIntentHandler,
     ListPaperExecutionsHandler,
     ListPaperExecutionsQuery,
+    M084TimeProvenance,
     PaperExecutionRefusedError,
     PaperExecutionStatusHandler,
     PaperExecutionStatusQuery,
+    PreparePaperBoundTradeProposalCommand,
+    PreparePaperBoundTradeProposalHandler,
     PreviewPaperSubmissionCommand,
     PreviewPaperSubmissionHandler,
     ReconcilePaperOrderCommand,
@@ -222,9 +236,9 @@ class TestPreviewPaperSubmission:
         intents = fakes.get("intents") or FakeIntents(an_intent())
         return PreviewPaperSubmissionHandler(
             intents=intents,  # type: ignore[arg-type]
-            intent_time_bases=fakes.get("intent_time_bases")  # type: ignore[arg-type]
-            or FakeIntentTimeBases(
-                *(an_intent_time_basis(row) for row in intents.rows.values())  # type: ignore[attr-defined]
+            time_bases=fakes.get("time_bases")  # type: ignore[arg-type]
+            or time_bases_for(
+                *(a_provenance(row) for row in intents.rows.values())  # type: ignore[attr-defined]
             ),
             snapshots=fakes.get("snapshots") or FakeSnapshots(),  # type: ignore[arg-type]
             previews=fakes.get("previews") or FakePreviews(),  # type: ignore[arg-type]
@@ -323,14 +337,12 @@ class TestPreviewPaperSubmission:
         intent = an_intent(expires_at=_NOW + timedelta(seconds=2))
         preview = self._handler(
             intents=FakeIntents(intent),
-            # Issued while this host ran an hour BEHIND the broker, so on the broker's
+            # Evaluated while this host ran an hour BEHIND the broker, so on the broker's
             # clock the intent expires an hour later and ONLY the post-fetch host
             # instant can refuse it. With host == broker the broker-timeline check on
-            # the intent's own basis refuses the same intent, and this test passed with
+            # the proposal's basis refuses the same intent, and this test passed with
             # `evaluated_at` taken before the fetch (mutation campaign, post_fetch_time).
-            intent_time_bases=FakeIntentTimeBases(
-                an_intent_time_basis(intent, broker_offset=timedelta(hours=1))
-            ),
+            time_bases=time_bases_for(a_provenance(intent, proposal_offset=timedelta(hours=1))),
             market_data=SlowData(),
         ).handle(self._command())
         assert preview.is_authorizable is False
@@ -443,12 +455,12 @@ class TestSubmitAuthorizedPaperOrder:
             "kill_switch": FakeKillSwitch(),
         }
         world.update(overrides)
-        if "intent_time_bases" not in overrides:
+        if "time_bases" not in overrides:
             # Evidence for whichever intents THIS world holds, issued with the host
             # and broker clocks agreeing. A test that wants a different issuance
             # offset, or none, says so explicitly.
-            world["intent_time_bases"] = FakeIntentTimeBases(
-                *(an_intent_time_basis(intent) for intent in world["intents"].rows.values())
+            world["time_bases"] = time_bases_for(
+                *(a_provenance(intent) for intent in world["intents"].rows.values())
             )
         return world
 
@@ -457,7 +469,7 @@ class TestSubmitAuthorizedPaperOrder:
     ) -> ExecutionAuthorization:
         preview = PreviewPaperSubmissionHandler(
             intents=world["intents"],
-            intent_time_bases=world["intent_time_bases"],
+            time_bases=world["time_bases"],
             snapshots=world["snapshots"],
             previews=world["previews"],
             events=world["events"],
@@ -500,7 +512,7 @@ class TestSubmitAuthorizedPaperOrder:
         return SubmitAuthorizedPaperOrderHandler(
             time_source=time_source,
             intents=world["intents"],
-            intent_time_bases=world["intent_time_bases"],
+            time_bases=world["time_bases"],
             previews=world["previews"],
             authorizations=world["authorizations"],
             attempts=world["attempts"],
@@ -923,7 +935,7 @@ class TestSubmitAuthorizedPaperOrder:
             # Its evidence must describe THIS intent, or dispatch is refused up front
             # for mismatched evidence and the elapsed-time rule is never reached
             # (mutation campaign, final_intent_expiry).
-            world["intent_time_bases"].rows["INT-1"] = an_intent_time_basis(short_lived)
+            world["time_bases"] = time_bases_for(a_provenance(short_lived))
         if deadline == "session":
             original_clock = world["broker"].fetch_clock
 
@@ -1025,7 +1037,7 @@ class TestSubmitAuthorizedPaperOrder:
     def _preview(self, world: dict[str, Any]) -> SubmissionPreview:
         preview = PreviewPaperSubmissionHandler(
             intents=world["intents"],
-            intent_time_bases=world["intent_time_bases"],
+            time_bases=world["time_bases"],
             snapshots=world["snapshots"],
             previews=world["previews"],
             events=world["events"],
@@ -1205,7 +1217,7 @@ class TestSubmitAuthorizedPaperOrder:
     def test_an_intent_without_its_own_basis_is_refused_before_any_broker_call(self) -> None:
         world = self._world()
         self._authorize(world)
-        world["intent_time_bases"].rows.clear()
+        world["time_bases"].intents.clear()
         reads: list[str] = []
         original = world["broker"].fetch_account
 
@@ -1235,7 +1247,7 @@ class TestSubmitAuthorizedPaperOrder:
     ) -> None:
         world = self._world()
         self._authorize(world)
-        world["intent_time_bases"].rows["INT-1"] = an_intent_time_basis(an_intent(**change))
+        world["time_bases"].intents["INT-1"] = an_intent_time_basis(an_intent(**change))
         with pytest.raises(PaperExecutionRefusedError, match="does not describe this exact intent"):
             self._handler(world).handle(self._command())
         assert world["broker"].submitted == []
@@ -1245,17 +1257,15 @@ class TestSubmitAuthorizedPaperOrder:
     def test_an_m084_deadline_passing_only_on_the_broker_clock_never_submits(
         self, operation_clock: FrozenDateTimeFactory, phase: str
     ) -> None:
-        # Issued while this host ran an hour AHEAD of the broker, so the stored host
+        # Evaluated while this host ran an hour AHEAD of the broker, so the stored host
         # expiry (_NOW+1h+1s) is _NOW+1s on the broker's clock. The host clock is now
-        # correct: every host-timeline check passes throughout, and only the intent's
-        # own basis can refuse -- during the fetch, the claim (the database lock wait
+        # correct: every host-timeline check passes throughout, and only the proposal's
+        # basis can refuse -- during the fetch, the claim (the database lock wait
         # in production), preparation, or the connection.
         intent = an_intent(expires_at=_NOW + timedelta(hours=1, seconds=1))
         world = self._world(
             intents=FakeIntents(intent),
-            intent_time_bases=FakeIntentTimeBases(
-                an_intent_time_basis(intent, broker_offset=timedelta(hours=-1))
-            ),
+            time_bases=time_bases_for(a_provenance(intent, proposal_offset=timedelta(hours=-1))),
         )
         self._authorize(world)
         target, method = {
@@ -1285,24 +1295,59 @@ class TestSubmitAuthorizedPaperOrder:
         assert world["broker"].submitted == []
 
 
+def _stand_in_m084(intent: object) -> tuple[SimpleNamespace, SimpleNamespace, M084TimeProvenance]:
+    """A stored proposal and approval, and the evidence their Paper-bound acts recorded.
+
+    Stand-ins for the M084 repositories: the domain objects M084 would return carry
+    exactly these attributes. The real M084 handlers and repositories are exercised
+    through PostgreSQL in `tests/integration/test_m085_time_basis_postgres.py`.
+    """
+    provenance = a_provenance(intent)  # type: ignore[arg-type]
+    assert provenance.proposal is not None and provenance.decision is not None
+    proposal = SimpleNamespace(
+        proposal_governance_id=provenance.proposal.proposal_governance_id,
+        proposal_version=provenance.proposal.proposal_version,
+        content_fingerprint=provenance.proposal.content_fingerprint,
+        created_at=provenance.proposal.proposal_created_at,
+        expires_at=provenance.proposal.proposal_expires_at,
+        mandatory_liquidation_at=provenance.proposal.mandatory_liquidation_at,
+    )
+    decision = SimpleNamespace(
+        decision_governance_id=provenance.decision.decision_governance_id,
+        proposal_governance_id=provenance.decision.proposal_governance_id,
+        proposal_version=provenance.decision.proposal_version,
+        approved_fingerprint=provenance.decision.approved_fingerprint,
+        decided_at=provenance.decision.decided_at,
+        expires_at=provenance.decision.decision_expires_at,
+    )
+    return proposal, decision, provenance
+
+
 class TestIssuePaperBoundOrderIntent:
     """The M085 issuance composition, with M084's own handler stood in for.
 
     The real M084 handler, real repositories and real PostgreSQL are exercised by
     `tests/integration/test_m085_time_basis_postgres.py`. Here the question is only
-    the composition: what is measured, in what order, and what is refused.
+    the composition: what is required, what is measured, in what order, and what is
+    refused BEFORE M084 writes anything.
     """
+
+    _TEMPLATE = an_intent()
 
     def _handler(
         self,
         monkeypatch: pytest.MonkeyPatch,
         *,
         intents: FakeIntents,
-        bases: FakeIntentTimeBases,
+        bases: FakeTimeBases | None = None,
         broker: object,
         time_source: PaperTimeSource | None = None,
-    ) -> tuple[IssuePaperBoundOrderIntentHandler, list[object]]:
+        provenance: M084TimeProvenance | None = None,
+    ) -> tuple[IssuePaperBoundOrderIntentHandler, list[object], FakeTimeBases]:
         issued: list[object] = []
+        proposal, decision, recorded = _stand_in_m084(self._TEMPLATE)
+        chosen = recorded if provenance is None else provenance
+        store = bases if bases is not None else time_bases_for(replace(chosen, intent=None))
 
         class StandInM084Issuance:
             def __init__(self, **repositories: object) -> None:
@@ -1313,7 +1358,6 @@ class TestIssuePaperBoundOrderIntent:
                 intent = an_intent(
                     intent_governance_id=command.intent_governance_id,
                     created_at=command.created_at,
-                    expires_at=command.created_at + timedelta(minutes=5),
                 )
                 intents.rows[intent.intent_governance_id] = intent
                 return intent
@@ -1322,14 +1366,14 @@ class TestIssuePaperBoundOrderIntent:
             paper_execution_usecases, "IssueApprovedOrderIntentHandler", StandInM084Issuance
         )
         handler = IssuePaperBoundOrderIntentHandler(
-            approval_decisions=object(),  # type: ignore[arg-type]
+            approval_decisions=SimpleNamespace(for_proposal=lambda _id: decision),  # type: ignore[arg-type]
             intents=intents,  # type: ignore[arg-type]
-            proposals=object(),  # type: ignore[arg-type]
-            intent_time_bases=bases,  # type: ignore[arg-type]
+            proposals=SimpleNamespace(get=lambda _id: proposal),  # type: ignore[arg-type]
+            time_bases=store,  # type: ignore[arg-type]
             broker=broker,  # type: ignore[arg-type]
             time_source=time_source,
         )
-        return handler, issued
+        return handler, issued, store
 
     _COMMAND = IssuePaperBoundOrderIntentCommand(
         intent_governance_id="INT-1", proposal_governance_id="PRP-1", idempotency_key="IDEM-1"
@@ -1340,13 +1384,13 @@ class TestIssuePaperBoundOrderIntent:
     ) -> None:
         time = _ScriptedTime(_NOW)
         broker = _SlowClockBroker(time, delay=120)
-        intents, bases = FakeIntents(), FakeIntentTimeBases()
-        handler, issued = self._handler(
-            monkeypatch, intents=intents, bases=bases, broker=broker, time_source=time
+        intents = FakeIntents()
+        handler, issued, bases = self._handler(
+            monkeypatch, intents=intents, broker=broker, time_source=time
         )
         result = handler.handle(self._COMMAND)
         assert [command.created_at for command in issued] == [_NOW + timedelta(seconds=120)]  # type: ignore[attr-defined]
-        evidence = bases.rows["INT-1"]
+        evidence = bases.intents["INT-1"]
         assert evidence is result.time_basis
         assert evidence.basis_host_requested_at == _NOW
         assert evidence.basis_host_at == result.intent.created_at == _NOW + timedelta(seconds=120)
@@ -1361,27 +1405,92 @@ class TestIssuePaperBoundOrderIntent:
         broker = FakeBroker()
         reads: list[str] = []
         broker.fetch_clock = lambda: reads.append("clock") or FakeClock()  # type: ignore[method-assign]
-        intents, bases = FakeIntents(an_intent()), FakeIntentTimeBases()
-        handler, issued = self._handler(monkeypatch, intents=intents, bases=bases, broker=broker)
+        intents = FakeIntents(an_intent())
+        handler, issued, bases = self._handler(monkeypatch, intents=intents, broker=broker)
         with pytest.raises(PaperExecutionRefusedError, match="never attached"):
             handler.handle(self._COMMAND)
-        assert issued == [] and bases.rows == {} and reads == []
+        assert issued == [] and bases.intents == {} and reads == []
+
+    @pytest.mark.parametrize(
+        ("missing", "fragment"),
+        [
+            ("proposal", "no proposal-time broker basis"),
+            ("decision", "no decision-time broker basis"),
+        ],
+    )
+    def test_a_proposal_or_approval_without_its_own_basis_is_refused_before_m084_writes(
+        self, monkeypatch: pytest.MonkeyPatch, missing: str, fragment: str
+    ) -> None:
+        # A proposal evaluated, or an approval recorded, through M084 alone. No basis is
+        # borrowed from issuance and none is derived now.
+        _, _, recorded = _stand_in_m084(self._TEMPLATE)
+        broker = FakeBroker()
+        reads: list[str] = []
+        broker.fetch_clock = lambda: reads.append("clock") or FakeClock()  # type: ignore[method-assign]
+        intents = FakeIntents()
+        handler, issued, bases = self._handler(
+            monkeypatch,
+            intents=intents,
+            broker=broker,
+            provenance=replace(recorded, **{missing: None}),
+        )
+        with pytest.raises(PaperExecutionRefusedError, match=fragment):
+            handler.handle(self._COMMAND)
+        assert issued == [] and intents.rows == {} and bases.intents == {} and reads == []
+
+    def test_a_proposal_that_expired_on_the_broker_clock_cannot_be_issued(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # THE INDEPENDENT REVIEW'S PATH, AT ISSUANCE. Proposal and approval recorded
+        # with host and broker agreeing (the stand-in's evidence, offset 0). Real broker
+        # time is now an hour past the proposal's expiry while this host's clock reads
+        # barely past its creation, so M084's host-clock checks would all pass.
+        _, _, recorded = _stand_in_m084(self._TEMPLATE)
+        assert recorded.proposal is not None
+        host_now = recorded.proposal.proposal_created_at + timedelta(seconds=30)
+        broker_now = recorded.proposal.proposal_expires_at + timedelta(hours=1)
+
+        def truthful() -> FakeClock:
+            clock = FakeClock()
+            clock.timestamp = broker_now
+            return clock
+
+        broker = FakeBroker()
+        broker.fetch_clock = truthful  # type: ignore[method-assign]
+        intents = FakeIntents()
+        handler, issued, bases = self._handler(
+            monkeypatch, intents=intents, broker=broker, time_source=_ScriptedTime(host_now)
+        )
+        with pytest.raises(
+            PaperExecutionRefusedError,
+            match="the proposal had expired on the broker's clock when the intent was issued",
+        ):
+            handler.handle(self._COMMAND)
+        assert issued == [], "M084 must not write an intent for an expired proposal"
+        assert intents.rows == {} and bases.intents == {}
+        assert broker.submitted == []
 
     def test_a_crash_before_the_evidence_is_recorded_leaves_the_intent_undispatchable(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        class FailingBases(FakeIntentTimeBases):
-            def record(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
+        _, _, recorded = _stand_in_m084(self._TEMPLATE)
+
+        class FailingBases(FakeTimeBases):
+            def record_intent(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
                 raise RuntimeError("the process died here")
 
-        intents, bases = FakeIntents(), FailingBases()
-        handler, _ = self._handler(monkeypatch, intents=intents, bases=bases, broker=FakeBroker())
+        assert recorded.proposal is not None and recorded.decision is not None
+        bases = FailingBases(proposals=(recorded.proposal,), decisions=(recorded.decision,))
+        intents = FakeIntents()
+        handler, _, _ = self._handler(
+            monkeypatch, intents=intents, bases=bases, broker=FakeBroker()
+        )
         with pytest.raises(RuntimeError, match="died"):
             handler.handle(self._COMMAND)
-        assert "INT-1" in intents.rows and bases.rows == {}
+        assert "INT-1" in intents.rows and bases.intents == {}
         preview = PreviewPaperSubmissionHandler(
             intents=intents,
-            intent_time_bases=bases,
+            time_bases=bases,
             snapshots=FakeSnapshots(),
             previews=FakePreviews(),
             events=FakeEvents(),
@@ -1401,6 +1510,240 @@ class TestIssuePaperBoundOrderIntent:
         )
         assert preview.is_authorizable is False
         assert any("no intent-time broker basis" in reason for reason in preview.refusals)
+
+
+class TestPreparePaperBoundTradeProposal:
+    """The evaluation composition, with M084's own evaluation stood in for."""
+
+    def _handler(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        broker: object,
+        time_source: PaperTimeSource | None = None,
+        no_trade: bool = False,
+    ) -> tuple[PreparePaperBoundTradeProposalHandler, list[object], FakeTimeBases]:
+        evaluated: list[object] = []
+        _, _, recorded = _stand_in_m084(an_intent())
+        assert recorded.proposal is not None
+        template = recorded.proposal
+
+        class StandInM084Evaluation:
+            def __init__(self, **repositories: object) -> None:
+                del repositories
+
+            def handle(self, command: PrepareTradeProposalCommand) -> object:
+                evaluated.append(command)
+                if no_trade:
+                    return SimpleNamespace(proposal=None, no_trade_reason="NO", risk_checks=())
+                proposal = SimpleNamespace(
+                    proposal_governance_id=command.proposal_governance_id,
+                    proposal_version=1,
+                    content_fingerprint=template.content_fingerprint,
+                    created_at=command.evaluated_at,
+                    expires_at=command.evaluated_at + timedelta(minutes=5),
+                    mandatory_liquidation_at=command.evaluated_at + timedelta(hours=2),
+                )
+                return SimpleNamespace(proposal=proposal, no_trade_reason=None, risk_checks=())
+
+        monkeypatch.setattr(
+            paper_execution_usecases, "PrepareTradeProposalHandler", StandInM084Evaluation
+        )
+        monkeypatch.setattr(
+            paper_execution_usecases,
+            "bind_proposal_time_basis",
+            lambda *, proposal, time_basis, broker_endpoint_host: ProposalTimeBasis(
+                proposal_governance_id=proposal.proposal_governance_id,
+                proposal_version=proposal.proposal_version,
+                content_fingerprint=proposal.content_fingerprint,
+                proposal_created_at=proposal.created_at,
+                proposal_expires_at=proposal.expires_at,
+                mandatory_liquidation_at=proposal.mandatory_liquidation_at,
+                broker_endpoint_host=broker_endpoint_host,
+                basis_host_requested_at=time_basis.host_requested_at,
+                basis_host_at=time_basis.host_at,
+                basis_broker_earliest_at=time_basis.broker_earliest_at,
+                basis_broker_latest_at=time_basis.broker_latest_at,
+            ),
+        )
+        bases = FakeTimeBases()
+        handler = PreparePaperBoundTradeProposalHandler(
+            configurations=object(),  # type: ignore[arg-type]
+            contexts=object(),  # type: ignore[arg-type]
+            proposals=SimpleNamespace(get=lambda _id: None),  # type: ignore[arg-type]
+            time_bases=bases,
+            broker=broker,  # type: ignore[arg-type]
+            time_source=time_source,
+        )
+        return handler, evaluated, bases
+
+    @staticmethod
+    def _command() -> PreparePaperBoundTradeProposalCommand:
+        return PreparePaperBoundTradeProposalCommand(
+            proposal_governance_id="PRP-1",
+            evaluation_context_id="ECX-1",
+            symbol="AAPL",
+            quote=object(),  # type: ignore[arg-type]
+            account=object(),  # type: ignore[arg-type]
+            session=object(),  # type: ignore[arg-type]
+            instrument=object(),  # type: ignore[arg-type]
+            liquidity=object(),  # type: ignore[arg-type]
+            cost_estimate=None,
+            positions=(),
+            open_orders=(),
+            evidence_age_seconds=Decimal("60"),
+        )
+
+    def test_the_proposal_is_evaluated_at_the_host_reading_taken_after_the_clock_response(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        time = _ScriptedTime(_NOW)
+        handler, evaluated, bases = self._handler(
+            monkeypatch, broker=_SlowClockBroker(time, delay=90), time_source=time
+        )
+        result = handler.handle(self._command())
+        assert [command.evaluated_at for command in evaluated] == [_NOW + timedelta(seconds=90)]  # type: ignore[attr-defined]
+        evidence = bases.proposals[("PRP-1", 1)]
+        assert evidence is result.time_basis
+        assert evidence.basis_host_requested_at == _NOW
+        assert (
+            evidence.proposal_created_at == evidence.basis_host_at == _NOW + timedelta(seconds=90)
+        )
+
+    def test_a_no_trade_records_no_basis(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        handler, evaluated, bases = self._handler(monkeypatch, broker=FakeBroker(), no_trade=True)
+        assert handler.handle(self._command()).time_basis is None
+        assert len(evaluated) == 1 and bases.proposals == {}
+
+
+class TestDecidePaperBoundTradeProposal:
+    """The decision composition, with M084's own decision stood in for."""
+
+    def _handler(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        broker: object,
+        time_source: PaperTimeSource | None = None,
+        with_proposal_basis: bool = True,
+    ) -> tuple[DecidePaperBoundTradeProposalHandler, list[object], FakeTimeBases, SimpleNamespace]:
+        decided: list[object] = []
+        proposal, _, recorded = _stand_in_m084(an_intent())
+
+        class StandInM084Decision:
+            def __init__(self, **repositories: object) -> None:
+                del repositories
+
+            def handle(self, command: DecideTradeProposalCommand) -> object:
+                decided.append(command)
+                approving = command.action is OperatorAction.APPROVE
+                decision = SimpleNamespace(
+                    decision_governance_id=command.decision_governance_id,
+                    proposal_governance_id=command.proposal_governance_id,
+                    proposal_version=1,
+                    approved_fingerprint=proposal.content_fingerprint,
+                    action=command.action,
+                    decided_at=command.decided_at,
+                    expires_at=command.decided_at + timedelta(minutes=2) if approving else None,
+                )
+                return SimpleNamespace(decision=decision, proposal=proposal)
+
+        monkeypatch.setattr(
+            paper_execution_usecases, "DecideTradeProposalHandler", StandInM084Decision
+        )
+        monkeypatch.setattr(
+            paper_execution_usecases,
+            "bind_decision_time_basis",
+            lambda *, decision, time_basis, broker_endpoint_host: DecisionTimeBasis(
+                decision_governance_id=decision.decision_governance_id,
+                proposal_governance_id=decision.proposal_governance_id,
+                proposal_version=decision.proposal_version,
+                approved_fingerprint=decision.approved_fingerprint,
+                decided_at=decision.decided_at,
+                decision_expires_at=decision.expires_at,
+                broker_endpoint_host=broker_endpoint_host,
+                basis_host_requested_at=time_basis.host_requested_at,
+                basis_host_at=time_basis.host_at,
+                basis_broker_earliest_at=time_basis.broker_earliest_at,
+                basis_broker_latest_at=time_basis.broker_latest_at,
+            ),
+        )
+        bases = (
+            time_bases_for(replace(recorded, decision=None, intent=None))
+            if with_proposal_basis
+            else FakeTimeBases()
+        )
+        handler = DecidePaperBoundTradeProposalHandler(
+            configurations=object(),  # type: ignore[arg-type]
+            decisions=object(),  # type: ignore[arg-type]
+            proposals=SimpleNamespace(get=lambda _id: proposal),  # type: ignore[arg-type]
+            time_bases=bases,
+            broker=broker,  # type: ignore[arg-type]
+            time_source=time_source,
+        )
+        return handler, decided, bases, proposal
+
+    @staticmethod
+    def _command(
+        action: OperatorAction = OperatorAction.APPROVE,
+    ) -> DecidePaperBoundTradeProposalCommand:
+        return DecidePaperBoundTradeProposalCommand(
+            proposal_governance_id="PRP-1",
+            decision_governance_id="DEC-1",
+            action=action,
+            operator_identity="owner",
+        )
+
+    def test_an_approval_is_decided_at_the_host_reading_taken_after_the_clock_response(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _, _, recorded = _stand_in_m084(an_intent())
+        assert recorded.proposal is not None
+        start = recorded.proposal.proposal_created_at + timedelta(seconds=5)
+        time = _ScriptedTime(start)
+        handler, decided, bases, _ = self._handler(
+            monkeypatch, broker=_SlowClockBroker(time, delay=30), time_source=time
+        )
+        result = handler.handle(self._command())
+        assert [command.decided_at for command in decided] == [start + timedelta(seconds=30)]  # type: ignore[attr-defined]
+        evidence = bases.decisions["DEC-1"]
+        assert evidence is result.time_basis
+        assert evidence.decided_at == evidence.basis_host_at == start + timedelta(seconds=30)
+
+    def test_an_approval_of_a_proposal_without_its_own_basis_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        handler, decided, bases, _ = self._handler(
+            monkeypatch, broker=FakeBroker(), with_proposal_basis=False
+        )
+        with pytest.raises(PaperExecutionRefusedError, match="no proposal-time broker basis"):
+            handler.handle(self._command())
+        assert decided == [] and bases.decisions == {}
+
+    def test_a_proposal_that_expired_on_the_broker_clock_cannot_be_approved(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Host clock still inside the proposal's life; broker clock past its expiry.
+        handler, decided, bases, proposal = self._handler(monkeypatch, broker=FakeBroker())
+
+        def past_expiry() -> FakeClock:
+            clock = FakeClock()
+            clock.timestamp = proposal.expires_at + timedelta(minutes=1)
+            return clock
+
+        handler._broker.fetch_clock = past_expiry  # type: ignore[attr-defined]
+        with pytest.raises(PaperExecutionRefusedError, match="expired on the broker's clock"):
+            handler.handle(self._command())
+        assert decided == [] and bases.decisions == {}
+
+    def test_a_rejection_records_no_basis_and_needs_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        handler, decided, bases, _ = self._handler(
+            monkeypatch, broker=FakeBroker(), with_proposal_basis=False
+        )
+        assert handler.handle(self._command(OperatorAction.REJECT)).time_basis is None
+        assert len(decided) == 1 and bases.decisions == {}
 
 
 class TestReconcilePaperOrder:
@@ -1783,7 +2126,7 @@ def test_entrypoint_composition_uses_the_injected_clock(monkeypatch: pytest.Monk
     context = SimpleNamespace(
         m084=SimpleNamespace(approved_order_intents=world["intents"]),
         paper=SimpleNamespace(
-            intent_time_bases=world["intent_time_bases"],
+            time_bases=world["time_bases"],
             paper_account_snapshots=world["snapshots"],
             submission_previews=world["previews"],
             execution_authorizations=world["authorizations"],

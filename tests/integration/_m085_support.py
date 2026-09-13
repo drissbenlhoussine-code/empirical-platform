@@ -41,11 +41,6 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
     OrderType,
     TradingSession,
 )
-from empirical_platform.decision_candidate.paper_execution import (
-    PAPER_ENDPOINT_HOST,
-    IntentTimeBasis,
-    bind_intent_time_basis,
-)
 from empirical_platform.decision_candidate.product_market_inputs import (
     AccountSnapshot,
     DataFeedKind,
@@ -70,7 +65,6 @@ from empirical_platform.decision_candidate.trade_proposal import (
 )
 from empirical_platform.shared.brokerage.paper_time import BrokerTimeBasis, PaperTimeSource
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
-from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
 )
@@ -78,8 +72,12 @@ from empirical_platform.shared.persistence.postgres_repositories.runtime import 
     PostgresRepositoryRuntime,
 )
 from empirical_platform.usecases.paper_execution import (
+    DecidePaperBoundTradeProposalCommand,
+    DecidePaperBoundTradeProposalHandler,
     IssuePaperBoundOrderIntentCommand,
     IssuePaperBoundOrderIntentHandler,
+    PreparePaperBoundTradeProposalCommand,
+    PreparePaperBoundTradeProposalHandler,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -88,6 +86,8 @@ EVALUATED_AT = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
 #: The M085 tables, in dependency order for TRUNCATE.
 M085_TABLES = (
     "paper_intent_time_basis",
+    "paper_decision_time_basis",
+    "paper_proposal_time_basis",
     "paper_execution_event",
     "paper_broker_acknowledgement",
     "paper_execution_attempt",
@@ -251,6 +251,59 @@ def a_context(
     )
 
 
+def paper_bound_market_inputs(*, symbol: str, observed_at: datetime) -> dict[str, object]:
+    """The operator-asserted observations M084 evaluates, all stamped `observed_at`."""
+    return {
+        "quote": QuoteSnapshot(
+            quote_id="QTE-085-0001",
+            provider_id="PROVIDER-A",
+            symbol=symbol,
+            bid=Decimal("199.95"),
+            ask=Decimal("200.10"),
+            last_trade=Decimal("200.00"),
+            observed_at=observed_at,
+            feed_kind=DataFeedKind.REAL_TIME,
+        ),
+        "account": AccountSnapshot(
+            account_snapshot_id="ACC-085-0001",
+            provider_id="PROVIDER-A",
+            account_reference="PREP-ACCOUNT-1",
+            base_currency="USD",
+            cash_available=Decimal("5000"),
+            equity_total=Decimal("10000"),
+            realized_pnl_today=Decimal("0"),
+            orders_submitted_today=0,
+            observed_at=observed_at,
+        ),
+        "session": SessionSnapshot(
+            session_id="SES-085-0001",
+            provider_id="PROVIDER-A",
+            market="XNAS",
+            status=MarketStatus.OPEN,
+            observed_at=observed_at,
+        ),
+        "instrument": InstrumentMetadata(
+            symbol=symbol, market="XNAS", currency="USD", is_fractionable=False, lot_size=1
+        ),
+        "liquidity": LiquiditySnapshot(
+            symbol=symbol,
+            average_daily_volume_shares=50_000_000,
+            observed_at=observed_at,
+        ),
+        "cost_estimate": TradingCostEstimate(
+            estimate_id="CST-085-0001",
+            provider_id="PROVIDER-A",
+            symbol=symbol,
+            commission=Decimal("1.00"),
+            estimated_slippage_percent=Decimal("0.1"),
+            observed_at=observed_at,
+        ),
+        "positions": (),
+        "open_orders": (),
+        "evidence_age_seconds": Decimal("60"),
+    }
+
+
 def a_proposal(
     configuration: OperatorTradingConfiguration,
     context: EvaluationContext,
@@ -264,88 +317,12 @@ def a_proposal(
         proposal_governance_id=proposal_id,
         evaluated_at=EVALUATED_AT,
         symbol=symbol,
-        quote=QuoteSnapshot(
-            quote_id="QTE-085-0001",
-            provider_id="PROVIDER-A",
-            symbol=symbol,
-            bid=Decimal("199.95"),
-            ask=Decimal("200.10"),
-            last_trade=Decimal("200.00"),
-            observed_at=EVALUATED_AT - timedelta(seconds=5),
-            feed_kind=DataFeedKind.REAL_TIME,
+        **paper_bound_market_inputs(  # type: ignore[arg-type]
+            symbol=symbol, observed_at=EVALUATED_AT - timedelta(seconds=5)
         ),
-        account=AccountSnapshot(
-            account_snapshot_id="ACC-085-0001",
-            provider_id="PROVIDER-A",
-            account_reference="PREP-ACCOUNT-1",
-            base_currency="USD",
-            cash_available=Decimal("5000"),
-            equity_total=Decimal("10000"),
-            realized_pnl_today=Decimal("0"),
-            orders_submitted_today=0,
-            observed_at=EVALUATED_AT - timedelta(seconds=5),
-        ),
-        session=SessionSnapshot(
-            session_id="SES-085-0001",
-            provider_id="PROVIDER-A",
-            market="XNAS",
-            status=MarketStatus.OPEN,
-            observed_at=EVALUATED_AT - timedelta(seconds=5),
-        ),
-        instrument=InstrumentMetadata(
-            symbol=symbol, market="XNAS", currency="USD", is_fractionable=False, lot_size=1
-        ),
-        liquidity=LiquiditySnapshot(
-            symbol=symbol,
-            average_daily_volume_shares=50_000_000,
-            observed_at=EVALUATED_AT - timedelta(seconds=5),
-        ),
-        cost_estimate=TradingCostEstimate(
-            estimate_id="CST-085-0001",
-            provider_id="PROVIDER-A",
-            symbol=symbol,
-            commission=Decimal("1.00"),
-            estimated_slippage_percent=Decimal("0.1"),
-            observed_at=EVALUATED_AT - timedelta(seconds=5),
-        ),
-        positions=(),
-        open_orders=(),
-        evidence_age_seconds=Decimal("60"),
     )
     assert outcome.proposal is not None, outcome.no_trade_reason
     return outcome.proposal
-
-
-def an_approved_intent(
-    runtime: PostgresRepositoryRuntime,
-    *,
-    intent_id: str = "INT-085-0001",
-    proposal_id: str = "PRP-085-0001",
-    context_id: str = "ECX-085-0001",
-    watermark_id: str = "WM-085-0001",
-    configuration_id: str = "CFG-085-0001",
-) -> ApprovedOrderIntent:
-    """The whole real M084 chain, ending in one persisted approved intent.
-
-    Issued through M084 alone, so it carries NO intent-time broker basis and is
-    not dispatchable by M085. Suites that attack the database directly start
-    here; suites that dispatch start from `a_paper_bound_intent`.
-    """
-    approved, decision = an_approved_proposal(
-        runtime,
-        proposal_id=proposal_id,
-        context_id=context_id,
-        watermark_id=watermark_id,
-        configuration_id=configuration_id,
-    )
-    intent = build_approved_order_intent(
-        intent_governance_id=intent_id,
-        proposal=approved,
-        decision=decision,
-        created_at=EVALUATED_AT + timedelta(seconds=20),
-        idempotency_key=f"IDEM-{intent_id}",
-    )
-    return runtime.approved_order_intents.issue(intent)
 
 
 def an_approved_proposal(
@@ -379,6 +356,121 @@ def an_approved_proposal(
     return approved, decision
 
 
+def an_approved_intent(
+    runtime: PostgresRepositoryRuntime,
+    *,
+    intent_id: str = "INT-085-0001",
+    proposal_id: str = "PRP-085-0001",
+    context_id: str = "ECX-085-0001",
+    watermark_id: str = "WM-085-0001",
+    configuration_id: str = "CFG-085-0001",
+) -> ApprovedOrderIntent:
+    """The whole real M084 chain, ending in one persisted approved intent.
+
+    Evaluated, approved and issued through M084 alone, so it carries NO proposal-,
+    decision- or intent-time broker basis and is not dispatchable by M085. Suites
+    that attack the database directly start here; suites that dispatch start from
+    `a_paper_bound_intent`.
+    """
+    approved, decision = an_approved_proposal(
+        runtime,
+        proposal_id=proposal_id,
+        context_id=context_id,
+        watermark_id=watermark_id,
+        configuration_id=configuration_id,
+    )
+    intent = build_approved_order_intent(
+        intent_governance_id=intent_id,
+        proposal=approved,
+        decision=decision,
+        created_at=EVALUATED_AT + timedelta(seconds=20),
+        idempotency_key=f"IDEM-{intent_id}",
+    )
+    return runtime.approved_order_intents.issue(intent)
+
+
+def a_paper_bound_approval(
+    runtime: PostgresRepositoryRuntime,
+    paper: PostgresPaperExecutionRuntime,
+    *,
+    broker: object,
+    time_source: PaperTimeSource,
+    proposal_id: str = "PRP-085-0001",
+    context_id: str = "ECX-085-0001",
+    watermark_id: str = "WM-085-0001",
+    configuration_id: str = "CFG-085-0001",
+) -> tuple[TradeProposal, ApprovalDecision]:
+    """A proposal EVALUATED and APPROVED through the Paper-bound commands.
+
+    Both bases are MEASURED by the real handlers against `broker` and
+    `time_source` at the moment of each act, never written by the fixture.
+    """
+    configuration = a_configuration(configuration_governance_id=configuration_id)
+    runtime.operator_trading_configurations.save(configuration)
+    context = a_context(runtime, configuration, context_id=context_id, watermark_id=watermark_id)
+    runtime.evaluation_contexts.save(context)
+    observed_at = time_source.read().utc - timedelta(seconds=5)
+    prepared = PreparePaperBoundTradeProposalHandler(
+        configurations=runtime.operator_trading_configurations,
+        contexts=runtime.evaluation_contexts,
+        proposals=runtime.trade_proposals,
+        time_bases=paper.time_bases,
+        broker=broker,  # type: ignore[arg-type]
+        time_source=time_source,
+    ).handle(
+        PreparePaperBoundTradeProposalCommand(
+            proposal_governance_id=proposal_id,
+            evaluation_context_id=context.evaluation_context_id,
+            symbol="AAPL",
+            **paper_bound_market_inputs(symbol="AAPL", observed_at=observed_at),  # type: ignore[arg-type]
+        )
+    )
+    assert prepared.outcome.proposal is not None, prepared.outcome.no_trade_reason
+    decided = DecidePaperBoundTradeProposalHandler(
+        configurations=runtime.operator_trading_configurations,
+        decisions=runtime.approval_decisions,
+        proposals=runtime.trade_proposals,
+        time_bases=paper.time_bases,
+        broker=broker,  # type: ignore[arg-type]
+        time_source=time_source,
+    ).handle(
+        DecidePaperBoundTradeProposalCommand(
+            proposal_governance_id=proposal_id,
+            decision_governance_id=f"DEC-{proposal_id}",
+            action=OperatorAction.APPROVE,
+            operator_identity="owner",
+        )
+    )
+    return decided.outcome.proposal, decided.outcome.decision
+
+
+def issue_paper_bound_intent(
+    runtime: PostgresRepositoryRuntime,
+    paper: PostgresPaperExecutionRuntime,
+    *,
+    broker: object,
+    time_source: PaperTimeSource,
+    intent_id: str = "INT-085-0001",
+    proposal_id: str = "PRP-085-0001",
+) -> ApprovedOrderIntent:
+    """Issue the intent through the Paper-bound command, measuring its own basis."""
+    issued = IssuePaperBoundOrderIntentHandler(
+        approval_decisions=runtime.approval_decisions,
+        intents=runtime.approved_order_intents,
+        proposals=runtime.trade_proposals,
+        time_bases=paper.time_bases,
+        broker=broker,  # type: ignore[arg-type]
+        time_source=time_source,
+    ).handle(
+        IssuePaperBoundOrderIntentCommand(
+            intent_governance_id=intent_id,
+            proposal_governance_id=proposal_id,
+            idempotency_key=f"IDEM-{intent_id}",
+        )
+    )
+    return issued.intent
+
+
 def a_paper_bound_intent(
     runtime: PostgresRepositoryRuntime,
     paper: PostgresPaperExecutionRuntime,
@@ -391,33 +483,25 @@ def a_paper_bound_intent(
     watermark_id: str = "WM-085-0001",
     configuration_id: str = "CFG-085-0001",
 ) -> ApprovedOrderIntent:
-    """The same chain, with the intent issued through the Paper-bound issuance command.
-
-    The intent-time basis is MEASURED by the real handler against `broker` and
-    `time_source`, never written by the fixture.
-    """
-    approved, _ = an_approved_proposal(
+    """Evaluate, approve and issue, each through its Paper-bound command, in one clock state."""
+    a_paper_bound_approval(
         runtime,
+        paper,
+        broker=broker,
+        time_source=time_source,
         proposal_id=proposal_id,
         context_id=context_id,
         watermark_id=watermark_id,
         configuration_id=configuration_id,
     )
-    issued = IssuePaperBoundOrderIntentHandler(
-        approval_decisions=runtime.approval_decisions,
-        intents=runtime.approved_order_intents,
-        proposals=runtime.trade_proposals,
-        intent_time_bases=paper.intent_time_bases,
-        broker=broker,  # type: ignore[arg-type]
+    return issue_paper_bound_intent(
+        runtime,
+        paper,
+        broker=broker,
         time_source=time_source,
-    ).handle(
-        IssuePaperBoundOrderIntentCommand(
-            intent_governance_id=intent_id,
-            proposal_governance_id=approved.proposal_governance_id,
-            idempotency_key=f"IDEM-{intent_id}",
-        )
+        intent_id=intent_id,
+        proposal_id=proposal_id,
     )
-    return issued.intent
 
 
 def a_basis_at(at: datetime) -> BrokerTimeBasis:
@@ -425,16 +509,3 @@ def a_basis_at(at: datetime) -> BrokerTimeBasis:
     return BrokerTimeBasis(
         host_requested_at=at, host_at=at, broker_earliest_at=at, broker_latest_at=at
     )
-
-
-def an_intent_time_basis_for(intent: ApprovedOrderIntent) -> IntentTimeBasis:
-    """Domain evidence for building an authorizable preview in a row-level test."""
-    return bind_intent_time_basis(
-        intent=intent,
-        time_basis=a_basis_at(intent.created_at),
-        broker_endpoint_host=PAPER_ENDPOINT_HOST,
-    )
-
-
-def paper_runtime(service: PostgresPersistenceService) -> PostgresPaperExecutionRuntime:
-    return PostgresPaperExecutionRuntime(service)

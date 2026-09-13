@@ -48,6 +48,7 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
 from empirical_platform.decision_candidate.paper_execution import (
     TERMINAL_PAPER_STATES,
     BrokerAcknowledgement,
+    DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
     IntentTimeBasis,
@@ -56,6 +57,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperExecutionEvent,
     PaperExecutionState,
     PaperOrderRequest,
+    ProposalTimeBasis,
     SubmissionPreview,
 )
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
@@ -1090,15 +1092,158 @@ def _row_to_intent_time_basis(row: Mapping[str, Any]) -> IntentTimeBasis:
     )
 
 
-class PostgresIntentTimeBasisRepository:
-    """Append-only, one row per intent, written only in the act of issuing it."""
+_PROPOSAL_TIME_BASIS_INSERT = (
+    "INSERT INTO public.paper_proposal_time_basis "
+    "(proposal_governance_id, proposal_version, content_fingerprint, proposal_created_at, "
+    "proposal_expires_at, mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at) "
+    "VALUES (:proposal_governance_id, :proposal_version, :content_fingerprint, "
+    ":proposal_created_at, :proposal_expires_at, :mandatory_liquidation_at, "
+    ":broker_endpoint_host, :basis_host_requested_at, :basis_host_at, "
+    ":basis_broker_earliest_at, :basis_broker_latest_at) "
+    "RETURNING proposal_governance_id, proposal_version, content_fingerprint, "
+    "proposal_created_at, proposal_expires_at, mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at"
+)
+
+_PROPOSAL_TIME_BASIS_SELECT = (
+    "SELECT proposal_governance_id, proposal_version, content_fingerprint, "
+    "proposal_created_at, proposal_expires_at, mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at "
+    "FROM public.paper_proposal_time_basis "
+    "WHERE proposal_governance_id = :proposal AND proposal_version = :version"
+)
+
+_DECISION_TIME_BASIS_INSERT = (
+    "INSERT INTO public.paper_decision_time_basis "
+    "(decision_governance_id, proposal_governance_id, proposal_version, approved_fingerprint, "
+    "decided_at, decision_expires_at, broker_endpoint_host, basis_host_requested_at, "
+    "basis_host_at, basis_broker_earliest_at, basis_broker_latest_at) "
+    "VALUES (:decision_governance_id, :proposal_governance_id, :proposal_version, "
+    ":approved_fingerprint, :decided_at, :decision_expires_at, :broker_endpoint_host, "
+    ":basis_host_requested_at, :basis_host_at, :basis_broker_earliest_at, "
+    ":basis_broker_latest_at) "
+    "RETURNING decision_governance_id, proposal_governance_id, proposal_version, "
+    "approved_fingerprint, decided_at, decision_expires_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at"
+)
+
+_DECISION_TIME_BASIS_SELECT = (
+    "SELECT decision_governance_id, proposal_governance_id, proposal_version, "
+    "approved_fingerprint, decided_at, decision_expires_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at "
+    "FROM public.paper_decision_time_basis WHERE decision_governance_id = :decision"
+)
+
+
+def _basis_parameters(evidence: ProposalTimeBasis | DecisionTimeBasis) -> dict[str, object]:
+    return {
+        "broker_endpoint_host": evidence.broker_endpoint_host,
+        "basis_host_requested_at": evidence.basis_host_requested_at,
+        "basis_host_at": evidence.basis_host_at,
+        "basis_broker_earliest_at": evidence.basis_broker_earliest_at,
+        "basis_broker_latest_at": evidence.basis_broker_latest_at,
+    }
+
+
+def _row_to_proposal_time_basis(row: Mapping[str, Any]) -> ProposalTimeBasis:
+    return ProposalTimeBasis(
+        proposal_governance_id=_str(row, "proposal_governance_id"),
+        proposal_version=_int(row, "proposal_version"),
+        content_fingerprint=_str(row, "content_fingerprint"),
+        proposal_created_at=_instant(row, "proposal_created_at"),
+        proposal_expires_at=_instant(row, "proposal_expires_at"),
+        mandatory_liquidation_at=_instant(row, "mandatory_liquidation_at"),
+        broker_endpoint_host=_str(row, "broker_endpoint_host"),
+        basis_host_requested_at=_instant(row, "basis_host_requested_at"),
+        basis_host_at=_instant(row, "basis_host_at"),
+        basis_broker_earliest_at=_instant(row, "basis_broker_earliest_at"),
+        basis_broker_latest_at=_instant(row, "basis_broker_latest_at"),
+    )
+
+
+def _row_to_decision_time_basis(row: Mapping[str, Any]) -> DecisionTimeBasis:
+    return DecisionTimeBasis(
+        decision_governance_id=_str(row, "decision_governance_id"),
+        proposal_governance_id=_str(row, "proposal_governance_id"),
+        proposal_version=_int(row, "proposal_version"),
+        approved_fingerprint=_str(row, "approved_fingerprint"),
+        decided_at=_instant(row, "decided_at"),
+        decision_expires_at=_instant(row, "decision_expires_at"),
+        broker_endpoint_host=_str(row, "broker_endpoint_host"),
+        basis_host_requested_at=_instant(row, "basis_host_requested_at"),
+        basis_host_at=_instant(row, "basis_host_at"),
+        basis_broker_earliest_at=_instant(row, "basis_broker_earliest_at"),
+        basis_broker_latest_at=_instant(row, "basis_broker_latest_at"),
+    )
+
+
+class PostgresTimeBasisRepository:
+    """Append-only evidence: one broker time basis per act that writes an M084 deadline.
+
+    Proposal evaluation, human approval and intent issuance each get their own row,
+    written only by the Paper-bound command that performs that act. There is no
+    update and no attach; each table's insert guard compares the row with the
+    stored M084 record it describes.
+    """
 
     __slots__ = ("_service",)
 
     def __init__(self, service: PostgresPersistenceService) -> None:
         self._service = service
 
-    def record(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
+    def record_proposal(self, evidence: ProposalTimeBasis) -> ProposalTimeBasis:
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                _PROPOSAL_TIME_BASIS_INSERT,
+                {
+                    "proposal_governance_id": evidence.proposal_governance_id,
+                    "proposal_version": evidence.proposal_version,
+                    "content_fingerprint": evidence.content_fingerprint,
+                    "proposal_created_at": evidence.proposal_created_at,
+                    "proposal_expires_at": evidence.proposal_expires_at,
+                    "mandatory_liquidation_at": evidence.mandatory_liquidation_at,
+                    **_basis_parameters(evidence),
+                },
+            )
+        return _row_to_proposal_time_basis(rows[0])
+
+    def proposal(
+        self, proposal_governance_id: str, proposal_version: int
+    ) -> ProposalTimeBasis | None:
+        with self._service.unit_of_work() as work:
+            rows = list(
+                work.execute(
+                    _PROPOSAL_TIME_BASIS_SELECT,
+                    {"proposal": proposal_governance_id, "version": proposal_version},
+                )
+            )
+        return _row_to_proposal_time_basis(rows[0]) if rows else None
+
+    def record_decision(self, evidence: DecisionTimeBasis) -> DecisionTimeBasis:
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                _DECISION_TIME_BASIS_INSERT,
+                {
+                    "decision_governance_id": evidence.decision_governance_id,
+                    "proposal_governance_id": evidence.proposal_governance_id,
+                    "proposal_version": evidence.proposal_version,
+                    "approved_fingerprint": evidence.approved_fingerprint,
+                    "decided_at": evidence.decided_at,
+                    "decision_expires_at": evidence.decision_expires_at,
+                    **_basis_parameters(evidence),
+                },
+            )
+        return _row_to_decision_time_basis(rows[0])
+
+    def decision(self, decision_governance_id: str) -> DecisionTimeBasis | None:
+        with self._service.unit_of_work() as work:
+            rows = list(
+                work.execute(_DECISION_TIME_BASIS_SELECT, {"decision": decision_governance_id})
+            )
+        return _row_to_decision_time_basis(rows[0]) if rows else None
+
+    def record_intent(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
         with self._service.unit_of_work() as work:
             rows = work.execute(
                 _INTENT_TIME_BASIS_INSERT,
@@ -1117,7 +1262,7 @@ class PostgresIntentTimeBasisRepository:
             )
         return _row_to_intent_time_basis(rows[0])
 
-    def get(self, intent_governance_id: str) -> IntentTimeBasis | None:
+    def intent(self, intent_governance_id: str) -> IntentTimeBasis | None:
         with self._service.unit_of_work() as work:
             rows = list(work.execute(_INTENT_TIME_BASIS_SELECT, {"intent": intent_governance_id}))
         return _row_to_intent_time_basis(rows[0]) if rows else None
@@ -1171,5 +1316,5 @@ class PostgresPaperExecutionRuntime:
         return PostgresPaperExecutionEventRepository(self._service)
 
     @property
-    def intent_time_bases(self) -> PostgresIntentTimeBasisRepository:
-        return PostgresIntentTimeBasisRepository(self._service)
+    def time_bases(self) -> PostgresTimeBasisRepository:
+        return PostgresTimeBasisRepository(self._service)

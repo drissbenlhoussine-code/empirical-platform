@@ -403,21 +403,30 @@ def main(argv: list[str] | None = None) -> int:
         [cli("explain-no-trade"), "ECX-WALK85", "TSLA", AT, f"{work}/inputs-tsla.json"],
     )
     walk.run(
-        "evaluate one instrument and derive a proposal",
+        # Through the Paper-bound commands: a proposal or approval recorded by M084's
+        # `prepare-trade-proposal` / `decide-trade-proposal` alone carries no broker
+        # time basis for the deadlines it writes, so it cannot be issued for Paper.
+        # Both instants are measured, so no AT is passed.
+        "evaluate one instrument and derive a proposal, with its time basis",
         0,
         [
-            cli("prepare-trade-proposal"),
+            cli("prepare-paper-bound-trade-proposal"),
             "PRP-WALK85",
             "ECX-WALK85",
             "AAPL",
-            AT,
             f"{work}/inputs.json",
         ],
     )
     walk.run(
-        "a human approves -- the one command no automation may run",
+        "a human approves -- the one command no automation may run -- with its time basis",
         0,
-        [cli("decide-trade-proposal"), "PRP-WALK85", "DEC-WALK85", "APPROVE", "operator-1", AT],
+        [
+            cli("decide-paper-bound-trade-proposal"),
+            "PRP-WALK85",
+            "DEC-WALK85",
+            "APPROVE",
+            "operator-1",
+        ],
     )
     walk.run(
         # Through the Paper-bound issuance command: an intent issued by M084's

@@ -93,7 +93,7 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
         intent = a_paper_bound_intent(m084, paper, broker=broker, time_source=clock)
         preview = PreviewPaperSubmissionHandler(
             intents=m084.approved_order_intents,
-            intent_time_bases=paper.intent_time_bases,
+            time_bases=paper.time_bases,
             snapshots=paper.paper_account_snapshots,
             previews=paper.submission_previews,
             events=paper.paper_execution_events,
@@ -158,7 +158,7 @@ def handler(
     paper = world["paper"]
     return SubmitAuthorizedPaperOrderHandler(
         intents=world["m084"].approved_order_intents,
-        intent_time_bases=paper.intent_time_bases,
+        time_bases=paper.time_bases,
         previews=paper.submission_previews,
         authorizations=paper.execution_authorizations,
         attempts=attempts or paper.execution_attempts,

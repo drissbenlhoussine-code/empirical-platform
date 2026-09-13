@@ -36,11 +36,11 @@ from tests.integration._m085_support import (
     a_basis_at,
     alembic_config,
     an_approved_intent,
-    an_intent_time_basis_for,
     config,
     database_identity,
     postgres_enabled,
 )
+from tests.unit._m085_fakes import a_provenance
 
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
@@ -199,7 +199,7 @@ def a_chain(
             earliest=EVALUATED_AT + timedelta(seconds=25),
             latest=EVALUATED_AT + timedelta(seconds=25),
         ),
-        intent_time_basis=an_intent_time_basis_for(intent),
+        m084_provenance=a_provenance(intent),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)

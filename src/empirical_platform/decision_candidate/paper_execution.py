@@ -58,7 +58,12 @@ from enum import StrEnum
 from types import MappingProxyType
 
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
-from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
+from empirical_platform.decision_candidate.trade_approval import (
+    ApprovalDecision,
+    ApprovedOrderIntent,
+    OperatorAction,
+)
+from empirical_platform.decision_candidate.trade_proposal import TradeProposal
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant, BrokerTimeBasis
 
 __all__ = [
@@ -69,7 +74,9 @@ __all__ = [
     "MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS",
     "NOT_FOUND_ALONE_RESOLVES_UNKNOWN",
     "NO_AUTHORIZATION_TIME_BASIS",
+    "NO_DECISION_TIME_BASIS",
     "NO_INTENT_TIME_BASIS",
+    "NO_PROPOSAL_TIME_BASIS",
     "PAPER_ENDPOINT_HOST",
     "RECONCILIATION_UNKNOWN_POLICY",
     "RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT",
@@ -77,21 +84,30 @@ __all__ = [
     "TERMINAL_PAPER_STATES",
     "BrokerAcknowledgement",
     "ExecutionAttempt",
+    "DecisionTimeBasis",
     "ExecutionAuthorization",
     "IntentTimeBasis",
+    "M084TimeProvenance",
     "PaperAccountSnapshot",
     "PaperEnvironment",
     "PaperExecutionEvent",
     "PaperExecutionState",
     "PaperOrderRequest",
+    "ProposalTimeBasis",
     "SubmissionPreview",
+    "act_chronology_refusal",
     "authorize_submission",
+    "bind_decision_time_basis",
     "bind_intent_time_basis",
+    "bind_proposal_time_basis",
     "build_submission_preview",
+    "decision_time_basis_refusal",
     "derive_client_order_id",
     "intent_time_basis_refusal",
     "is_paper_transition_allowed",
     "m084_deadline_refusal_on_broker_time",
+    "m084_provenance_refusal",
+    "proposal_time_basis_refusal",
     "request_fingerprint",
 ]
 
@@ -108,6 +124,21 @@ NO_INTENT_TIME_BASIS = (
     "this approved intent carries no intent-time broker basis: it was not issued through "
     "the Paper-bound issuance command, so its deadlines cannot be placed on the broker's "
     "clock. It is not dispatchable, and no basis is derived for it after the fact"
+)
+
+#: Why an intent whose PROPOSAL was evaluated without a basis cannot be dispatched.
+NO_PROPOSAL_TIME_BASIS = (
+    "this intent's proposal carries no proposal-time broker basis: it was not evaluated "
+    "through the Paper-bound proposal command, so the proposal expiry and the mandatory "
+    "liquidation deadline cannot be placed on the broker's clock. It is not dispatchable, "
+    "and no basis is derived for it after the fact"
+)
+
+#: Why an intent whose APPROVAL was recorded without a basis cannot be dispatched.
+NO_DECISION_TIME_BASIS = (
+    "this intent's approval carries no decision-time broker basis: it was not recorded "
+    "through the Paper-bound decision command, so the approval expiry cannot be placed on "
+    "the broker's clock. It is not dispatchable, and no basis is derived for it after the fact"
 )
 
 _MAXIMUM_IDENTIFIER_LENGTH = 64
@@ -791,10 +822,15 @@ class IntentTimeBasis:
     database compares them again at insert. The M084 record is read, never
     rewritten, reinterpreted or relaxed, and its host-timeline checks still run.
 
-    WHAT IT DOES NOT COVER. M084 derives both deadlines when the PROPOSAL is
-    evaluated, before the intent is issued. A host clock that moved between
-    proposal evaluation and intent issuance is not measured here; that interval is
-    bounded only by M084's own approval expiry. Recorded as a residual limit.
+    SUPERSEDED: WHAT IT IS USED FOR. Until `e61b3f9a4c27` this basis translated the
+    intent's `expires_at` and `mandatory_liquidation_at`, and the docstring called
+    the proposal-to-issuance interval a residual limit "bounded only by M084's own
+    approval expiry". Both were wrong: those deadlines are written when the PROPOSAL
+    is evaluated, and the approval expiry was written on that same earlier host
+    timeline, so it bounds nothing. Reproduced at `73a2f96`. This basis now places
+    only the ISSUANCE on the broker's clock, so the recorded chronology -- issued
+    before the proposal, liquidation and approval deadlines, each through its own
+    basis -- can be checked. It translates no deadline.
     """
 
     intent_governance_id: str
@@ -895,25 +931,347 @@ def intent_time_basis_refusal(
     return None
 
 
+def _basis_fields_valid(evidence: object, *, bound_field: str, act: str) -> None:
+    """Shared validation for a basis bound to the act that wrote its deadlines."""
+    for field_name in (
+        "basis_host_requested_at",
+        "basis_host_at",
+        "basis_broker_earliest_at",
+        "basis_broker_latest_at",
+        bound_field,
+    ):
+        _require_aware(getattr(evidence, field_name), field=field_name)
+    if getattr(evidence, "broker_endpoint_host") != PAPER_ENDPOINT_HOST:  # noqa: B009
+        raise ValueError(f"broker_endpoint_host must be exactly {PAPER_ENDPOINT_HOST}")
+    if getattr(evidence, bound_field) != getattr(evidence, "basis_host_at"):  # noqa: B009
+        raise ValueError(
+            f"the {act} did not happen at the instant this basis measured; a basis "
+            f"cannot be attached to a {act} after the fact"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProposalTimeBasis:
+    """The broker time basis measured WHEN ONE EXACT M084 PROPOSAL WAS EVALUATED.
+
+    WHY THIS ACT. MILESTONE-084 writes `expires_at` (evaluation + proposal expiry)
+    and `mandatory_liquidation_at` (the evaluation date's liquidation time) when it
+    evaluates the proposal, and copies both unchanged into the intent. They were
+    written under the host-to-broker offset of THAT moment, so only a basis measured
+    then may translate them. A basis measured at issuance or authorization is later
+    and maps them by whatever the host clock did in between -- reproduced at `73a2f96`
+    with an hour of drift and a dispatch that reached the broker.
+
+    WHAT BINDS IT. `proposal_created_at` must EQUAL `basis_host_at`: the Paper-bound
+    proposal command measures the basis first and hands that reading to M084's own
+    handler as `evaluated_at`, which M084 stores as `created_at`. The fingerprint,
+    version and both deadlines are copied, compared on every use, and compared again
+    by the database against the stored proposal row.
+    """
+
+    proposal_governance_id: str
+    proposal_version: int
+    content_fingerprint: str
+    proposal_created_at: datetime
+    proposal_expires_at: datetime
+    mandatory_liquidation_at: datetime
+    broker_endpoint_host: str
+    basis_host_requested_at: datetime
+    basis_host_at: datetime
+    basis_broker_earliest_at: datetime
+    basis_broker_latest_at: datetime
+
+    def __post_init__(self) -> None:
+        _require_identifier(self.proposal_governance_id, field="proposal_governance_id")
+        if isinstance(self.proposal_version, bool) or not isinstance(self.proposal_version, int):
+            raise ValueError("proposal_version must be an int")
+        _require_digest(self.content_fingerprint, field="content_fingerprint")
+        _require_aware(self.proposal_expires_at, field="proposal_expires_at")
+        _require_aware(self.mandatory_liquidation_at, field="mandatory_liquidation_at")
+        _basis_fields_valid(self, bound_field="proposal_created_at", act="proposal evaluation")
+        if self.proposal_expires_at <= self.proposal_created_at:
+            raise ValueError("proposal_expires_at must follow proposal_created_at")
+        _ = self.time_basis
+
+    @property
+    def time_basis(self) -> BrokerTimeBasis:
+        return BrokerTimeBasis(
+            host_requested_at=self.basis_host_requested_at,
+            host_at=self.basis_host_at,
+            broker_earliest_at=self.basis_broker_earliest_at,
+            broker_latest_at=self.basis_broker_latest_at,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DecisionTimeBasis:
+    """The broker time basis measured WHEN A HUMAN APPROVED ONE EXACT PROPOSAL.
+
+    WHY THIS ACT. MILESTONE-084 writes the approval's `expires_at` as `decided_at`
+    plus the approval expiry, on the host clock of the decision. Only a basis
+    measured then may translate it. The approval expiry is not a bound on host
+    clock movement between evaluation and issuance: it was written on the same
+    host timeline it would have to bound.
+
+    WHAT BINDS IT. `decided_at` must EQUAL `basis_host_at`, and the proposal
+    identity, version, approved fingerprint and expiry are copied and compared --
+    by the domain on every use and by the database against the stored approval.
+    Only an APPROVE decision carries an expiry, so only an approval has one.
+    """
+
+    decision_governance_id: str
+    proposal_governance_id: str
+    proposal_version: int
+    approved_fingerprint: str
+    decided_at: datetime
+    decision_expires_at: datetime
+    broker_endpoint_host: str
+    basis_host_requested_at: datetime
+    basis_host_at: datetime
+    basis_broker_earliest_at: datetime
+    basis_broker_latest_at: datetime
+
+    def __post_init__(self) -> None:
+        _require_identifier(self.decision_governance_id, field="decision_governance_id")
+        _require_identifier(self.proposal_governance_id, field="proposal_governance_id")
+        if isinstance(self.proposal_version, bool) or not isinstance(self.proposal_version, int):
+            raise ValueError("proposal_version must be an int")
+        _require_digest(self.approved_fingerprint, field="approved_fingerprint")
+        _require_aware(self.decision_expires_at, field="decision_expires_at")
+        _basis_fields_valid(self, bound_field="decided_at", act="decision")
+        if self.decision_expires_at <= self.decided_at:
+            raise ValueError("decision_expires_at must follow decided_at")
+        _ = self.time_basis
+
+    @property
+    def time_basis(self) -> BrokerTimeBasis:
+        return BrokerTimeBasis(
+            host_requested_at=self.basis_host_requested_at,
+            host_at=self.basis_host_at,
+            broker_earliest_at=self.basis_broker_earliest_at,
+            broker_latest_at=self.basis_broker_latest_at,
+        )
+
+
+def bind_proposal_time_basis(
+    *, proposal: TradeProposal, time_basis: BrokerTimeBasis, broker_endpoint_host: str
+) -> ProposalTimeBasis:
+    """Record the basis measured for evaluating `proposal`. Refuses any other proposal."""
+    if not isinstance(proposal, TradeProposal):
+        raise ValueError("proposal must be a TradeProposal")
+    return ProposalTimeBasis(
+        proposal_governance_id=proposal.proposal_governance_id,
+        proposal_version=proposal.proposal_version,
+        content_fingerprint=proposal.content_fingerprint,
+        proposal_created_at=proposal.created_at,
+        proposal_expires_at=proposal.expires_at,
+        mandatory_liquidation_at=proposal.mandatory_liquidation_at,
+        broker_endpoint_host=broker_endpoint_host,
+        basis_host_requested_at=time_basis.host_requested_at,
+        basis_host_at=time_basis.host_at,
+        basis_broker_earliest_at=time_basis.broker_earliest_at,
+        basis_broker_latest_at=time_basis.broker_latest_at,
+    )
+
+
+def bind_decision_time_basis(
+    *, decision: ApprovalDecision, time_basis: BrokerTimeBasis, broker_endpoint_host: str
+) -> DecisionTimeBasis:
+    """Record the basis measured for one APPROVAL. Refuses a rejection or cancellation."""
+    if not isinstance(decision, ApprovalDecision):
+        raise ValueError("decision must be an ApprovalDecision")
+    if decision.action is not OperatorAction.APPROVE or decision.expires_at is None:
+        raise ValueError("only an approval carries an expiry, so only an approval has a basis")
+    return DecisionTimeBasis(
+        decision_governance_id=decision.decision_governance_id,
+        proposal_governance_id=decision.proposal_governance_id,
+        proposal_version=decision.proposal_version,
+        approved_fingerprint=decision.approved_fingerprint,
+        decided_at=decision.decided_at,
+        decision_expires_at=decision.expires_at,
+        broker_endpoint_host=broker_endpoint_host,
+        basis_host_requested_at=time_basis.host_requested_at,
+        basis_host_at=time_basis.host_at,
+        basis_broker_earliest_at=time_basis.broker_earliest_at,
+        basis_broker_latest_at=time_basis.broker_latest_at,
+    )
+
+
+def _mismatch(kind: str, pairs: tuple[tuple[str, object, object], ...]) -> str | None:
+    mismatched = [label for label, stored, recorded in pairs if stored != recorded]
+    if not mismatched:
+        return None
+    return (
+        f"the {kind} broker basis does not describe this exact record ("
+        + ", ".join(mismatched)
+        + "); it cannot be used, and the intent is not dispatchable"
+    )
+
+
+def proposal_time_basis_refusal(
+    *,
+    proposal_governance_id: str,
+    proposal_version: int,
+    fingerprint: str,
+    expires_at: datetime,
+    mandatory_liquidation_at: datetime,
+    evidence: ProposalTimeBasis | None,
+) -> str | None:
+    """Why `evidence` cannot translate this proposal's deadlines."""
+    if evidence is None:
+        return NO_PROPOSAL_TIME_BASIS
+    return _mismatch(
+        "proposal-time",
+        (
+            ("proposal_governance_id", proposal_governance_id, evidence.proposal_governance_id),
+            ("proposal_version", proposal_version, evidence.proposal_version),
+            ("fingerprint", fingerprint, evidence.content_fingerprint),
+            ("expires_at", expires_at, evidence.proposal_expires_at),
+            (
+                "mandatory_liquidation_at",
+                mandatory_liquidation_at,
+                evidence.mandatory_liquidation_at,
+            ),
+        ),
+    )
+
+
+def decision_time_basis_refusal(
+    *,
+    decision_governance_id: str,
+    proposal_governance_id: str,
+    proposal_version: int,
+    approved_fingerprint: str,
+    evidence: DecisionTimeBasis | None,
+) -> str | None:
+    """Why `evidence` cannot translate this approval's expiry."""
+    if evidence is None:
+        return NO_DECISION_TIME_BASIS
+    return _mismatch(
+        "decision-time",
+        (
+            ("decision_governance_id", decision_governance_id, evidence.decision_governance_id),
+            ("proposal_governance_id", proposal_governance_id, evidence.proposal_governance_id),
+            ("proposal_version", proposal_version, evidence.proposal_version),
+            ("approved_fingerprint", approved_fingerprint, evidence.approved_fingerprint),
+        ),
+    )
+
+
+def _broker_interval(basis: BrokerTimeBasis) -> BoundedInstant:
+    return BoundedInstant(earliest=basis.broker_earliest_at, latest=basis.broker_latest_at)
+
+
+def act_chronology_refusal(
+    *,
+    proposal: ProposalTimeBasis,
+    decision: DecisionTimeBasis,
+    issued: BrokerTimeBasis,
+) -> str | None:
+    """Did each later act happen, on the broker's clock, before the deadlines it relied on?
+
+    Every deadline is placed on the broker timeline ONLY through the basis of the
+    act that wrote it, and every act through its own measured broker interval. An
+    act whose interval might reach a deadline counts as after it. Nothing earlier
+    is translated through a later basis anywhere here.
+    """
+    proposal_basis = proposal.time_basis
+    decision_basis = decision.time_basis
+    proposal_expiry = proposal_basis.on_broker_timeline(proposal.proposal_expires_at)
+    if _broker_interval(decision_basis).possibly_at_or_after(proposal_expiry):
+        return "the approval was recorded after the proposal had expired on the broker's clock"
+    issued_interval = _broker_interval(issued)
+    for deadline, label in (
+        (
+            proposal_expiry,
+            "the proposal had expired on the broker's clock when the intent was issued",
+        ),
+        (
+            proposal_basis.on_broker_timeline(proposal.mandatory_liquidation_at),
+            "the mandatory liquidation deadline had passed on the broker's clock when the "
+            "intent was issued",
+        ),
+        (
+            decision_basis.on_broker_timeline(decision.decision_expires_at),
+            "the approval had expired on the broker's clock when the intent was issued",
+        ),
+    ):
+        if issued_interval.possibly_at_or_after(deadline):
+            return label
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class M084TimeProvenance:
+    """The three bases behind one intent: one per act that wrote or relied on a deadline."""
+
+    proposal: ProposalTimeBasis | None
+    decision: DecisionTimeBasis | None
+    intent: IntentTimeBasis | None
+
+
+def m084_provenance_refusal(
+    *, intent: ApprovedOrderIntent, provenance: M084TimeProvenance
+) -> str | None:
+    """Why this intent's recorded provenance cannot support a dispatch.
+
+    Missing evidence for ANY of the three acts refuses; evidence describing a
+    different record refuses; and the recorded chronology must show the approval
+    before the proposal expired and the issuance before the proposal, liquidation
+    and approval deadlines -- each deadline through its own basis.
+    """
+    for refusal in (
+        proposal_time_basis_refusal(
+            proposal_governance_id=intent.proposal_governance_id,
+            proposal_version=intent.proposal_version,
+            fingerprint=intent.approved_fingerprint,
+            expires_at=intent.expires_at,
+            mandatory_liquidation_at=intent.mandatory_liquidation_at,
+            evidence=provenance.proposal,
+        ),
+        decision_time_basis_refusal(
+            decision_governance_id=intent.decision_governance_id,
+            proposal_governance_id=intent.proposal_governance_id,
+            proposal_version=intent.proposal_version,
+            approved_fingerprint=intent.approved_fingerprint,
+            evidence=provenance.decision,
+        ),
+        intent_time_basis_refusal(intent=intent, evidence=provenance.intent),
+    ):
+        if refusal is not None:
+            return refusal
+    if provenance.proposal is None or provenance.decision is None or provenance.intent is None:
+        # Unreachable while the rules above stand. It falls through rather than
+        # raising so that removing one of them is observable as a dispatch.
+        return None
+    return act_chronology_refusal(
+        proposal=provenance.proposal,
+        decision=provenance.decision,
+        issued=provenance.intent.time_basis,
+    )
+
+
 def m084_deadline_refusal_on_broker_time(
     *,
     intent: ApprovedOrderIntent,
-    evidence: IntentTimeBasis | None,
+    provenance: M084TimeProvenance,
     broker_now: BoundedInstant,
 ) -> str | None:
-    """MILESTONE-084's two deadlines, on the broker's clock, through THEIR OWN basis.
+    """MILESTONE-084's two intent deadlines, on the broker's clock, through THEIR OWN basis.
 
-    Takes no authorization, on purpose: the authorization's basis was measured in
-    a different act, and the only basis that may translate these deadlines is the
-    one measured when the intent was issued.
+    The intent's `expires_at` and `mandatory_liquidation_at` are the proposal's,
+    copied unchanged, so they are translated only through the PROPOSAL-time basis.
+    SUPERSEDED: until `e61b3f9a4c27` they were translated through the intent-time
+    basis, measured later at issuance -- which let an hour of host drift between
+    evaluation and issuance extend both. No authorization or issuance basis is
+    consulted for them here.
     """
-    refusal = intent_time_basis_refusal(intent=intent, evidence=evidence)
+    refusal = m084_provenance_refusal(intent=intent, provenance=provenance)
     if refusal is not None:
         return refusal
-    if evidence is None:
-        # Unreachable while the rule above stands. It falls through rather than
-        # raising so that removing that rule is observable as a dispatch.
+    if provenance.proposal is None:
         return None
+    proposal_basis = provenance.proposal.time_basis
     for deadline, label in (
         (intent.expires_at, "the approved intent has expired on the broker's clock"),
         (
@@ -921,7 +1279,7 @@ def m084_deadline_refusal_on_broker_time(
             "the mandatory liquidation deadline has passed on the broker's clock",
         ),
     ):
-        if broker_now.possibly_at_or_after(evidence.time_basis.on_broker_timeline(deadline)):
+        if broker_now.possibly_at_or_after(proposal_basis.on_broker_timeline(deadline)):
             return label
     return None
 
@@ -1054,13 +1412,14 @@ def build_submission_preview(
     execution_kill_switch_engaged: bool,
     created_at: datetime,
     broker_now: BoundedInstant,
-    intent_time_basis: IntentTimeBasis | None,
+    m084_provenance: M084TimeProvenance,
 ) -> SubmissionPreview:
     """Freeze exactly what a human will be shown, refusals included.
 
-    `intent_time_basis` is REQUIRED as an argument and may be None only so that its
-    absence becomes a stated refusal. An intent issued without one cannot be
-    authorized, because its deadlines cannot be placed on the broker's clock.
+    `m084_provenance` is REQUIRED: the bases recorded when the proposal was
+    evaluated, approved and issued. A missing or mismatched one becomes a stated
+    refusal, because the M084 deadlines cannot then be placed on the broker's clock.
+    SUPERSEDED: until `e61b3f9a4c27` this took only the intent-time basis.
 
     Every refusal is COLLECTED rather than raised, so that an operator sees all
     of the reasons at once instead of fixing them one round-trip at a time. A
@@ -1135,11 +1494,11 @@ def build_submission_preview(
         refusals.append("the approved intent has expired")
     if intent.mandatory_liquidation_at <= created_at:
         refusals.append("the mandatory liquidation deadline has already passed")
-    # BROKER TIMELINE, THROUGH THE INTENT'S OWN BASIS. The same two deadlines, placed
-    # on the broker's clock with the basis measured when the intent was issued --
-    # never with an authorization's, which was measured in a different act.
+    # BROKER TIMELINE, THROUGH THE BASIS OF THE ACT THAT WROTE THEM. The same two
+    # deadlines, placed on the broker's clock with the basis measured when the
+    # proposal was evaluated -- never with a later issuance or authorization basis.
     broker_deadline_refusal = m084_deadline_refusal_on_broker_time(
-        intent=intent, evidence=intent_time_basis, broker_now=broker_now
+        intent=intent, provenance=m084_provenance, broker_now=broker_now
     )
     if broker_deadline_refusal is not None:
         refusals.append(broker_deadline_refusal)

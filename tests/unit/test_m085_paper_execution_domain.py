@@ -13,10 +13,12 @@ rule rather than an environment.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from tests.unit._m085_fakes import a_provenance
 
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
@@ -26,14 +28,16 @@ from empirical_platform.decision_candidate.paper_execution import (
     MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
     NO_AUTHORIZATION_TIME_BASIS,
+    NO_DECISION_TIME_BASIS,
     NO_INTENT_TIME_BASIS,
+    NO_PROPOSAL_TIME_BASIS,
     NOT_FOUND_ALONE_RESOLVES_UNKNOWN,
     PAPER_ENDPOINT_HOST,
     RECONCILIATION_UNKNOWN_POLICY,
     TERMINAL_PAPER_STATES,
     ExecutionAttempt,
     ExecutionAuthorization,
-    IntentTimeBasis,
+    M084TimeProvenance,
     PaperAccountSnapshot,
     PaperEnvironment,
     PaperExecutionState,
@@ -44,6 +48,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     derive_client_order_id,
     is_paper_transition_allowed,
     m084_deadline_refusal_on_broker_time,
+    m084_provenance_refusal,
     request_fingerprint,
 )
 from empirical_platform.decision_candidate.trade_approval import (
@@ -69,14 +74,6 @@ def _basis(
         host_at=at,
         broker_earliest_at=at + broker_offset - round_trip,
         broker_latest_at=at + broker_offset,
-    )
-
-
-def _evidence(intent: ApprovedOrderIntent, **basis: timedelta) -> IntentTimeBasis:
-    return bind_intent_time_basis(
-        intent=intent,
-        time_basis=_basis(intent.created_at, **basis),
-        broker_endpoint_host=PAPER_ENDPOINT_HOST,
     )
 
 
@@ -158,8 +155,8 @@ def a_preview(**overrides: object):  # noqa: ANN201 - returns SubmissionPreview
         "broker_now": BoundedInstant(earliest=_NOW, latest=_NOW),
     }
     arguments.update(overrides)
-    if "intent_time_basis" not in overrides:
-        arguments["intent_time_basis"] = _evidence(arguments["intent"])  # type: ignore[arg-type]
+    if "m084_provenance" not in overrides:
+        arguments["m084_provenance"] = a_provenance(arguments["intent"])  # type: ignore[arg-type]
     return build_submission_preview(**arguments)  # type: ignore[arg-type]
 
 
@@ -824,10 +821,41 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
                 broker_endpoint_host="api.alpaca.markets",
             )
 
-    def test_missing_intent_evidence_refuses_the_preview(self) -> None:
-        preview = a_preview(intent_time_basis=None)
-        assert NO_INTENT_TIME_BASIS in preview.refusals
+    @pytest.mark.parametrize(
+        ("missing", "refusal"),
+        [
+            ("proposal", NO_PROPOSAL_TIME_BASIS),
+            ("decision", NO_DECISION_TIME_BASIS),
+            ("intent", NO_INTENT_TIME_BASIS),
+        ],
+    )
+    def test_missing_evidence_for_any_act_refuses_the_preview(
+        self, missing: str, refusal: str
+    ) -> None:
+        # Each deadline needs the basis of the act that wrote it; none is borrowed.
+        provenance = replace(a_provenance(an_intent()), **{missing: None})
+        preview = a_preview(m084_provenance=provenance)
+        assert refusal in preview.refusals
         assert preview.is_authorizable is False
+
+    def test_proposal_evidence_describing_another_proposal_refuses_the_preview(self) -> None:
+        base = a_provenance(an_intent())
+        other = a_provenance(an_intent(expires_at=_NOW + timedelta(hours=2)))
+        preview = a_preview(m084_provenance=replace(base, proposal=other.proposal))
+        assert any(
+            "proposal-time broker basis does not describe this exact record (expires_at)" in r
+            for r in preview.refusals
+        ), preview.refusals
+
+    def test_decision_evidence_describing_another_approval_refuses_the_preview(self) -> None:
+        base = a_provenance(an_intent())
+        other = a_provenance(an_intent(decision_governance_id="DEC-2"))
+        preview = a_preview(m084_provenance=replace(base, decision=other.decision))
+        assert any(
+            "decision-time broker basis does not describe this exact record "
+            "(decision_governance_id)" in r
+            for r in preview.refusals
+        ), preview.refusals
 
     @pytest.mark.parametrize(
         ("change", "field"),
@@ -842,23 +870,26 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
     def test_evidence_for_a_different_intent_refuses_the_preview(
         self, change: dict[str, object], field: str
     ) -> None:
-        preview = a_preview(intent_time_basis=_evidence(an_intent(**change)))
+        base = a_provenance(an_intent())
+        other = a_provenance(an_intent(**change))
+        preview = a_preview(m084_provenance=replace(base, intent=other.intent))
         assert preview.is_authorizable is False
         assert any(
             "does not describe this exact intent" in reason and f"({field})" in reason
             for reason in preview.refusals
         ), preview.refusals
 
-    def test_the_intent_deadline_is_mapped_through_the_intent_basis(self) -> None:
-        # Issued while the host clock ran an hour BEHIND the broker, so the stored
-        # host expiry (_NOW+1h) is _NOW+2h on the broker's clock.
+    def test_the_intent_deadline_is_mapped_through_the_proposal_basis(self) -> None:
+        # The proposal that wrote the deadline was evaluated while the host clock ran
+        # an hour BEHIND the broker, so the stored host expiry (_NOW+1h) is _NOW+2h on
+        # the broker's clock -- whatever the issuance basis says.
         intent = an_intent()
-        evidence = _evidence(intent, broker_offset=timedelta(hours=1))
+        provenance = a_provenance(intent, proposal_offset=timedelta(hours=1))
         just_before = _NOW + timedelta(hours=2) - timedelta(seconds=1)
         assert (
             m084_deadline_refusal_on_broker_time(
                 intent=intent,
-                evidence=evidence,
+                provenance=provenance,
                 broker_now=BoundedInstant(earliest=just_before, latest=just_before),
             )
             is None
@@ -866,7 +897,7 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
         at_it = _NOW + timedelta(hours=2)
         refusal = m084_deadline_refusal_on_broker_time(
             intent=intent,
-            evidence=evidence,
+            provenance=provenance,
             broker_now=BoundedInstant(earliest=at_it, latest=at_it),
         )
         assert refusal == "the approved intent has expired on the broker's clock"
@@ -876,25 +907,75 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
         at_liquidation = intent.mandatory_liquidation_at
         refusal = m084_deadline_refusal_on_broker_time(
             intent=intent,
-            evidence=_evidence(intent),
+            provenance=a_provenance(intent),
             broker_now=BoundedInstant(earliest=at_liquidation, latest=at_liquidation),
         )
         assert refusal == "the mandatory liquidation deadline has passed on the broker's clock"
 
     def test_missing_evidence_is_a_refusal_not_a_skipped_check(self) -> None:
         refusal = m084_deadline_refusal_on_broker_time(
-            intent=an_intent(), evidence=None, broker_now=BoundedInstant(earliest=_NOW, latest=_NOW)
+            intent=an_intent(),
+            provenance=M084TimeProvenance(proposal=None, decision=None, intent=None),
+            broker_now=BoundedInstant(earliest=_NOW, latest=_NOW),
         )
-        assert refusal == NO_INTENT_TIME_BASIS
+        assert refusal == NO_PROPOSAL_TIME_BASIS
+
+    def test_an_issuance_basis_cannot_rescue_deadlines_written_at_evaluation(self) -> None:
+        # THE INDEPENDENT REVIEW'S CASE, IN MINIATURE. The proposal and approval were
+        # recorded with host and broker agreeing; the proposal expires 5 minutes later.
+        # The intent was issued an hour of REAL time later while the host clock read
+        # barely a minute on -- the issuance basis measured a 59-minute offset.
+        intent = an_intent(
+            created_at=_NOW + timedelta(minutes=1),
+            expires_at=_NOW + timedelta(minutes=5),
+            mandatory_liquidation_at=_NOW + timedelta(minutes=10),
+        )
+        provenance = a_provenance(intent, intent_offset=timedelta(minutes=59))
+        at_the_broker = _NOW + timedelta(hours=1)
+        assert provenance.intent is not None
+        # The replaced design mapped the deadline through the issuance basis and got
+        # _NOW+64m -- still in the future at _NOW+60m. That is the defect.
+        assert provenance.intent.time_basis.on_broker_timeline(intent.expires_at) > at_the_broker
+        refusal = m084_deadline_refusal_on_broker_time(
+            intent=intent,
+            provenance=provenance,
+            broker_now=BoundedInstant(earliest=at_the_broker, latest=at_the_broker),
+        )
+        assert (
+            refusal == "the proposal had expired on the broker's clock when the intent was issued"
+        )
+
+    def test_an_approval_that_expired_before_issuance_is_refused(self) -> None:
+        # The approval lasts an hour from its decision; the issuance happened two hours
+        # of broker time after it, while the proposal itself was still current.
+        intent = an_intent(
+            expires_at=_NOW + timedelta(hours=5),
+            mandatory_liquidation_at=_NOW + timedelta(hours=6),
+        )
+        refusal = m084_provenance_refusal(
+            intent=intent, provenance=a_provenance(intent, intent_offset=timedelta(hours=2))
+        )
+        assert (
+            refusal == "the approval had expired on the broker's clock when the intent was issued"
+        )
+
+    def test_an_approval_recorded_after_the_proposal_expired_is_refused(self) -> None:
+        intent = an_intent(expires_at=_NOW + timedelta(seconds=30))
+        refusal = m084_provenance_refusal(
+            intent=intent, provenance=a_provenance(intent, decision_offset=timedelta(minutes=2))
+        )
+        assert refusal == (
+            "the approval was recorded after the proposal had expired on the broker's clock"
+        )
 
     def test_authorization_expiry_and_intent_deadlines_do_not_borrow_each_others_basis(
         self,
     ) -> None:
-        # The intent was issued with this host an hour behind the broker; the human
+        # The proposal was evaluated with this host an hour behind the broker; the human
         # authorized with this host correct. Each basis decides only its own question.
         intent = an_intent()
-        evidence = _evidence(intent, broker_offset=timedelta(hours=1))
-        preview = a_preview(intent=intent, intent_time_basis=evidence)
+        provenance = a_provenance(intent, proposal_offset=timedelta(hours=1))
+        preview = a_preview(intent=intent, m084_provenance=provenance)
         authorization = authorize_submission(
             authorization_id="AUT-1",
             preview=preview,
@@ -911,7 +992,7 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
         # borrowed answer this design refuses to use.
         assert (
             m084_deadline_refusal_on_broker_time(
-                intent=intent, evidence=evidence, broker_now=ninety_minutes
+                intent=intent, provenance=provenance, broker_now=ninety_minutes
             )
             is None
         )

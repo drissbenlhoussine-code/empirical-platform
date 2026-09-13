@@ -104,6 +104,14 @@ _PROVES: dict[str, str] = {
         "an audit record, and that a credential echoed back by a peer is scrubbed out "
         "of the stored response body"
     ),
+    "each_m084_deadline_is_translated_only_through_the_basis_of_the_act_that_wrote_it": (
+        "that each MILESTONE-084 deadline is placed on the broker's clock ONLY "
+        "through the broker time basis measured in the act that wrote it -- the "
+        "proposal's expiry and liquidation deadline through the evaluation's, the "
+        "approval's expiry through the decision's -- and never through a basis "
+        "measured later, so host clock drift between evaluation, approval, issuance "
+        "and dispatch cannot extend any of them"
+    ),
 }
 
 _DOES_NOT_PROVE: dict[str, str] = {
@@ -223,6 +231,17 @@ _ENFORCEMENT: dict[str, str] = {
         "A stored broker response body is bounded, so a hostile peer cannot grow the "
         "audit table without limit"
     ),
+    "time_basis_evidence_describes_the_exact_proposal_approval_or_intent_by_trigger": (
+        "Time-basis evidence naming a proposal, approval or intent that does not "
+        "exist, or describing different deadlines than the stored record, is refused"
+    ),
+    "time_basis_evidence_is_bound_to_the_instant_of_its_own_act_by_check_constraint": (
+        "Time-basis evidence whose host reading is not the instant of the act it "
+        "describes -- evaluation, decision or issuance -- cannot be stored"
+    ),
+    "time_basis_evidence_is_append_only_and_never_backfilled": (
+        "Time-basis evidence refuses UPDATE and DELETE, and no migration writes any"
+    ),
 }
 
 _LIMITATIONS: dict[str, str] = {
@@ -275,6 +294,18 @@ _LIMITATIONS: dict[str, str] = {
         "accounts are distinguishable from each other but no account is identifiable "
         "from the stored value -- which is the intent, and also a limit on what an "
         "auditor can do with it alone."
+    ),
+    "an_m084_only_proposal_approval_or_intent_has_no_time_basis_and_is_never_dispatchable": (
+        "A proposal, approval or intent created through MILESTONE-084 alone has no "
+        "broker time basis, because none can be measured for an instant that has "
+        "passed. It is refused for Paper at approval, issuance, preview and dispatch, "
+        "and it is never backfilled."
+    ),
+    "a_writer_with_insert_privilege_can_store_correctly_shaped_evidence_nobody_measured": (
+        "The database checks that time-basis evidence describes the exact record and "
+        "the instant of its act. It cannot check that the broker clock was actually "
+        "read: a writer with INSERT privilege can store correctly shaped evidence "
+        "that nobody measured."
     ),
 }
 

@@ -138,15 +138,16 @@ def build_m084_chain(log: Log) -> object:
         SessionSnapshot,
         TradingCostEstimate,
     )
-    from empirical_platform.decision_candidate.trade_approval import (
-        OperatorAction,
-        record_operator_decision,
+    from empirical_platform.decision_candidate.trade_approval import OperatorAction
+    from empirical_platform.entrypoints._paper_composition import paper_execution_runtime
+    from empirical_platform.usecases.paper_execution import (
+        DecidePaperBoundTradeProposalCommand,
+        DecidePaperBoundTradeProposalHandler,
+        IssuePaperBoundOrderIntentCommand,
+        IssuePaperBoundOrderIntentHandler,
+        PreparePaperBoundTradeProposalCommand,
+        PreparePaperBoundTradeProposalHandler,
     )
-    from empirical_platform.decision_candidate.trade_proposal import (
-        ProposalStatus,
-        evaluate_trade_proposal,
-    )
-    from empirical_platform.entrypoints._composition import postgres_repository_runtime
 
     evaluated_at = datetime.now(UTC)
     configuration = OperatorTradingConfiguration(
@@ -194,7 +195,13 @@ def build_m084_chain(log: Log) -> object:
         kill_switch=KillSwitchState.DISENGAGED,
     )
 
-    with postgres_repository_runtime() as m084:
+    # Every act that WRITES a deadline or relies on one goes through its Paper-bound
+    # command, which measures the broker time basis IN that act: evaluation, the
+    # human decision and issuance. SUPERSEDED: this harness used to evaluate and
+    # approve through M084 directly and only issue through the Paper-bound command;
+    # a proposal or approval recorded that way has no basis and cannot be issued.
+    with paper_execution_runtime() as paper_context:
+        m084 = paper_context.m084
         m084.operator_trading_configurations.save(configuration)
         watermark = m084.evaluation_evidence_watermarks.capture(
             watermark_governance_id=_IDS["watermark"]
@@ -213,112 +220,117 @@ def build_m084_chain(log: Log) -> object:
         )
         m084.evaluation_contexts.save(context)
 
-        outcome = evaluate_trade_proposal(
-            configuration=configuration,
-            evaluation_context_id=context.evaluation_context_id,
-            proposal_governance_id=_IDS["proposal"],
-            evaluated_at=evaluated_at,
-            symbol=APPROVED_SYMBOL,
-            # THE SAFETY INPUT. Not a market observation -- see the module
-            # docstring. It exists to derive a limit price far below the market.
-            quote=QuoteSnapshot(
-                quote_id="QTE-085-ACCEPT",
-                provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
+        prepared = PreparePaperBoundTradeProposalHandler(
+            configurations=m084.operator_trading_configurations,
+            contexts=m084.evaluation_contexts,
+            proposals=m084.trade_proposals,
+            time_bases=paper_context.paper.time_bases,
+            broker=paper_context.broker,
+            time_source=paper_context.time_source,
+        ).handle(
+            PreparePaperBoundTradeProposalCommand(
+                proposal_governance_id=_IDS["proposal"],
+                evaluation_context_id=context.evaluation_context_id,
                 symbol=APPROVED_SYMBOL,
-                bid=ACCEPTANCE_LIMIT_PRICE - Decimal("0.05"),
-                ask=ACCEPTANCE_LIMIT_PRICE,
-                last_trade=ACCEPTANCE_LIMIT_PRICE,
-                observed_at=evaluated_at - timedelta(seconds=5),
-                feed_kind=DataFeedKind.REAL_TIME,
-            ),
-            account=AccountSnapshot(
-                account_snapshot_id="ACC-085-ACCEPT",
-                provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
-                account_reference="PAPER-ACCEPTANCE",
-                base_currency="USD",
-                cash_available=Decimal("5000"),
-                equity_total=Decimal("10000"),
-                realized_pnl_today=Decimal("0"),
-                orders_submitted_today=0,
-                observed_at=evaluated_at - timedelta(seconds=5),
-            ),
-            session=SessionSnapshot(
-                session_id="SES-085-ACCEPT",
-                provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
-                market="XNAS",
-                status=MarketStatus.OPEN,
-                observed_at=evaluated_at - timedelta(seconds=5),
-            ),
-            instrument=InstrumentMetadata(
-                symbol=APPROVED_SYMBOL,
-                market="XNAS",
-                currency="USD",
-                is_fractionable=False,
-                lot_size=1,
-            ),
-            liquidity=LiquiditySnapshot(
-                symbol=APPROVED_SYMBOL,
-                average_daily_volume_shares=50_000_000,
-                observed_at=evaluated_at - timedelta(seconds=5),
-            ),
-            cost_estimate=TradingCostEstimate(
-                estimate_id="CST-085-ACCEPT",
-                provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
-                symbol=APPROVED_SYMBOL,
-                commission=Decimal("0.00"),
-                estimated_slippage_percent=Decimal("0.1"),
-                observed_at=evaluated_at - timedelta(seconds=5),
-            ),
-            positions=(),
-            open_orders=(),
-            evidence_age_seconds=Decimal("60"),
+                # THE SAFETY INPUT. Not a market observation -- see the module
+                # docstring. It exists to derive a limit price far below the market.
+                quote=QuoteSnapshot(
+                    quote_id="QTE-085-ACCEPT",
+                    provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
+                    symbol=APPROVED_SYMBOL,
+                    bid=ACCEPTANCE_LIMIT_PRICE - Decimal("0.05"),
+                    ask=ACCEPTANCE_LIMIT_PRICE,
+                    last_trade=ACCEPTANCE_LIMIT_PRICE,
+                    observed_at=evaluated_at - timedelta(seconds=5),
+                    feed_kind=DataFeedKind.REAL_TIME,
+                ),
+                account=AccountSnapshot(
+                    account_snapshot_id="ACC-085-ACCEPT",
+                    provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
+                    account_reference="PAPER-ACCEPTANCE",
+                    base_currency="USD",
+                    cash_available=Decimal("5000"),
+                    equity_total=Decimal("10000"),
+                    realized_pnl_today=Decimal("0"),
+                    orders_submitted_today=0,
+                    observed_at=evaluated_at - timedelta(seconds=5),
+                ),
+                session=SessionSnapshot(
+                    session_id="SES-085-ACCEPT",
+                    provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
+                    market="XNAS",
+                    status=MarketStatus.OPEN,
+                    observed_at=evaluated_at - timedelta(seconds=5),
+                ),
+                instrument=InstrumentMetadata(
+                    symbol=APPROVED_SYMBOL,
+                    market="XNAS",
+                    currency="USD",
+                    is_fractionable=False,
+                    lot_size=1,
+                ),
+                liquidity=LiquiditySnapshot(
+                    symbol=APPROVED_SYMBOL,
+                    average_daily_volume_shares=50_000_000,
+                    observed_at=evaluated_at - timedelta(seconds=5),
+                ),
+                cost_estimate=TradingCostEstimate(
+                    estimate_id="CST-085-ACCEPT",
+                    provider_id="OPERATOR-ASSERTED-SAFETY-INPUT",
+                    symbol=APPROVED_SYMBOL,
+                    commission=Decimal("0.00"),
+                    estimated_slippage_percent=Decimal("0.1"),
+                    observed_at=evaluated_at - timedelta(seconds=5),
+                ),
+                positions=(),
+                open_orders=(),
+                evidence_age_seconds=Decimal("60"),
+            )
         )
-        if outcome.proposal is None:
+        outcome = prepared.outcome
+        if outcome.proposal is None or prepared.time_basis is None:
             raise BlockedError(
                 f"MILESTONE-084 refused to propose: {outcome.no_trade_reason}. "
                 "No intent exists, so there is nothing for M085 to dispatch."
             )
-        proposal = m084.trade_proposals.save(outcome.proposal)
+        proposal = outcome.proposal
+        log.fact("proposal-time basis host reading", prepared.time_basis.time_basis.host_at)
         log.fact("M084 derived quantity", proposal.quantity)
         log.fact("M084 derived limit price", proposal.limit_price)
         log.fact("M084 proposal fingerprint", proposal.content_fingerprint)
 
-        decision = record_operator_decision(
-            proposal=proposal,
-            decision_governance_id="DEC-085-ACCEPT",
-            action=OperatorAction.APPROVE,
-            operator_identity="owner",
-            decided_at=datetime.now(UTC),
-            approval_expiry_seconds=configuration.approval_expiry_seconds,
-        )
-        m084.approval_decisions.record(decision)
-        approved = m084.trade_proposals.set_status(
-            proposal.proposal_governance_id, ProposalStatus.APPROVED
-        )
-        # Issued through the Paper-bound command, not `approved_order_intents.issue`
-        # directly: an intent without an intent-time broker basis is not
-        # dispatchable, and the basis can only be measured in the act of issuing.
-        from empirical_platform.entrypoints._paper_composition import paper_execution_runtime
-        from empirical_platform.usecases.paper_execution import (
-            IssuePaperBoundOrderIntentCommand,
-            IssuePaperBoundOrderIntentHandler,
-        )
-
-        with paper_execution_runtime() as paper_context:
-            issued = IssuePaperBoundOrderIntentHandler(
-                approval_decisions=paper_context.m084.approval_decisions,
-                intents=paper_context.m084.approved_order_intents,
-                proposals=paper_context.m084.trade_proposals,
-                intent_time_bases=paper_context.paper.intent_time_bases,
-                broker=paper_context.broker,
-                time_source=paper_context.time_source,
-            ).handle(
-                IssuePaperBoundOrderIntentCommand(
-                    intent_governance_id=_IDS["intent"],
-                    proposal_governance_id=approved.proposal_governance_id,
-                    idempotency_key="IDEM-085-ACCEPT",
-                )
+        # The human decision. No `decided_at` is supplied: the decision instant IS
+        # the host reading measured with the decision-time basis.
+        decided = DecidePaperBoundTradeProposalHandler(
+            configurations=m084.operator_trading_configurations,
+            decisions=m084.approval_decisions,
+            proposals=m084.trade_proposals,
+            time_bases=paper_context.paper.time_bases,
+            broker=paper_context.broker,
+            time_source=paper_context.time_source,
+        ).handle(
+            DecidePaperBoundTradeProposalCommand(
+                proposal_governance_id=proposal.proposal_governance_id,
+                decision_governance_id="DEC-085-ACCEPT",
+                action=OperatorAction.APPROVE,
+                operator_identity="owner",
             )
+        )
+        approved = decided.outcome.proposal
+        issued = IssuePaperBoundOrderIntentHandler(
+            approval_decisions=m084.approval_decisions,
+            intents=m084.approved_order_intents,
+            proposals=m084.trade_proposals,
+            time_bases=paper_context.paper.time_bases,
+            broker=paper_context.broker,
+            time_source=paper_context.time_source,
+        ).handle(
+            IssuePaperBoundOrderIntentCommand(
+                intent_governance_id=_IDS["intent"],
+                proposal_governance_id=approved.proposal_governance_id,
+                idempotency_key="IDEM-085-ACCEPT",
+            )
+        )
         stored = issued.intent
         log.fact("intent-time basis host reading", issued.time_basis.basis_host_at.isoformat())
         log.fact("M084 intent", stored.intent_governance_id)
@@ -438,7 +450,7 @@ def main(argv: list[str] | None = None) -> int:
         with paper_execution_runtime() as context:
             preview = PreviewPaperSubmissionHandler(
                 intents=context.m084.approved_order_intents,
-                intent_time_bases=context.paper.intent_time_bases,
+                time_bases=context.paper.time_bases,
                 snapshots=context.paper.paper_account_snapshots,
                 previews=context.paper.submission_previews,
                 events=context.paper.paper_execution_events,
@@ -504,7 +516,7 @@ def main(argv: list[str] | None = None) -> int:
         with paper_execution_runtime() as context:
             result = SubmitAuthorizedPaperOrderHandler(
                 intents=context.m084.approved_order_intents,
-                intent_time_bases=context.paper.intent_time_bases,
+                time_bases=context.paper.time_bases,
                 previews=context.paper.submission_previews,
                 authorizations=context.paper.execution_authorizations,
                 attempts=context.paper.execution_attempts,

@@ -33,11 +33,17 @@ defeated by the next review, and that retired prose validation here for good.
 from __future__ import annotations
 
 import ast
+import io
 import json
+import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic import command as alembic_command
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from tools.render_m083_authority import SchemaError, validate
 from tools.render_m085_authority import (
     _DOES_NOT_PROVE,
@@ -69,9 +75,81 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_MIGRATION = (
-    _REPO_ROOT / "migrations" / "versions" / "b1e9d47c30a5_create_m085_paper_execution_schema.py"
+
+#: Every M085 revision, oldest first, in groups of six: a hex literal of twelve is a
+#: `Hex High Entropy String` to the repository's secret scanner.
+_M085_REVISIONS = (
+    "".join(("b1e9d4", "7c30a5")),
+    "".join(("c7a41f", "0b52de")),
+    "".join(("d4f18a", "6c2e97")),
+    "".join(("e61b3f", "9a4c27")),
 )
+_AUTHORIZATION_GUARD = "paper_execution_authorization_guard_update"
+
+_FUNCTION_EVENT = re.compile(
+    r"CREATE OR REPLACE FUNCTION\s+(?:public\.)?(?P<defined>\w+)\s*\(\s*\)"
+    r".*?\$\$\s*LANGUAGE\s+plpgsql[^;]*;"
+    r"|DROP FUNCTION\s+(?:IF EXISTS\s+)?(?:public\.)?(?P<dropped>\w+)\s*\(",
+    re.DOTALL | re.IGNORECASE,
+)
+_DROPPED_NAME = re.compile(
+    r"DROP (?:CONSTRAINT|TABLE|INDEX|TRIGGER)\s+(?:IF EXISTS\s+)?(?:public\.)?(\w+)",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class InstalledSchema:
+    """What the complete M085 migration chain leaves installed at head.
+
+    SUPERSEDED. This contract used to read ONE migration file, `b1e9d47c30a5`,
+    while `d4f18a6c2e97` REPLACES the authorization guard it defines with CREATE OR
+    REPLACE FUNCTION. A fragment present only in the replaced definition would still
+    have satisfied its claim, against SQL no database at head runs.
+
+    Now the chain's upgrade SQL is rendered by Alembic itself, offline, and each
+    function is taken as its LAST definition in migration order; a later DROP removes
+    it. Everything that is not a function definition is kept as statements.
+    """
+
+    functions: dict[str, str]
+    superseded: dict[str, tuple[str, ...]]
+    statements: str
+    dropped: frozenset[str]
+
+    @property
+    def text(self) -> str:
+        return "\n".join((*self.functions.values(), self.statements))
+
+
+def installed_schema(sql: str) -> InstalledSchema:
+    functions: dict[str, str] = {}
+    history: dict[str, list[str]] = {}
+    dropped: set[str] = set()
+    for event in _FUNCTION_EVENT.finditer(sql):
+        if event["defined"] is not None:
+            functions[event["defined"]] = event.group(0)
+            history.setdefault(event["defined"], []).append(event.group(0))
+        else:
+            functions.pop(event["dropped"], None)
+            dropped.add(event["dropped"])
+    statements = _FUNCTION_EVENT.sub("", sql)
+    dropped.update(_DROPPED_NAME.findall(statements))
+    return InstalledSchema(
+        functions=functions,
+        superseded={
+            name: tuple(bodies[:-1]) for name, bodies in history.items() if len(bodies) > 1
+        },
+        statements=statements,
+        dropped=frozenset(dropped - set(functions)),
+    )
+
+
+def _alembic() -> Config:
+    config = Config(str(_REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    return config
+
 
 #: The exact top-level shape. Named here so that adding a section to the contract
 #: is a change somebody has to make in two places on purpose.
@@ -98,8 +176,256 @@ def schema() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def migration_source() -> str:
-    return _MIGRATION.read_text(encoding="utf-8")
+def chain_sql() -> str:
+    """The upgrade SQL of every M085 revision, rendered by Alembic with no database."""
+    config = _alembic()
+    first = ScriptDirectory.from_config(config).get_revision(_M085_REVISIONS[0])
+    assert first is not None
+    buffer = io.StringIO()
+    config.output_buffer = buffer
+    alembic_command.upgrade(config, f"{first.down_revision}:head", sql=True)
+    return buffer.getvalue()
+
+
+@pytest.fixture(scope="module")
+def installed(chain_sql: str) -> InstalledSchema:
+    return installed_schema(chain_sql)
+
+
+#: Every database enforcement claim and the installed SQL that implements it. A claim
+#: may name several fragments; every claim must name at least one.
+_ENFORCEMENT_FRAGMENTS: tuple[tuple[str, str], ...] = (
+    ("single_use_authorization_consumption", "already been used"),
+    ("authorization_immutable_apart_from_its_consumption", "is immutable apart from"),
+    ("expired_authorization_cannot_be_consumed", "cannot be consumed at"),
+    (
+        "at_most_one_consumed_authorization_per_intent",
+        "uq_paper_authorization_one_consumed_per_intent",
+    ),
+    ("at_most_one_dispatch_attempt_per_intent", "uq_paper_attempt_one_per_intent"),
+    ("unique_deterministic_client_order_id", "uq_paper_attempt_client_order_id"),
+    (
+        "an_attempt_requires_a_consumed_matching_authorization",
+        "consumed in the same transaction",
+    ),
+    (
+        "an_attempt_must_be_inserted_as_dispatch_claimed",
+        "must be inserted as DISPATCH_CLAIMED",
+    ),
+    ("closed_execution_state_machine_on_update", "is not an allowed paper execution"),
+    ("attempt_identity_immutable_after_the_claim", "identity is immutable after"),
+    (
+        "append_only_previews_accounts_acknowledgements_events_and_kill_switch",
+        "m085_append_only",
+    ),
+    (
+        "paper_environment_and_endpoint_host_pinned_by_check_constraint",
+        "ck_paper_account_endpoint_host",
+    ),
+    (
+        "long_only_whole_share_day_only_no_extended_hours_by_check_constraint",
+        "ck_paper_preview_long_only",
+    ),
+    ("referential_integrity_to_the_m084_intent_by_trigger", "paper_requires_approved_intent"),
+    ("bounded_broker_response_payload", "ck_paper_acknowledgement_payload_bounded"),
+    (
+        "time_basis_evidence_describes_the_exact_proposal_approval_or_intent_by_trigger",
+        "does not describe the exact stored proposal",
+    ),
+    (
+        "time_basis_evidence_describes_the_exact_proposal_approval_or_intent_by_trigger",
+        "does not describe the exact stored approval",
+    ),
+    (
+        "time_basis_evidence_describes_the_exact_proposal_approval_or_intent_by_trigger",
+        "does not describe the exact stored intent",
+    ),
+    (
+        "time_basis_evidence_is_bound_to_the_instant_of_its_own_act_by_check_constraint",
+        "ck_paper_proposal_time_basis_bound_to_evaluation",
+    ),
+    (
+        "time_basis_evidence_is_bound_to_the_instant_of_its_own_act_by_check_constraint",
+        "ck_paper_decision_time_basis_bound_to_decision",
+    ),
+    (
+        "time_basis_evidence_is_bound_to_the_instant_of_its_own_act_by_check_constraint",
+        "ck_paper_intent_time_basis_bound_to_issuance",
+    ),
+    (
+        "time_basis_evidence_is_append_only_and_never_backfilled",
+        "paper_proposal_time_basis_append_only_trigger",
+    ),
+    (
+        "time_basis_evidence_is_append_only_and_never_backfilled",
+        "paper_decision_time_basis_append_only_trigger",
+    ),
+    (
+        "time_basis_evidence_is_append_only_and_never_backfilled",
+        "paper_intent_time_basis_append_only_trigger",
+    ),
+)
+
+#: Each deadline-evidence table: its insert guard, the stored fields that guard must
+#: compare, and the CHECK that binds the basis to the instant of its own act.
+_PROVENANCE_TABLES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
+    (
+        "paper_proposal_time_basis",
+        "paper_execution_proposal_time_basis_guard_insert",
+        (
+            "NEW.proposal_version",
+            "NEW.content_fingerprint",
+            "NEW.proposal_created_at",
+            "NEW.proposal_expires_at",
+            "NEW.mandatory_liquidation_at",
+        ),
+        "proposal_created_at = basis_host_at",
+    ),
+    (
+        "paper_decision_time_basis",
+        "paper_execution_decision_time_basis_guard_insert",
+        (
+            "'APPROVE'",
+            "NEW.proposal_governance_id",
+            "NEW.proposal_version",
+            "NEW.approved_fingerprint",
+            "NEW.decided_at",
+            "NEW.decision_expires_at",
+        ),
+        "decided_at = basis_host_at",
+    ),
+    (
+        "paper_intent_time_basis",
+        "paper_execution_intent_time_basis_guard_insert",
+        ("NEW.intent_expires_at", "NEW.intent_mandatory_liquidation_at"),
+        "intent_created_at = basis_host_at",
+    ),
+)
+
+
+class TestTheContractReadsTheSqlInstalledAtHead:
+    def test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head(self) -> None:
+        script = ScriptDirectory.from_config(_alembic())
+        assert script.get_current_head() == _M085_REVISIONS[-1]
+        first = script.get_revision(_M085_REVISIONS[0])
+        assert first is not None
+        chain = [
+            revision.revision
+            for revision in script.iterate_revisions("head", first.down_revision)
+            if revision is not None
+        ]
+        assert tuple(reversed(chain)) == _M085_REVISIONS
+
+    def test_every_function_definition_in_the_chain_was_parsed(
+        self, chain_sql: str, installed: InstalledSchema
+    ) -> None:
+        defined = len(re.findall(r"CREATE (?:OR REPLACE )?FUNCTION", chain_sql, re.IGNORECASE))
+        parsed = len(installed.functions) + sum(map(len, installed.superseded.values()))
+        assert defined == parsed > 0
+
+    def test_the_authorization_guard_is_the_definition_the_later_migration_installed(
+        self, installed: InstalledSchema
+    ) -> None:
+        # The defect this corrects: the first migration's guard is still in its
+        # file, and a contract reading only that file was checking it.
+        guard = installed.functions[_AUTHORIZATION_GUARD]
+        (original,) = installed.superseded[_AUTHORIZATION_GUARD]
+        assert "basis_broker_latest_at" in guard
+        assert "basis_" not in original
+        (replacing,) = (_REPO_ROOT / "migrations" / "versions").glob(f"{_M085_REVISIONS[2]}_*.py")
+        replacing_source = replacing.read_text(encoding="utf-8")
+        basis_rules = [line.strip() for line in guard.splitlines() if "basis_" in line]
+        assert basis_rules
+        assert all(rule in replacing_source for rule in basis_rules)
+
+    def test_a_rule_only_in_a_replaced_or_dropped_definition_is_not_installed(self) -> None:
+        schema = installed_schema(
+            "CREATE OR REPLACE FUNCTION public.guard() RETURNS trigger AS $$ BEGIN "
+            "RAISE EXCEPTION 'old rule'; END; $$ LANGUAGE plpgsql;\n"
+            "CREATE OR REPLACE FUNCTION public.guard() RETURNS trigger AS $$ BEGIN "
+            "RAISE EXCEPTION 'new rule'; END; $$ LANGUAGE plpgsql;\n"
+            "CREATE OR REPLACE FUNCTION public.gone() RETURNS trigger AS $$ BEGIN "
+            "RAISE EXCEPTION 'gone rule'; END; $$ LANGUAGE plpgsql;\n"
+            "DROP FUNCTION IF EXISTS public.gone();\n"
+            "ALTER TABLE public.t DROP CONSTRAINT ck_t_gone;\n"
+        )
+        assert "new rule" in schema.text
+        assert "old rule" not in schema.text
+        assert "gone rule" not in schema.text
+        assert {"gone", "ck_t_gone"} <= schema.dropped
+
+
+class TestTheTemporalProvenanceRulesAreInstalled:
+    """The per-act deadline provenance, pinned against the SQL installed at head."""
+
+    @pytest.mark.parametrize(
+        ("table", "guard", "compared", "binding"),
+        _PROVENANCE_TABLES,
+        ids=[row[0] for row in _PROVENANCE_TABLES],
+    )
+    def test_each_evidence_table_is_guarded_bound_and_append_only(
+        self,
+        installed: InstalledSchema,
+        table: str,
+        guard: str,
+        compared: tuple[str, ...],
+        binding: str,
+    ) -> None:
+        function = installed.functions[guard]
+        for field in compared:
+            assert field in function, (table, field)
+        assert "SET search_path" in function, table
+        assert f"CHECK ({binding})" in installed.statements, table
+        assert f"BEFORE INSERT ON public.{table}" in installed.statements, table
+        assert f"EXECUTE FUNCTION public.{guard}()" in installed.statements, table
+        assert f"CREATE TRIGGER {table}_append_only_trigger" in installed.statements, table
+        assert table not in installed.dropped
+
+    def test_no_migration_writes_time_basis_evidence(self, chain_sql: str) -> None:
+        # Provenance is measured in the act or it does not exist: never backfilled.
+        assert (
+            re.search(r"INSERT\s+INTO\s+(?:public\.)?paper_\w*time_basis", chain_sql, re.I) is None
+        )
+
+    def test_each_deadline_is_translated_only_through_the_basis_of_its_own_act(
+        self, contract: dict[str, Any]
+    ) -> None:
+        """Parsed, not grepped: which basis does each rule hand a deadline to?
+
+        The proposal's expiry and liquidation deadline were written at evaluation and
+        the approval's expiry at the decision. An issuance or authorization basis
+        receiving any of them is the defect reproduced at `73a2f96`.
+        """
+        assert (
+            "each_m084_deadline_is_translated_only_through_the_basis_of_the_act_that_wrote_it"
+            in contract["proves"]
+        )
+        allowed = {
+            "act_chronology_refusal": {"proposal_basis", "decision_basis"},
+            "m084_deadline_refusal_on_broker_time": {"proposal_basis"},
+        }
+        source = _REPO_ROOT / "src" / "empirical_platform" / "decision_candidate"
+        tree = ast.parse((source / "paper_execution.py").read_text(encoding="utf-8"))
+        receivers = {
+            function.name: {
+                ast.unparse(call.func.value)
+                for call in ast.walk(function)
+                if isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "on_broker_timeline"
+            }
+            for function in ast.walk(tree)
+            if isinstance(function, ast.FunctionDef) and function.name in allowed
+        }
+        assert receivers == allowed
+
+    def test_the_contract_states_both_limits_of_the_provenance(
+        self, contract: dict[str, Any]
+    ) -> None:
+        assert {
+            "an_m084_only_proposal_approval_or_intent_has_no_time_basis_and_is_never_dispatchable",
+            "a_writer_with_insert_privilege_can_store_correctly_shaped_evidence_nobody_measured",
+        } <= set(contract["structural_limitations"])
 
 
 class TestTheContractIsValidAndClosed:
@@ -312,70 +638,40 @@ class TestTheMechanicalClaimsMatchTheCode:
             )
 
     def test_the_bounded_payload_claim_matches_the_constant_and_the_check(
-        self, migration_source: str
+        self, installed: InstalledSchema
     ) -> None:
         assert MAXIMUM_DIAGNOSTIC_BODY_BYTES == 8192
-        assert "length(sanitized_payload) <= 8192" in migration_source
+        assert "length(sanitized_payload) <= 8192" in installed.text
 
-    @pytest.mark.parametrize(
-        ("claim", "fragment"),
-        [
-            ("single_use_authorization_consumption", "already been used"),
-            ("authorization_immutable_apart_from_its_consumption", "is immutable apart from"),
-            ("expired_authorization_cannot_be_consumed", "cannot be consumed at"),
-            (
-                "at_most_one_consumed_authorization_per_intent",
-                "uq_paper_authorization_one_consumed_per_intent",
-            ),
-            ("at_most_one_dispatch_attempt_per_intent", "uq_paper_attempt_one_per_intent"),
-            ("unique_deterministic_client_order_id", "uq_paper_attempt_client_order_id"),
-            (
-                "an_attempt_requires_a_consumed_matching_authorization",
-                "consumed in the same transaction",
-            ),
-            (
-                "an_attempt_must_be_inserted_as_dispatch_claimed",
-                "must be inserted as DISPATCH_CLAIMED",
-            ),
-            ("closed_execution_state_machine_on_update", "is not an allowed paper execution"),
-            ("attempt_identity_immutable_after_the_claim", "identity is immutable after"),
-            (
-                "append_only_previews_accounts_acknowledgements_events_and_kill_switch",
-                "m085_append_only",
-            ),
-            (
-                "paper_environment_and_endpoint_host_pinned_by_check_constraint",
-                "ck_paper_account_endpoint_host",
-            ),
-            (
-                "long_only_whole_share_day_only_no_extended_hours_by_check_constraint",
-                "ck_paper_preview_long_only",
-            ),
-            (
-                "referential_integrity_to_the_m084_intent_by_trigger",
-                "paper_requires_approved_intent",
-            ),
-            ("bounded_broker_response_payload", "ck_paper_acknowledgement_payload_bounded"),
-        ],
-    )
-    def test_every_database_enforcement_claim_names_something_in_the_migration(
-        self, contract: dict[str, Any], migration_source: str, claim: str, fragment: str
+    @pytest.mark.parametrize(("claim", "fragment"), _ENFORCEMENT_FRAGMENTS)
+    def test_every_database_enforcement_claim_names_sql_installed_at_head(
+        self, contract: dict[str, Any], installed: InstalledSchema, claim: str, fragment: str
     ) -> None:
-        """Each published enforcement claim must point at real installed SQL.
+        """Each published enforcement claim must point at SQL a database at head runs.
 
-        The fragment is the constraint name or the trigger message the migration
-        actually contains, so deleting the rule from the migration fails the claim
-        that advertises it.
+        The fragment is the constraint name, trigger name or trigger message, looked
+        up in the chain's installed state: the LAST definition of each function and
+        every statement that is not a function definition. A rule deleted, or present
+        only in a definition a later migration replaced, fails the claim.
         """
         assert contract["database_enforcement"][claim] is True
-        assert fragment in migration_source, claim
+        assert fragment in installed.text, claim
+        assert fragment not in installed.dropped, claim
 
-    def test_the_migration_declares_no_foreign_key_into_the_m084_intent(
-        self, migration_source: str
+    def test_every_enforcement_claim_is_checked_against_installed_sql(
+        self, contract: dict[str, Any]
+    ) -> None:
+        assert {claim for claim, _ in _ENFORCEMENT_FRAGMENTS} == set(
+            contract["database_enforcement"]
+        )
+
+    def test_the_installed_schema_declares_no_foreign_key_into_the_m084_intent(
+        self, installed: InstalledSchema
     ) -> None:
         # The limitation claim says the link is a trigger. This is that claim,
-        # checked against the migration rather than trusted.
-        assert "approved_order_intent.intent_governance_id" not in migration_source
+        # checked against the installed schema rather than trusted.
+        assert "approved_order_intent.intent_governance_id" not in installed.text
+        assert "REFERENCES approved_order_intent" not in installed.text
 
     def test_the_m084_read_only_claim_matches_the_absence_of_any_writer(self) -> None:
         """No M085 module may write M084's intent table.

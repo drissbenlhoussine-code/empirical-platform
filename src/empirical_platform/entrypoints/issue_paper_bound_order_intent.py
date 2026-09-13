@@ -54,7 +54,7 @@ def run_issue_paper_bound_order_intent(
             approval_decisions=context.m084.approval_decisions,
             intents=context.m084.approved_order_intents,
             proposals=context.m084.trade_proposals,
-            intent_time_bases=context.paper.intent_time_bases,
+            time_bases=context.paper.time_bases,
             # Read-only `GET /v2/clock`. This command places no order.
             broker=context.broker,
             time_source=context.time_source,

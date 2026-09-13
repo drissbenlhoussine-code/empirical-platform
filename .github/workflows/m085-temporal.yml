@@ -59,4 +59,9 @@ jobs:
           --family database_basis_immutable
           --family database_intent_basis_matches_intent
           --family database_intent_basis_bound_to_issuance
+          --family database_proposal_basis_matches_proposal
+          --family database_decision_basis_matches_approval
+          --family database_proposal_basis_bound_to_evaluation
+          --family database_decision_basis_bound_to_decision
+          --family stale_proposal_refused_at_issuance
           --output /tmp/m085-pg-mutation.md

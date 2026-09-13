@@ -27,8 +27,8 @@
     "proves": {
       "type": "array",
       "uniqueItems": true,
-      "minItems": 13,
-      "maxItems": 13,
+      "minItems": 14,
+      "maxItems": 14,
       "items": {
         "type": "string",
         "enum": [
@@ -44,7 +44,8 @@
           "every_broker_answer_is_validated_field_by_field_against_the_request_that_was_sent",
           "the_execution_state_machine_is_closed_and_mirrored_by_a_database_trigger",
           "the_m084_approved_intent_is_read_and_never_rewritten",
-          "no_credential_reaches_a_domain_type_a_database_row_a_renderer_or_an_audit_record"
+          "no_credential_reaches_a_domain_type_a_database_row_a_renderer_or_an_audit_record",
+          "each_m084_deadline_is_translated_only_through_the_basis_of_the_act_that_wrote_it"
         ]
       }
     },
@@ -96,7 +97,10 @@
         "paper_environment_and_endpoint_host_pinned_by_check_constraint",
         "long_only_whole_share_day_only_no_extended_hours_by_check_constraint",
         "referential_integrity_to_the_m084_intent_by_trigger",
-        "bounded_broker_response_payload"
+        "bounded_broker_response_payload",
+        "time_basis_evidence_describes_the_exact_proposal_approval_or_intent_by_trigger",
+        "time_basis_evidence_is_bound_to_the_instant_of_its_own_act_by_check_constraint",
+        "time_basis_evidence_is_append_only_and_never_backfilled"
       ],
       "properties": {
         "single_use_authorization_consumption": {
@@ -143,14 +147,23 @@
         },
         "bounded_broker_response_payload": {
           "const": true
+        },
+        "time_basis_evidence_describes_the_exact_proposal_approval_or_intent_by_trigger": {
+          "const": true
+        },
+        "time_basis_evidence_is_bound_to_the_instant_of_its_own_act_by_check_constraint": {
+          "const": true
+        },
+        "time_basis_evidence_is_append_only_and_never_backfilled": {
+          "const": true
         }
       }
     },
     "structural_limitations": {
       "type": "array",
       "uniqueItems": true,
-      "minItems": 9,
-      "maxItems": 9,
+      "minItems": 11,
+      "maxItems": 11,
       "items": {
         "type": "string",
         "enum": [
@@ -162,7 +175,9 @@
           "an_unmapped_broker_status_leaves_the_state_unchanged_and_requires_an_operator",
           "the_bounded_not_found_reconciliation_policy_is_a_stated_choice_not_a_proof",
           "the_external_paper_submission_was_measured_blocked_by_quote_staleness",
-          "the_account_reference_is_a_digest_so_two_accounts_are_only_distinguishable_not_identifiable"
+          "the_account_reference_is_a_digest_so_two_accounts_are_only_distinguishable_not_identifiable",
+          "an_m084_only_proposal_approval_or_intent_has_no_time_basis_and_is_never_dispatchable",
+          "a_writer_with_insert_privilege_can_store_correctly_shaped_evidence_nobody_measured"
         ]
       }
     },

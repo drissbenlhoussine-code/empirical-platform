@@ -26,6 +26,7 @@ One authorization, one dispatch, and the records they leave establish:
 - that the execution state machine is closed, that its edges are mirrored by a database trigger, and that the two are compared across every ordered pair of states so they cannot drift;
 - that the MILESTONE-084 intent is READ and never rewritten: its submission state is still NOT_SUBMITTED after a dispatch, because M085 records execution in its own tables keyed by the intent's identity;
 - that no broker credential reaches a domain type, a database row, a renderer or an audit record, and that a credential echoed back by a peer is scrubbed out of the stored response body;
+- that each MILESTONE-084 deadline is placed on the broker's clock ONLY through the broker time basis measured in the act that wrote it -- the proposal's expiry and liquidation deadline through the evaluation's, the approval's expiry through the decision's -- and never through a basis measured later, so host clock drift between evaluation, approval, issuance and dispatch cannot extend any of them;
 
 ## What it does not prove
 
@@ -68,6 +69,9 @@ One authorization, one dispatch, and the records they leave establish:
 | A preview describing a sell, a non-positive quantity, a non-DAY time in force or extended hours cannot be stored | **yes** |
 | A paper row naming an intent that does not exist is refused | **yes** |
 | A stored broker response body is bounded, so a hostile peer cannot grow the audit table without limit | **yes** |
+| Time-basis evidence naming a proposal, approval or intent that does not exist, or describing different deadlines than the stored record, is refused | **yes** |
+| Time-basis evidence whose host reading is not the instant of the act it describes -- evaluation, decision or issuance -- cannot be stored | **yes** |
+| Time-basis evidence refuses UPDATE and DELETE, and no migration writes any | **yes** |
 
 ## Structural limitations
 
@@ -80,6 +84,8 @@ One authorization, one dispatch, and the records they leave establish:
 - The bounded not-found reconciliation policy -- repeated observations plus elapsed time before an unknown outcome is resolved -- is a stated, reviewable CHOICE. It is not a proof that the order never existed.
 - The bounded external paper submission was MEASURED BLOCKED, not completed. The market was closed, the only available IEX quote was over three hours old, and the freshness tolerance was not widened to get past it. Every local, database and hostile-adapter validation is unaffected; see `paper-acceptance-results.md` for the measured numbers.
 - The paper account is stored as a stable digest, not an account number. Two accounts are distinguishable from each other but no account is identifiable from the stored value -- which is the intent, and also a limit on what an auditor can do with it alone.
+- A proposal, approval or intent created through MILESTONE-084 alone has no broker time basis, because none can be measured for an instant that has passed. It is refused for Paper at approval, issuance, preview and dispatch, and it is never backfilled.
+- The database checks that time-basis evidence describes the exact record and the instant of its act. It cannot check that the broker clock was actually read: a writer with INSERT privilege can store correctly shaped evidence that nobody measured.
 
 ## Intended future use
 

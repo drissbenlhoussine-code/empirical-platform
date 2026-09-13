@@ -22,14 +22,17 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
     BrokerAcknowledgement,
+    DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
     IntentTimeBasis,
+    M084TimeProvenance,
     PaperAccountSnapshot,
     PaperEnvironment,
     PaperExecutionEvent,
     PaperExecutionState,
     PaperOrderRequest,
+    ProposalTimeBasis,
     SubmissionPreview,
     bind_intent_time_basis,
     build_submission_preview,
@@ -159,10 +162,10 @@ def a_preview(**overrides: object) -> SubmissionPreview:
         "broker_now": BoundedInstant(earliest=_NOW, latest=_NOW),
     }
     arguments.update(overrides)
-    if "intent_time_basis" not in overrides:
+    if "m084_provenance" not in overrides:
         # Evidence for whichever intent the preview is about, so overriding the
         # intent cannot silently turn a test into a mismatched-evidence refusal.
-        arguments["intent_time_basis"] = an_intent_time_basis(arguments["intent"])  # type: ignore[arg-type]
+        arguments["m084_provenance"] = a_provenance(arguments["intent"])  # type: ignore[arg-type]
     return build_submission_preview(**arguments)  # type: ignore[arg-type]
 
 
@@ -179,18 +182,105 @@ class FakeIntents:
         return self.rows.get(intent_governance_id)
 
 
-class FakeIntentTimeBases:
-    def __init__(self, *evidence: IntentTimeBasis) -> None:
-        self.rows = {row.intent_governance_id: row for row in evidence}
+class FakeTimeBases:
+    """Three dictionaries, one per act that records a basis."""
 
-    def record(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
-        if evidence.intent_governance_id in self.rows:
-            raise ValueError("an intent-time basis is recorded once per intent")
-        self.rows[evidence.intent_governance_id] = evidence
+    def __init__(
+        self,
+        *intents: IntentTimeBasis,
+        proposals: tuple[ProposalTimeBasis, ...] = (),
+        decisions: tuple[DecisionTimeBasis, ...] = (),
+    ) -> None:
+        self.intents = {row.intent_governance_id: row for row in intents}
+        self.proposals = {
+            (row.proposal_governance_id, row.proposal_version): row for row in proposals
+        }
+        self.decisions = {row.decision_governance_id: row for row in decisions}
+
+    def record_proposal(self, evidence: ProposalTimeBasis) -> ProposalTimeBasis:
+        key = (evidence.proposal_governance_id, evidence.proposal_version)
+        if key in self.proposals:
+            raise ValueError("a proposal-time basis is recorded once per proposal")
+        self.proposals[key] = evidence
         return evidence
 
-    def get(self, intent_governance_id: str) -> IntentTimeBasis | None:
-        return self.rows.get(intent_governance_id)
+    def proposal(
+        self, proposal_governance_id: str, proposal_version: int
+    ) -> ProposalTimeBasis | None:
+        return self.proposals.get((proposal_governance_id, proposal_version))
+
+    def record_decision(self, evidence: DecisionTimeBasis) -> DecisionTimeBasis:
+        if evidence.decision_governance_id in self.decisions:
+            raise ValueError("a decision-time basis is recorded once per decision")
+        self.decisions[evidence.decision_governance_id] = evidence
+        return evidence
+
+    def decision(self, decision_governance_id: str) -> DecisionTimeBasis | None:
+        return self.decisions.get(decision_governance_id)
+
+    def record_intent(self, evidence: IntentTimeBasis) -> IntentTimeBasis:
+        if evidence.intent_governance_id in self.intents:
+            raise ValueError("an intent-time basis is recorded once per intent")
+        self.intents[evidence.intent_governance_id] = evidence
+        return evidence
+
+    def intent(self, intent_governance_id: str) -> IntentTimeBasis | None:
+        return self.intents.get(intent_governance_id)
+
+
+def a_provenance(
+    intent: ApprovedOrderIntent | None = None,
+    *,
+    proposal_offset: timedelta = timedelta(0),
+    decision_offset: timedelta = timedelta(0),
+    intent_offset: timedelta = timedelta(0),
+) -> M084TimeProvenance:
+    """Evidence the three Paper-bound commands would have recorded behind `intent`.
+
+    The proposal was evaluated 20 s and approved 10 s before the intent was issued,
+    and the approval lasts an hour. Each offset is how far the broker's clock was
+    AHEAD of this host's during that act.
+    """
+    issued = an_intent() if intent is None else intent
+    evaluated_at = issued.created_at - timedelta(seconds=20)
+    decided_at = issued.created_at - timedelta(seconds=10)
+    return M084TimeProvenance(
+        proposal=ProposalTimeBasis(
+            proposal_governance_id=issued.proposal_governance_id,
+            proposal_version=issued.proposal_version,
+            content_fingerprint=issued.approved_fingerprint,
+            proposal_created_at=evaluated_at,
+            proposal_expires_at=issued.expires_at,
+            mandatory_liquidation_at=issued.mandatory_liquidation_at,
+            broker_endpoint_host=PAPER_ENDPOINT_HOST,
+            basis_host_requested_at=evaluated_at,
+            basis_host_at=evaluated_at,
+            basis_broker_earliest_at=evaluated_at + proposal_offset,
+            basis_broker_latest_at=evaluated_at + proposal_offset,
+        ),
+        decision=DecisionTimeBasis(
+            decision_governance_id=issued.decision_governance_id,
+            proposal_governance_id=issued.proposal_governance_id,
+            proposal_version=issued.proposal_version,
+            approved_fingerprint=issued.approved_fingerprint,
+            decided_at=decided_at,
+            decision_expires_at=decided_at + timedelta(hours=1),
+            broker_endpoint_host=PAPER_ENDPOINT_HOST,
+            basis_host_requested_at=decided_at,
+            basis_host_at=decided_at,
+            basis_broker_earliest_at=decided_at + decision_offset,
+            basis_broker_latest_at=decided_at + decision_offset,
+        ),
+        intent=an_intent_time_basis(issued, broker_offset=intent_offset),
+    )
+
+
+def time_bases_for(*provenances: M084TimeProvenance) -> FakeTimeBases:
+    return FakeTimeBases(
+        *(p.intent for p in provenances if p.intent is not None),
+        proposals=tuple(p.proposal for p in provenances if p.proposal is not None),
+        decisions=tuple(p.decision for p in provenances if p.decision is not None),
+    )
 
 
 class FakeSnapshots:

@@ -38,12 +38,12 @@ from tests.integration._m085_support import (
     a_basis_at,
     a_configuration,
     an_approved_intent,
-    an_intent_time_basis_for,
     build_engine,
     config,
     database_identity,
     truncate_all,
 )
+from tests.unit._m085_fakes import a_provenance
 
 from empirical_platform.decision_candidate.paper_execution import (
     ALLOWED_PAPER_TRANSITIONS,
@@ -159,7 +159,7 @@ def a_full_chain(
             earliest=EVALUATED_AT + timedelta(seconds=25),
             latest=EVALUATED_AT + timedelta(seconds=25),
         ),
-        intent_time_basis=an_intent_time_basis_for(intent),
+        m084_provenance=a_provenance(intent),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)
@@ -974,6 +974,18 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
                 "UPDATE public.paper_intent_time_basis SET basis_host_at = basis_host_at",
                 "DELETE FROM public.paper_intent_time_basis",
             ),
+            (
+                "paper_proposal_time_basis",
+                "SELECT count(*) AS n FROM public.paper_proposal_time_basis",
+                "UPDATE public.paper_proposal_time_basis SET basis_host_at = basis_host_at",
+                "DELETE FROM public.paper_proposal_time_basis",
+            ),
+            (
+                "paper_decision_time_basis",
+                "SELECT count(*) AS n FROM public.paper_decision_time_basis",
+                "UPDATE public.paper_decision_time_basis SET basis_host_at = basis_host_at",
+                "DELETE FROM public.paper_decision_time_basis",
+            ),
         ],
     )
     def test_update_and_delete_are_both_refused(
@@ -1001,6 +1013,22 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
                     "WHERE intent_governance_id = :intent"
                 ),
                 {"intent": intent_id},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO public.paper_proposal_time_basis SELECT proposal_governance_id, "
+                    "proposal_version, content_fingerprint, created_at, expires_at, "
+                    "mandatory_liquidation_at, 'paper-api.alpaca.markets', created_at, "
+                    "created_at, created_at, created_at FROM public.trade_proposal"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO public.paper_decision_time_basis SELECT decision_governance_id, "
+                    "proposal_governance_id, proposal_version, approved_fingerprint, decided_at, "
+                    "expires_at, 'paper-api.alpaca.markets', decided_at, decided_at, decided_at, "
+                    "decided_at FROM public.trade_approval_decision"
+                )
             )
         paper.execution_kill_switch.engage(
             changed_by="owner", changed_at=EVALUATED_AT, reason="test"
@@ -1075,6 +1103,8 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
             "paper_execution_kill_switch",
             "paper_broker_acknowledgement",
             "paper_intent_time_basis",
+            "paper_proposal_time_basis",
+            "paper_decision_time_basis",
         }
 
 

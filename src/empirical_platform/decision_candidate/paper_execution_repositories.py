@@ -28,6 +28,7 @@ from typing import Protocol
 
 from empirical_platform.decision_candidate.paper_execution import (
     BrokerAcknowledgement,
+    DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
     IntentTimeBasis,
@@ -35,6 +36,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperExecutionEvent,
     PaperExecutionState,
     PaperOrderRequest,
+    ProposalTimeBasis,
     SubmissionPreview,
 )
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
@@ -50,7 +52,7 @@ __all__ = [
     "ExecutionAttemptRepository",
     "ExecutionAuthorizationRepository",
     "ExecutionKillSwitchRepository",
-    "IntentTimeBasisRepository",
+    "TimeBasisRepository",
     "PaperAccountSnapshotRepository",
     "PaperBrokerPort",
     "PaperExecutionEventRepository",
@@ -59,18 +61,28 @@ __all__ = [
 ]
 
 
-class IntentTimeBasisRepository(Protocol):
-    """Append-only, one row per intent: the basis measured when the intent was issued.
+class TimeBasisRepository(Protocol):
+    """Append-only evidence: one broker time basis per act that writes an M084 deadline.
 
-    There is no `update`, no `replace` and no `attach`. The only writer is the
-    Paper-bound issuance command, which records the basis in the same act that
-    issues the intent. An intent issued any other way has no row, and nothing here
-    can give it one after the fact.
+    Proposal evaluation, human approval and intent issuance each record their own
+    basis, IN that act, through the Paper-bound command that performs it. There is
+    no `update`, no `replace` and no `attach`: a proposal, approval or intent created
+    any other way has no row, and nothing here can give it one after the fact.
     """
 
-    def record(self, evidence: IntentTimeBasis) -> IntentTimeBasis: ...
+    def record_proposal(self, evidence: ProposalTimeBasis) -> ProposalTimeBasis: ...
 
-    def get(self, intent_governance_id: str) -> IntentTimeBasis | None: ...
+    def proposal(
+        self, proposal_governance_id: str, proposal_version: int
+    ) -> ProposalTimeBasis | None: ...
+
+    def record_decision(self, evidence: DecisionTimeBasis) -> DecisionTimeBasis: ...
+
+    def decision(self, decision_governance_id: str) -> DecisionTimeBasis | None: ...
+
+    def record_intent(self, evidence: IntentTimeBasis) -> IntentTimeBasis: ...
+
+    def intent(self, intent_governance_id: str) -> IntentTimeBasis | None: ...
 
 
 class ExecutionKillSwitchRepository(Protocol):

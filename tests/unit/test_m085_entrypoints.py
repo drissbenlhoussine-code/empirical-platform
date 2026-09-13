@@ -1,6 +1,6 @@
 """MILESTONE-085 operator CLI surfaces: argument handling, output, exit codes.
 
-Every one of the thirteen modules under test documents the same promise -- "`run_X`
+Every one of the fifteen modules under test documents the same promise -- "`run_X`
 is split out from `main()` so that argument handling and output formatting can be
 unit-tested by monkeypatching this one function" -- and this file is that promise
 being kept. `run_X` is replaced, so no test here opens a socket, a database
@@ -26,8 +26,11 @@ from __future__ import annotations
 
 import json
 import tomllib
+from dataclasses import replace
+from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -41,6 +44,15 @@ from tests.unit._m085_fakes import (
     an_intent,
     an_intent_time_basis,
 )
+from tests.unit.test_m084_domain_core import (
+    EVALUATED_AT as M084_EVALUATED_AT,
+)
+from tests.unit.test_m084_domain_core import (
+    a_proposal as an_m084_proposal,
+)
+from tests.unit.test_m084_domain_core import (
+    evaluate as an_m084_evaluation,
+)
 
 from empirical_platform.decision_candidate.paper_execution import (
     ExecutionAttempt,
@@ -48,34 +60,51 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperExecutionState,
     authorize_submission,
 )
+from empirical_platform.decision_candidate.trade_approval import (
+    OperatorAction,
+    record_operator_decision,
+)
+from empirical_platform.decision_candidate.trade_proposal import ProposalStatus
 from empirical_platform.entrypoints import (
     activate_execution_kill_switch,
     authorize_paper_submission,
     cancel_paper_order,
     deactivate_execution_kill_switch,
+    decide_paper_bound_trade_proposal,
     inspect_paper_account,
     issue_paper_bound_order_intent,
     list_paper_executions,
     paper_execution_status,
+    prepare_paper_bound_trade_proposal,
     preview_paper_submission,
     reconcile_paper_order,
     show_paper_execution,
     submit_authorized_paper_order,
     verify_paper_environment,
 )
-from empirical_platform.usecases.decision_to_approval import NotFoundError
+from empirical_platform.usecases.decision_to_approval import DecisionOutcome, NotFoundError
 from empirical_platform.usecases.paper_execution import (
+    PaperBoundDecision,
     PaperBoundIntent,
+    PaperBoundProposal,
     PaperExecutionRefusedError,
     PaperExecutionStatus,
     PaperSubmissionResult,
     VerifyPaperEnvironmentResult,
 )
 
-# The thirteen M085 console scripts, each paired with the single function its
+# The fifteen M085 console scripts, each paired with the single function its
 # module docstring promises is the seam. If a module is ever added without a
 # seam, or renames one, these tables are what fails.
 _MODULES: dict[str, tuple[Any, str]] = {
+    "prepare-paper-bound-trade-proposal": (
+        prepare_paper_bound_trade_proposal,
+        "run_prepare_paper_bound_trade_proposal",
+    ),
+    "decide-paper-bound-trade-proposal": (
+        decide_paper_bound_trade_proposal,
+        "run_decide_paper_bound_trade_proposal",
+    ),
     "issue-paper-bound-order-intent": (
         issue_paper_bound_order_intent,
         "run_issue_paper_bound_order_intent",
@@ -105,6 +134,8 @@ _MODULES: dict[str, tuple[Any, str]] = {
 
 #: One valid argument vector per command, so the happy path of each can be run.
 _VALID_ARGUMENTS: dict[str, list[str]] = {
+    "prepare-paper-bound-trade-proposal": ["PRP-1", "ECX-1", "AAPL", "inputs.json"],
+    "decide-paper-bound-trade-proposal": ["PRP-1", "DEC-1", "APPROVE", "owner"],
     "issue-paper-bound-order-intent": ["INT-1", "PRP-1", "IDEM-1"],
     "verify-paper-environment": [],
     "inspect-paper-account": ["SNP-1"],
@@ -122,6 +153,21 @@ _VALID_ARGUMENTS: dict[str, list[str]] = {
 
 #: Argument vectors that must be refused with a usage message.
 _WRONG_ARITY: dict[str, list[str]] = {
+    # An evaluation or decision instant is not accepted: it is measured.
+    "prepare-paper-bound-trade-proposal": [
+        "PRP-1",
+        "ECX-1",
+        "AAPL",
+        "2026-06-10T12:00:00+00:00",
+        "inputs.json",
+    ],
+    "decide-paper-bound-trade-proposal": [
+        "PRP-1",
+        "DEC-1",
+        "APPROVE",
+        "owner",
+        "2026-06-10T12:00:00+00:00",
+    ],
     "issue-paper-bound-order-intent": ["INT-1", "PRP-1", "IDEM-1", "2026-09-10T14:00:00+00:00"],
     "verify-paper-environment": ["unexpected"],
     "inspect-paper-account": [],
@@ -222,7 +268,29 @@ def _an_environment_report() -> VerifyPaperEnvironmentResult:
 
 
 #: What each seam should return on a happy path.
+def _a_paper_bound_decision() -> PaperBoundDecision:
+    prepared = an_m084_proposal()
+    decision = record_operator_decision(
+        proposal=prepared,
+        decision_governance_id="DEC-1",
+        action=OperatorAction.APPROVE,
+        operator_identity="owner",
+        decided_at=M084_EVALUATED_AT + timedelta(seconds=10),
+        approval_expiry_seconds=120,
+    )
+    return PaperBoundDecision(
+        outcome=DecisionOutcome(
+            decision=decision, proposal=replace(prepared, status=ProposalStatus.APPROVED)
+        ),
+        time_basis=None,
+    )
+
+
 _RETURNS: dict[str, Any] = {
+    "prepare-paper-bound-trade-proposal": lambda: PaperBoundProposal(
+        outcome=an_m084_evaluation(cost_estimate=None), time_basis=None
+    ),
+    "decide-paper-bound-trade-proposal": _a_paper_bound_decision,
     "issue-paper-bound-order-intent": lambda: PaperBoundIntent(
         intent=an_intent(), time_basis=an_intent_time_basis()
     ),
@@ -260,6 +328,25 @@ def _install(
         return _RETURNS[command]() if result is None else result
 
     monkeypatch.setattr(module, seam, replacement)
+    if command == "prepare-paper-bound-trade-proposal":
+        # The command parses its inputs file BEFORE the seam; stand the reader in so
+        # these tests stay about argument handling rather than about M084's parser.
+        monkeypatch.setattr(module, "load_json_file", lambda _path: {})
+        monkeypatch.setattr(
+            module,
+            "read_market_inputs",
+            lambda _document: SimpleNamespace(
+                quote=None,
+                account=None,
+                session=None,
+                instrument=None,
+                liquidity=None,
+                cost_estimate=None,
+                positions=(),
+                open_orders=(),
+                evidence_age_seconds=Decimal("60"),
+            ),
+        )
     monkeypatch.setattr("sys.argv", ["command", *arguments])
     return calls
 
@@ -282,10 +369,11 @@ class TestTheTableCoversEveryConsoleScript:
             f"tested but not declared: {sorted(set(_MODULES) - declared)}"
         )
 
-    def test_there_are_exactly_thirteen(self) -> None:
-        # Twelve until the Paper-bound issuance command was added: an intent issued
-        # through M084 alone carries no intent-time broker basis.
-        assert len(_MODULES) == 13
+    def test_there_are_exactly_fifteen(self) -> None:
+        # Twelve until the Paper-bound issuance command; fifteen since the Paper-bound
+        # proposal and decision commands, because each act that writes an M084
+        # deadline must record its own broker time basis.
+        assert len(_MODULES) == 15
 
     def test_each_row_names_a_function_the_module_actually_has(self) -> None:
         # A renamed seam would otherwise be caught only as a confusing
@@ -303,7 +391,7 @@ class TestTheTableCoversEveryConsoleScript:
 
 @pytest.mark.parametrize("command", sorted(_MODULES))
 class TestEveryCommand:
-    """The three properties every one of the thirteen must have."""
+    """The three properties every one of the fifteen must have."""
 
     def test_a_wrong_argument_count_prints_usage_and_exits_two(
         self, command: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]

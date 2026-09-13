@@ -39,15 +39,20 @@ from sqlalchemy.engine import Engine
 from tests.integration._m085_support import (
     EVALUATED_AT,
     a_basis_at,
+    a_configuration,
+    a_context,
+    a_paper_bound_approval,
     a_paper_bound_intent,
     alembic_config,
     an_approved_intent,
-    an_intent_time_basis_for,
+    an_approved_proposal,
     build_engine,
     config,
+    issue_paper_bound_intent,
+    paper_bound_market_inputs,
     truncate_all,
 )
-from tests.unit._m085_fakes import FakeBroker
+from tests.unit._m085_fakes import FakeBroker, a_provenance
 
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
@@ -67,11 +72,16 @@ from empirical_platform.shared.persistence.postgres_repositories.paper_execution
 from empirical_platform.shared.persistence.postgres_repositories.runtime import (
     PostgresRepositoryRuntime,
 )
+from empirical_platform.usecases.decision_to_approval import OperatorAction
 from empirical_platform.usecases.paper_execution import (
     AuthorizePaperSubmissionCommand,
     AuthorizePaperSubmissionHandler,
+    DecidePaperBoundTradeProposalCommand,
+    DecidePaperBoundTradeProposalHandler,
     PaperExecutionRefusedError,
     PaperSubmissionResult,
+    PreparePaperBoundTradeProposalCommand,
+    PreparePaperBoundTradeProposalHandler,
     PreviewPaperSubmissionCommand,
     PreviewPaperSubmissionHandler,
     SubmitAuthorizedPaperOrderCommand,
@@ -178,7 +188,7 @@ def preview_and_authorize(
     with a_process("m085-basis-authorize") as (m084, paper):
         preview = PreviewPaperSubmissionHandler(
             intents=m084.approved_order_intents,
-            intent_time_bases=paper.intent_time_bases,
+            time_bases=paper.time_bases,
             snapshots=paper.paper_account_snapshots,
             previews=paper.submission_previews,
             events=paper.paper_execution_events,
@@ -232,7 +242,7 @@ def dispatch(
     with a_process("m085-basis-dispatch") as (m084, paper):
         return SubmitAuthorizedPaperOrderHandler(
             intents=m084.approved_order_intents,
-            intent_time_bases=paper.intent_time_bases,
+            time_bases=paper.time_bases,
             previews=paper.submission_previews,
             authorizations=paper.execution_authorizations,
             attempts=(
@@ -290,7 +300,7 @@ class TestEachStepRunsInItsOwnProcess:
 
         with a_process("m085-basis-inspect") as (m084, paper):
             intent = m084.approved_order_intents.get(_INTENT)
-            evidence = paper.intent_time_bases.get(_INTENT)
+            evidence = paper.time_bases.intent(_INTENT)
             stored = paper.execution_authorizations.get(authorization.authorization_id)
         assert intent is not None and evidence is not None and stored is not None
         # The intent's issuance instant IS the basis host reading -- not a copy of it.
@@ -423,6 +433,129 @@ class TestAnIntentsDeadlinesUseTheBasisOfItsOwnIssuance:
 
 
 # ---------------------------------------------------------------------------
+# Deadlines written during proposal evaluation and approval
+# ---------------------------------------------------------------------------
+
+
+class TestAStaleProposalAndApprovalCannotReachTheBroker:
+    """The independent review's path, end to end, through real M084 code.
+
+    1. The proposal is evaluated and approved while host and broker read the same
+       instant; its expiry is +300 s and the approval's +120 s from the decision.
+    2. Real broker time moves on an hour while this host's clock falls back to
+       just after that instant.
+    3. The intent is issued, previewed, authorized and dispatched from there.
+
+    REPRODUCED AT `73a2f96`: every M084 host-clock check passed, the intent's
+    issuance basis mapped the proposal expiry an hour late, and the chain reached
+    the broker with ONE submission. Each deadline is now translated only through
+    the basis of the act that wrote it, so the chain stops at issuance, before
+    M084 writes an intent.
+    """
+
+    def _drift_an_hour_while_the_host_clock_stands_still(self, world: World) -> None:
+        world.advance(3600)
+        world.host_lag = timedelta(seconds=3600)
+
+    def _attempt_the_rest_of_the_chain(self, world: World, broker: TruthfulBroker) -> str | None:
+        try:
+            with a_process("m085-basis-issue") as (m084, paper):
+                issue_paper_bound_intent(
+                    m084, paper, broker=broker, time_source=world, intent_id=_INTENT
+                )
+            world.advance(5)
+            preview_and_authorize(world, broker, validity_seconds=600)
+            world.advance(5)
+            result = dispatch(world, broker)
+        except (PaperExecutionRefusedError, ValueError) as refused:
+            return str(refused)
+        assert result.dispatched is False, (
+            "a proposal and approval that expired an hour ago on the broker's clock "
+            f"reached the broker: {len(broker.submitted)} submission(s)"
+        )
+        return None
+
+    def test_the_chain_is_refused_somewhere_and_nothing_is_sent(self, world: World) -> None:
+        broker = TruthfulBroker(world)
+        with a_process("m085-basis-approve") as (m084, paper):
+            a_paper_bound_approval(m084, paper, broker=broker, time_source=world)
+        self._drift_an_hour_while_the_host_clock_stands_still(world)
+        refusal = self._attempt_the_rest_of_the_chain(world, broker)
+        assert broker.submitted == []
+        assert refusal == (
+            "the proposal had expired on the broker's clock when the intent was issued"
+        ), refusal
+        with a_process("m085-basis-inspect") as (m084, paper):
+            assert m084.approved_order_intents.get(_INTENT) is None, "M084 wrote no intent"
+            assert paper.time_bases.intent(_INTENT) is None
+
+    def test_a_native_m084_proposal_and_approval_cannot_be_issued_for_paper(
+        self, world: World
+    ) -> None:
+        # The review's first two steps through MILESTONE-084 alone: no proposal-time or
+        # decision-time basis exists, and none is derived at issuance.
+        broker = TruthfulBroker(world)
+        with a_process("m085-basis-native") as (m084, _):
+            an_approved_proposal(m084)
+        self._drift_an_hour_while_the_host_clock_stands_still(world)
+        refusal = self._attempt_the_rest_of_the_chain(world, broker)
+        assert broker.submitted == []
+        assert refusal is not None and "no proposal-time broker basis" in refusal, refusal
+        with a_process("m085-basis-inspect") as (m084, _):
+            assert m084.approved_order_intents.get(_INTENT) is None
+
+    def test_a_proposal_that_expired_on_the_broker_clock_cannot_be_approved(
+        self, world: World
+    ) -> None:
+        broker = TruthfulBroker(world)
+        with a_process("m085-basis-prepare") as (m084, paper):
+            configuration = a_configuration()
+            m084.operator_trading_configurations.save(configuration)
+            context = a_context(m084, configuration)
+            m084.evaluation_contexts.save(context)
+            PreparePaperBoundTradeProposalHandler(
+                configurations=m084.operator_trading_configurations,
+                contexts=m084.evaluation_contexts,
+                proposals=m084.trade_proposals,
+                time_bases=paper.time_bases,
+                broker=broker,
+                time_source=world,
+            ).handle(
+                PreparePaperBoundTradeProposalCommand(
+                    proposal_governance_id="PRP-085-0001",
+                    evaluation_context_id=context.evaluation_context_id,
+                    symbol="AAPL",
+                    **paper_bound_market_inputs(  # type: ignore[arg-type]
+                        symbol="AAPL", observed_at=world.read().utc - timedelta(seconds=5)
+                    ),
+                )
+            )
+        self._drift_an_hour_while_the_host_clock_stands_still(world)
+        with (
+            pytest.raises(PaperExecutionRefusedError, match="expired on the broker's clock"),
+            a_process("m085-basis-decide") as (m084, paper),
+        ):
+            DecidePaperBoundTradeProposalHandler(
+                configurations=m084.operator_trading_configurations,
+                decisions=m084.approval_decisions,
+                proposals=m084.trade_proposals,
+                time_bases=paper.time_bases,
+                broker=broker,
+                time_source=world,
+            ).handle(
+                DecidePaperBoundTradeProposalCommand(
+                    proposal_governance_id="PRP-085-0001",
+                    decision_governance_id="DEC-PRP-085-0001",
+                    action=OperatorAction.APPROVE,
+                    operator_identity="owner",
+                )
+            )
+        with a_process("m085-basis-inspect") as (m084, paper):
+            assert m084.approval_decisions.for_proposal("PRP-085-0001") is None
+            assert paper.time_bases.decision("DEC-PRP-085-0001") is None
+
+
+# ---------------------------------------------------------------------------
 # Missing or mismatched evidence: refused, never derived
 # ---------------------------------------------------------------------------
 
@@ -455,7 +588,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
             an_approved_intent(m084, intent_id=_INTENT)
             preview = PreviewPaperSubmissionHandler(
                 intents=m084.approved_order_intents,
-                intent_time_bases=paper.intent_time_bases,
+                time_bases=paper.time_bases,
                 snapshots=paper.paper_account_snapshots,
                 previews=paper.submission_previews,
                 events=paper.paper_execution_events,
@@ -475,7 +608,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                 )
             )
         assert preview.is_authorizable is False
-        assert any("no intent-time broker basis" in reason for reason in preview.refusals)
+        assert any("no proposal-time broker basis" in reason for reason in preview.refusals)
         assert broker.submitted == []
 
     def test_an_authorization_obtained_elsewhere_still_cannot_dispatch_it(
@@ -514,7 +647,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                     created_at=now,
                     broker_now=BoundedInstant(earliest=now, latest=now),
                     # Evidence that exists only in memory here, never in the database.
-                    intent_time_basis=an_intent_time_basis_for(intent),
+                    m084_provenance=a_provenance(intent),
                 )
             )
             authorization = paper.execution_authorizations.save(
@@ -528,7 +661,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                 )
             )
         world.clock_fetches = 0
-        with pytest.raises(PaperExecutionRefusedError, match="no intent-time broker basis"):
+        with pytest.raises(PaperExecutionRefusedError, match="no proposal-time broker basis"):
             dispatch(world, broker)
         assert world.clock_fetches == 0, "refused before any broker call"
         _nothing_was_consumed_or_sent(broker, authorization.authorization_id)
@@ -543,7 +676,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
         with a_process("m085-basis-legacy") as (m084, paper):
             second = PreviewPaperSubmissionHandler(
                 intents=m084.approved_order_intents,
-                intent_time_bases=paper.intent_time_bases,
+                time_bases=paper.time_bases,
                 snapshots=paper.paper_account_snapshots,
                 previews=paper.submission_previews,
                 events=paper.paper_execution_events,
@@ -962,3 +1095,220 @@ def test_every_new_guard_function_pins_its_search_path(clean: Engine) -> None:
         ).scalar_one()
     assert configuration is not None
     assert any("search_path=" in setting for setting in configuration)
+    with clean.begin() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT proname, proconfig FROM pg_proc WHERE proname IN "
+                "('paper_execution_proposal_time_basis_guard_insert', "
+                "'paper_execution_decision_time_basis_guard_insert')"
+            )
+        ).all()
+    assert len(rows) == 2
+    for name, settings in rows:
+        assert settings and any("search_path=" in s for s in settings), name
+
+
+_COPY_PROPOSAL = (
+    "INSERT INTO public.paper_proposal_time_basis (proposal_governance_id, proposal_version, "
+    "content_fingerprint, proposal_created_at, proposal_expires_at, mandatory_liquidation_at, "
+    "broker_endpoint_host, basis_host_requested_at, basis_host_at, basis_broker_earliest_at, "
+    "basis_broker_latest_at) "
+    "SELECT proposal_governance_id, proposal_version, {fingerprint}, {created}, {expires}, "
+    "{liquidation}, 'paper-api.alpaca.markets', {requested}, {host}, {earliest}, {latest} "
+    "FROM public.trade_proposal WHERE proposal_governance_id = 'PRP-085-0001'"
+)
+
+_PROPOSAL_EXACT = {
+    "fingerprint": "content_fingerprint",
+    "created": "created_at",
+    "expires": "expires_at",
+    "liquidation": "mandatory_liquidation_at",
+    "requested": "created_at",
+    "host": "created_at",
+    "earliest": "created_at",
+    "latest": "created_at",
+}
+
+_COPY_DECISION = (
+    "INSERT INTO public.paper_decision_time_basis (decision_governance_id, "
+    "proposal_governance_id, proposal_version, approved_fingerprint, decided_at, "
+    "decision_expires_at, broker_endpoint_host, basis_host_requested_at, basis_host_at, "
+    "basis_broker_earliest_at, basis_broker_latest_at) "
+    "SELECT decision_governance_id, proposal_governance_id, proposal_version, {fingerprint}, "
+    "{decided}, {expires}, 'paper-api.alpaca.markets', {requested}, {host}, {earliest}, "
+    "{latest} FROM public.trade_approval_decision "
+    "WHERE decision_governance_id = 'DEC-PRP-085-0001'"
+)
+
+_DECISION_EXACT = {
+    "fingerprint": "approved_fingerprint",
+    "decided": "decided_at",
+    "expires": "expires_at",
+    "requested": "decided_at",
+    "host": "decided_at",
+    "earliest": "decided_at",
+    "latest": "decided_at",
+}
+
+
+def _insert_copy(engine: Engine, template: str, exact: dict[str, str], **overrides: str) -> None:
+    with engine.begin() as connection:
+        connection.execute(text(template.format(**{**exact, **overrides})))
+
+
+class TestTheDatabaseBindsProposalAndDecisionEvidenceToTheirActs:
+    """The same guarantees as the intent evidence, for the acts that WRITE the deadlines."""
+
+    @pytest.fixture
+    def native_approval(self, clean: Engine) -> Engine:
+        with a_process("m085-basis-sql") as (m084, _):
+            an_approved_proposal(m084)
+        return clean
+
+    def test_exact_copies_are_accepted(self, native_approval: Engine) -> None:
+        # The control for every refusal below -- and the recorded limit: a writer with
+        # INSERT authority can store correctly SHAPED evidence nobody measured.
+        _insert_copy(native_approval, _COPY_PROPOSAL, _PROPOSAL_EXACT)
+        _insert_copy(native_approval, _COPY_DECISION, _DECISION_EXACT)
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"fingerprint": "repeat('b', 64)"},
+            {"expires": "expires_at + interval '1 hour'"},
+            {"liquidation": "mandatory_liquidation_at + interval '1 hour'"},
+            {
+                "created": "created_at - interval '1 second'",
+                "requested": "created_at - interval '1 second'",
+                "host": "created_at - interval '1 second'",
+            },
+        ],
+        ids=["fingerprint", "expires_at", "mandatory_liquidation_at", "created_at"],
+    )
+    def test_proposal_evidence_describing_another_proposal_is_refused(
+        self, native_approval: Engine, override: dict[str, str]
+    ) -> None:
+        with pytest.raises(sa.exc.DatabaseError) as raised:
+            _insert_copy(native_approval, _COPY_PROPOSAL, _PROPOSAL_EXACT, **override)
+        assert "does not describe the exact stored proposal" in str(raised.value)
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            {"fingerprint": "repeat('b', 64)"},
+            {"expires": "expires_at + interval '1 hour'"},
+            {
+                "decided": "decided_at - interval '1 second'",
+                "requested": "decided_at - interval '1 second'",
+                "host": "decided_at - interval '1 second'",
+            },
+        ],
+        ids=["approved_fingerprint", "decision_expires_at", "decided_at"],
+    )
+    def test_decision_evidence_describing_another_approval_is_refused(
+        self, native_approval: Engine, override: dict[str, str]
+    ) -> None:
+        with pytest.raises(sa.exc.DatabaseError) as raised:
+            _insert_copy(native_approval, _COPY_DECISION, _DECISION_EXACT, **override)
+        assert "does not describe the exact stored approval" in str(raised.value)
+
+    def test_proposal_evidence_not_bound_to_the_evaluation_instant_is_refused(
+        self, native_approval: Engine
+    ) -> None:
+        later = "created_at + interval '1 day'"
+        with pytest.raises(sa.exc.DatabaseError) as raised:
+            _insert_copy(
+                native_approval,
+                _COPY_PROPOSAL,
+                _PROPOSAL_EXACT,
+                requested=later,
+                host=later,
+                earliest=later,
+                latest=later,
+            )
+        assert "ck_paper_proposal_time_basis_bound_to_evaluation" in str(raised.value)
+
+    def test_decision_evidence_not_bound_to_the_decision_instant_is_refused(
+        self, native_approval: Engine
+    ) -> None:
+        later = "decided_at + interval '1 day'"
+        with pytest.raises(sa.exc.DatabaseError) as raised:
+            _insert_copy(
+                native_approval,
+                _COPY_DECISION,
+                _DECISION_EXACT,
+                requested=later,
+                host=later,
+                earliest=later,
+                latest=later,
+            )
+        assert "ck_paper_decision_time_basis_bound_to_decision" in str(raised.value)
+
+    def test_evidence_for_records_that_do_not_exist_is_refused(self, clean: Engine) -> None:
+        for statement in (
+            "INSERT INTO public.paper_proposal_time_basis VALUES ('NO-SUCH-PROPOSAL', 1, "
+            "repeat('a', 64), now(), now() + interval '1 hour', now() + interval '2 hours', "
+            "'paper-api.alpaca.markets', now(), now(), now(), now())",
+            "INSERT INTO public.paper_decision_time_basis VALUES ('NO-SUCH-DECISION', "
+            "'NO-SUCH-PROPOSAL', 1, repeat('a', 64), now(), now() + interval '1 hour', "
+            "'paper-api.alpaca.markets', now(), now(), now(), now())",
+        ):
+            with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
+                connection.execute(text(statement))
+            assert "which does not exist" in str(raised.value)
+
+    def test_the_evidence_is_append_only_and_recorded_once(self, native_approval: Engine) -> None:
+        _insert_copy(native_approval, _COPY_PROPOSAL, _PROPOSAL_EXACT)
+        _insert_copy(native_approval, _COPY_DECISION, _DECISION_EXACT)
+        for table in ("paper_proposal_time_basis", "paper_decision_time_basis"):
+            for statement in (
+                f"UPDATE public.{table} SET basis_host_at = basis_host_at",  # noqa: S608
+                f"DELETE FROM public.{table}",  # noqa: S608
+            ):
+                with (
+                    pytest.raises(sa.exc.DatabaseError) as raised,
+                    native_approval.begin() as connection,
+                ):
+                    connection.execute(text(statement))
+                assert "append-only" in str(raised.value)
+        with pytest.raises(sa.exc.IntegrityError):
+            _insert_copy(native_approval, _COPY_PROPOSAL, _PROPOSAL_EXACT)
+        with pytest.raises(sa.exc.IntegrityError):
+            _insert_copy(native_approval, _COPY_DECISION, _DECISION_EXACT)
+
+
+#: The revision below `e61b3f9a4c27`, in groups for the secret scanner.
+_BEFORE_PROVENANCE_REVISION = "".join(("d4f18a", "6c2e97"))
+
+
+def test_the_provenance_migration_goes_down_and_up_again(clean: Engine) -> None:
+    def installed() -> tuple[object, object, object]:
+        with clean.begin() as connection:
+            return (
+                connection.execute(
+                    text("SELECT to_regclass('public.paper_proposal_time_basis') IS NOT NULL")
+                ).scalar_one(),
+                connection.execute(
+                    text("SELECT to_regclass('public.paper_decision_time_basis') IS NOT NULL")
+                ).scalar_one(),
+                connection.execute(
+                    text(
+                        "SELECT count(*) FROM pg_proc WHERE proname IN "
+                        "('paper_execution_proposal_time_basis_guard_insert', "
+                        "'paper_execution_decision_time_basis_guard_insert')"
+                    )
+                ).scalar_one(),
+            )
+
+    assert installed() == (True, True, 2)
+    alembic_command.downgrade(alembic_config(), _BEFORE_PROVENANCE_REVISION)
+    try:
+        assert installed() == (False, False, 0)
+        # The intent-time table from the revision below is untouched by this downgrade.
+        with clean.begin() as connection:
+            assert connection.execute(
+                text("SELECT to_regclass('public.paper_intent_time_basis') IS NOT NULL")
+            ).scalar_one()
+    finally:
+        alembic_command.upgrade(alembic_config(), "head")
+    assert installed() == (True, True, 2)

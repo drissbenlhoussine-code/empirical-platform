@@ -39,19 +39,27 @@ from empirical_platform.decision_candidate.paper_execution import (
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
     PAPER_ENDPOINT_HOST,
     BrokerAcknowledgement,
+    DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
     IntentTimeBasis,
+    M084TimeProvenance,
     PaperAccountSnapshot,
     PaperEnvironment,
     PaperExecutionEvent,
     PaperExecutionState,
+    ProposalTimeBasis,
     SubmissionPreview,
+    act_chronology_refusal,
     authorize_submission,
+    bind_decision_time_basis,
     bind_intent_time_basis,
+    bind_proposal_time_basis,
     build_submission_preview,
-    intent_time_basis_refusal,
+    decision_time_basis_refusal,
     m084_deadline_refusal_on_broker_time,
+    m084_provenance_refusal,
+    proposal_time_basis_refusal,
     request_fingerprint,
 )
 from empirical_platform.decision_candidate.paper_execution_repositories import (
@@ -60,16 +68,28 @@ from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
     ExecutionAuthorizationRepository,
     ExecutionKillSwitchRepository,
-    IntentTimeBasisRepository,
     PaperAccountSnapshotRepository,
     PaperBrokerPort,
     PaperExecutionEventRepository,
     PaperMarketDataPort,
     SubmissionPreviewRepository,
+    TimeBasisRepository,
+)
+from empirical_platform.decision_candidate.product_market_inputs import (
+    AccountSnapshot,
+    InstrumentMetadata,
+    LiquiditySnapshot,
+    OpenOrderSnapshot,
+    PositionSnapshot,
+    QuoteSnapshot,
+    SessionSnapshot,
+    TradingCostEstimate,
 )
 from empirical_platform.decision_candidate.product_repositories import (
     ApprovalDecisionRepository,
     ApprovedOrderIntentRepository,
+    EvaluationContextRepository,
+    OperatorTradingConfigurationRepository,
     TradeProposalRepository,
 )
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
@@ -86,9 +106,16 @@ from empirical_platform.shared.brokerage.paper_time import (
     SystemPaperTimeSource,
 )
 from empirical_platform.usecases.decision_to_approval import (
+    DecideTradeProposalCommand,
+    DecideTradeProposalHandler,
+    DecisionOutcome,
     IssueApprovedOrderIntentCommand,
     IssueApprovedOrderIntentHandler,
     NotFoundError,
+    OperatorAction,
+    PrepareTradeProposalCommand,
+    PrepareTradeProposalHandler,
+    TradeProposalOutcome,
 )
 
 #: Re-exported for `entrypoints`, which may import `usecases` but not
@@ -102,6 +129,9 @@ __all__ = [
     "CancelPaperOrderHandler",
     "InspectPaperAccountCommand",
     "InspectPaperAccountHandler",
+    "DecidePaperBoundTradeProposalCommand",
+    "DecidePaperBoundTradeProposalHandler",
+    "DecisionTimeBasis",
     "IntentTimeBasis",
     "IssuePaperBoundOrderIntentCommand",
     "IssuePaperBoundOrderIntentHandler",
@@ -110,7 +140,13 @@ __all__ = [
     "ExecutionAttempt",
     "ExecutionAuthorization",
     "PaperAccountSnapshot",
+    "M084TimeProvenance",
+    "PaperBoundDecision",
     "PaperBoundIntent",
+    "PaperBoundProposal",
+    "PreparePaperBoundTradeProposalCommand",
+    "PreparePaperBoundTradeProposalHandler",
+    "ProposalTimeBasis",
     "PaperExecutionState",
     "SubmissionPreview",
     "PaperEvidence",
@@ -406,7 +442,7 @@ class PreviewPaperSubmissionHandler:
 
     __slots__ = (
         "_intents",
-        "_intent_time_bases",
+        "_time_bases",
         "_snapshots",
         "_previews",
         "_events",
@@ -420,7 +456,7 @@ class PreviewPaperSubmissionHandler:
         self,
         *,
         intents: ApprovedOrderIntentRepository,
-        intent_time_bases: IntentTimeBasisRepository,
+        time_bases: TimeBasisRepository,
         snapshots: PaperAccountSnapshotRepository,
         previews: SubmissionPreviewRepository,
         events: PaperExecutionEventRepository,
@@ -430,7 +466,7 @@ class PreviewPaperSubmissionHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
-        self._intent_time_bases = intent_time_bases
+        self._time_bases = time_bases
         self._snapshots = snapshots
         self._previews = previews
         self._events = events
@@ -486,7 +522,7 @@ class PreviewPaperSubmissionHandler:
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
             broker_now=broker_instant,
-            intent_time_basis=self._intent_time_bases.get(intent.intent_governance_id),
+            m084_provenance=_provenance_for(intent, self._time_bases),
         )
         stored = self._previews.save(preview)
         self._events.append(
@@ -595,6 +631,257 @@ class AuthorizePaperSubmissionHandler:
         return stored
 
 
+def _provenance_for(
+    intent: ApprovedOrderIntent, time_bases: TimeBasisRepository
+) -> M084TimeProvenance:
+    """The three recorded bases behind one intent, each found by the act it belongs to."""
+    return M084TimeProvenance(
+        proposal=time_bases.proposal(intent.proposal_governance_id, intent.proposal_version),
+        decision=time_bases.decision(intent.decision_governance_id),
+        intent=time_bases.intent(intent.intent_governance_id),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Paper-bound proposal evaluation and approval
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PreparePaperBoundTradeProposalCommand:
+    """Evaluate one instrument through M084 AND record the basis of that evaluation.
+
+    The inputs of M084's `PrepareTradeProposalCommand`, except `evaluated_at`: the
+    evaluation instant IS the conservative host reading taken after the broker clock
+    response, so a basis cannot describe an instant it was not measured at.
+    """
+
+    proposal_governance_id: str
+    evaluation_context_id: str
+    symbol: str
+    quote: QuoteSnapshot
+    account: AccountSnapshot
+    session: SessionSnapshot
+    instrument: InstrumentMetadata
+    liquidity: LiquiditySnapshot
+    cost_estimate: TradingCostEstimate | None
+    positions: tuple[PositionSnapshot, ...]
+    open_orders: tuple[OpenOrderSnapshot, ...]
+    evidence_age_seconds: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class PaperBoundProposal:
+    """M084's evaluation outcome and, when it produced a proposal, the basis recorded."""
+
+    outcome: TradeProposalOutcome
+    #: None exactly when M084 answered NO_TRADE: nothing was written, so nothing is timed.
+    time_basis: ProposalTimeBasis | None
+
+
+class PreparePaperBoundTradeProposalHandler:
+    """MILESTONE-084's own evaluation, unchanged, composed with a proposal-time basis.
+
+    WHY THIS EXISTS. The proposal's `expires_at` and `mandatory_liquidation_at` are
+    WRITTEN here, on this host's clock, and become the intent's deadlines unchanged.
+    Only a basis measured in this act may translate them. A basis measured later --
+    at issuance, as `d4f18a6c2e97` did -- maps them by whatever the host clock did in
+    between: reproduced at `73a2f96`, where an hour of drift let an expired proposal
+    and approval reach the broker.
+
+    WHAT IT DOES NOT CHANGE. `PrepareTradeProposalHandler` and every M084 file are
+    used as they are; only `evaluated_at` is supplied, as the measured host reading.
+    A NO_TRADE records nothing. The one broker call is `GET /v2/clock`, read-only.
+    """
+
+    __slots__ = (
+        "_configurations",
+        "_contexts",
+        "_proposals",
+        "_time_bases",
+        "_broker",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        configurations: OperatorTradingConfigurationRepository,
+        contexts: EvaluationContextRepository,
+        proposals: TradeProposalRepository,
+        time_bases: TimeBasisRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._configurations = configurations
+        self._contexts = contexts
+        self._proposals = proposals
+        self._time_bases = time_bases
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: PreparePaperBoundTradeProposalCommand) -> PaperBoundProposal:
+        if self._proposals.get(command.proposal_governance_id) is not None:
+            raise PaperExecutionRefusedError(
+                f"proposal {command.proposal_governance_id!r} already exists; a "
+                "proposal-time basis is measured only in the act of evaluating a proposal "
+                "and is never attached to one afterwards"
+            )
+        timing = PaperTimeWindow(self._time_source)
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        outcome = PrepareTradeProposalHandler(
+            configuration_repository=self._configurations,
+            evaluation_context_repository=self._contexts,
+            trade_proposal_repository=self._proposals,
+        ).handle(
+            PrepareTradeProposalCommand(
+                proposal_governance_id=command.proposal_governance_id,
+                evaluation_context_id=command.evaluation_context_id,
+                symbol=command.symbol,
+                evaluated_at=time_basis.host_at,
+                quote=command.quote,
+                account=command.account,
+                session=command.session,
+                instrument=command.instrument,
+                liquidity=command.liquidity,
+                cost_estimate=command.cost_estimate,
+                positions=command.positions,
+                open_orders=command.open_orders,
+                evidence_age_seconds=command.evidence_age_seconds,
+            )
+        )
+        if outcome.proposal is None:
+            return PaperBoundProposal(outcome=outcome, time_basis=None)
+        evidence = bind_proposal_time_basis(
+            proposal=outcome.proposal,
+            time_basis=time_basis,
+            broker_endpoint_host=self._broker.endpoint_host,
+        )
+        return PaperBoundProposal(
+            outcome=outcome, time_basis=self._time_bases.record_proposal(evidence)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DecidePaperBoundTradeProposalCommand:
+    """One human decision through M084, with the basis of that decision recorded.
+
+    No `decided_at`: the decision instant IS the measured host reading.
+    """
+
+    proposal_governance_id: str
+    decision_governance_id: str
+    action: OperatorAction
+    operator_identity: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperBoundDecision:
+    """M084's decision outcome and, for an approval, the basis recorded."""
+
+    outcome: DecisionOutcome
+    #: None for a rejection or cancellation, which carries no expiry to translate.
+    time_basis: DecisionTimeBasis | None
+
+
+class DecidePaperBoundTradeProposalHandler:
+    """MILESTONE-084's own decision, unchanged, composed with a decision-time basis.
+
+    WHY THIS EXISTS. The approval's `expires_at` is WRITTEN here, on this host's
+    clock, and M084 checks it again at issuance on the host clock. Only a basis
+    measured in this act may translate it. The approval expiry does not bound host
+    drift between evaluation and issuance: it is written on that same host timeline.
+
+    AN APPROVAL REQUIRES ITS PROPOSAL'S OWN BASIS, and is refused when the proposal
+    might already have expired on the broker's clock at this decision. M084 checks
+    the same on the host clock, which a backward host step defeats. A rejection or
+    cancellation is passed to M084 unchanged and records no basis.
+    """
+
+    __slots__ = (
+        "_configurations",
+        "_decisions",
+        "_proposals",
+        "_time_bases",
+        "_broker",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        configurations: OperatorTradingConfigurationRepository,
+        decisions: ApprovalDecisionRepository,
+        proposals: TradeProposalRepository,
+        time_bases: TimeBasisRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._configurations = configurations
+        self._decisions = decisions
+        self._proposals = proposals
+        self._time_bases = time_bases
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: DecidePaperBoundTradeProposalCommand) -> PaperBoundDecision:
+        proposal = self._proposals.get(command.proposal_governance_id)
+        if proposal is None:
+            raise NotFoundError(f"no trade proposal {command.proposal_governance_id!r}")
+        approving = command.action is OperatorAction.APPROVE
+        proposal_basis = self._time_bases.proposal(
+            proposal.proposal_governance_id, proposal.proposal_version
+        )
+        if approving:
+            refusal = proposal_time_basis_refusal(
+                proposal_governance_id=proposal.proposal_governance_id,
+                proposal_version=proposal.proposal_version,
+                fingerprint=proposal.content_fingerprint,
+                expires_at=proposal.expires_at,
+                mandatory_liquidation_at=proposal.mandatory_liquidation_at,
+                evidence=proposal_basis,
+            )
+            if refusal is not None:
+                raise PaperExecutionRefusedError(refusal)
+
+        timing = PaperTimeWindow(self._time_source)
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        if approving and proposal_basis is not None:
+            deciding = BoundedInstant(
+                earliest=time_basis.broker_earliest_at, latest=time_basis.broker_latest_at
+            )
+            if deciding.possibly_at_or_after(
+                proposal_basis.time_basis.on_broker_timeline(proposal.expires_at)
+            ):
+                raise PaperExecutionRefusedError(
+                    "the proposal has expired on the broker's clock and cannot be approved"
+                )
+
+        outcome = DecideTradeProposalHandler(
+            configuration_repository=self._configurations,
+            approval_decision_repository=self._decisions,
+            trade_proposal_repository=self._proposals,
+        ).handle(
+            DecideTradeProposalCommand(
+                proposal_governance_id=command.proposal_governance_id,
+                decision_governance_id=command.decision_governance_id,
+                action=command.action,
+                operator_identity=command.operator_identity,
+                decided_at=time_basis.host_at,
+            )
+        )
+        if not approving:
+            return PaperBoundDecision(outcome=outcome, time_basis=None)
+        evidence = bind_decision_time_basis(
+            decision=outcome.decision,
+            time_basis=time_basis,
+            broker_endpoint_host=self._broker.endpoint_host,
+        )
+        return PaperBoundDecision(
+            outcome=outcome, time_basis=self._time_bases.record_decision(evidence)
+        )
+
+
 # ---------------------------------------------------------------------------
 # Paper-bound intent issuance
 # ---------------------------------------------------------------------------
@@ -625,11 +912,16 @@ class PaperBoundIntent:
 class IssuePaperBoundOrderIntentHandler:
     """MILESTONE-084's own issuance, unchanged, composed with an intent-time basis.
 
-    WHY THIS EXISTS. MILESTONE-084 writes an intent's deadlines with the host clock
-    of the process that issues it, and records nothing about how that clock related
-    to the broker's. A later authorization's basis cannot stand in for that: a host
-    clock that moved between issuance and authorization would shift the deadlines by
-    the movement. Only a basis measured IN THE ACT OF ISSUING can translate them.
+    WHY THIS EXISTS. It records WHEN the intent was issued, on the broker's clock, so
+    the issuance can be shown to precede the proposal, liquidation and approval
+    deadlines -- each through the basis of the act that wrote it.
+
+    SUPERSEDED. This docstring used to say the intent's deadlines are written at
+    issuance and that only an issuance basis can translate them. They are written
+    when the proposal is evaluated and approved; translating them through the
+    issuance basis let an hour of host drift pass an expired proposal and approval
+    to the broker (reproduced at `73a2f96`). This basis translates no deadline, and
+    issuance now REQUIRES the proposal-time and decision-time bases.
 
     WHAT IT DOES NOT CHANGE. `IssueApprovedOrderIntentHandler` and every M084 file
     are used exactly as they are. The only thing supplied differently is
@@ -649,7 +941,7 @@ class IssuePaperBoundOrderIntentHandler:
         "_approval_decisions",
         "_intents",
         "_proposals",
-        "_intent_time_bases",
+        "_time_bases",
         "_broker",
         "_time_source",
     )
@@ -660,14 +952,14 @@ class IssuePaperBoundOrderIntentHandler:
         approval_decisions: ApprovalDecisionRepository,
         intents: ApprovedOrderIntentRepository,
         proposals: TradeProposalRepository,
-        intent_time_bases: IntentTimeBasisRepository,
+        time_bases: TimeBasisRepository,
         broker: PaperBrokerPort,
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._approval_decisions = approval_decisions
         self._intents = intents
         self._proposals = proposals
-        self._intent_time_bases = intent_time_bases
+        self._time_bases = time_bases
         self._broker = broker
         self._time_source = time_source or SystemPaperTimeSource()
 
@@ -679,8 +971,58 @@ class IssuePaperBoundOrderIntentHandler:
                 "attached to one afterwards"
             )
 
+        proposal = self._proposals.get(command.proposal_governance_id)
+        if proposal is None:
+            raise NotFoundError(f"no trade proposal {command.proposal_governance_id!r}")
+        decision = self._approval_decisions.for_proposal(command.proposal_governance_id)
+        if decision is None:
+            raise NotFoundError(
+                f"proposal {command.proposal_governance_id!r} has no recorded decision"
+            )
+        # THE BASES OF THE ACTS THAT WROTE THE DEADLINES, before anything is measured
+        # or written. A proposal or approval created through M084 alone has none.
+        proposal_basis = self._time_bases.proposal(
+            proposal.proposal_governance_id, proposal.proposal_version
+        )
+        decision_basis = self._time_bases.decision(decision.decision_governance_id)
+        for refusal in (
+            proposal_time_basis_refusal(
+                proposal_governance_id=proposal.proposal_governance_id,
+                proposal_version=proposal.proposal_version,
+                fingerprint=proposal.content_fingerprint,
+                expires_at=proposal.expires_at,
+                mandatory_liquidation_at=proposal.mandatory_liquidation_at,
+                evidence=proposal_basis,
+            ),
+            decision_time_basis_refusal(
+                decision_governance_id=decision.decision_governance_id,
+                proposal_governance_id=decision.proposal_governance_id,
+                proposal_version=decision.proposal_version,
+                approved_fingerprint=decision.approved_fingerprint,
+                evidence=decision_basis,
+            ),
+        ):
+            if refusal is not None:
+                raise PaperExecutionRefusedError(refusal)
+        if decision_basis is not None and (
+            decision_basis.decided_at != decision.decided_at
+            or decision_basis.decision_expires_at != decision.expires_at
+        ):
+            raise PaperExecutionRefusedError(
+                "the decision-time broker basis does not describe this exact approval"
+            )
+
         timing = PaperTimeWindow(self._time_source)
         time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        # M084 is about to check the proposal and approval against `created_at` on the
+        # HOST clock. The same questions are asked here on the BROKER's clock, each
+        # deadline through the basis of the act that wrote it -- before M084 writes.
+        if proposal_basis is not None and decision_basis is not None:
+            chronology = act_chronology_refusal(
+                proposal=proposal_basis, decision=decision_basis, issued=time_basis
+            )
+            if chronology is not None:
+                raise PaperExecutionRefusedError(chronology)
         intent = IssueApprovedOrderIntentHandler(
             approval_decision_repository=self._approval_decisions,
             approved_order_intent_repository=self._intents,
@@ -698,7 +1040,7 @@ class IssuePaperBoundOrderIntentHandler:
             time_basis=time_basis,
             broker_endpoint_host=self._broker.endpoint_host,
         )
-        return PaperBoundIntent(intent=intent, time_basis=self._intent_time_bases.record(evidence))
+        return PaperBoundIntent(intent=intent, time_basis=self._time_bases.record_intent(evidence))
 
 
 # ---------------------------------------------------------------------------
@@ -706,10 +1048,10 @@ class IssuePaperBoundOrderIntentHandler:
 # ---------------------------------------------------------------------------
 
 
-def _refuse_m084_deadlines_on_intent_time_basis(
+def _refuse_m084_deadlines_on_their_own_bases(
     *,
     intent: ApprovedOrderIntent,
-    intent_time_basis: IntentTimeBasis | None,
+    provenance: M084TimeProvenance,
     broker_now: BoundedInstant,
 ) -> None:
     """Enforce M084's deadlines on the broker's clock as well as this host's.
@@ -719,7 +1061,9 @@ def _refuse_m084_deadlines_on_intent_time_basis(
     values are frozen: they are not rewritten, reinterpreted or relaxed here, and
     the host-timeline checks on them still run unchanged. This is a SECOND
     enforcement of the same two deadlines, on the broker timeline, through the
-    basis measured when THE INTENT WAS ISSUED.
+    basis measured when THE PROPOSAL THAT WROTE THEM WAS EVALUATED. SUPERSEDED
+    AGAIN: until `e61b3f9a4c27` this used the basis measured at intent issuance,
+    which is later than the act that wrote them.
 
     SUPERSEDED. This used to map them through the authorization's basis. That basis
     was measured later, in a different act; a host clock that moved between intent
@@ -729,7 +1073,7 @@ def _refuse_m084_deadlines_on_intent_time_basis(
     different intent, is refused here rather than mapped with a borrowed one.
     """
     refusal = m084_deadline_refusal_on_broker_time(
-        intent=intent, evidence=intent_time_basis, broker_now=broker_now
+        intent=intent, provenance=provenance, broker_now=broker_now
     )
     if refusal is not None:
         raise PaperExecutionRefusedError(refusal)
@@ -762,7 +1106,7 @@ class SubmitAuthorizedPaperOrderHandler:
 
     __slots__ = (
         "_intents",
-        "_intent_time_bases",
+        "_time_bases",
         "_previews",
         "_authorizations",
         "_attempts",
@@ -779,7 +1123,7 @@ class SubmitAuthorizedPaperOrderHandler:
         self,
         *,
         intents: ApprovedOrderIntentRepository,
-        intent_time_bases: IntentTimeBasisRepository,
+        time_bases: TimeBasisRepository,
         previews: SubmissionPreviewRepository,
         authorizations: ExecutionAuthorizationRepository,
         attempts: ExecutionAttemptRepository,
@@ -792,7 +1136,7 @@ class SubmitAuthorizedPaperOrderHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
-        self._intent_time_bases = intent_time_bases
+        self._time_bases = time_bases
         self._previews = previews
         self._authorizations = authorizations
         self._attempts = attempts
@@ -829,15 +1173,16 @@ class SubmitAuthorizedPaperOrderHandler:
                 "no human authorization exists for this intent; nothing may be dispatched"
             )
 
-        # THE INTENT'S OWN TIME BASIS, BEFORE ANY BROKER CALL. An intent issued
-        # without one -- through M084 alone -- or with evidence describing some
-        # other intent is refused here, and no basis is borrowed from the
-        # authorization or derived now. The authorization's basis is judged
-        # separately, by `refusal_against`, against its own expiry only.
-        intent_time_basis = self._intent_time_bases.get(intent.intent_governance_id)
-        intent_basis_refusal = intent_time_basis_refusal(intent=intent, evidence=intent_time_basis)
-        if intent_basis_refusal is not None:
-            raise PaperExecutionRefusedError(intent_basis_refusal)
+        # THE PROVENANCE OF EVERY M084 DEADLINE, BEFORE ANY BROKER CALL. A proposal,
+        # approval or intent created without its own basis -- through M084 alone --
+        # or evidence describing another record, or a recorded chronology in which an
+        # act happened after a deadline it relied on, is refused here. No basis is
+        # borrowed or derived now. The authorization's basis is judged separately,
+        # by `refusal_against`, against its own expiry only.
+        provenance = _provenance_for(intent, self._time_bases)
+        provenance_refusal = m084_provenance_refusal(intent=intent, provenance=provenance)
+        if provenance_refusal is not None:
+            raise PaperExecutionRefusedError(provenance_refusal)
 
         # THE KILL SWITCH IS READ FIRST, and the evidence refreshed after it, so
         # that a switch engaged during the refresh still blocks the dispatch.
@@ -890,7 +1235,7 @@ class SubmitAuthorizedPaperOrderHandler:
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
             broker_now=timing.broker_now(),
-            intent_time_basis=intent_time_basis,
+            m084_provenance=provenance,
         )
         if not fresh.is_authorizable:
             raise PaperExecutionRefusedError(
@@ -915,11 +1260,11 @@ class SubmitAuthorizedPaperOrderHandler:
             raise PaperExecutionRefusedError(f"this dispatch is not authorized: {refusal}")
 
         # M084's deadlines, on the broker's clock, BEFORE anything is claimed, through
-        # the basis measured when the intent was issued. The host-timeline copies
-        # were already enforced by the rebuilt preview above; this is the one that
-        # survives a host clock that moved after the intent was issued.
-        _refuse_m084_deadlines_on_intent_time_basis(
-            intent=intent, intent_time_basis=intent_time_basis, broker_now=timing.broker_now()
+        # the basis measured when the proposal that wrote them was evaluated. The
+        # host-timeline copies were already enforced by the rebuilt preview above;
+        # this is the one that survives a host clock that moved after that act.
+        _refuse_m084_deadlines_on_their_own_bases(
+            intent=intent, provenance=provenance, broker_now=timing.broker_now()
         )
 
         # CLAIM BEFORE THE NETWORK. Everything above is a check; this is the
@@ -985,8 +1330,8 @@ class SubmitAuthorizedPaperOrderHandler:
                     raise PaperExecutionRefusedError(
                         "the approved intent or liquidation deadline expired"
                     )
-                _refuse_m084_deadlines_on_intent_time_basis(
-                    intent=intent, intent_time_basis=intent_time_basis, broker_now=broker_instant
+                _refuse_m084_deadlines_on_their_own_bases(
+                    intent=intent, provenance=provenance, broker_now=broker_instant
                 )
 
                 # -- broker timeline: what the broker reported ------------------
