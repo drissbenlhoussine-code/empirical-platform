@@ -1,6 +1,6 @@
 # MILESTONE-085 — Exhaustion Table
 
-**30 of 31 EXECUTED_PASS. 1 blocker(s).**
+**31 of 31 EXECUTED_PASS. 0 blocker(s).**
 
 Two statuses exist and no others. Every row is DERIVED -- this tool re-reads the
 artefact the item produced or re-runs the gate, so a row cannot be edited into
@@ -38,4 +38,4 @@ passing.
 | 28 | The changed-files list is exact | **EXECUTED_PASS** | 71 paths, identical to `git diff --name-status` |
 | 29 | PROJECT_CHECKPOINT.md untouched | **EXECUTED_PASS** | PROJECT_CHECKPOINT.md is not in the diff |
 | 30 | No M086 path exists | **EXECUTED_PASS** | tracked M086 paths: none |
-| 31 | Working tree clean | **EXECUTED_FAIL_BLOCKER** | working tree: ['M  external-review/MILESTONE-085/changed-files.txt', 'M  external-review/MILESTONE-085/exhaustion-table.md'] |
+| 31 | Working tree clean | **EXECUTED_PASS** | working tree: clean |
