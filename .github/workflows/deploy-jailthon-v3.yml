@@ -1,0 +1,48 @@
+name: Deploy Jailthon Remodeling Preview
+on:
+  push:
+    branches:
+      - jailthon-remodeling-v3
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Embed verified project images
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64, mimetypes, pathlib, requests
+          html = pathlib.Path("index.html").read_text()
+          urls = {
+            "__IMG1__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWk8L0aBhxChkL8o1zLFYoyMxjvExzj6P90CbPt4At9apyqfK6uJMJd1OrdYfV8PJGh_wkGz1ueVpOyKp2-8z6G3uT6s2Ty-TMTb4360aU6nuU_cVO4r6TP6JTSRx52gCD9EN6Z5nQ=s1200-k-no",
+            "__IMG3__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWlu1i3wcu5L1U0JrO-VFoFpH1beyl-7NxrKDlXUVROpYMZHeS5inEXvDt58x-bKljxUsVjzi5crWefhg79MYYZ3k5aJi0NBmv4CZjyAfj0aZH5OwB5DzN4nGZnddQrtBYyQe47j8g=s1200-k-no",
+            "__IMG4__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWlSoXdZ9P-1sGoWVCnPF7pPQf1rHNovGUVe8rWowrs770Wz63zuuaJSO76GMpRXz7q3R1OtDTAiT8pKdVNeuu25xKKWzNSjdQmAbaPzQEGCMSY5W2gxD7Wv4Arzpqchtm-bQW2s=s1200-k-no",
+            "__IMG6__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWl0xNZlhRciikn_8QvCn43pifIX50IJ3ch7CC0MPqzfEgHcGrXR-hn_LFPAwibGwY-oIvEG_lNUdfz7eu2LHol_l2pY16wIARi9ebuzJrJNyHC1D_McFrWCMMiheU7VaqeMFbwA=s1200-k-no",
+            "__IMG8__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWkuj7hwetC5-pp-IFSNldP0mHV6xW1gSaGUokU8w1RO75RzqMGmC84J7aCU2EWcDGOaw6E7WneB2F3EqyKvuxpfLrEuREZervUU--aRMZ5XpLpU5vT33wE6NXsD6lgcGc5uraI=s1200-k-no",
+            "__IMG9__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWmpfW5YpaWiu1zKU2yRQ5h3JASsOORukITx7i7iCWJ_kqkmFfijxp5FQpnplzFj3Jofy9sG5JbdINtTRJXknPxyRdTfP8S-qi3hHwFMg0r3PpU1RgwohVZsRWunhQw31WdJccpl=s1200-k-no",
+            "__IMG11__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWmaT2BARZPU-eF-OBms7JgZRaxJRsSOpDPrxZ7mqQMuOc7aKcIOfrUW_SUbyo6Xa4xX-8RAAyE6ETXnnCQC3XLfR8qY6FW_MO3Q9dfIcHg9FXBZGD0ZUhFP-Lv0fUduQ4V591-1CyKRc5eY=s1200-k-no",
+            "__IMG13__":"https://lh3.googleusercontent.com/gps-cs-s/AHRPTWlvbxnLP8f0i72pKMvFm7de_G3G6zZCCmegDb45GoJrvcmAUk5dfEKnAKSRyLA42u76_da10dCclLwXJeroGEh7A3O27agOsDN2SdhDbbkR-7gkuYuB21Z2DXmpWpvvcwFEOodGp-k_f1E=s1200-k-no"
+          }
+          s = requests.Session()
+          headers = {"User-Agent":"Mozilla/5.0"}
+          for token, url in urls.items():
+              r = s.get(url, headers=headers, timeout=40)
+              r.raise_for_status()
+              ctype = r.headers.get("content-type","image/jpeg").split(";")[0]
+              data = "data:" + ctype + ";base64," + base64.b64encode(r.content).decode()
+              html = html.replace(token, data)
+              print(token, len(r.content), ctype)
+          pathlib.Path("deploy.html").write_text(html)
+          PY
+
+      - name: Deploy temporary public preview
+        shell: bash
+        run: |
+          set -e
+          RESP=$(curl -sS -X POST 'https://ship.page/deploy?ttl=604800' -H 'Content-Type: text/html' --data-binary @deploy.html)
+          echo "$RESP"
+          echo "DEPLOY_RESPONSE=$RESP" >> "$GITHUB_ENV"
