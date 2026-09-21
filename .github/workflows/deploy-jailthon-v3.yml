@@ -45,4 +45,3 @@ jobs:
           set -e
           RESP=$(curl -sS -X POST 'https://ship.page/deploy?ttl=604800' -H 'Content-Type: text/html' --data-binary @deploy.html)
           echo "$RESP"
-          echo "DEPLOY_RESPONSE=$RESP" >> "$GITHUB_ENV"
