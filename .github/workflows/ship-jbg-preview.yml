@@ -1,0 +1,26 @@
+name: Ship JBG Preview
+
+on:
+  push:
+    branches:
+      - jbg-custom-cabinets-preview
+  workflow_dispatch:
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy preview
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl -fsS -X POST 'https://ship.page/deploy?ttl=604800' -H 'Content-Type: text/html' --data-binary @index.html)"
+          echo "$RESPONSE"
+          URL="$(printf '%s' "$RESPONSE" | grep -Eo 'https://[^"[:space:]]+\.shipped\.run/?' | head -n 1 || true)"
+          test -n "$URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
