@@ -1,0 +1,37 @@
+name: Ship Innovations Roofing Preview
+
+on:
+  push:
+    branches:
+      - innovations-roofing-preview
+  workflow_dispatch:
+
+jobs:
+  ship:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy preview to ship.page
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl -fsS -X POST 'https://ship.page/deploy?ttl=604800' -H 'Content-Type: text/html' --data-binary @index.html)"
+          echo "$RESPONSE"
+          URL="$(printf '%s' "$RESPONSE" | grep -Eo 'https://[^"[:space:]]+\.shipped\.page/?' | head -n 1 || true)"
+          if [ -z "$URL" ]; then
+            URL="$(printf '%s' "$RESPONSE" | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("url") or d.get("live_url") or d.get("site") or "")' 2>/dev/null || true)"
+          fi
+          test -n "$URL"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "### Live preview" >> "$GITHUB_STEP_SUMMARY"
+          echo "$URL" >> "$GITHUB_STEP_SUMMARY"
+      - name: Save preview URL
+        run: |
+          printf '%s\n' '${{ steps.deploy.outputs.url }}' > PREVIEW_URL.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: innovations-roofing-preview-url
+          path: PREVIEW_URL.txt
