@@ -1,5 +1,8 @@
 # M085 temporal correction — implementation evidence
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> The liquidation deadline is no longer translated through the proposal basis alone (it could be extended by a slow host); the final send guard now re-reads its inputs.
+
 Status: IMPLEMENTED_CANDIDATE — OWNER REVIEW REQUIRED. Not merged or frozen.
 Head-specific CI conclusions are recorded on PR #15 against the full candidate SHA;
 this document does not substitute for those checks or grant Owner approval.

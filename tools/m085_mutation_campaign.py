@@ -23,7 +23,16 @@ EXECUTED_FAIL_BLOCKER.
 
 WHY THE DIGEST MATTERS. Restoring by rewriting remembered text is how a campaign
 silently leaves a mutation behind. The digest is taken before the edit and checked
-after the restore, so "restored" is measured rather than assumed.
+after the restore, so "restored" is measured rather than assumed. A second digest
+covers the whole source tree -- every file under src, tests, tools, migrations and
+scripts -- before the first family and after the last, so a restoration that fixed
+the intended file but left any other file changed is also caught.
+
+Families run strictly one at a time: each mutates, tests and restores before the next
+begins, and the restoration sits in a `finally` so an interrupted test run still
+restores. PostgreSQL families need `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1` and a
+DISPOSABLE database; without it their tests skip, a skipped test cannot fail, and the
+family is reported as a surviving mutation rather than as detected.
 """
 
 from __future__ import annotations
@@ -56,6 +65,23 @@ _AUTHORITY = "tests/integration/test_m085_authority_contract.py"
 _POSTGRES = "tests/integration/test_m085_paper_execution_postgres.py"
 _CONCURRENCY = "tests/integration/test_m085_concurrency.py"
 
+#: CORRECTIVE PASS: the files that carry the rules this pass added, and their tests.
+_CORRECTIVE_MIGRATION = (
+    "migrations/versions/9c4b2e7d5a18_bind_m085_send_policy_and_terminal_attempts.py"
+)
+_COMPOSITION = "src/empirical_platform/entrypoints/_paper_composition.py"
+_ACCEPTANCE_TOOL = "tools/m085_paper_acceptance.py"
+_CORRECTIVE_UNIT = "tests/unit/test_m085_corrective_pass_domain.py"
+_CORRECTIVE_HANDLERS = "tests/unit/test_m085_corrective_pass_handlers.py"
+_CORRECTIVE_POSTGRES = "tests/integration/test_m085_corrective_pass_postgres.py"
+_COMPOSITION_TESTS = "tests/unit/test_m085_paper_composition.py"
+_DRY_RUN_TESTS = "tests/unit/test_m085_paper_acceptance_dry_run.py"
+
+#: Everything a mutation could touch and every file a restoration must leave as it was.
+#: Digested whole before the first family and after the last, so a campaign that
+#: restored the file it meant to but left anything else changed is caught.
+_TREE_ROOTS = ("src", "tests", "tools", "migrations", "scripts")
+
 
 @dataclass(frozen=True, slots=True)
 class Family:
@@ -79,14 +105,17 @@ class Family:
 #: They express the same condition while one process runs, so removing either alone
 #: leaves the rule standing -- that is defence in depth working, not a missing test.
 #: The campaign therefore mutates the RULE rather than one copy of it.
+#: CORRECTIVE PASS: the rule moved from `before_send` into `final_send_refusal`, which
+#: `before_send` now calls on freshly read evidence; the superseded text is gone.
 _FINAL_INTENT_RULE = """\
-                if instant >= intent.expires_at or instant >= intent.mandatory_liquidation_at:
-                    raise PaperExecutionRefusedError(
-                        "the approved intent or liquidation deadline expired"
-                    )
-                _refuse_m084_deadlines_on_their_own_bases(
-                    intent=intent, provenance=provenance, broker_now=broker_instant
-                )"""
+    if host_now >= intent.expires_at or host_now >= intent.mandatory_liquidation_at:
+        return "the approved intent or liquidation deadline expired"
+    # BROKER TIMELINE: the same deadlines, each through the basis of the act that wrote it.
+    deadline_refusal = m084_deadline_refusal_on_broker_time(
+        intent=intent, provenance=provenance, broker_now=broker_now
+    )
+    if deadline_refusal is not None:
+        return deadline_refusal"""
 
 _BASIS_EXPIRY_RULE = """\
             and broker_now.possibly_at_or_after(
@@ -194,7 +223,12 @@ FAMILIES: tuple[Family, ...] = (
         mutated="            and False",
         detecting_test=f"{_HANDLERS}::TestSubmitAuthorizedPaperOrder"
         "::test_a_host_clock_ahead_only_while_authorizing_cannot_extend_the_authorization",
-        expected_fragment="DID NOT RAISE",
+        # CORRECTIVE PASS run 1 named `DID NOT RAISE` and was a blocker. The final send
+        # guard now also refuses a dispatch whose host clock reads before `authorized_at`,
+        # so with this rule removed the same dispatch is still refused -- as future-dated
+        # rather than as expired. The test's message match is what detects the removal;
+        # in this scenario the two rules are defence in depth.
+        expected_fragment="the authorization is future-dated",
     ),
     Family(
         name="authorization_not_future_dated_against_its_basis",
@@ -217,11 +251,10 @@ FAMILIES: tuple[Family, ...] = (
         name="m084_deadline_on_proposal_time_basis",
         rule="M084 deadlines are enforced on the broker's clock through the proposal's own basis",
         path=_DOMAIN,
-        original=(
-            "        if broker_now.possibly_at_or_after("
-            "proposal_basis.on_broker_timeline(deadline)):"
-        ),
-        mutated="        if False:",
+        # CORRECTIVE PASS: the deadlines are placed on the broker timeline first (the
+        # liquidation deadline through `effective_liquidation_deadline`), then compared.
+        original="        if broker_now.possibly_at_or_after(deadline):\n            return label",
+        mutated="        if False:\n            return label",
         detecting_test=f"{_UNIT}::TestTheTwoTimeBasesHaveDistinctProvenance"
         "::test_the_intent_deadline_is_mapped_through_the_proposal_basis",
         expected_fragment="assert",
@@ -407,36 +440,45 @@ FAMILIES: tuple[Family, ...] = (
     Family(
         name="final_authorization_expiry",
         rule="Authorization is still valid at HTTP send",
-        path=_USECASE,
-        original="if refusal is not None or instant < authorization.authorized_at:",
-        mutated="if False:",
+        path=_DOMAIN,
+        original=(
+            "    if refusal is not None:\n"
+            "        return refusal\n"
+            "    if host_now < authorization.authorized_at:"
+        ),
+        mutated="    if host_now < authorization.authorized_at:",
         detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[authorization-connect]",
         expected_fragment="assert",
     ),
     Family(
         name="final_intent_expiry",
         rule="Intent expiry is checked after preparation",
-        path=_USECASE,
+        path=_DOMAIN,
         original=_FINAL_INTENT_RULE,
-        mutated="                pass",
+        mutated="    pass",
         detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[intent-prepare]",
         expected_fragment="assert",
     ),
     Family(
         name="final_session_close",
         rule="Market close is checked after preparation",
-        path=_USECASE,
-        original="or broker_instant.possibly_at_or_after(evidence.market_next_close)",
-        mutated="or False",
+        path=_DOMAIN,
+        original=(
+            "        or broker_now.possibly_at_or_after(market_next_close)\n"
+            "    ):\n"
+            '        return "the regular market session is closed"\n'
+        ),
+        mutated='        or False\n    ):\n        return "the regular market session is closed"\n',
         detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[session-prepare]",
         expected_fragment="assert",
     ),
     Family(
         name="final_quote_freshness",
         rule="Quote remains fresh after connection",
-        path=_USECASE,
-        original="if oldest_age > command.quote_maximum_age_seconds or oldest_age < 0:",
-        mutated="if False:",
+        # CORRECTIVE PASS: one shared `quote_refusal`, under the configuration's limit.
+        path=_DOMAIN,
+        original="    if oldest > policy.quote_maximum_age_seconds:",
+        mutated="    if False:",
         detecting_test="tests/unit/test_m085_paper_execution_handlers.py::TestSubmitAuthorizedPaperOrder::test_elapsed_work_cannot_extend_a_deadline[quote-connect]",
         expected_fragment="assert",
     ),
@@ -502,7 +544,10 @@ FAMILIES: tuple[Family, ...] = (
         original="        if 300 <= status < 400:",
         mutated="        if False:",
         detecting_test=f"{_HTTP}::TestRedirectsAreRefusedNotFollowed",
-        expected_fragment="DID NOT RAISE",
+        # CORRECTIVE PASS run 1 named `DID NOT RAISE` and was a blocker: an order POST
+        # answered by a redirect is now SUBMISSION_UNKNOWN, so with the rule removed an
+        # ambiguous error is still raised -- about HTTP 301, not about a redirect.
+        expected_fragment="Regex pattern did not match",
     ),
     Family(
         name="live_host_rejection",
@@ -542,8 +587,10 @@ FAMILIES: tuple[Family, ...] = (
         name="human_authorization_requirement",
         rule="A preview carrying refusals cannot be authorized",
         path=_DOMAIN,
-        original="    if not preview.is_authorizable:",
-        mutated="    if False:",
+        # CORRECTIVE PASS: the refusal is asked in `authorize_submission` AND in the
+        # binding check it ends with, so the property both read is what is removed.
+        original="        return not self.refusals",
+        mutated="        return True",
         detecting_test=f"{_UNIT}::TestAuthorizationIsNarrowAndExpiring"
         "::test_a_refused_preview_cannot_be_authorized",
         expected_fragment="DID NOT RAISE",
@@ -657,12 +704,18 @@ FAMILIES: tuple[Family, ...] = (
         name="whole_share_rule",
         rule="A fractional quantity cannot be expressed",
         path=_DOMAIN,
+        # CORRECTIVE PASS: the authorization now repeats this check for its own copy of
+        # the quantity, so the target is anchored on the order request's side rule.
         original=(
+            '            raise ValueError("side must be BUY: this product is long-only")\n'
             "        if isinstance(self.quantity, bool) or not "
             "isinstance(self.quantity, int):\n"
             '            raise ValueError("quantity must be an int")'
         ),
-        mutated='        if False:\n            raise ValueError("quantity must be an int")',
+        mutated=(
+            '            raise ValueError("side must be BUY: this product is long-only")\n'
+            '        if False:\n            raise ValueError("quantity must be an int")'
+        ),
         detecting_test=f"{_UNIT}::TestTheOrderRequestCannotExpressWhatIsForbidden"
         "::test_a_fractional_quantity_is_not_even_representable",
         expected_fragment="DID NOT RAISE",
@@ -702,8 +755,8 @@ FAMILIES: tuple[Family, ...] = (
         name="quote_freshness",
         rule="A stale quote refuses a preview",
         path=_DOMAIN,
-        original="        if oldest > quote_maximum_age_seconds:",
-        mutated="        elif False:",
+        original="    if oldest > policy.quote_maximum_age_seconds:",
+        mutated="    if False:",
         detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
         "::test_each_condition_produces_its_own_refusal[override13-older than the]",
         expected_fragment="assert",
@@ -712,8 +765,8 @@ FAMILIES: tuple[Family, ...] = (
         name="quote_future_timestamp",
         rule="A quote after post-fetch evaluation time refuses authorization",
         path=_DOMAIN,
-        original="        elif oldest < 0:",
-        mutated="        elif False:",
+        original="    if oldest < 0:",
+        mutated="    if False:",
         detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
         "::test_each_condition_produces_its_own_refusal"
         "[override14-dated after the latest possible]",
@@ -733,7 +786,7 @@ FAMILIES: tuple[Family, ...] = (
         name="notional_ceiling",
         rule="A cost ceiling above the configured limit refuses a preview",
         path=_DOMAIN,
-        original="    elif ceiling > maximum_notional:",
+        original="    elif ceiling > policy.maximum_notional:",
         mutated="    elif False:",
         detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
         "::test_each_condition_produces_its_own_refusal[override10-exceeds the limit]",
@@ -763,7 +816,7 @@ FAMILIES: tuple[Family, ...] = (
         name="watchlist",
         rule="A symbol off the approved watchlist refuses a preview",
         path=_DOMAIN,
-        original="    if intent.symbol not in approved_watchlist:",
+        original="    if intent.symbol not in policy.watchlist:",
         mutated="    if False:",
         detecting_test=f"{_UNIT}::TestThePreviewCollectsEveryRefusal"
         "::test_each_condition_produces_its_own_refusal"
@@ -835,7 +888,7 @@ FAMILIES: tuple[Family, ...] = (
         name="authority_enum_closure",
         rule="A claim the schema does not name cannot enter the contract",
         path=_SCHEMA,
-        original='      "minItems": 13,\n      "maxItems": 13,',
+        original='      "minItems": 14,\n      "maxItems": 14,',
         mutated='      "minItems": 1,\n      "maxItems": 99,',
         detecting_test=f"{_AUTHORITY}::TestTheContractIsValidAndClosed"
         "::test_every_list_length_is_exact",
@@ -864,7 +917,9 @@ FAMILIES: tuple[Family, ...] = (
     Family(
         name="database_transition_trigger",
         rule="The database refuses an illegal execution transition",
-        path=_MIGRATION,
+        # CORRECTIVE PASS run 1 SURVIVED here: `9c4b2e7d5a18` replaces the attempt update
+        # guard, so mutating `b1e9d47c30a5`'s copy changed nothing installed at head.
+        path=_CORRECTIVE_MIGRATION,
         original="    IF NOT (NEW.state = ANY (allowed)) THEN",
         mutated="    IF FALSE THEN",
         detecting_test=f"{_POSTGRES}::TestTheTransitionTableIsClosedInTheDatabase"
@@ -1016,11 +1071,521 @@ FAMILIES: tuple[Family, ...] = (
         "::test_exactly_one_wins_and_the_loser_receives_the_winner[repetition-1]",
         expected_fragment="assert",
     ),
+    # == CORRECTIVE PASS =====================================================
+    # D1 -- the send-time limits are the configuration's, bound to the authorization
+    Family(
+        name="policy_derived_from_the_configuration",
+        rule="The quote age limit is the stored configuration's, not a constant or argument",
+        path=_DOMAIN,
+        original="        quote_maximum_age_seconds=configuration.maximum_market_data_age_seconds,",
+        mutated="        quote_maximum_age_seconds=3600,",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestThePolicyComesFromTheConfigurationOnly"
+        "::test_every_send_time_limit_is_the_configurations",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="policy_fingerprint_covers_every_limit",
+        rule="Changing the quote age limit changes the policy fingerprint",
+        path=_DOMAIN,
+        original='                "quote_maximum_age_seconds": self.quote_maximum_age_seconds,\n',
+        mutated="",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestThePolicyComesFromTheConfigurationOnly"
+        "::test_every_limit_is_part_of_the_policy_fingerprint",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_guard_policy_fingerprint",
+        rule="A re-derived policy other than the authorized one refuses the send",
+        path=_DOMAIN,
+        original="    if authorization.policy_fingerprint != policy_now.fingerprint:",
+        mutated="    if False:",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestTheFinalSendGuard"
+        "::test_a_loosened_configuration_cannot_satisfy_an_authorization",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="spread_limit",
+        rule="A spread above the configured limit refuses",
+        path=_DOMAIN,
+        original="    if spread > policy.maximum_spread_percent:",
+        mutated="    if False:",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestTheSpreadBoundary"
+        "::test_exactly_the_limit_is_permitted_and_one_hundredth_more_is_not",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="entry_window",
+        rule="A broker instant that may be outside the entry window refuses",
+        path=_DOMAIN,
+        original=(
+            "        earliest.timetz().replace(tzinfo=None) < policy.earliest_entry_time\n"
+            "        or latest.timetz().replace(tzinfo=None) > policy.latest_entry_time"
+        ),
+        mutated="        False",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestTheEntryWindowIsJudgedOnTheBrokerClock",
+        expected_fragment="assert",
+    ),
+    # P3 -- the authorization is exactly the preview it names
+    Family(
+        name="authorization_binds_every_field",
+        rule="An authorization whose quote ask is not the preview's permits nothing",
+        path=_DOMAIN,
+        original='        ("quote_ask", preview.quote_ask, authorization.quote_ask),\n',
+        mutated="",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestAnAuthorizationIsBoundToItsExactPreview"
+        "::test_tampering_with_any_bound_field_is_named",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="authorization_never_outlives_the_intent",
+        rule="A stored authorization expiring after its intent permits nothing",
+        path=_DOMAIN,
+        original=(
+            "    if authorization.expires_at > preview.intent_expires_at:\n"
+            '        return "the authorization outlives'
+        ),
+        mutated='    if False:\n        return "the authorization outlives',
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestAnAuthorizationIsBoundToItsExactPreview"
+        "::test_a_stored_authorization_outliving_its_intent_is_refused",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="authorization_after_preview_freshness",
+        rule="A preview older than the configured freshness limit cannot be authorized",
+        path=_DOMAIN,
+        original="    if (time_basis.host_at - preview.created_at).total_seconds() > (",
+        mutated="    if False and (time_basis.host_at - preview.created_at).total_seconds() > (",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestAnAuthorizationIsBoundToItsExactPreview"
+        "::test_a_preview_older_than_the_freshness_limit_cannot_be_authorized",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="dispatch_checks_the_binding",
+        rule="The submit handler refuses a stored authorization that does not describe its preview",
+        path=_USECASE,
+        original=(
+            "        if binding_refusal is not None:\n"
+            '            raise PaperExecutionRefusedError(f"this dispatch is not authorized: '
+            '{binding_refusal}")'
+        ),
+        mutated=(
+            "        if False:\n"
+            '            raise PaperExecutionRefusedError(f"this dispatch is not authorized: '
+            '{binding_refusal}")'
+        ),
+        detecting_test=f"{_CORRECTIVE_HANDLERS}"
+        "::TestNothingOutsideTheConfigurationCanLoosenAnAuthorization"
+        "::test_a_tampered_stored_authorization_refuses[quote_captured_at-value1]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    # Item 7 -- every input to the final guard is read again
+    Family(
+        name="final_guard_reads_the_kill_switch_again",
+        rule="The kill switch is re-read after the claim",
+        path=_USECASE,
+        original="                kill_switch_engaged = self._kill_switch.is_engaged()",
+        mutated="                kill_switch_engaged = evidence.kill_switch_engaged",
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestTheFinalGuardReadsEverythingAgain"
+        "::test_a_kill_switch_engaged_after_the_claim_is_refused",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_guard_reads_the_configuration_again",
+        rule="The configuration is re-loaded and re-derived after the claim",
+        path=_USECASE,
+        original="                policy_now = _policy_for(intent, self._configurations)",
+        mutated="                policy_now = policy",
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestTheFinalGuardReadsEverythingAgain"
+        "::test_a_configuration_changed_after_the_claim_is_refused",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_guard_reads_the_market_session_again",
+        rule="The session is judged from the clock fetched after the claim",
+        path=_USECASE,
+        original=(
+            "                    market_is_open=clock.is_open,\n"
+            "                    market_next_close=clock.next_close,"
+        ),
+        mutated=(
+            "                    market_is_open=evidence.market_is_open,\n"
+            "                    market_next_close=evidence.market_next_close,"
+        ),
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestTheFinalGuardReadsEverythingAgain"
+        "::test_a_market_that_closes_after_the_claim_is_refused",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_guard_reads_the_quote_again",
+        rule="The quote is judged as fetched after the claim",
+        path=_USECASE,
+        original=(
+            "                    quote_bid=_decimal_or_none("
+            "None if quote is None else quote.bid),\n"
+            "                    quote_ask=_decimal_or_none("
+            "None if quote is None else quote.ask),\n"
+            "                    quote_captured_at=None if quote is None else quote.captured_at,"
+        ),
+        mutated=(
+            "                    quote_bid=evidence.quote_bid,\n"
+            "                    quote_ask=evidence.quote_ask,\n"
+            "                    quote_captured_at=evidence.quote_captured_at,"
+        ),
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestTheFinalGuardReadsEverythingAgain"
+        "::test_a_quote_that_goes_stale_after_the_claim_is_refused",
+        expected_fragment="assert",
+    ),
+    # T1 -- the liquidation deadline is never extended by host skew
+    Family(
+        name="liquidation_deadline_never_later_than_the_calendar",
+        rule="Host skew can shorten the liquidation deadline but never extend it",
+        path=_DOMAIN,
+        original=(
+            "    return min(liquidation_at, proposal_basis.on_broker_timeline(liquidation_at))"
+        ),
+        mutated="    return proposal_basis.on_broker_timeline(liquidation_at)",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestTheLiquidationDeadlineIsNeverExtendedBySkew"
+        "::test_a_slow_host_at_evaluation_does_not_move_the_deadline_later",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="liquidation_deadline_at_dispatch",
+        rule="A dispatch at 15:50 after a slow-host evaluation never submits",
+        path=_DOMAIN,
+        original=(
+            "    return min(liquidation_at, proposal_basis.on_broker_timeline(liquidation_at))"
+        ),
+        mutated="    return proposal_basis.on_broker_timeline(liquidation_at)",
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestTheLiquidationDeadlineAtDispatch"
+        "::test_a_slow_host_at_evaluation_cannot_extend_the_liquidation_deadline",
+        # Run 1 was a blocker: under the test's 15:30 entry window, and then its 300 s
+        # authorization, another rule refused first. With both widened in the test, the
+        # rule's removal lets the 15:50 dispatch through -- the defect itself.
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="liquidation_deadline_for_another_date",
+        rule="A liquidation deadline written for another date cannot be evaluated, so it refuses",
+        path=_DOMAIN,
+        original=(
+            "        broker_now.earliest.astimezone(zone).date() != written_for\n"
+            "        or broker_now.latest.astimezone(zone).date() != written_for"
+        ),
+        mutated="        False",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestTheLiquidationDeadlineIsNeverExtendedBySkew"
+        "::test_a_deadline_written_for_another_date_cannot_be_evaluated",
+        expected_fragment="assert",
+    ),
+    # D2 -- an uncertain outcome is never a refusal and never a second submission
+    Family(
+        name="definitive_refusal_statuses",
+        rule="Only 400, 401, 403 and 422 can prove an order was refused",
+        path=_DOMAIN,
+        original="    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:\n        return False",
+        mutated="    if False:\n        return False",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestOnlyADefinitiveRefusalIsARefusal"
+        "::test_anything_else_is_uncertain",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="definitive_refusal_requires_the_brokers_document",
+        rule="A definitive status proves nothing without the broker's JSON error object",
+        path=_DOMAIN,
+        original="    return isinstance(parsed, dict)",
+        mutated="    return True",
+        detecting_test=f"{_CORRECTIVE_UNIT}::TestOnlyADefinitiveRefusalIsARefusal"
+        "::test_anything_else_is_uncertain",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="adapter_uncertain_status_is_ambiguous",
+        rule="The adapter reports a non-definitive order answer as ambiguous, not as a refusal",
+        path=_ADAPTER,
+        original="        if is_definitive_broker_refusal(status, sanitized):",
+        mutated="        if status >= 400:",
+        detecting_test=f"{_HTTP}::TestErrorStatusesAreReportedFaithfully"
+        "::test_an_uncertain_status_is_never_reported_as_a_refusal",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="dispatch_uncertain_status_is_unknown",
+        rule="The handler records a non-definitive answer as SUBMISSION_UNKNOWN, not REJECTED",
+        path=_USECASE,
+        original="            if view is None and is_definitive_broker_refusal(status, sanitized):",
+        mutated="            if view is None:",
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestAnUncertainOutcomeIsResolvedNotRetried"
+        "::test_it_becomes_unknown_and_the_broker_receives_at_most_one_submission"
+        "[fake-500-without-view]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="dispatch_ambiguous_is_unknown",
+        rule="A possibly delivered request is SUBMISSION_UNKNOWN, never terminal",
+        path=_USECASE,
+        original=(
+            "                target=PaperExecutionState.SUBMISSION_UNKNOWN,\n"
+            "                at=at,\n"
+            '                failure_code="AMBIGUOUS",'
+        ),
+        mutated=(
+            "                target=PaperExecutionState.REJECTED,\n"
+            "                at=at,\n"
+            '                failure_code="AMBIGUOUS",'
+        ),
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestAnUncertainOutcomeIsResolvedNotRetried"
+        "::test_it_becomes_unknown_and_the_broker_receives_at_most_one_submission"
+        "[timeout-after-send]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="dispatch_unexpected_fault_is_unknown",
+        rule="A fault after the send guard passed is recorded as SUBMISSION_UNKNOWN",
+        path=_USECASE,
+        original="        except Exception as error:  # noqa: BLE001 - see below",
+        mutated="        except BrokerNotSentError as error:  # mutated",
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestAnUncertainOutcomeIsResolvedNotRetried"
+        "::test_it_becomes_unknown_and_the_broker_receives_at_most_one_submission"
+        "[unexpected-fault-after-send]",
+        expected_fragment="the process misbehaved",
+    ),
+    # D3 -- an interrupted dispatch can be reconciled, a live one is left alone
+    Family(
+        name="reconcile_a_stale_in_progress_attempt",
+        rule="An attempt left IN_PROGRESS is reconciled to the broker's answer",
+        path=_USECASE,
+        original=(
+            "        if attempt.state in {\n"
+            "            PaperExecutionState.SUBMISSION_IN_PROGRESS,\n"
+            "            PaperExecutionState.SUBMISSION_UNKNOWN,\n"
+            "        }:"
+        ),
+        mutated=(
+            "        if attempt.state in {\n"
+            "            PaperExecutionState.SUBMISSION_UNKNOWN,\n"
+            "        }:"
+        ),
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestAnInterruptedDispatchCanBeReconciled"
+        "::test_a_stale_in_progress_attempt_is_reconciled_to_the_brokers_answer",
+        expected_fragment="FILLED",
+    ),
+    Family(
+        name="reconcile_leaves_a_live_dispatch_alone",
+        rule="An attempt IN_PROGRESS for less than the not-found window is not looked up",
+        path=_USECASE,
+        original=(
+            "            if (command.at - started).total_seconds() < "
+            "MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS:\n"
+            "                return attempt"
+        ),
+        mutated="            if False:\n                return attempt",
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestAnInterruptedDispatchCanBeReconciled"
+        "::test_a_live_dispatch_is_left_to_finish",
+        # Run 1 named `lookups`: the state assertion that precedes it fails first.
+        expected_fragment="SUBMISSION_IN_PROGRESS",
+    ),
+    Family(
+        name="reconcile_absence_never_rejects_a_live_dispatch",
+        rule="A not-found answer never resolves an attempt that may still be sending",
+        path=_USECASE,
+        original="        if dispatch_may_be_live:",
+        mutated="        if False:",
+        detecting_test=f"{_CORRECTIVE_HANDLERS}::TestAnInterruptedDispatchCanBeReconciled"
+        "::test_absence_while_the_dispatcher_is_still_sending_never_rejects",
+        # Without the rule the second not-found answer records REJECTED, the order is
+        # sent anyway, and recording its acknowledgement hits the immutable terminal row.
+        expected_fragment="terminal and is immutable",
+    ),
+    # P2 -- a terminal attempt is immutable
+    Family(
+        name="repository_refuses_a_terminal_transition",
+        rule="The repository refuses any transition of a terminal attempt, legibly",
+        path=_REPOSITORY,
+        original=(
+            '            if current and _member(current[0], "state", PaperExecutionState) in ('
+        ),
+        mutated=(
+            '            if False and current and _member(current[0], "state", '
+            "PaperExecutionState) in ("
+        ),
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestATerminalAttemptIsImmutableInTheDatabase"
+        "::test_the_repository_refuses_before_the_database_is_asked",
+        expected_fragment="terminal and is immutable",
+    ),
+    Family(
+        name="database_terminal_attempt_immutable",
+        rule="The database refuses every UPDATE of a terminal attempt, same-state included",
+        path=_CORRECTIVE_MIGRATION,
+        original=(
+            "    IF OLD.state IN (__TERMINAL__) THEN\n"
+            "        RAISE EXCEPTION\n"
+            "            'attempt % is terminal in state % and is immutable',"
+        ),
+        mutated=(
+            "    IF FALSE THEN\n"
+            "        RAISE EXCEPTION\n"
+            "            'attempt % is terminal in state % and is immutable',"
+        ),
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestATerminalAttemptIsImmutableInTheDatabase"
+        "::test_no_update_of_a_filled_attempt_is_accepted[identical-same-state]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_broker_identity_written_once",
+        rule="The database refuses rewriting a recorded broker order id or instant",
+        path=_CORRECTIVE_MIGRATION,
+        original="    IF (OLD.broker_order_id IS NOT NULL",
+        mutated="    IF FALSE AND (OLD.broker_order_id IS NOT NULL",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestATerminalAttemptIsImmutableInTheDatabase"
+        "::test_a_live_attempt_cannot_rewrite_what_was_already_recorded[broker_order_id]",
+        expected_fragment="DID NOT RAISE",
+    ),
+    # P3 and D1 at the database boundary
+    Family(
+        name="database_authorization_equals_its_preview",
+        rule="The database refuses an authorization whose quote ask is not the preview's",
+        path=_CORRECTIVE_MIGRATION,
+        original="        OR preview_row.quote_ask IS DISTINCT FROM NEW.quote_ask\n",
+        mutated="",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAnAuthorizationEqualsThePreviewItNames"
+        "::test_any_field_other_than_the_previews_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_authorization_inserted_unconsumed",
+        rule="The database refuses an authorization inserted already consumed",
+        path=_CORRECTIVE_MIGRATION,
+        original=(
+            "    IF NEW.consumed_at IS NOT NULL OR NEW.consumed_by_attempt_id IS NOT NULL THEN"
+        ),
+        mutated="    IF FALSE THEN",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAnAuthorizationEqualsThePreviewItNames"
+        "::test_an_authorization_inserted_already_consumed_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_authorization_never_outlives_the_intent",
+        rule="The database refuses an authorization expiring after its intent",
+        path=_CORRECTIVE_MIGRATION,
+        original="    IF NEW.expires_at > preview_row.intent_expires_at THEN",
+        mutated="    IF FALSE THEN",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAnAuthorizationEqualsThePreviewItNames"
+        "::test_an_authorization_outliving_its_intent_is_refused_to_the_tick",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_authorization_within_preview_freshness",
+        rule="The database refuses an authorization granted after the preview's freshness limit",
+        path=_CORRECTIVE_MIGRATION,
+        original="    IF NEW.basis_host_at IS NOT NULL\n",
+        mutated="    IF FALSE AND NEW.basis_host_at IS NOT NULL\n",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAnAuthorizationEqualsThePreviewItNames"
+        "::test_an_authorization_after_the_previews_freshness_limit_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_refused_preview_not_authorizable",
+        rule="The database refuses authorizing a preview that carries refusals",
+        path=_CORRECTIVE_MIGRATION,
+        original="    IF preview_row.refusals <> '[]' THEN",
+        mutated="    IF FALSE THEN",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAnAuthorizationEqualsThePreviewItNames"
+        "::test_a_preview_with_refusals_cannot_be_authorized",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_preview_carries_the_configuration_policy",
+        rule="The database refuses a preview whose quote age limit is not the configuration's",
+        path=_CORRECTIVE_MIGRATION,
+        original=(
+            "        OR configuration_row.maximum_market_data_age_seconds\n"
+            "            IS DISTINCT FROM NEW.quote_maximum_age_seconds\n"
+        ),
+        mutated="",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAPreviewCarriesTheConfigurationsPolicy"
+        "::test_a_looser_or_different_policy_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_preview_carries_the_intent_order",
+        rule="The database refuses a preview whose limit price is not the intent's",
+        path=_CORRECTIVE_MIGRATION,
+        original="        OR intent_row.limit_price IS DISTINCT FROM NEW.limit_price\n",
+        mutated="",
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAPreviewCarriesTheConfigurationsPolicy"
+        "::test_an_order_other_than_the_intents_is_refused",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="database_authorizable_preview_within_its_cap",
+        rule="The database CHECK refuses an authorizable preview priced above its cap",
+        path=_CORRECTIVE_MIGRATION,
+        original='            "OR limit_price * quantity <= maximum_notional",',
+        mutated='            "OR true",',
+        detecting_test=f"{_CORRECTIVE_POSTGRES}::TestAPreviewCarriesTheConfigurationsPolicy"
+        "::test_an_authorizable_preview_above_its_cap_is_refused_by_check",
+        # The AFTER INSERT policy guard still refuses the row, with its own message and
+        # a different exception class; that it reports itself is the detection.
+        expected_fragment="does not carry the send-time policy",
+    ),
+    # Item 4 -- the exact schema head
+    Family(
+        name="schema_head_exact",
+        rule="Any revision set other than exactly the M085 head refuses",
+        path=_REPOSITORY,
+        original="    if revisions != [M085_SCHEMA_HEAD]:",
+        mutated="    if False:",
+        detecting_test=f"{_COMPOSITION_TESTS}::TestTheSchemaHeadIsExact"
+        "::test_any_other_revision_refuses_before_the_body_runs",
+        # Run 1 named `DID NOT RAISE`: with the check removed the body runs, and the
+        # test's own `pytest.fail` inside it is what reports the mutation.
+        expected_fragment="the body must not run against a mismatched schema",
+    ),
+    Family(
+        name="schema_head_checked_by_the_composition",
+        rule="The paper runtime checks the schema head before handing anything out",
+        path=_COMPOSITION,
+        original="        require_exact_m085_schema_head(service)\n",
+        mutated="",
+        detecting_test=f"{_COMPOSITION_TESTS}::TestTheSchemaHeadIsExact"
+        "::test_any_other_revision_refuses_before_the_body_runs",
+        # Run 1 named `DID NOT RAISE`: with the check removed the body runs, and the
+        # test's own `pytest.fail` inside it is what reports the mutation.
+        expected_fragment="the body must not run against a mismatched schema",
+    ),
+    # Item 8 -- the legacy dry run is refused, not run
+    Family(
+        name="legacy_dry_run_refused",
+        rule="--dry-run refuses before any runtime, writer, socket or file is touched",
+        path=_ACCEPTANCE_TOOL,
+        original="    if arguments.dry_run:",
+        mutated="    if False:",
+        detecting_test=f"{_DRY_RUN_TESTS}"
+        "::test_dry_run_is_refused_before_any_record_connection_or_file",
+        expected_fragment="the dry run reached",
+    ),
 )
 
 
 def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def tree_digest() -> str:
+    """One SHA-256 over the path and bytes of every file under `_TREE_ROOTS`.
+
+    Byte-compiled caches are excluded: running a test writes them, and they are not
+    source. Anything else that differs after the campaign is a restoration failure.
+    """
+    digest = hashlib.sha256()
+    for root in _TREE_ROOTS:
+        for path in sorted((REPO_ROOT / root).rglob("*")):
+            if not path.is_file() or "__pycache__" in path.parts or path.suffix == ".pyc":
+                continue
+            digest.update(path.relative_to(REPO_ROOT).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(_digest(path).encode("ascii"))
+            digest.update(b"\n")
+    return digest.hexdigest()
 
 
 def _run(test: str) -> tuple[int, str]:
@@ -1137,6 +1702,8 @@ def main(argv: list[str] | None = None) -> int:
         print("no such family", file=sys.stderr)
         return 2
 
+    tree_before = tree_digest()
+    print(f"tree digest before: {tree_before}", flush=True)
     results: list[Result] = []
     for index, family in enumerate(selected, start=1):
         print(f"[{index}/{len(selected)}] {family.name} ... ", end="", flush=True)
@@ -1145,6 +1712,10 @@ def main(argv: list[str] | None = None) -> int:
         print(result.status, flush=True)
         if result.status != "EXECUTED_PASS":
             print(f"    {result.detail}", flush=True)
+
+    tree_after = tree_digest()
+    print(f"tree digest after:  {tree_after}", flush=True)
+    tree_restored = tree_after == tree_before
 
     blockers = [result for result in results if result.status != "EXECUTED_PASS"]
     detected = len(results) - len(blockers)
@@ -1160,6 +1731,10 @@ def main(argv: list[str] | None = None) -> int:
         "required the named test to fail FOR THE INTENDED REASON, restored the file, verified the",
         "restoration by SHA-256 against the digest taken beforehand, and re-ran the test to",
         "require it green again.",
+        "",
+        f"**Tree-wide restoration: {'VERIFIED' if tree_restored else 'FAILED'}.** "
+        f"SHA-256 over every file under {', '.join(_TREE_ROOTS)} (byte-compiled caches "
+        f"excluded): before `{tree_before}`, after `{tree_after}`.",
         "",
         "| Family | Rule removed | File | Detecting test | Status | Detail |",
         "|---|---|---|---|---|---|",
@@ -1183,6 +1758,9 @@ def main(argv: list[str] | None = None) -> int:
     arguments.output.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
     print(f"\nwrote {arguments.output}")
     print(f"{detected}/{len(results)} detected, {len(blockers)} blockers")
+    if not tree_restored:
+        print("TREE-WIDE RESTORATION FAILED", file=sys.stderr)
+        return 1
     return 1 if blockers else 0
 
 

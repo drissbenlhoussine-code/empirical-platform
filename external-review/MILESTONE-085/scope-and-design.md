@@ -1,5 +1,8 @@
 # MILESTONE-085 — Scope and Design
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> Send-time limits now come only from the stored configuration version and are bound into the authorization.
+
 > Current temporal correction: see [temporal-correction.md](temporal-correction.md).
 > The ten-second lead workaround described below is superseded. Earlier test counts
 > and market-open results below are historical evidence, not validation of this correction.

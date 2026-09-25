@@ -15,16 +15,25 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
-from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
+from empirical_platform.decision_candidate.operator_trading_configuration import (
+    AccountMode,
+    KillSwitchState,
+    LimitPricePolicy,
+    OperatorTradingConfiguration,
+    OrderType,
+    TradingSession,
+)
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
+    TERMINAL_PAPER_STATES,
     BrokerAcknowledgement,
     DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
+    ExecutionPolicy,
     IntentTimeBasis,
     M084TimeProvenance,
     PaperAccountSnapshot,
@@ -36,11 +45,13 @@ from empirical_platform.decision_candidate.paper_execution import (
     SubmissionPreview,
     bind_intent_time_basis,
     build_submission_preview,
+    execution_policy_from_configuration,
 )
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
     SubmissionState,
 )
+from empirical_platform.shared.brokerage.alpaca_paper import BrokerNotSentError
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant, BrokerTimeBasis
 
 _NOW = datetime(2026, 9, 10, 14, 0, tzinfo=UTC)
@@ -112,6 +123,89 @@ def an_intent(**overrides: object) -> ApprovedOrderIntent:
     return ApprovedOrderIntent(**defaults)  # type: ignore[arg-type]
 
 
+def a_configuration(**overrides: object) -> OperatorTradingConfiguration:
+    """The configuration version `an_intent()` names: CFG-1 v1, the acceptance limits.
+
+    USD 5 cap, 60 s freshness, 5 % spread, AAPL only, 09:45-15:30 New York. `_NOW` is
+    10:00 in New York, inside the window. Corrective pass (D1): these are the ONLY
+    source of the send-time limits the handlers apply.
+    """
+    defaults: dict[str, object] = {
+        "configuration_governance_id": "CFG-1",
+        "configuration_version": 1,
+        "base_currency": "USD",
+        "permitted_markets": ("XNAS",),
+        "watchlist": ("AAPL",),
+        "prohibited_instruments": ("PENNY",),
+        "maximum_deployable_capital": Decimal("10000"),
+        "maximum_capital_per_trade": Decimal("5"),
+        "maximum_percent_per_trade": Decimal("20"),
+        "minimum_cash_reserve": Decimal("1000"),
+        "maximum_simultaneous_positions": 3,
+        "maximum_daily_loss": Decimal("500"),
+        "maximum_daily_order_count": 10,
+        "minimum_price": Decimal("1"),
+        "maximum_price": Decimal("1000"),
+        "minimum_liquidity_shares": 100_000,
+        "maximum_spread_percent": Decimal("5"),
+        "maximum_estimated_slippage_percent": Decimal("1"),
+        "maximum_evidence_age_seconds": 86_400,
+        "maximum_market_data_age_seconds": 60,
+        "permitted_session": TradingSession.REGULAR,
+        "earliest_entry_time": time(9, 45),
+        "latest_entry_time": time(15, 30),
+        "mandatory_liquidation_time": time(15, 45),
+        "operator_timezone": "America/New_York",
+        "exchange_calendar_policy": "XNAS-REGULAR-2026",
+        "proposal_expiry_seconds": 300,
+        "approval_expiry_seconds": 120,
+        "default_order_type": OrderType.LIMIT,
+        "permitted_order_types": (OrderType.LIMIT,),
+        "limit_price_policy": LimitPricePolicy.ASK,
+        "stop_loss_percent": Decimal("2"),
+        "profit_exit_percent": Decimal("4"),
+        "maximum_leverage": Decimal("1"),
+        "short_selling_permitted": False,
+        "overnight_positions_permitted": False,
+        "account_mode": AccountMode.PREPARATION,
+        "kill_switch": KillSwitchState.DISENGAGED,
+    }
+    defaults.update(overrides)
+    return OperatorTradingConfiguration(**defaults)  # type: ignore[arg-type]
+
+
+def a_policy(**overrides: object) -> ExecutionPolicy:
+    return execution_policy_from_configuration(a_configuration(**overrides))
+
+
+class FakeConfigurations:
+    """Versioned configurations keyed by (id, version). Append-only, like the real store."""
+
+    def __init__(self, *configurations: OperatorTradingConfiguration) -> None:
+        self.rows = {
+            (row.configuration_governance_id, row.configuration_version): row
+            for row in (configurations or (a_configuration(),))
+        }
+        self.reads = 0
+
+    def save(self, configuration: OperatorTradingConfiguration) -> OperatorTradingConfiguration:
+        key = (configuration.configuration_governance_id, configuration.configuration_version)
+        if key in self.rows:
+            raise ValueError("configuration versions are never edited")
+        self.rows[key] = configuration
+        return configuration
+
+    def get(
+        self, configuration_governance_id: str, configuration_version: int
+    ) -> OperatorTradingConfiguration | None:
+        self.reads += 1
+        return self.rows.get((configuration_governance_id, configuration_version))
+
+    def latest(self, configuration_governance_id: str) -> OperatorTradingConfiguration | None:
+        versions = [row for key, row in self.rows.items() if key[0] == configuration_governance_id]
+        return max(versions, key=lambda row: row.configuration_version) if versions else None
+
+
 def an_account(**overrides: object) -> PaperAccountSnapshot:
     defaults: dict[str, object] = {
         "snapshot_id": "SNP-1",
@@ -153,9 +247,7 @@ def a_preview(**overrides: object) -> SubmissionPreview:
         "asset_class": "us_equity",
         "asset_exchange": "NASDAQ",
         "asset_fractionable": True,
-        "approved_watchlist": frozenset({"AAPL"}),
-        "maximum_notional": Decimal("5"),
-        "quote_maximum_age_seconds": 60,
+        "policy": a_policy(),
         "existing_position_quantity": 0,
         "execution_kill_switch_engaged": False,
         "created_at": _NOW,
@@ -431,19 +523,17 @@ class FakeAttempts:
         failure_detail: str | None = None,
     ) -> ExecutionAttempt:
         current = self.rows[attempt_id]
+        if current.state in TERMINAL_PAPER_STATES:
+            # Mirrors the database update guard (corrective pass, P2): a terminal
+            # attempt is immutable, a same-state update included.
+            raise ValueError(f"paper execution attempt {attempt_id!r} is terminal and is immutable")
         self.transitions.append((attempt_id, target))
-        terminal = target in {
-            PaperExecutionState.FILLED,
-            PaperExecutionState.CANCELED,
-            PaperExecutionState.REJECTED,
-            PaperExecutionState.EXPIRED,
-        }
+        terminal = target in TERMINAL_PAPER_STATES
         updated = replace(
             current,
             state=target,
-            submitted_at=(
-                at if target is PaperExecutionState.SUBMISSION_IN_PROGRESS else current.submitted_at
-            ),
+            submitted_at=current.submitted_at
+            or (at if target is PaperExecutionState.SUBMISSION_IN_PROGRESS else None),
             terminal_at=at if terminal else None,
             broker_order_id=broker_order_id or current.broker_order_id,
             broker_status=broker_status or current.broker_status,
@@ -645,7 +735,16 @@ class FakeBroker:
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
     ) -> tuple[int, object | None, str]:
         if before_send is not None:
-            before_send()
+            # As `AlpacaPaperClient._request` does: anything `before_send` raises means
+            # nothing was sent, and is reported as a definite not-sent.
+            try:
+                before_send()
+            except BrokerNotSentError:
+                raise
+            except Exception as error:  # noqa: BLE001 - mirrors the transport
+                raise BrokerNotSentError(
+                    f"pre-send validation failed: {type(error).__name__}"
+                ) from error
         self.submitted.append(order)
         if self.submit_raises is not None:
             raise self.submit_raises

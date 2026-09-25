@@ -139,9 +139,9 @@ _VALID_ARGUMENTS: dict[str, list[str]] = {
     "issue-paper-bound-order-intent": ["INT-1", "PRP-1", "IDEM-1"],
     "verify-paper-environment": [],
     "inspect-paper-account": ["SNP-1"],
-    "preview-paper-submission": ["INT-1", "PVW-1", "SNP-1", "5", "60", "AAPL"],
+    "preview-paper-submission": ["INT-1", "PVW-1", "SNP-1"],
     "authorize-paper-submission": ["AUT-1", "PVW-1", "f" * 64, "owner", "300"],
-    "submit-authorized-paper-order": ["INT-1", "ATT-1", "SNP-2", "5", "60", "AAPL"],
+    "submit-authorized-paper-order": ["INT-1", "ATT-1", "SNP-2"],
     "reconcile-paper-order": ["INT-1"],
     "cancel-paper-order": ["INT-1"],
     "paper-execution-status": ["INT-1"],
@@ -171,9 +171,10 @@ _WRONG_ARITY: dict[str, list[str]] = {
     "issue-paper-bound-order-intent": ["INT-1", "PRP-1", "IDEM-1", "2026-09-10T14:00:00+00:00"],
     "verify-paper-environment": ["unexpected"],
     "inspect-paper-account": [],
-    "preview-paper-submission": ["INT-1"],
+    # Corrective pass (D1): the former limit arguments are now a usage error.
+    "preview-paper-submission": ["INT-1", "PVW-1", "SNP-1", "5", "60", "AAPL"],
     "authorize-paper-submission": ["AUT-1"],
-    "submit-authorized-paper-order": ["INT-1"],
+    "submit-authorized-paper-order": ["INT-1", "ATT-1", "SNP-2", "500", "99999", "AAPL,TSLA"],
     "reconcile-paper-order": [],
     "cancel-paper-order": ["INT-1", "extra"],
     "paper-execution-status": [],
@@ -483,67 +484,50 @@ class TestEveryCommand:
 class TestArgumentParsingThatIsNotShared:
     """The per-command parsing, where the interesting refusals are."""
 
-    def test_a_non_decimal_notional_is_refused_by_name(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    @pytest.mark.parametrize(
+        ("command", "limits"),
+        [
+            ("preview-paper-submission", ["5"]),
+            ("preview-paper-submission", ["5", "60", "AAPL"]),
+            ("submit-authorized-paper-order", ["500"]),
+            ("submit-authorized-paper-order", ["500", "99999", "AAPL,TSLA"]),
+        ],
+    )
+    def test_no_limit_can_be_passed_on_the_command_line(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        command: str,
+        limits: list[str],
     ) -> None:
-        calls = _install(
-            monkeypatch,
-            "submit-authorized-paper-order",
-            arguments=["INT-1", "ATT-1", "SNP-2", "not-a-number", "60", "AAPL"],
-        )
-        with pytest.raises(SystemExit):
-            submit_authorized_paper_order.main()
-        assert "maximum_notional" in capsys.readouterr().err
-        assert calls == [], "nothing may be dispatched on a malformed argument"
+        """Corrective pass (D1): a cap, freshness limit or watchlist is not an argument.
 
-    def test_a_negative_quote_age_is_refused(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        The reproduced defect dispatched an hour-old quote because submit accepted
+        `500 99999 AAPL,TSLA` against an authorization granted under 5 / 60 / AAPL.
+        Any trailing value is now refused as a usage error before the seam runs.
+        """
+        module, _ = _MODULES[command]
+        calls = _install(monkeypatch, command, arguments=[*_VALID_ARGUMENTS[command], *limits])
+        with pytest.raises(SystemExit) as raised:
+            module.main()
+        assert "usage:" in str(raised.value)
+        assert calls == [], "nothing may run when a limit is offered on the command line"
+
+    @pytest.mark.parametrize(
+        "command", ["preview-paper-submission", "submit-authorized-paper-order"]
+    )
+    def test_the_seam_receives_identities_only(
+        self, monkeypatch: pytest.MonkeyPatch, command: str
     ) -> None:
-        calls = _install(
-            monkeypatch,
-            "submit-authorized-paper-order",
-            arguments=["INT-1", "ATT-1", "SNP-2", "5", "-1", "AAPL"],
+        module, _ = _MODULES[command]
+        calls = _install(monkeypatch, command, arguments=_VALID_ARGUMENTS[command])
+        module.main()
+        (call,) = calls
+        assert not {"maximum_notional", "quote_maximum_age_seconds", "approved_watchlist"} & set(
+            call
         )
-        with pytest.raises(SystemExit):
-            submit_authorized_paper_order.main()
-        assert "quote_max_age_seconds" in capsys.readouterr().err
-        assert calls == []
-
-    def test_an_empty_watchlist_is_refused(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        calls = _install(
-            monkeypatch,
-            "submit-authorized-paper-order",
-            arguments=["INT-1", "ATT-1", "SNP-2", "5", "60", " , "],
-        )
-        with pytest.raises(SystemExit):
-            submit_authorized_paper_order.main()
-        assert "watchlist" in capsys.readouterr().err
-        assert calls == []
-
-    def test_the_watchlist_is_upper_cased_and_split(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        calls = _install(
-            monkeypatch,
-            "preview-paper-submission",
-            arguments=["INT-1", "PVW-1", "SNP-1", "5", "60", "aapl, msft "],
-        )
-        preview_paper_submission.main()
-        assert calls[0]["approved_watchlist"] == frozenset({"AAPL", "MSFT"})
-
-    def test_the_notional_reaches_the_seam_as_a_decimal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # As a Decimal, not a float: a float ceiling would silently change what
-        # the operator typed.
-        calls = _install(
-            monkeypatch,
-            "preview-paper-submission",
-            arguments=["INT-1", "PVW-1", "SNP-1", "5.25", "60", "AAPL"],
-        )
-        preview_paper_submission.main()
-        assert calls[0]["maximum_notional"] == Decimal("5.25")
-        assert isinstance(calls[0]["maximum_notional"], Decimal)
+        for identity in _VALID_ARGUMENTS[command]:
+            assert identity in call.values()
 
     @pytest.mark.parametrize("validity", ["0", "-5", "abc", "1.5"])
     def test_a_non_positive_validity_is_refused(
@@ -714,23 +698,24 @@ class TestArgumentParsingThatIsNotShared:
         calls = _install(
             monkeypatch,
             "submit-authorized-paper-order",
-            arguments=["INT-9", "ATT-9", "SNP-9", "12.50", "45", "AAPL,MSFT"],
+            arguments=["INT-9", "ATT-9", "SNP-9"],
         )
         submit_authorized_paper_order.main()
-        assert calls[0]["intent_governance_id"] == "INT-9"
-        assert calls[0]["attempt_id"] == "ATT-9"
-        assert calls[0]["snapshot_id"] == "SNP-9"
-        assert calls[0]["maximum_notional"] == Decimal("12.50")
-        assert calls[0]["quote_maximum_age_seconds"] == 45
-        assert calls[0]["approved_watchlist"] == frozenset({"AAPL", "MSFT"})
+        assert calls == [
+            {"intent_governance_id": "INT-9", "attempt_id": "ATT-9", "snapshot_id": "SNP-9"}
+        ]
 
     def test_the_submit_command_has_no_force_and_no_endpoint_flag(self) -> None:
         # The absence is the product decision, so the absence is asserted. A
         # --force here would be a way to dispatch without a human authorization,
-        # and an --endpoint would be a way to leave the paper host.
+        # and an --endpoint would be a way to leave the paper host. Corrective pass
+        # (D1): and no limit, which would be a way to loosen what was authorized.
         source = submit_authorized_paper_order._USAGE
         assert "--force" not in source
         assert "--endpoint" not in source
+        for absent in ("notional", "max_age", "watchlist", "spread", "window", "symbol>"):
+            assert absent not in source
+            assert absent not in preview_paper_submission._USAGE
         assert not hasattr(submit_authorized_paper_order, "run_submit_unauthorized_paper_order")
 
     def test_an_ambiguous_outcome_is_printed_with_its_warning(
@@ -752,7 +737,7 @@ class TestArgumentParsingThatIsNotShared:
         _install(
             monkeypatch,
             "submit-authorized-paper-order",
-            arguments=["INT-1", "ATT-1", "SNP-2", "5", "60", "AAPL"],
+            arguments=["INT-1", "ATT-1", "SNP-2"],
             result=PaperSubmissionResult(
                 attempt=unknown,
                 dispatched=True,

@@ -62,6 +62,7 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
     PaperOrderRequest,
+    is_definitive_broker_refusal,
 )
 
 __all__ = [
@@ -133,12 +134,28 @@ class BrokerNotSentError(RuntimeError):
 
 
 class BrokerAmbiguousDispatchError(RuntimeError):
-    """The request MAY have reached the broker, and no answer arrived.
+    """The request MAY have reached the broker, and no answer proves what happened.
 
     This is the state that must never become a second order. The caller records
     SUBMISSION_UNKNOWN and resolves it by asking the broker about the SAME
     `client_order_id` -- never by sending a new one.
+
+    CORRECTIVE PASS (D2). Also raised when an answer DID arrive but does not prove a
+    refusal -- a 5xx, a 429, a malformed or mismatched order -- in which case
+    `http_status` and the already-scrubbed `sanitized_body` are carried so the caller
+    can record what was said. Neither is part of the message.
     """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        sanitized_body: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.sanitized_body = sanitized_body
 
 
 class BrokerResponseInvalidError(RuntimeError):
@@ -672,14 +689,47 @@ class AlpacaPaperClient:
         if order.order_type is OrderType.LIMIT and order.limit_price is not None:
             payload["limit_price"] = format(order.limit_price, "f")
 
-        status, body, sanitized = self._json(
-            "POST", "/v2/orders", body=json.dumps(payload, sort_keys=True), before_send=before_send
+        try:
+            status, body, sanitized = self._json(
+                "POST",
+                "/v2/orders",
+                body=json.dumps(payload, sort_keys=True),
+                before_send=before_send,
+            )
+        except EndpointRefusedError as error:
+            # CORRECTIVE PASS (D2). A redirect arrives only AFTER the order request was
+            # delivered to the pinned host. It is still refused, never followed -- but
+            # the order may exist, so this is an uncertain outcome, not a refusal.
+            raise BrokerAmbiguousDispatchError(
+                f"POST /v2/orders was delivered and answered with a redirect: {error}"
+            ) from error
+        if status in {200, 201}:
+            if not isinstance(body, dict):
+                raise BrokerAmbiguousDispatchError(
+                    f"POST /v2/orders answered HTTP {status} with a body that is not an "
+                    "order; the order may exist",
+                    http_status=status,
+                    sanitized_body=sanitized,
+                )
+            try:
+                return status, self._validated_order_view(body, order=order), sanitized
+            except BrokerResponseInvalidError as error:
+                raise BrokerAmbiguousDispatchError(
+                    f"POST /v2/orders answered HTTP {status} with an unusable order: {error}",
+                    http_status=status,
+                    sanitized_body=sanitized,
+                ) from error
+        if is_definitive_broker_refusal(status, sanitized):
+            # The broker's own error document on a status that proves no order exists.
+            return status, None, sanitized
+        # Everything else -- 5xx, 408, 409, 429, a non-JSON body from an intermediary,
+        # any status not known to be definitive -- may have followed an acceptance.
+        raise BrokerAmbiguousDispatchError(
+            f"POST /v2/orders answered HTTP {status}, which does not prove the order was "
+            "refused; reconcile by client_order_id",
+            http_status=status,
+            sanitized_body=sanitized,
         )
-        if status in {200, 201} and isinstance(body, dict):
-            return status, self._validated_order_view(body, order=order), sanitized
-        # Any other status is the broker declining. Reported with its status and
-        # sanitized body so the caller can persist what actually happened.
-        return status, None, sanitized
 
     def fetch_order_by_client_order_id(
         self, client_order_id: str

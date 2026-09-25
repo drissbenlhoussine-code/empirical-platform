@@ -37,6 +37,7 @@ from tests.unit._m085_fakes import (
     FakeAuthorizations,
     FakeBroker,
     FakeClock,
+    FakeConfigurations,
     FakeEvents,
     FakeIntents,
     FakeKillSwitch,
@@ -46,6 +47,7 @@ from tests.unit._m085_fakes import (
     FakeSnapshots,
     FakeTimeBases,
     FakeView,
+    a_configuration,
     a_preview,
     a_provenance,
     a_time_basis,
@@ -236,6 +238,7 @@ class TestPreviewPaperSubmission:
         intents = fakes.get("intents") or FakeIntents(an_intent())
         return PreviewPaperSubmissionHandler(
             intents=intents,  # type: ignore[arg-type]
+            configurations=fakes.get("configurations") or FakeConfigurations(),  # type: ignore[arg-type]
             time_bases=fakes.get("time_bases")  # type: ignore[arg-type]
             or time_bases_for(
                 *(a_provenance(row) for row in intents.rows.values())  # type: ignore[attr-defined]
@@ -253,9 +256,6 @@ class TestPreviewPaperSubmission:
             "intent_governance_id": "INT-1",
             "preview_id": "PVW-1",
             "account_snapshot_id": "SNP-1",
-            "approved_watchlist": frozenset({"AAPL"}),
-            "maximum_notional": Decimal("5"),
-            "quote_maximum_age_seconds": 60,
             "created_at": _NOW,
         }
         arguments.update(overrides)
@@ -444,6 +444,7 @@ class TestSubmitAuthorizedPaperOrder:
     def _world(self, **overrides: object) -> dict[str, Any]:
         world: dict[str, Any] = {
             "intents": FakeIntents(an_intent()),
+            "configurations": FakeConfigurations(),
             "snapshots": FakeSnapshots(),
             "previews": FakePreviews(),
             "authorizations": FakeAuthorizations(),
@@ -469,6 +470,7 @@ class TestSubmitAuthorizedPaperOrder:
     ) -> ExecutionAuthorization:
         preview = PreviewPaperSubmissionHandler(
             intents=world["intents"],
+            configurations=world["configurations"],
             time_bases=world["time_bases"],
             snapshots=world["snapshots"],
             previews=world["previews"],
@@ -481,9 +483,6 @@ class TestSubmitAuthorizedPaperOrder:
                 intent_governance_id="INT-1",
                 preview_id="PVW-1",
                 account_snapshot_id="SNP-1",
-                approved_watchlist=frozenset({"AAPL"}),
-                maximum_notional=Decimal("5"),
-                quote_maximum_age_seconds=60,
                 created_at=_NOW,
             )
         )
@@ -512,6 +511,7 @@ class TestSubmitAuthorizedPaperOrder:
         return SubmitAuthorizedPaperOrderHandler(
             time_source=time_source,
             intents=world["intents"],
+            configurations=world["configurations"],
             time_bases=world["time_bases"],
             previews=world["previews"],
             authorizations=world["authorizations"],
@@ -529,9 +529,6 @@ class TestSubmitAuthorizedPaperOrder:
             "intent_governance_id": "INT-1",
             "attempt_id": "ATT-1",
             "account_snapshot_id": "SNP-2",
-            "approved_watchlist": frozenset({"AAPL"}),
-            "maximum_notional": Decimal("5"),
-            "quote_maximum_age_seconds": 60,
             "at": _NOW,
         }
         arguments.update(overrides)
@@ -655,7 +652,8 @@ class TestSubmitAuthorizedPaperOrder:
         # the broker timeline using the basis measured when the human authorized,
         # so real elapsed time expires it even though the host clock says otherwise.
         world = self._world(intents=FakeIntents(an_intent(expires_at=_NOW + timedelta(minutes=10))))
-        self._authorize(world, validity_seconds=7200)
+        # As long as the intent lives: an authorization may not outlive it.
+        self._authorize(world, validity_seconds=600)
         with pytest.raises(PaperExecutionRefusedError, match="expired"):
             self._dispatch_in_a_new_process(
                 world,
@@ -846,7 +844,7 @@ class TestSubmitAuthorizedPaperOrder:
         world = self._world()
         self._authorize(world)
         world["broker"].submit_status = 422
-        world["broker"].submit_body = "refused"
+        world["broker"].submit_body = '{"code": 40010001, "message": "refused"}'
         result = self._handler(world).handle(self._command())
         assert result.http_status == 422
         assert result.attempt.state is PaperExecutionState.REJECTED
@@ -1037,6 +1035,7 @@ class TestSubmitAuthorizedPaperOrder:
     def _preview(self, world: dict[str, Any]) -> SubmissionPreview:
         preview = PreviewPaperSubmissionHandler(
             intents=world["intents"],
+            configurations=world["configurations"],
             time_bases=world["time_bases"],
             snapshots=world["snapshots"],
             previews=world["previews"],
@@ -1049,9 +1048,6 @@ class TestSubmitAuthorizedPaperOrder:
                 intent_governance_id="INT-1",
                 preview_id="PVW-1",
                 account_snapshot_id="SNP-1",
-                approved_watchlist=frozenset({"AAPL"}),
-                maximum_notional=Decimal("5"),
-                quote_maximum_age_seconds=60,
                 created_at=_NOW,
             )
         )
@@ -1099,7 +1095,11 @@ class TestSubmitAuthorizedPaperOrder:
         # `authorized_at`, then the handler reads the broker clock. With a 120 s
         # fetch the stored pair was (authorized_at, broker reply): a 300 s approval
         # mapped to 420 s, and this very dispatch was PERMITTED ("DID NOT RAISE").
-        world = self._world()
+        # A 300 s freshness limit: the 120 s fetch would otherwise make the preview too
+        # old to authorize at all, which is its own (corrective-pass) refusal.
+        world = self._world(
+            configurations=FakeConfigurations(a_configuration(maximum_market_data_age_seconds=300))
+        )
         preview = self._preview(world)
         time = _ScriptedTime(_NOW)
         authorization = self._authorize_with(
@@ -1156,7 +1156,9 @@ class TestSubmitAuthorizedPaperOrder:
         # DEFECT 2, REPRODUCED AT ddce3c8 BEFORE THE FIX: the M084 deadline was
         # translated through the authorization's basis, landed an hour late, and
         # this dispatch after the real deadline was PERMITTED ("DID NOT RAISE").
-        world, authorization = self._authorized_after_a_backward_host_step(validity_seconds=7200)
+        # 4200 s: the longest validity that does not outlive the intent from an
+        # authorization taken with the host an hour behind.
+        world, authorization = self._authorized_after_a_backward_host_step(validity_seconds=4200)
         intent = world["intents"].rows["INT-1"]
         assert authorization.on_broker_timeline(intent.expires_at) == intent.expires_at + timedelta(
             hours=1
@@ -1172,7 +1174,7 @@ class TestSubmitAuthorizedPaperOrder:
         assert world["attempts"].rows == {}
 
     def test_the_same_offset_change_still_dispatches_before_the_real_m084_deadline(self) -> None:
-        world, _ = self._authorized_after_a_backward_host_step(validity_seconds=7200)
+        world, _ = self._authorized_after_a_backward_host_step(validity_seconds=4200)
         result = self._dispatch_in_a_new_process(
             world,
             host_now=_NOW - timedelta(minutes=55),
@@ -1490,6 +1492,7 @@ class TestIssuePaperBoundOrderIntent:
         assert "INT-1" in intents.rows and bases.intents == {}
         preview = PreviewPaperSubmissionHandler(
             intents=intents,
+            configurations=FakeConfigurations(),
             time_bases=bases,
             snapshots=FakeSnapshots(),
             previews=FakePreviews(),
@@ -1502,9 +1505,6 @@ class TestIssuePaperBoundOrderIntent:
                 intent_governance_id="INT-1",
                 preview_id="PVW-1",
                 account_snapshot_id="SNP-1",
-                approved_watchlist=frozenset({"AAPL"}),
-                maximum_notional=Decimal("5"),
-                quote_maximum_age_seconds=60,
                 created_at=_NOW,
             )
         )
@@ -2124,7 +2124,10 @@ def test_entrypoint_composition_uses_the_injected_clock(monkeypatch: pytest.Monk
     helper = TestSubmitAuthorizedPaperOrder()
     world = helper._world()
     context = SimpleNamespace(
-        m084=SimpleNamespace(approved_order_intents=world["intents"]),
+        m084=SimpleNamespace(
+            approved_order_intents=world["intents"],
+            operator_trading_configurations=world["configurations"],
+        ),
         paper=SimpleNamespace(
             time_bases=world["time_bases"],
             paper_account_snapshots=world["snapshots"],
@@ -2150,9 +2153,6 @@ def test_entrypoint_composition_uses_the_injected_clock(monkeypatch: pytest.Monk
         intent_governance_id="INT-1",
         preview_id="PVW-1",
         snapshot_id="SNP-1",
-        maximum_notional=Decimal("5"),
-        quote_maximum_age_seconds=60,
-        approved_watchlist=frozenset({"AAPL"}),
     )
     assert preview.is_authorizable
     assert clock.reads > 0
@@ -2176,9 +2176,6 @@ def test_entrypoint_composition_uses_the_injected_clock(monkeypatch: pytest.Monk
         intent_governance_id="INT-1",
         attempt_id="ATT-1",
         snapshot_id="SNP-2",
-        maximum_notional=Decimal("5"),
-        quote_maximum_age_seconds=60,
-        approved_watchlist=frozenset({"AAPL"}),
     )
     assert clock.reads > preview_reads
     assert result.dispatched and len(world["broker"].submitted) == 1

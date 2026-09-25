@@ -3,7 +3,6 @@
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from decimal import Decimal
 from threading import Event
 from time import monotonic
 from types import SimpleNamespace
@@ -19,7 +18,7 @@ from tests.integration._m085_support import (
     config,
     truncate_all,
 )
-from tests.unit._m085_fakes import FakeBroker
+from tests.unit._m085_fakes import FakeBroker, FakeView
 
 from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
 from empirical_platform.shared.brokerage.paper_time import PaperTimeReading
@@ -36,6 +35,8 @@ from empirical_platform.usecases.paper_execution import (
     AuthorizePaperSubmissionHandler,
     PreviewPaperSubmissionCommand,
     PreviewPaperSubmissionHandler,
+    ReconcilePaperOrderCommand,
+    ReconcilePaperOrderHandler,
     SubmitAuthorizedPaperOrderCommand,
     SubmitAuthorizedPaperOrderHandler,
 )
@@ -93,6 +94,7 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
         intent = a_paper_bound_intent(m084, paper, broker=broker, time_source=clock)
         preview = PreviewPaperSubmissionHandler(
             intents=m084.approved_order_intents,
+            configurations=m084.operator_trading_configurations,
             time_bases=paper.time_bases,
             snapshots=paper.paper_account_snapshots,
             previews=paper.submission_previews,
@@ -106,9 +108,6 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
                 intent_governance_id=intent.intent_governance_id,
                 preview_id="PVW-TIME",
                 account_snapshot_id="SNP-TIME",
-                approved_watchlist=frozenset({"AAPL"}),
-                maximum_notional=Decimal("100000"),
-                quote_maximum_age_seconds=60,
                 created_at=clock.utc,
             )
         )
@@ -133,9 +132,6 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
             intent_governance_id=intent.intent_governance_id,
             attempt_id="ATT-TIME",
             account_snapshot_id="SNP-SEND",
-            approved_watchlist=frozenset({"AAPL"}),
-            maximum_notional=Decimal("100000"),
-            quote_maximum_age_seconds=60,
             at=clock.utc,
         )
         yield dict(
@@ -158,6 +154,7 @@ def handler(
     paper = world["paper"]
     return SubmitAuthorizedPaperOrderHandler(
         intents=world["m084"].approved_order_intents,
+        configurations=world["m084"].operator_trading_configurations,
         time_bases=paper.time_bases,
         previews=paper.submission_previews,
         authorizations=paper.execution_authorizations,
@@ -249,3 +246,106 @@ def test_current_permission_dispatches_once_to_controlled_broker(world: dict[str
     assert result.attempt.client_order_id == world["authorization"].client_order_id
     assert not operation.handle(world["command"]).dispatched
     assert len(world["broker"].submitted) == 1
+
+
+# ---------------------------------------------------------------------------
+# Corrective pass: uncertain outcomes through the real database edges
+# ---------------------------------------------------------------------------
+
+
+def _reconcile(world: dict[str, Any]) -> object:
+    paper = world["paper"]
+    return ReconcilePaperOrderHandler(
+        attempts=paper.execution_attempts,
+        acknowledgements=paper.broker_acknowledgements,
+        events=paper.paper_execution_events,
+        broker=world["broker"],
+    ).handle(
+        ReconcilePaperOrderCommand(
+            intent_governance_id=world["command"].intent_governance_id, at=world["clock"].utc
+        )
+    )
+
+
+def test_a_server_error_is_stored_as_unknown_and_never_resent(world: dict[str, Any]) -> None:
+    # D2 AT THE DATABASE. A 503 after the POST is recorded as said, the attempt is
+    # SUBMISSION_UNKNOWN in the real table, and neither a repeat nor the database
+    # permits a second submission.
+    world["broker"].submit_status = 503
+    world["broker"].submit_body = '{"message": "service unavailable"}'
+    operation = handler(world)
+    first = operation.handle(world["command"])
+    assert first.attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    paper = world["paper"]
+    stored = paper.execution_attempts.get("ATT-TIME")
+    assert stored is not None and stored.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    (acknowledgement,) = paper.broker_acknowledgements.for_attempt("ATT-TIME")
+    assert acknowledgement.http_status == 503
+    assert not operation.handle(world["command"]).dispatched
+    assert len(world["broker"].submitted) == 1
+
+
+def test_reconciliation_resolves_an_unknown_attempt_through_the_database_edges(
+    world: dict[str, Any],
+) -> None:
+    world["broker"].submit_status = 502
+    world["broker"].submit_body = "<html>Bad Gateway</html>"
+    unknown = handler(world).handle(world["command"]).attempt
+    world["broker"].lookup_view = FakeView(client_order_id=unknown.client_order_id, status="filled")
+    resolved = _reconcile(world)
+    assert resolved.state is PaperExecutionState.FILLED  # type: ignore[attr-defined]
+    stored = world["paper"].execution_attempts.get("ATT-TIME")
+    assert stored is not None and stored.state is PaperExecutionState.FILLED
+    assert stored.submitted_at == unknown.submitted_at
+    # Terminal now: a further reconciliation neither asks nor writes.
+    world["broker"].lookups.clear()
+    assert _reconcile(world).state is PaperExecutionState.FILLED  # type: ignore[attr-defined]
+    assert world["broker"].lookups == []
+    assert len(world["broker"].submitted) == 1
+
+
+def test_reconciliation_resolves_an_interrupted_dispatch_through_the_database_edges(
+    world: dict[str, Any],
+) -> None:
+    # D3 AT THE DATABASE. A dispatch interrupted after the claim stays
+    # SUBMISSION_IN_PROGRESS in the real table. Once the not-found window has passed,
+    # reconciliation finds the order by client_order_id and records it through
+    # PAPER_SUBMITTED, because the trigger refuses SUBMISSION_IN_PROGRESS -> FILLED.
+    def interrupted(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt
+
+    world["broker"].submit_order = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        handler(world).handle(world["command"])
+    stuck = world["paper"].execution_attempts.get("ATT-TIME")
+    assert stuck is not None and stuck.state is PaperExecutionState.SUBMISSION_IN_PROGRESS
+    world["broker"].lookup_view = FakeView(client_order_id=stuck.client_order_id, status="filled")
+    world["clock"].advance(120)
+    resolved = _reconcile(world)
+    assert resolved.state is PaperExecutionState.FILLED  # type: ignore[attr-defined]
+    stored = world["paper"].execution_attempts.get("ATT-TIME")
+    assert stored is not None and stored.state is PaperExecutionState.FILLED
+    assert world["broker"].lookups == [stuck.client_order_id]
+    assert world["broker"].submitted == []
+
+
+def test_absence_never_resolves_an_interrupted_dispatch_in_the_database(
+    world: dict[str, Any],
+) -> None:
+    # Not-found answers across the whole policy window leave SUBMISSION_IN_PROGRESS
+    # stored as it was: the dispatcher may not have sent yet, so nothing is resolved.
+    def interrupted(*args: object, **kwargs: object) -> object:
+        raise KeyboardInterrupt
+
+    world["broker"].submit_order = interrupted
+    with pytest.raises(KeyboardInterrupt):
+        handler(world).handle(world["command"])
+    world["broker"].lookup_status = 404
+    world["broker"].lookup_view = None
+    for _ in range(3):
+        world["clock"].advance(120)
+        assert _reconcile(world).state is PaperExecutionState.SUBMISSION_IN_PROGRESS  # type: ignore[attr-defined]
+    stored = world["paper"].execution_attempts.get("ATT-TIME")
+    assert stored is not None and stored.state is PaperExecutionState.SUBMISSION_IN_PROGRESS
+    assert len(world["broker"].lookups) == 3
+    assert world["broker"].submitted == []

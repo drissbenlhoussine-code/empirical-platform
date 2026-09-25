@@ -14,11 +14,11 @@ rule rather than an environment.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
-from tests.unit._m085_fakes import a_provenance
+from tests.unit._m085_fakes import a_policy, a_provenance
 
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
@@ -37,6 +37,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     TERMINAL_PAPER_STATES,
     ExecutionAttempt,
     ExecutionAuthorization,
+    ExecutionPolicy,
     M084TimeProvenance,
     PaperAccountSnapshot,
     PaperEnvironment,
@@ -59,7 +60,42 @@ from empirical_platform.shared.brokerage.paper_time import BoundedInstant, Broke
 
 _NOW = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
 _DIGEST = "a" * 64
-_WATCHLIST = frozenset({"AAPL"})
+
+
+def _policy(**overrides: object) -> ExecutionPolicy:
+    """The intent's configuration policy, with a UTC entry window that contains `_NOW`.
+
+    `_NOW` is 08:00 in New York, before the acceptance window, so these pure-domain
+    tests state a window around their own clock rather than moving the clock.
+    """
+    arguments: dict[str, object] = {
+        "operator_timezone": "UTC",
+        "earliest_entry_time": time(9, 0),
+        "latest_entry_time": time(20, 0),
+        "mandatory_liquidation_time": time(20, 30),
+    }
+    arguments.update(overrides)
+    return a_policy(**arguments)
+
+
+def _binding() -> dict[str, object]:
+    """The preview-binding copies a hand-built authorization must carry."""
+    policy = _policy()
+    return {
+        "symbol": "AAPL",
+        "side": "BUY",
+        "quantity": 1,
+        "order_type": OrderType.LIMIT,
+        "limit_price": Decimal("4.00"),
+        "maximum_notional": policy.maximum_notional,
+        "quote_bid": Decimal("199.95"),
+        "quote_ask": Decimal("200.10"),
+        "quote_captured_at": _NOW - timedelta(seconds=5),
+        "configuration_governance_id": policy.configuration_governance_id,
+        "configuration_version": policy.configuration_version,
+        "policy_fingerprint": policy.fingerprint,
+        "preview_binding_fingerprint": _DIGEST,
+    }
 
 
 def _basis(
@@ -146,9 +182,7 @@ def a_preview(**overrides: object):  # noqa: ANN201 - returns SubmissionPreview
         "asset_class": "us_equity",
         "asset_exchange": "NASDAQ",
         "asset_fractionable": True,
-        "approved_watchlist": _WATCHLIST,
-        "maximum_notional": Decimal("5"),
-        "quote_maximum_age_seconds": 60,
+        "policy": _policy(),
         "existing_position_quantity": 0,
         "execution_kill_switch_engaged": False,
         "created_at": _NOW,
@@ -316,6 +350,7 @@ class TestTheFingerprintBindsMoreThanTheOrder:
             "endpoint_host": PAPER_ENDPOINT_HOST,
             "intent_governance_id": "INT-1",
             "approved_fingerprint": _DIGEST,
+            "policy_fingerprint": _policy().fingerprint,
         }
         arguments.update(overrides)
         return request_fingerprint(**arguments)  # type: ignore[arg-type]
@@ -329,6 +364,9 @@ class TestTheFingerprintBindsMoreThanTheOrder:
             {"account_reference": "ref:somebody-else"},
             {"intent_governance_id": "INT-2"},
             {"approved_fingerprint": "b" * 64},
+            # Corrective pass (D1): the send-time policy is part of what is authorized.
+            {"policy_fingerprint": _policy(maximum_capital_per_trade=Decimal("6")).fingerprint},
+            {"policy_fingerprint": _policy(maximum_market_data_age_seconds=61).fingerprint},
         ],
     )
     def test_changing_any_binding_changes_the_fingerprint(
@@ -377,15 +415,15 @@ class TestThePreviewCollectsEveryRefusal:
             ({"account": an_account(account_blocked=True)}, "does not permit orders"),
             ({"account": an_account(account_status="INACTIVE")}, "does not permit orders"),
             ({"account": an_account(trade_suspended_by_user=True)}, "does not permit orders"),
-            ({"approved_watchlist": frozenset({"MSFT"})}, "not on the approved watchlist"),
+            ({"policy": _policy(watchlist=("MSFT",))}, "not on the approved watchlist"),
             ({"asset_tradable": False}, "not tradable"),
             ({"asset_status": "inactive"}, "not an active asset"),
             ({"asset_class": "crypto"}, "not a US equity"),
             ({"existing_position_quantity": 5}, "position of 5 already exists"),
-            ({"maximum_notional": Decimal("1")}, "exceeds the limit"),
+            ({"policy": _policy(maximum_capital_per_trade=Decimal("1"))}, "exceeds the limit"),
             ({"account": an_account(buying_power=Decimal("1"))}, "exceeds paper buying power"),
             ({"quote_captured_at": None}, "no quote was captured"),
-            ({"quote_maximum_age_seconds": 1}, "older than the"),
+            ({"policy": _policy(maximum_market_data_age_seconds=1)}, "older than the"),
             (
                 {"quote_captured_at": _NOW + timedelta(seconds=11)},
                 "dated after the latest possible",
@@ -404,7 +442,7 @@ class TestThePreviewCollectsEveryRefusal:
         preview = a_preview(
             execution_kill_switch_engaged=True,
             asset_tradable=False,
-            approved_watchlist=frozenset({"MSFT"}),
+            policy=_policy(watchlist=("MSFT",)),
         )
         assert len(preview.refusals) >= 3
 
@@ -423,7 +461,6 @@ class TestThePreviewCollectsEveryRefusal:
         quote_at = _NOW - timedelta(seconds=61)
         preview = a_preview(
             quote_captured_at=quote_at,
-            quote_maximum_age_seconds=60,
             broker_now=BoundedInstant(earliest=_NOW - timedelta(seconds=2), latest=_NOW),
         )
         assert any("older than the 60s limit" in reason for reason in preview.refusals)
@@ -434,7 +471,6 @@ class TestThePreviewCollectsEveryRefusal:
         quote_at = _NOW - timedelta(seconds=59)
         assert a_preview(
             quote_captured_at=quote_at,
-            quote_maximum_age_seconds=60,
             broker_now=BoundedInstant(earliest=_NOW - timedelta(seconds=2), latest=_NOW),
         ).is_authorizable
 
@@ -613,6 +649,7 @@ class TestAuthorizationIsNarrowAndExpiring:
             expires_at=_NOW + timedelta(seconds=60),
             consumed_at=None,
             consumed_by_attempt_id=None,
+            **_binding(),  # type: ignore[arg-type]
         )
         assert legacy.has_broker_time_basis is False
         with pytest.raises(ValueError, match="no broker time basis"):
@@ -651,19 +688,8 @@ class TestAuthorizationIsNarrowAndExpiring:
             validity_seconds=60,
             time_basis=_basis(_NOW),
         )
-        consumed = ExecutionAuthorization(
-            authorization_id=base.authorization_id,
-            intent_governance_id=base.intent_governance_id,
-            preview_id=base.preview_id,
-            preview_version=base.preview_version,
-            request_fingerprint=base.request_fingerprint,
-            account_reference=base.account_reference,
-            client_order_id=base.client_order_id,
-            authorized_by=base.authorized_by,
-            authorized_at=base.authorized_at,
-            expires_at=base.expires_at,
-            consumed_at=_NOW + timedelta(seconds=1),
-            consumed_by_attempt_id="ATT-1",
+        consumed = replace(
+            base, consumed_at=_NOW + timedelta(seconds=1), consumed_by_attempt_id="ATT-1"
         )
         assert consumed.is_consumed is True
         refusal = consumed.refusal_against(
@@ -689,6 +715,7 @@ class TestAuthorizationIsNarrowAndExpiring:
                 expires_at=_NOW + timedelta(seconds=60),
                 consumed_at=_NOW,
                 consumed_by_attempt_id=None,
+                **_binding(),  # type: ignore[arg-type]
             )
 
     def test_an_expiry_before_the_authorization_is_refused(self) -> None:
@@ -706,6 +733,7 @@ class TestAuthorizationIsNarrowAndExpiring:
                 expires_at=_NOW,
                 consumed_at=None,
                 consumed_by_attempt_id=None,
+                **_binding(),  # type: ignore[arg-type]
             )
 
 
@@ -723,6 +751,7 @@ def _legacy_authorization(**basis: datetime | None) -> ExecutionAuthorization:
         expires_at=_NOW + timedelta(seconds=60),
         consumed_at=None,
         consumed_by_attempt_id=None,
+        **_binding(),  # type: ignore[arg-type]
         **basis,  # type: ignore[arg-type]
     )
 
@@ -736,7 +765,9 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
         # reading, the permission ends at the command instant plus its validity.
         authorization = authorize_submission(
             authorization_id="AUT-1",
-            preview=a_preview(),
+            # A 300 s freshness limit, so the 120 s fetch does not already make the
+            # preview too old to authorize (that refusal is tested on its own).
+            preview=a_preview(policy=_policy(maximum_market_data_age_seconds=300)),
             authorized_by="owner",
             authorized_at=_NOW,
             validity_seconds=300,
@@ -976,20 +1007,25 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
         intent = an_intent()
         provenance = a_provenance(intent, proposal_offset=timedelta(hours=1))
         preview = a_preview(intent=intent, m084_provenance=provenance)
+        # 3600 s: exactly as long as the intent lives on the host clock. Corrective pass:
+        # an authorization may not outlive the intent, so 7200 s is now refused.
         authorization = authorize_submission(
             authorization_id="AUT-1",
             preview=preview,
             authorized_by="owner",
             authorized_at=_NOW,
-            validity_seconds=7200,
+            validity_seconds=3600,
             time_basis=_basis(_NOW),
+        )
+        thirty_minutes = BoundedInstant(
+            earliest=_NOW + timedelta(minutes=30), latest=_NOW + timedelta(minutes=30)
         )
         ninety_minutes = BoundedInstant(
             earliest=_NOW + timedelta(minutes=90), latest=_NOW + timedelta(minutes=90)
         )
-        # Through its own basis the intent expires at _NOW+2h, so it has not. Through
-        # the authorization's it would be _NOW+1h -- already passed -- which is the
-        # borrowed answer this design refuses to use.
+        # Through its own basis the intent expires at _NOW+2h, so at 90 minutes it has
+        # not. Through the authorization's it would be _NOW+1h -- already passed -- which
+        # is the borrowed answer this design refuses to use.
         assert (
             m084_deadline_refusal_on_broker_time(
                 intent=intent, provenance=provenance, broker_now=ninety_minutes
@@ -997,18 +1033,16 @@ class TestTheTwoTimeBasesHaveDistinctProvenance:
             is None
         )
         assert authorization.on_broker_timeline(intent.expires_at) == _NOW + timedelta(hours=1)
-        # And the authorization's own expiry is not shifted by the intent's offset.
+        # And the authorization's own expiry is not shifted by the intent's offset: it
+        # ends at _NOW+1h on the broker's clock, although the intent lives to _NOW+2h.
         arguments: dict[str, object] = {
             "request_fingerprint_now": preview.request_fingerprint,
             "account_reference_now": preview.account_reference,
             "instant": _NOW,
         }
-        assert authorization.refusal_against(**arguments, broker_now=ninety_minutes) is None  # type: ignore[arg-type]
-        two_hours = BoundedInstant(
-            earliest=_NOW + timedelta(hours=2), latest=_NOW + timedelta(hours=2)
-        )
+        assert authorization.refusal_against(**arguments, broker_now=thirty_minutes) is None  # type: ignore[arg-type]
         assert (
-            authorization.refusal_against(**arguments, broker_now=two_hours)  # type: ignore[arg-type]
+            authorization.refusal_against(**arguments, broker_now=ninety_minutes)  # type: ignore[arg-type]
             == "the authorization has expired on the broker's clock"
         )
 

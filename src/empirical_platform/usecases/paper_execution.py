@@ -42,6 +42,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
+    ExecutionPolicy,
     IntentTimeBasis,
     M084TimeProvenance,
     PaperAccountSnapshot,
@@ -51,12 +52,16 @@ from empirical_platform.decision_candidate.paper_execution import (
     ProposalTimeBasis,
     SubmissionPreview,
     act_chronology_refusal,
+    authorization_binding_refusal,
     authorize_submission,
     bind_decision_time_basis,
     bind_intent_time_basis,
     bind_proposal_time_basis,
     build_submission_preview,
     decision_time_basis_refusal,
+    execution_policy_from_configuration,
+    final_send_refusal,
+    is_definitive_broker_refusal,
     m084_deadline_refusal_on_broker_time,
     m084_provenance_refusal,
     proposal_time_basis_refusal,
@@ -139,6 +144,7 @@ __all__ = [
     "ListPaperExecutionsQuery",
     "ExecutionAttempt",
     "ExecutionAuthorization",
+    "ExecutionPolicy",
     "PaperAccountSnapshot",
     "M084TimeProvenance",
     "PaperBoundDecision",
@@ -242,6 +248,27 @@ class PaperEvidence:
     asset_fractionable: bool
     existing_position_quantity: int
     kill_switch_engaged: bool
+
+
+def _policy_for(
+    intent: ApprovedOrderIntent, configurations: OperatorTradingConfigurationRepository
+) -> ExecutionPolicy:
+    """The send-time policy of the EXACT configuration version the intent names.
+
+    Read from the append-only configuration store every time it is needed, never
+    from a caller. A missing version is a refusal: without it there are no limits,
+    and no limits is not the same thing as no refusals.
+    """
+    configuration = configurations.get(
+        intent.configuration_governance_id, intent.configuration_version
+    )
+    if configuration is None:
+        raise PaperExecutionRefusedError(
+            f"configuration {intent.configuration_governance_id!r} version "
+            f"{intent.configuration_version} named by the intent does not exist; there are "
+            "no send-time limits to judge this order under"
+        )
+    return execution_policy_from_configuration(configuration)
 
 
 def _read_account_snapshot(
@@ -428,12 +455,15 @@ class InspectPaperAccountHandler:
 
 @dataclass(frozen=True, slots=True)
 class PreviewPaperSubmissionCommand:
+    """What to preview. Deliberately NO notional, freshness or watchlist argument.
+
+    CORRECTIVE PASS (D1). Those limits come only from the configuration version the
+    intent names; a command field for them would be a way to state looser ones.
+    """
+
     intent_governance_id: str
     preview_id: str
     account_snapshot_id: str
-    approved_watchlist: frozenset[str]
-    maximum_notional: Decimal
-    quote_maximum_age_seconds: int
     created_at: datetime
 
 
@@ -442,6 +472,7 @@ class PreviewPaperSubmissionHandler:
 
     __slots__ = (
         "_intents",
+        "_configurations",
         "_time_bases",
         "_snapshots",
         "_previews",
@@ -456,6 +487,7 @@ class PreviewPaperSubmissionHandler:
         self,
         *,
         intents: ApprovedOrderIntentRepository,
+        configurations: OperatorTradingConfigurationRepository,
         time_bases: TimeBasisRepository,
         snapshots: PaperAccountSnapshotRepository,
         previews: SubmissionPreviewRepository,
@@ -466,6 +498,7 @@ class PreviewPaperSubmissionHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
+        self._configurations = configurations
         self._time_bases = time_bases
         self._snapshots = snapshots
         self._previews = previews
@@ -479,6 +512,7 @@ class PreviewPaperSubmissionHandler:
         intent = self._intents.get(command.intent_governance_id)
         if intent is None:
             raise NotFoundError(f"no approved order intent {command.intent_governance_id!r} exists")
+        policy = _policy_for(intent, self._configurations)
 
         timing = PaperTimeWindow(self._time_source)
         evidence = _gather(
@@ -494,8 +528,8 @@ class PreviewPaperSubmissionHandler:
 
         version = self._previews.next_version_for_intent(intent.intent_governance_id)
         # Refuse broker time too uncertain to decide the tightest margin it feeds.
-        # The margin is the caller's own freshness ceiling, not a new constant.
-        timing.require_broker_certainty_within(command.quote_maximum_age_seconds)
+        # The margin is the configuration's freshness ceiling, not a new constant.
+        timing.require_broker_certainty_within(policy.quote_maximum_age_seconds)
         evaluated_at = timing.now()
         broker_instant = timing.broker_now()
         preview = build_submission_preview(
@@ -515,9 +549,7 @@ class PreviewPaperSubmissionHandler:
             asset_class=evidence.asset_class,
             asset_exchange=evidence.asset_exchange,
             asset_fractionable=evidence.asset_fractionable,
-            approved_watchlist=command.approved_watchlist,
-            maximum_notional=command.maximum_notional,
-            quote_maximum_age_seconds=command.quote_maximum_age_seconds,
+            policy=policy,
             existing_position_quantity=evidence.existing_position_quantity,
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
@@ -607,14 +639,17 @@ class AuthorizePaperSubmissionHandler:
         timing = PaperTimeWindow(self._time_source)
         time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
 
-        authorization = authorize_submission(
-            authorization_id=command.authorization_id,
-            preview=preview,
-            authorized_by=command.authorized_by,
-            authorized_at=command.authorized_at,
-            validity_seconds=command.validity_seconds,
-            time_basis=time_basis,
-        )
+        try:
+            authorization = authorize_submission(
+                authorization_id=command.authorization_id,
+                preview=preview,
+                authorized_by=command.authorized_by,
+                authorized_at=command.authorized_at,
+                validity_seconds=command.validity_seconds,
+                time_basis=time_basis,
+            )
+        except ValueError as error:
+            raise PaperExecutionRefusedError(str(error)) from error
         stored = self._authorizations.save(authorization)
         self._events.append(
             PaperExecutionEvent(
@@ -1081,12 +1116,18 @@ def _refuse_m084_deadlines_on_their_own_bases(
 
 @dataclass(frozen=True, slots=True)
 class SubmitAuthorizedPaperOrderCommand:
+    """What to dispatch. There is NO field that could state a limit.
+
+    CORRECTIVE PASS (D1). The notional cap, quote freshness limit, watchlist, spread
+    limit and entry window used to be arguments here, unbound to the authorization,
+    so a submit could state looser limits than the human authorized. They are now
+    read from the intent's configuration version and must equal the authorized
+    policy; a caller has nothing to pass.
+    """
+
     intent_governance_id: str
     attempt_id: str
     account_snapshot_id: str
-    approved_watchlist: frozenset[str]
-    maximum_notional: Decimal
-    quote_maximum_age_seconds: int
     at: datetime
 
 
@@ -1106,6 +1147,7 @@ class SubmitAuthorizedPaperOrderHandler:
 
     __slots__ = (
         "_intents",
+        "_configurations",
         "_time_bases",
         "_previews",
         "_authorizations",
@@ -1123,6 +1165,7 @@ class SubmitAuthorizedPaperOrderHandler:
         self,
         *,
         intents: ApprovedOrderIntentRepository,
+        configurations: OperatorTradingConfigurationRepository,
         time_bases: TimeBasisRepository,
         previews: SubmissionPreviewRepository,
         authorizations: ExecutionAuthorizationRepository,
@@ -1136,6 +1179,7 @@ class SubmitAuthorizedPaperOrderHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._intents = intents
+        self._configurations = configurations
         self._time_bases = time_bases
         self._previews = previews
         self._authorizations = authorizations
@@ -1171,6 +1215,24 @@ class SubmitAuthorizedPaperOrderHandler:
         if authorization is None:
             raise PaperExecutionRefusedError(
                 "no human authorization exists for this intent; nothing may be dispatched"
+            )
+
+        # THE AUTHORIZATION IS A PERMISSION FOR ONE STORED PREVIEW, AND ITS POLICY IS
+        # THE CONFIGURATION'S. Both are checked before any broker call. Corrective
+        # pass (items 1 and 6): nothing a caller supplies enters either comparison.
+        shown = self._previews.get(authorization.preview_id)
+        if shown is None:
+            raise PaperExecutionRefusedError(
+                "the authorization names a preview that does not exist; nothing may be dispatched"
+            )
+        binding_refusal = authorization_binding_refusal(authorization=authorization, preview=shown)
+        if binding_refusal is not None:
+            raise PaperExecutionRefusedError(f"this dispatch is not authorized: {binding_refusal}")
+        policy = _policy_for(intent, self._configurations)
+        if policy.fingerprint != authorization.policy_fingerprint:
+            raise PaperExecutionRefusedError(
+                "this dispatch is not authorized: the execution policy of the intent's "
+                "configuration is not the policy the human authorized"
             )
 
         # THE PROVENANCE OF EVERY M084 DEADLINE, BEFORE ANY BROKER CALL. A proposal,
@@ -1209,7 +1271,7 @@ class SubmitAuthorizedPaperOrderHandler:
 
         # REBUILT from fresh evidence. Every refusal a preview would have raised
         # is re-raised here against the numbers that are true NOW.
-        timing.require_broker_certainty_within(command.quote_maximum_age_seconds)
+        timing.require_broker_certainty_within(policy.quote_maximum_age_seconds)
         evaluated_at = timing.now()
         fresh = build_submission_preview(
             preview_id=f"{command.attempt_id}-RECHECK",
@@ -1228,9 +1290,7 @@ class SubmitAuthorizedPaperOrderHandler:
             asset_class=evidence.asset_class,
             asset_exchange=evidence.asset_exchange,
             asset_fractionable=evidence.asset_fractionable,
-            approved_watchlist=command.approved_watchlist,
-            maximum_notional=command.maximum_notional,
-            quote_maximum_age_seconds=command.quote_maximum_age_seconds,
+            policy=policy,
             existing_position_quantity=evidence.existing_position_quantity,
             execution_kill_switch_engaged=evidence.kill_switch_engaged,
             created_at=evaluated_at,
@@ -1249,6 +1309,7 @@ class SubmitAuthorizedPaperOrderHandler:
             endpoint_host=self._broker.endpoint_host,
             intent_governance_id=intent.intent_governance_id,
             approved_fingerprint=intent.approved_fingerprint,
+            policy_fingerprint=policy.fingerprint,
         )
         refusal = authorization.refusal_against(
             request_fingerprint_now=fingerprint_now,
@@ -1266,6 +1327,28 @@ class SubmitAuthorizedPaperOrderHandler:
         _refuse_m084_deadlines_on_their_own_bases(
             intent=intent, provenance=provenance, broker_now=timing.broker_now()
         )
+
+        # The final send guard, once BEFORE the claim on the evidence just gathered, so a
+        # dispatch that could never pass it does not spend the authorization. It runs
+        # again, on fresh reads, inside `before_send`.
+        pre_claim_refusal = final_send_refusal(
+            intent=intent,
+            provenance=provenance,
+            authorization=authorization,
+            policy_now=policy,
+            request_fingerprint_now=fingerprint_now,
+            account_reference_now=evidence.account.account_reference,
+            host_now=timing.now(),
+            broker_now=timing.broker_now(),
+            market_is_open=evidence.market_is_open,
+            market_next_close=evidence.market_next_close,
+            quote_bid=evidence.quote_bid,
+            quote_ask=evidence.quote_ask,
+            quote_captured_at=evidence.quote_captured_at,
+            kill_switch_engaged=evidence.kill_switch_engaged,
+        )
+        if pre_claim_refusal is not None:
+            raise PaperExecutionRefusedError(f"this dispatch is not permitted: {pre_claim_refusal}")
 
         # CLAIM BEFORE THE NETWORK. Everything above is a check; this is the
         # commitment, and it happens while nothing has been sent.
@@ -1298,60 +1381,41 @@ class SubmitAuthorizedPaperOrderHandler:
 
         def before_send() -> None:
             # The transport invokes this AFTER connect, immediately before HTTP send.
-            # Read the kill switch before sampling time: a DB wait must age evidence.
+            #
+            # CORRECTIVE PASS (item 7). Every input to the final decision is READ AGAIN
+            # here -- the kill switch and the configuration from the database, the
+            # broker clock and the quote from the broker -- and time is re-derived
+            # after all of those reads, so a database wait, a lock wait, connection
+            # preparation or a slow quote ages the evidence rather than being forgiven.
+            # SUPERSEDED: this guard used to judge the market session and the quote
+            # from values cached by the pre-claim gather.
             try:
-                if self._kill_switch.is_engaged():
-                    raise PaperExecutionRefusedError("the execution kill switch is engaged")
-
-                # Time is re-derived HERE, after connect and after every database
-                # wait, so elapsed preparation ages the evidence rather than being
-                # forgiven. Both timelines are re-read; neither is assumed to have
-                # stood still, and neither is compared against the other.
-                timing.require_broker_certainty_within(command.quote_maximum_age_seconds)
-                instant = timing.now()
-                broker_instant = timing.broker_now()
-
-                # -- host timeline: what this host recorded ---------------------
-                refusal = authorization.refusal_against(
+                kill_switch_engaged = self._kill_switch.is_engaged()
+                policy_now = _policy_for(intent, self._configurations)
+                sent_monotonic = timing.read_monotonic()
+                clock = self._broker.fetch_clock()
+                received_monotonic = timing.read_monotonic()
+                timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
+                quote = self._market_data.fetch_quote(intent.symbol)
+                timing.require_broker_certainty_within(policy_now.quote_maximum_age_seconds)
+                refusal = final_send_refusal(
+                    intent=intent,
+                    provenance=provenance,
+                    authorization=authorization,
+                    policy_now=policy_now,
                     request_fingerprint_now=fingerprint_now,
                     account_reference_now=evidence.account.account_reference,
-                    instant=instant,
-                    broker_now=broker_instant,
+                    host_now=timing.now(),
+                    broker_now=timing.broker_now(),
+                    market_is_open=clock.is_open,
+                    market_next_close=clock.next_close,
+                    quote_bid=_decimal_or_none(None if quote is None else quote.bid),
+                    quote_ask=_decimal_or_none(None if quote is None else quote.ask),
+                    quote_captured_at=None if quote is None else quote.captured_at,
+                    kill_switch_engaged=kill_switch_engaged,
                 )
-                if refusal is not None or instant < authorization.authorized_at:
-                    raise PaperExecutionRefusedError(refusal or "authorization is future-dated")
-                # M084'S DEADLINES, ENFORCED ON BOTH CLOCKS. One rule, two
-                # implementations, deliberately kept together: the host check is
-                # cheap and independent, and the broker check is the one that
-                # survives the approving process exiting and the host clock moving
-                # underneath the stored value. Removing either alone leaves the
-                # rule standing, which is why the mutation campaign removes both.
-                if instant >= intent.expires_at or instant >= intent.mandatory_liquidation_at:
-                    raise PaperExecutionRefusedError(
-                        "the approved intent or liquidation deadline expired"
-                    )
-                _refuse_m084_deadlines_on_their_own_bases(
-                    intent=intent, provenance=provenance, broker_now=broker_instant
-                )
-
-                # -- broker timeline: what the broker reported ------------------
-                # A close that MIGHT already have passed counts as passed.
-                if (
-                    not evidence.market_is_open
-                    or evidence.market_next_close is None
-                    or broker_instant.possibly_at_or_after(evidence.market_next_close)
-                ):
-                    raise PaperExecutionRefusedError("the regular market session is closed")
-                quote_at = evidence.quote_captured_at
-                if quote_at is None:
-                    raise PaperExecutionRefusedError(
-                        "quote freshness cannot be established before send"
-                    )
-                oldest_age = broker_instant.age_of(quote_at)[1]
-                if oldest_age > command.quote_maximum_age_seconds or oldest_age < 0:
-                    raise PaperExecutionRefusedError(
-                        "quote freshness cannot be established before send"
-                    )
+                if refusal is not None:
+                    raise PaperExecutionRefusedError(refusal)
             except (PaperExecutionRefusedError, PaperTimeUncertainError) as error:
                 raise BrokerNotSentError(str(error)) from error
 
@@ -1401,6 +1465,24 @@ class SubmitAuthorizedPaperOrderHandler:
         except BrokerAmbiguousDispatchError as error:
             at = timing.last_safe_at
             # MAY have been delivered. This must never become a second order.
+            if error.http_status is not None and error.sanitized_body is not None:
+                # An answer arrived but proves nothing: record what was said, as said.
+                sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
+                self._acknowledgements.append(
+                    BrokerAcknowledgement(
+                        acknowledgement_id=f"ACK-{attempt.attempt_id}-{sequence}",
+                        attempt_id=attempt.attempt_id,
+                        sequence=sequence,
+                        kind="SUBMIT",
+                        observed_at=at,
+                        http_status=error.http_status,
+                        broker_order_id=None,
+                        broker_status=None,
+                        client_order_id_echo=None,
+                        payload_digest=self._digest(error.sanitized_body),
+                        sanitized_payload=error.sanitized_body[:8192],
+                    )
+                )
             final = self._attempts.transition(
                 attempt_id=attempt.attempt_id,
                 target=PaperExecutionState.SUBMISSION_UNKNOWN,
@@ -1421,6 +1503,19 @@ class SubmitAuthorizedPaperOrderHandler:
                     "using the same client_order_id; do not send again"
                 ),
             )
+        except Exception as error:  # noqa: BLE001 - see below
+            # CORRECTIVE PASS (D2/D3). Any other failure once `before_send` has passed
+            # -- an unusable answer, a redirect, a peer describing another order, or a
+            # fault in this process -- happened after the request may have left. It is
+            # therefore UNKNOWN, resolved by reconciliation, and never REJECTED.
+            return self._uncertain(
+                attempt=attempt,
+                intent_id=intent_id,
+                timing=timing,
+                failure_code="UNUSABLE_ANSWER",
+                detail=f"{type(error).__name__}: {error}",
+                http_status=None,
+            )
 
         at = timing.last_safe_at
         sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
@@ -1440,23 +1535,39 @@ class SubmitAuthorizedPaperOrderHandler:
             )
         )
 
-        if view is None:
-            final = self._attempts.transition(
-                attempt_id=attempt.attempt_id,
-                target=PaperExecutionState.REJECTED,
-                at=at,
-                failure_code=f"HTTP_{status}",
-                failure_detail=sanitized[:500],
-            )
-            self._record_event(
-                intent_id, attempt.attempt_id, "DISPATCH_REFUSED_BY_BROKER", f"HTTP {status}", at
-            )
-            return PaperSubmissionResult(
-                attempt=final,
-                dispatched=True,
+        if view is None or status not in {200, 201}:
+            if view is None and is_definitive_broker_refusal(status, sanitized):
+                final = self._attempts.transition(
+                    attempt_id=attempt.attempt_id,
+                    target=PaperExecutionState.REJECTED,
+                    at=at,
+                    failure_code=f"HTTP_{status}",
+                    failure_detail=sanitized[:500],
+                )
+                self._record_event(
+                    intent_id,
+                    attempt.attempt_id,
+                    "DISPATCH_REFUSED_BY_BROKER",
+                    f"HTTP {status}",
+                    at,
+                )
+                return PaperSubmissionResult(
+                    attempt=final,
+                    dispatched=True,
+                    http_status=status,
+                    broker_status=None,
+                    note=f"the broker refused the order with HTTP {status}",
+                )
+            # Not a definitive refusal: the order may exist. SUPERSEDED: every status
+            # other than 200/201 used to be recorded as a terminal REJECTED here, so a
+            # 5xx that followed an acceptance left a live paper order untracked.
+            return self._uncertain(
+                attempt=attempt,
+                intent_id=intent_id,
+                timing=timing,
+                failure_code=f"UNCERTAIN_HTTP_{status}",
+                detail=sanitized,
                 http_status=status,
-                broker_status=None,
-                note=f"the broker refused the order with HTTP {status}",
             )
 
         submitted = self._attempts.transition(
@@ -1482,6 +1593,37 @@ class SubmitAuthorizedPaperOrderHandler:
             http_status=status,
             broker_status=view.status,
             note="the paper broker acknowledged the order",
+        )
+
+    def _uncertain(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        intent_id: str,
+        timing: PaperTimeWindow,
+        failure_code: str,
+        detail: str,
+        http_status: int | None,
+    ) -> PaperSubmissionResult:
+        """Record an outcome that may have created an order: SUBMISSION_UNKNOWN, never retried."""
+        at = timing.last_safe_at
+        final = self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.SUBMISSION_UNKNOWN,
+            at=at,
+            failure_code=failure_code[:32],
+            failure_detail=detail[:500],
+        )
+        self._record_event(intent_id, attempt.attempt_id, "DISPATCH_OUTCOME_UNKNOWN", detail, at)
+        return PaperSubmissionResult(
+            attempt=final,
+            dispatched=True,
+            http_status=http_status,
+            broker_status=None,
+            note=(
+                "the outcome is UNKNOWN: the broker's answer does not prove the order was "
+                "refused. Reconcile using the same client_order_id; do not send again"
+            ),
         )
 
     def _apply_broker_status(
@@ -1574,6 +1716,13 @@ class ReconcilePaperOrderHandler:
             )
         if attempt.is_terminal:
             return attempt
+        if attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS:
+            # A dispatcher may still be sending. An attempt this young is not even
+            # looked up. An older one is looked up, but age is NOT proof the dispatcher
+            # has stopped, so only a FOUND order may move it (see `_handle_absence`).
+            started = attempt.submitted_at or attempt.claimed_at
+            if (command.at - started).total_seconds() < MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS:
+                return attempt
 
         status, view, sanitized = self._broker.fetch_order_by_client_order_id(
             attempt.client_order_id
@@ -1597,6 +1746,24 @@ class ReconcilePaperOrderHandler:
 
         if view is None:
             return self._handle_absence(attempt=attempt, status=status, at=command.at)
+
+        if attempt.state in {
+            PaperExecutionState.SUBMISSION_IN_PROGRESS,
+            PaperExecutionState.SUBMISSION_UNKNOWN,
+        }:
+            # THE BROKER HAS THIS client_order_id, so the order exists. Record that
+            # first -- PAPER_SUBMITTED is an allowed edge from both uncertain states --
+            # and only then map the broker's status. Corrective pass (D3): an attempt
+            # stuck IN_PROGRESS could previously never be reconciled at all.
+            attempt = self._attempts.transition(
+                attempt_id=attempt.attempt_id,
+                target=PaperExecutionState.PAPER_SUBMITTED,
+                at=command.at,
+                broker_order_id=view.broker_order_id,
+                broker_status=view.status,
+                filled_quantity=view.filled_quantity,
+                filled_avg_price=view.filled_avg_price,
+            )
 
         target = _BROKER_STATUS_TO_STATE.get(view.status)
         if target is None or target is attempt.state:
@@ -1658,6 +1825,29 @@ class ReconcilePaperOrderHandler:
             for acknowledgement in self._acknowledgements.for_attempt(attempt.attempt_id)
             if acknowledgement.kind == "RECONCILE" and acknowledgement.http_status == 404
         ]
+        # An attempt still SUBMISSION_IN_PROGRESS may belong to a dispatcher that has
+        # not sent yet: connect, the database reads and the clock and quote fetches in
+        # `before_send` are not bounded by the not-found window, and the reconciling
+        # host's clock is not the dispatcher's. Resolving it to REJECTED here would let
+        # that dispatcher send an order recorded as rejected. SUPERSEDED within the
+        # corrective pass, which first applied the bounded policy to this state too.
+        dispatch_may_be_live = attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS
+        if dispatch_may_be_live:
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-404-LIVE-{len(observations)}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_NOT_FOUND_DISPATCH_MAY_BE_LIVE",
+                    occurred_at=at,
+                    detail=(
+                        f"observations={len(observations)}; the attempt is still "
+                        "SUBMISSION_IN_PROGRESS, so absence proves nothing and the state "
+                        "is unchanged; an operator must establish whether it was sent"
+                    )[:500],
+                )
+            )
+            return attempt
         elapsed = (at - (attempt.submitted_at or attempt.claimed_at)).total_seconds()
         enough_observations = len(observations) >= MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS
         enough_time = elapsed >= MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS

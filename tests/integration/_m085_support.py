@@ -41,6 +41,10 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
     OrderType,
     TradingSession,
 )
+from empirical_platform.decision_candidate.paper_execution import (
+    ExecutionPolicy,
+    execution_policy_from_configuration,
+)
 from empirical_platform.decision_candidate.product_market_inputs import (
     AccountSnapshot,
     DataFeedKind,
@@ -63,7 +67,11 @@ from empirical_platform.decision_candidate.trade_proposal import (
     TradeProposal,
     evaluate_trade_proposal,
 )
-from empirical_platform.shared.brokerage.paper_time import BrokerTimeBasis, PaperTimeSource
+from empirical_platform.shared.brokerage.paper_time import (
+    BoundedInstant,
+    BrokerTimeBasis,
+    PaperTimeSource,
+)
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
@@ -82,6 +90,29 @@ from empirical_platform.usecases.paper_execution import (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVALUATED_AT = datetime(2026, 6, 10, 12, 0, tzinfo=UTC)
+
+#: The instant the raw-repository suites preview, authorize and claim at.
+#:
+#: CORRECTIVE PASS. These suites used to authorize and claim at the REAL clock
+#: against an intent evaluated at `EVALUATED_AT`, months earlier. An authorization
+#: may no longer outlive its intent or be granted on a preview older than the
+#: configured freshness limit -- in the domain and in the database -- so every
+#: act in these chains is placed on the fixture's own timeline instead. The intent
+#: was issued 20 s after evaluation and lives for minutes, so this is inside it.
+CHAIN_AT = EVALUATED_AT + timedelta(seconds=25)
+
+
+def chain_clock() -> BoundedInstant:
+    """The broker instant a dispatch on the fixture's timeline supplies to the claim."""
+    return BoundedInstant(earliest=CHAIN_AT, latest=CHAIN_AT)
+
+
+def a_policy(configuration_id: str = "CFG-085-0001") -> ExecutionPolicy:
+    """The send-time policy of the fixture configuration an intent here names."""
+    return execution_policy_from_configuration(
+        a_configuration(configuration_governance_id=configuration_id)
+    )
+
 
 #: The M085 tables, in dependency order for TRUNCATE.
 M085_TABLES = (

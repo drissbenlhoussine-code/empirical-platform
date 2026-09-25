@@ -1,5 +1,8 @@
 # MILESTONE-085 — Mutation Matrix
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> Historical run of the replaced temporal code. The current campaign is `mutation-matrix.md`.
+
 **12 of 12 families detected.** A surviving mutation is a defect,
 never a pass.
 

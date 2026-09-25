@@ -324,9 +324,24 @@ class TestRedirectsAreRefusedNotFollowed:
         self, client: AlpacaPaperClient, hostile: _Script, status: int, location: str
     ) -> None:
         hostile.then(_respond(status, "", {"Location": location}))
-        with pytest.raises(EndpointRefusedError, match="redirect"):
+        # Refused, never followed -- and, because the order request WAS delivered to the
+        # pinned host before the redirect came back, reported as UNCERTAIN (corrective
+        # pass, D2) rather than as a refusal the order provably did not survive.
+        with pytest.raises(BrokerAmbiguousDispatchError, match="redirect") as raised:
             client.submit_order(an_order())
+        assert isinstance(raised.value.__cause__, EndpointRefusedError)
         # And exactly one request was made: nothing was re-sent to the target.
+        assert len(hostile.requests) == 1
+
+    @pytest.mark.parametrize("status", [301, 302, 307])
+    def test_a_redirect_on_a_read_is_still_a_plain_refusal(
+        self, client: AlpacaPaperClient, hostile: _Script, status: int
+    ) -> None:
+        # Only the order request is uncertain after delivery; a read that redirects is
+        # simply refused, because nothing it touched can have been created.
+        hostile.then(_respond(status, "", {"Location": "https://api.alpaca.markets/v2/clock"}))
+        with pytest.raises(EndpointRefusedError, match="redirect"):
+            client.fetch_clock()
         assert len(hostile.requests) == 1
 
     def test_the_refusal_does_not_echo_a_credential_from_the_location(
@@ -335,7 +350,7 @@ class TestRedirectsAreRefusedNotFollowed:
         hostile.then(
             _respond(302, "", {"Location": f"https://evil.example/?k={_STAND_IN_KEY_MATERIAL}"})
         )
-        with pytest.raises(EndpointRefusedError) as raised:
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
             client.submit_order(an_order())
         # The Location is reported so an operator can see where it pointed. It is
         # the ATTACKER's string, so it may contain anything -- what matters is
@@ -394,15 +409,31 @@ class TestACredentialNeverComesBackOut:
         row, so the scrub happens at the adapter boundary.
         """
         hostile.then(_respond(500, f"upstream said: APCA-API-SECRET-KEY={_STAND_IN_KEY_MATERIAL}"))
-        status, view, sanitized = client.submit_order(an_order())
-        assert status == 500
-        assert view is None
+        # Corrective pass (D2): a 500 is uncertain, never a refusal -- but what the peer
+        # said is still carried, scrubbed, so it can be recorded.
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == 500
+        sanitized = raised.value.sanitized_body
+        assert sanitized is not None
         assert _STAND_IN_KEY_MATERIAL not in sanitized
         assert REDACTED in sanitized
+        assert _STAND_IN_KEY_MATERIAL not in str(raised.value)
 
     def test_the_key_id_is_scrubbed_too(self, client: AlpacaPaperClient, hostile: _Script) -> None:
         hostile.then(_respond(500, f"key was {_KEY}"))
-        _, _, sanitized = client.submit_order(an_order())
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.sanitized_body is not None
+        assert _KEY not in raised.value.sanitized_body
+        assert _KEY not in str(raised.value)
+
+    def test_a_definitive_refusal_echoing_the_key_is_scrubbed_before_it_is_returned(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(422, {"message": f"key was {_KEY}"}))
+        status, view, sanitized = client.submit_order(an_order())
+        assert (status, view) == (422, None)
         assert _KEY not in sanitized
 
     def test_the_client_repr_discloses_nothing(self, client: AlpacaPaperClient) -> None:
@@ -480,14 +511,18 @@ class TestAnAnswerAboutTheWrongOrderIsRefused:
         field: str,
     ) -> None:
         hostile.then(_json_response(200, an_order_payload(**override)))
-        with pytest.raises(BrokerResponseInvalidError, match=field):
+        # Fails closed as UNCERTAIN (corrective pass, D2): the broker answered 200, so an
+        # order may exist; the mismatch is never persisted as the authorized order.
+        with pytest.raises(BrokerAmbiguousDispatchError, match=field) as raised:
             client.submit_order(an_order())
+        assert isinstance(raised.value.__cause__, BrokerResponseInvalidError)
+        assert raised.value.http_status == 200
 
     def test_several_mismatches_are_all_named(
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_json_response(200, an_order_payload(symbol="MSFT", side="sell")))
-        with pytest.raises(BrokerResponseInvalidError) as raised:
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
             client.submit_order(an_order())
         assert "side" in str(raised.value)
         assert "symbol" in str(raised.value)
@@ -524,26 +559,29 @@ class TestMalformedAnswers:
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_respond(502, "<html><body>Bad Gateway</body></html>"))
-        status, view, sanitized = client.submit_order(an_order())
-        assert status == 502
-        assert view is None
-        assert "Bad Gateway" in sanitized
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == 502
+        assert raised.value.sanitized_body is not None
+        assert "Bad Gateway" in raised.value.sanitized_body
 
     def test_an_empty_body_with_a_success_status_is_not_an_acknowledgement(
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
+        # Not an acknowledgement -- and not a refusal either: the order may exist.
         hostile.then(_respond(200, ""))
-        status, view, _ = client.submit_order(an_order())
-        assert status == 200
-        assert view is None
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == 200
 
     def test_truncated_json_is_reported_not_crashed(
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_respond(200, '{"id": "abc", "client_order_'))
-        status, view, _ = client.submit_order(an_order())
-        assert status == 200
-        assert view is None
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == 200
+        assert len(hostile.requests) == 1
 
     @pytest.mark.parametrize(
         "override",
@@ -559,21 +597,26 @@ class TestMalformedAnswers:
         self, client: AlpacaPaperClient, hostile: _Script, override: dict[str, Any]
     ) -> None:
         hostile.then(_json_response(200, an_order_payload(**override)))
-        with pytest.raises(BrokerResponseInvalidError):
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
             client.submit_order(an_order())
+        assert isinstance(raised.value.__cause__, BrokerResponseInvalidError)
 
     def test_a_missing_field_is_refused(self, client: AlpacaPaperClient, hostile: _Script) -> None:
         payload = an_order_payload()
         del payload["status"]
         hostile.then(_json_response(200, payload))
-        with pytest.raises(BrokerResponseInvalidError, match="status"):
+        with pytest.raises(BrokerAmbiguousDispatchError, match="status") as raised:
             client.submit_order(an_order())
+        assert isinstance(raised.value.__cause__, BrokerResponseInvalidError)
 
     def test_an_oversized_body_is_bounded_before_it_is_stored(
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_respond(500, "x" * 200_000))
-        _, _, sanitized = client.submit_order(an_order())
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        sanitized = raised.value.sanitized_body
+        assert sanitized is not None
         assert len(sanitized) < MAXIMUM_DIAGNOSTIC_BODY_BYTES + 200
         assert "truncated" in sanitized
 
@@ -581,13 +624,14 @@ class TestMalformedAnswers:
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_json_response(200, an_order_payload(qty="not-a-number")))
-        with pytest.raises(BrokerResponseInvalidError):
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
             client.submit_order(an_order())
+        assert isinstance(raised.value.__cause__, BrokerResponseInvalidError)
 
 
 class TestErrorStatusesAreReportedFaithfully:
-    @pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 422, 429, 500, 502, 503])
-    def test_an_error_status_yields_no_acknowledgement_and_keeps_its_code(
+    @pytest.mark.parametrize("status", [400, 401, 403, 422])
+    def test_a_definitive_refusal_yields_no_acknowledgement_and_keeps_its_code(
         self, client: AlpacaPaperClient, hostile: _Script, status: int
     ) -> None:
         hostile.then(_json_response(status, {"code": 40010001, "message": "refused"}))
@@ -595,6 +639,30 @@ class TestErrorStatusesAreReportedFaithfully:
         assert observed == status
         assert view is None
         assert "refused" in sanitized
+
+    @pytest.mark.parametrize("status", [404, 408, 409, 429, 500, 502, 503, 504, 418])
+    def test_an_uncertain_status_is_never_reported_as_a_refusal(
+        self, client: AlpacaPaperClient, hostile: _Script, status: int
+    ) -> None:
+        # Corrective pass (D2). The broker's own error document on one of these still
+        # does not prove that no order was recorded, so the answer is UNKNOWN.
+        hostile.then(_json_response(status, {"code": 50010000, "message": "refused"}))
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == status
+        assert raised.value.sanitized_body is not None
+        assert "refused" in raised.value.sanitized_body
+        assert len(hostile.requests) == 1
+
+    @pytest.mark.parametrize("status", [400, 401, 403, 422])
+    def test_a_definitive_status_from_a_non_json_body_is_uncertain(
+        self, client: AlpacaPaperClient, hostile: _Script, status: int
+    ) -> None:
+        # An HTML page is an intermediary talking, not the broker's error document.
+        hostile.then(_respond(status, "<html>Forbidden by proxy</html>"))
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == status
 
     def test_a_duplicate_client_order_id_rejection_is_reported_as_the_broker_sent_it(
         self, client: AlpacaPaperClient, hostile: _Script
@@ -616,8 +684,9 @@ class TestErrorStatusesAreReportedFaithfully:
         # knows whether the request is safe to repeat -- and for an order, it is
         # not.
         hostile.then(_json_response(429, {"message": "too many requests"}))
-        status, _, _ = client.submit_order(an_order())
-        assert status == 429
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == 429
         assert len(hostile.requests) == 1
 
     def test_a_not_found_on_reconciliation_is_returned_as_404_not_as_absence(

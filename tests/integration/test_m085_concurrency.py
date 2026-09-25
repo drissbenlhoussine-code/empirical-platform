@@ -24,6 +24,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -32,8 +33,10 @@ import sqlalchemy as sa
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from tests.integration._m085_support import (
+    CHAIN_AT,
     EVALUATED_AT,
     a_basis_at,
+    a_policy,
     alembic_config,
     an_approved_intent,
     config,
@@ -68,10 +71,10 @@ def _broker_clock() -> BoundedInstant:
 
     The production handler passes `PaperTimeWindow.broker_now`; these raw
     repository tests pass the equivalent so the claim is exercised through the
-    same contract rather than a weaker one.
+    same contract rather than a weaker one -- on the fixture's timeline (corrective
+    pass: an authorization may not outlive the intent evaluated at `EVALUATED_AT`).
     """
-    moment = datetime.now(UTC)
-    return BoundedInstant(earliest=moment, latest=moment)
+    return BoundedInstant(earliest=CHAIN_AT, latest=CHAIN_AT)
 
 
 _REPETITIONS = (1, 2, 3)
@@ -154,7 +157,7 @@ def an_account(**overrides: object) -> PaperAccountSnapshot:
 def a_chain(
     paper: PostgresPaperExecutionRuntime,
     *,
-    validity_seconds: int = 300,
+    validity_seconds: int = 60,
     account: PaperAccountSnapshot | None = None,
     intent_id: str = "INT-085-C1",
     preview_id: str = "PVW-C-1",
@@ -189,23 +192,18 @@ def a_chain(
         asset_class="us_equity",
         asset_exchange="NASDAQ",
         asset_fractionable=True,
-        approved_watchlist=_WATCHLIST,
-        maximum_notional=Decimal("100000"),
-        quote_maximum_age_seconds=60,
+        policy=a_policy(f"CFG-{intent_id}"),
         existing_position_quantity=0,
         execution_kill_switch_engaged=False,
-        created_at=EVALUATED_AT + timedelta(seconds=25),
-        broker_now=BoundedInstant(
-            earliest=EVALUATED_AT + timedelta(seconds=25),
-            latest=EVALUATED_AT + timedelta(seconds=25),
-        ),
+        created_at=CHAIN_AT,
+        broker_now=BoundedInstant(earliest=CHAIN_AT, latest=CHAIN_AT),
         m084_provenance=a_provenance(intent),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)
-    # The basis must be read at the SAME moment as `authorized_at`: its whole
-    # meaning is the difference between two clocks sampled together.
-    _authorized_at = datetime.now(UTC)
+    # The basis must be read at the SAME moment as `authorized_at`, on the fixture's
+    # timeline: the permission may not outlive the intent it would dispatch.
+    _authorized_at = CHAIN_AT
     authorization = authorize_submission(
         authorization_id=authorization_id,
         preview=preview,
@@ -234,7 +232,7 @@ class TestTwoWorkersCannotBothClaimOneDispatch:
                 request_fingerprint_now=authorization.request_fingerprint,
                 account_reference_now=authorization.account_reference,
                 broker_clock=_broker_clock,
-                claimed_at=datetime.now(UTC),
+                claimed_at=CHAIN_AT,
             )
 
         with ThreadPoolExecutor(max_workers=2) as pool:
@@ -283,7 +281,7 @@ class TestTwoWorkersCannotBothClaimOneDispatch:
                     request_fingerprint_now=authorization.request_fingerprint,
                     account_reference_now=authorization.account_reference,
                     broker_clock=_broker_clock,
-                    claimed_at=datetime.now(UTC),
+                    claimed_at=CHAIN_AT,
                 )
             except (FoundationError, ValueError, sa.exc.DatabaseError):
                 return
@@ -313,20 +311,8 @@ class TestTheAuthorizationCannotBeSpentTwice:
         barrier = threading.Barrier(2)
 
         def worker(authorization_id: str) -> None:
-            duplicate = ExecutionAuthorization(
-                authorization_id=authorization_id,
-                intent_governance_id=intent_id,
-                preview_id=first.preview_id,
-                preview_version=first.preview_version,
-                request_fingerprint=first.request_fingerprint,
-                account_reference=first.account_reference,
-                client_order_id=first.client_order_id,
-                authorized_by="owner",
-                authorized_at=datetime.now(UTC),
-                expires_at=datetime.now(UTC) + timedelta(seconds=300),
-                consumed_at=None,
-                consumed_by_attempt_id=None,
-            )
+            duplicate: ExecutionAuthorization = replace(first, authorization_id=authorization_id)
+            assert duplicate.intent_governance_id == intent_id
             barrier.wait(timeout=10)
             try:
                 paper.execution_authorizations.save(duplicate)
@@ -358,7 +344,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         # A NEW service and runtime, as a restarted process would have.
         restarted = PostgresPersistenceService(config("m085-concurrency-restart"))
@@ -375,7 +361,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
                     request_fingerprint_now=reloaded.request_fingerprint,
                     account_reference_now=reloaded.account_reference,
                     broker_clock=_broker_clock,
-                    claimed_at=datetime.now(UTC),
+                    claimed_at=CHAIN_AT,
                 )
         finally:
             restarted.close()
@@ -407,7 +393,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
                 request_fingerprint_now="f" * 64,
                 account_reference_now=authorization.account_reference,
                 broker_clock=_broker_clock,
-                claimed_at=datetime.now(UTC),
+                claimed_at=CHAIN_AT,
             )
 
     def test_an_authorization_for_another_account_refuses_the_dispatch(
@@ -421,7 +407,7 @@ class TestTheAuthorizationCannotBeSpentTwice:
                 request_fingerprint_now=authorization.request_fingerprint,
                 account_reference_now="ref:somebody-else",
                 broker_clock=_broker_clock,
-                claimed_at=datetime.now(UTC),
+                claimed_at=CHAIN_AT,
             )
 
 
@@ -442,7 +428,7 @@ class TestCrashesLeaveNothingPartial:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         # The worker dies here. Nothing else runs.
         with rebuilt.begin() as connection:
@@ -468,7 +454,7 @@ class TestCrashesLeaveNothingPartial:
         with pytest.raises((FoundationError, sa.exc.DatabaseError)), service.unit_of_work() as work:
             work.execute(
                 text(
-                    "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                    "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                     "consumed_by_attempt_id = 'ATT-C-rollback' WHERE authorization_id = :id"
                 ).text,
                 {"id": authorization.authorization_id},
@@ -515,7 +501,7 @@ class TestAcknowledgementsAndReconciliationAreSafeConcurrently:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         attempt_id = claim.attempt.attempt_id
         barrier = threading.Barrier(2)
@@ -571,7 +557,7 @@ class TestAcknowledgementsAndReconciliationAreSafeConcurrently:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         paper.execution_attempts.transition(
             attempt_id=claim.attempt.attempt_id,
@@ -623,7 +609,7 @@ class TestAcknowledgementsAndReconciliationAreSafeConcurrently:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         for target in (
             PaperExecutionState.SUBMISSION_IN_PROGRESS,
@@ -742,7 +728,7 @@ class TestConstraintNamesAreHonest:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         with pytest.raises(sa.exc.IntegrityError) as raised, rebuilt.begin() as connection:
             connection.execute(

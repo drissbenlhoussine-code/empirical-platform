@@ -52,12 +52,17 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from datetime import time as clock_time
 from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
+from empirical_platform.decision_candidate.operator_trading_configuration import (
+    OperatorTradingConfiguration,
+    OrderType,
+)
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovalDecision,
     ApprovedOrderIntent,
@@ -69,6 +74,16 @@ from empirical_platform.shared.brokerage.paper_time import BoundedInstant, Broke
 __all__ = [
     "ALLOWED_PAPER_TRANSITIONS",
     "CLIENT_ORDER_ID_PREFIX",
+    "DEFINITIVE_BROKER_REFUSAL_STATUSES",
+    "ExecutionPolicy",
+    "authorization_binding_refusal",
+    "effective_liquidation_deadline",
+    "entry_window_refusal",
+    "execution_policy_from_configuration",
+    "final_send_refusal",
+    "is_definitive_broker_refusal",
+    "liquidation_session_refusal",
+    "quote_refusal",
     "MAXIMUM_BROKER_CLIENT_ORDER_ID_LENGTH",
     "MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS",
     "MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS",
@@ -186,6 +201,33 @@ RECONCILIATION_UNKNOWN_POLICY: MappingProxyType[str, object] = MappingProxyType(
         "resolution_requires_operator_visible_event": (RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT),
     }
 )
+
+
+#: HTTP statuses on `POST /v2/orders` that are a DEFINITIVE refusal by the broker.
+#:
+#: CORRECTIVE PASS (D2). Every other answer to a request that was delivered -- a
+#: 5xx, a 3xx, a 408, a 409, a 429, a 200/201 whose body is not a valid order, or
+#: any status not listed here -- is UNCERTAIN: an intermediary may have answered
+#: after the broker accepted the order, so the attempt becomes SUBMISSION_UNKNOWN
+#: and is resolved by reconciliation against the same `client_order_id`. A listed
+#: status counts only when the body is a JSON object, i.e. the broker's own error
+#: document rather than a proxy page. Absent from the list on purpose: 404 (a
+#: gateway can produce it) and 429 (rate limiting is not documented as proof that
+#: the order was not recorded).
+DEFINITIVE_BROKER_REFUSAL_STATUSES: frozenset[int] = frozenset({400, 401, 403, 422})
+
+
+def is_definitive_broker_refusal(status: int, body: str) -> bool:
+    """Whether an answer to a delivered order request proves no order was created."""
+    if isinstance(status, bool) or not isinstance(status, int):
+        return False
+    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:
+        return False
+    try:
+        parsed = json.loads(body)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(parsed, dict)
 
 
 class PaperEnvironment(StrEnum):
@@ -419,6 +461,234 @@ class PaperAccountSnapshot:
         )
 
 
+def _canonical_digest(payload: dict[str, object]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _decimal_text(value: Decimal | None) -> str | None:
+    """The WRITTEN form: `4.00` and `4.0` differ. Used only by the request fingerprint."""
+    return None if value is None else format(value, "f")
+
+
+def _canonical_decimal(value: Decimal | None) -> str | None:
+    """The NUMERIC form: `2000`, `2000.0` and `2000.00000000` are one value.
+
+    The policy and preview-binding digests are recomputed from rows that went through
+    PostgreSQL `numeric(20, 8)`, which returns every amount at scale 8. A digest over
+    the written form would therefore change on the round trip and refuse a genuine
+    row -- measured: every stored preview failed its own binding check on read.
+    """
+    if value is None:
+        return None
+    normalized = value.normalize()
+    return format(normalized if normalized != 0 else Decimal(0), "f")
+
+
+def _instant_text(value: datetime | None) -> str | None:
+    """One instant, one spelling: UTC, whatever offset the value was read back in."""
+    return None if value is None else value.astimezone(UTC).isoformat()
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPolicy:
+    """The send-time safety limits, taken from ONE immutable configuration version.
+
+    CORRECTIVE PASS (D1). These limits used to arrive as command-line arguments at
+    preview and again at submit, and none of them was bound to the authorization:
+    an operator could authorize under 5 USD and 60 s and then submit under 500 USD
+    and 99 999 s. They now have exactly one source -- the configuration version the
+    M084 intent names -- and no command accepts them. The preview, the
+    authorization and the final send guard all carry `fingerprint`, and the send
+    guard re-derives the policy from the stored configuration and requires it to
+    equal the authorized one.
+    """
+
+    configuration_governance_id: str
+    configuration_version: int
+    maximum_notional: Decimal
+    quote_maximum_age_seconds: int
+    maximum_spread_percent: Decimal
+    watchlist: tuple[str, ...]
+    prohibited_instruments: tuple[str, ...]
+    earliest_entry_time: clock_time
+    latest_entry_time: clock_time
+    operator_timezone: str
+
+    def __post_init__(self) -> None:
+        _require_identifier(self.configuration_governance_id, field="configuration_governance_id")
+        if isinstance(self.configuration_version, bool) or not isinstance(
+            self.configuration_version, int
+        ):
+            raise ValueError("configuration_version must be an int")
+        if self.configuration_version < 1:
+            raise ValueError("configuration_version must start at 1")
+        _require_positive_money(self.maximum_notional, field="maximum_notional")
+        if isinstance(self.quote_maximum_age_seconds, bool) or not isinstance(
+            self.quote_maximum_age_seconds, int
+        ):
+            raise ValueError("quote_maximum_age_seconds must be an int")
+        if self.quote_maximum_age_seconds <= 0:
+            raise ValueError("quote_maximum_age_seconds must be positive")
+        if (
+            not isinstance(self.maximum_spread_percent, Decimal)
+            or not self.maximum_spread_percent.is_finite()
+            or self.maximum_spread_percent < 0
+        ):
+            raise ValueError("maximum_spread_percent must be a finite, non-negative Decimal")
+        for name in ("watchlist", "prohibited_instruments"):
+            symbols = getattr(self, name)
+            if not isinstance(symbols, tuple) or any(
+                not isinstance(symbol, str) or not symbol or symbol != symbol.strip().upper()
+                for symbol in symbols
+            ):
+                raise ValueError(f"{name} must be a tuple of upper-case symbols")
+            if list(symbols) != sorted(set(symbols)):
+                raise ValueError(f"{name} must be sorted and free of duplicates")
+        if not self.watchlist:
+            raise ValueError("watchlist must name at least one symbol")
+        for name in ("earliest_entry_time", "latest_entry_time"):
+            value = getattr(self, name)
+            if not isinstance(value, clock_time) or value.tzinfo is not None:
+                raise ValueError(f"{name} must be a naive time of day")
+        if self.earliest_entry_time >= self.latest_entry_time:
+            raise ValueError("earliest_entry_time must precede latest_entry_time")
+        try:
+            ZoneInfo(self.operator_timezone)
+        except (ZoneInfoNotFoundError, ValueError, TypeError) as error:
+            raise ValueError("operator_timezone must be a known IANA timezone") from error
+
+    @property
+    def fingerprint(self) -> str:
+        return _canonical_digest(
+            {
+                "configuration_governance_id": self.configuration_governance_id,
+                "configuration_version": self.configuration_version,
+                "earliest_entry_time": self.earliest_entry_time.isoformat(),
+                "latest_entry_time": self.latest_entry_time.isoformat(),
+                "maximum_notional": _canonical_decimal(self.maximum_notional),
+                "maximum_spread_percent": _canonical_decimal(self.maximum_spread_percent),
+                "operator_timezone": self.operator_timezone,
+                "prohibited_instruments": list(self.prohibited_instruments),
+                "quote_maximum_age_seconds": self.quote_maximum_age_seconds,
+                "watchlist": list(self.watchlist),
+            }
+        )
+
+    def permits_symbol(self, symbol: str) -> bool:
+        return symbol in self.watchlist and symbol not in self.prohibited_instruments
+
+
+def execution_policy_from_configuration(
+    configuration: OperatorTradingConfiguration,
+) -> ExecutionPolicy:
+    """The send-time policy of one stored configuration version. Nothing else is read."""
+    if not isinstance(configuration, OperatorTradingConfiguration):
+        raise ValueError("configuration must be an OperatorTradingConfiguration")
+    return ExecutionPolicy(
+        configuration_governance_id=configuration.configuration_governance_id,
+        configuration_version=configuration.configuration_version,
+        maximum_notional=configuration.maximum_capital_per_trade,
+        quote_maximum_age_seconds=configuration.maximum_market_data_age_seconds,
+        maximum_spread_percent=configuration.maximum_spread_percent,
+        watchlist=tuple(sorted(set(configuration.watchlist))),
+        prohibited_instruments=tuple(sorted(set(configuration.prohibited_instruments))),
+        earliest_entry_time=configuration.earliest_entry_time,
+        latest_entry_time=configuration.latest_entry_time,
+        operator_timezone=configuration.operator_timezone,
+    )
+
+
+def quote_refusal(
+    *,
+    bid: Decimal | None,
+    ask: Decimal | None,
+    captured_at: datetime | None,
+    policy: ExecutionPolicy,
+    broker_now: BoundedInstant,
+) -> str | None:
+    """Why this quote cannot support a dispatch under `policy`, judged on the broker clock.
+
+    Freshness is tested against the OLDEST age the broker interval permits, so an age
+    of exactly the limit passes and anything older refuses. The spread is measured
+    against the mid price, the same definition M084 uses when it evaluates.
+    """
+    if captured_at is None:
+        return "no quote was captured, so its freshness cannot be established"
+    oldest = broker_now.age_of(captured_at)[1]
+    if oldest > policy.quote_maximum_age_seconds:
+        return (
+            f"the quote is {int(oldest)}s old, older than the "
+            f"{policy.quote_maximum_age_seconds}s limit"
+        )
+    if oldest < 0:
+        # A future-dated quote is a CONSISTENCY problem, not a safety margin, so it is
+        # refused only when it is future-dated even at the latest instant the broker's
+        # clock could now be showing. Refusing on `youngest < 0` instead would refuse
+        # sub-second feed skew on a quote that is milliseconds old -- which is
+        # precisely the defect that made every fresh quote unusable in an open market.
+        return "the captured quote is dated after the latest possible current time"
+    if bid is None or ask is None or not bid.is_finite() or not ask.is_finite():
+        return "the quote has no usable bid and ask"
+    if bid <= 0 or ask <= 0:
+        return "the quote bid and ask must both be positive"
+    if ask < bid:
+        return "the quote is crossed (ask below bid)"
+    spread = (ask - bid) / ((ask + bid) / Decimal(2)) * Decimal(100)
+    if spread > policy.maximum_spread_percent:
+        return (
+            f"the quote spread {spread.quantize(Decimal('0.0001'))}% exceeds the "
+            f"{policy.maximum_spread_percent}% limit"
+        )
+    return None
+
+
+def entry_window_refusal(*, policy: ExecutionPolicy, broker_now: BoundedInstant) -> str | None:
+    """Whether the whole broker interval lies inside the configured entry window.
+
+    A time-of-day rule, so it is judged on the broker's clock in the operator's
+    timezone and never through a host offset. Both ends of the interval must be inside
+    the window on the same calendar date; an interval that might be outside is.
+    """
+    zone = ZoneInfo(policy.operator_timezone)
+    earliest = broker_now.earliest.astimezone(zone)
+    latest = broker_now.latest.astimezone(zone)
+    if earliest.date() != latest.date():
+        return "the broker time interval spans two calendar dates in the operator timezone"
+    if (
+        earliest.timetz().replace(tzinfo=None) < policy.earliest_entry_time
+        or latest.timetz().replace(tzinfo=None) > policy.latest_entry_time
+    ):
+        return (
+            "the broker clock is outside the configured entry window "
+            f"{policy.earliest_entry_time.isoformat()}-{policy.latest_entry_time.isoformat()} "
+            f"({policy.operator_timezone})"
+        )
+    return None
+
+
+def liquidation_session_refusal(
+    *, liquidation_at: datetime, policy: ExecutionPolicy, broker_now: BoundedInstant
+) -> str | None:
+    """Refuse a liquidation deadline written for a date other than the broker's today.
+
+    M084 writes the mandatory liquidation as a TIME OF DAY on the evaluating host's
+    calendar date. If that date is not the date the broker's clock shows now, the
+    deadline cannot be evaluated conservatively at all, so it refuses.
+    """
+    zone = ZoneInfo(policy.operator_timezone)
+    written_for = liquidation_at.astimezone(zone).date()
+    if (
+        broker_now.earliest.astimezone(zone).date() != written_for
+        or broker_now.latest.astimezone(zone).date() != written_for
+    ):
+        return (
+            f"the mandatory liquidation deadline was written for {written_for.isoformat()}, "
+            "which is not the broker's current date; it cannot be evaluated conservatively"
+        )
+    return None
+
+
 @dataclass(frozen=True, slots=True)
 class PaperOrderRequest:
     """The exact broker request. Every field a human authorizes is here.
@@ -487,13 +757,15 @@ def request_fingerprint(
     endpoint_host: str,
     intent_governance_id: str,
     approved_fingerprint: str,
+    policy_fingerprint: str,
 ) -> str:
     """The digest a human authorization is bound to.
 
-    Covers the ORDER, the ACCOUNT and the ENDPOINT together. Binding the order
-    alone would let an authorization for one paper account be replayed against
-    another; binding the endpoint means an authorization cannot survive being
-    pointed somewhere else.
+    Covers the ORDER, the ACCOUNT, the ENDPOINT and the SEND-TIME POLICY together.
+    Binding the order alone would let an authorization for one paper account be
+    replayed against another; binding the endpoint means an authorization cannot
+    survive being pointed somewhere else; binding the policy (corrective pass, D1)
+    means the limits a human authorized under cannot be swapped for looser ones.
 
     Canonical JSON with sorted keys, so the digest depends on the values and not
     on the order a dict happened to be built in.
@@ -501,24 +773,26 @@ def request_fingerprint(
     _require_identifier(account_reference, field="account_reference")
     _require_identifier(intent_governance_id, field="intent_governance_id")
     _require_digest(approved_fingerprint, field="approved_fingerprint")
+    _require_digest(policy_fingerprint, field="policy_fingerprint")
     if endpoint_host != PAPER_ENDPOINT_HOST:
         raise ValueError(f"endpoint_host must be exactly {PAPER_ENDPOINT_HOST}")
 
-    payload = {
-        "account_reference": account_reference,
-        "approved_fingerprint": approved_fingerprint,
-        "endpoint_host": endpoint_host,
-        "extended_hours": order.extended_hours,
-        "intent_governance_id": intent_governance_id,
-        "limit_price": None if order.limit_price is None else format(order.limit_price, "f"),
-        "order_type": order.order_type.value,
-        "quantity": order.quantity,
-        "side": order.side,
-        "symbol": order.symbol,
-        "time_in_force": order.time_in_force,
-    }
-    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return _canonical_digest(
+        {
+            "account_reference": account_reference,
+            "approved_fingerprint": approved_fingerprint,
+            "endpoint_host": endpoint_host,
+            "extended_hours": order.extended_hours,
+            "intent_governance_id": intent_governance_id,
+            "limit_price": _decimal_text(order.limit_price),
+            "order_type": order.order_type.value,
+            "policy_fingerprint": policy_fingerprint,
+            "quantity": order.quantity,
+            "side": order.side,
+            "symbol": order.symbol,
+            "time_in_force": order.time_in_force,
+        }
+    )
 
 
 def derive_client_order_id(
@@ -575,6 +849,11 @@ class SubmissionPreview:
     asset_class: str
     asset_exchange: str
     asset_fractionable: bool
+    #: The send-time limits this preview was judged under, from the intent's own
+    #: configuration version. Corrective pass (D1): never from a command argument.
+    policy: ExecutionPolicy
+    #: The approved intent's expiry, copied so an authorization cannot outlive it.
+    intent_expires_at: datetime
     refusals: tuple[str, ...]
     created_at: datetime
 
@@ -591,11 +870,50 @@ class SubmissionPreview:
             raise ValueError("preview_version must start at 1")
         if not isinstance(self.order, PaperOrderRequest):
             raise ValueError("order must be a PaperOrderRequest")
+        if not isinstance(self.policy, ExecutionPolicy):
+            raise ValueError("policy must be an ExecutionPolicy")
+        _require_aware(self.intent_expires_at, field="intent_expires_at")
         if not isinstance(self.refusals, tuple) or any(
             not isinstance(reason, str) or not reason.strip() for reason in self.refusals
         ):
             raise ValueError("refusals must be a tuple of non-empty strings")
         _require_aware(self.created_at, field="created_at")
+
+    @property
+    def binding_fingerprint(self) -> str:
+        """The digest an authorization copies to prove WHICH preview it was granted on.
+
+        Covers the exact order, the account, the request fingerprint, the policy and
+        its configuration version, the notional cap, the quote evidence the human was
+        shown, the intent expiry and the instant the preview was frozen.
+        """
+        return _canonical_digest(
+            {
+                "account_reference": self.account_reference,
+                "approved_fingerprint": self.approved_fingerprint,
+                "client_order_id": self.order.client_order_id,
+                "configuration_governance_id": self.policy.configuration_governance_id,
+                "configuration_version": self.policy.configuration_version,
+                "created_at": _instant_text(self.created_at),
+                "extended_hours": self.order.extended_hours,
+                "intent_expires_at": _instant_text(self.intent_expires_at),
+                "intent_governance_id": self.intent_governance_id,
+                "limit_price": _canonical_decimal(self.order.limit_price),
+                "maximum_notional": _canonical_decimal(self.policy.maximum_notional),
+                "order_type": self.order.order_type.value,
+                "policy_fingerprint": self.policy.fingerprint,
+                "preview_id": self.preview_id,
+                "preview_version": self.preview_version,
+                "quantity": self.order.quantity,
+                "quote_ask": _canonical_decimal(self.quote_ask),
+                "quote_bid": _canonical_decimal(self.quote_bid),
+                "quote_captured_at": _instant_text(self.quote_captured_at),
+                "request_fingerprint": self.request_fingerprint,
+                "side": self.order.side,
+                "symbol": self.order.symbol,
+                "time_in_force": self.order.time_in_force,
+            }
+        )
 
     @property
     def is_authorizable(self) -> bool:
@@ -629,6 +947,23 @@ class ExecutionAuthorization:
     expires_at: datetime
     consumed_at: datetime | None
     consumed_by_attempt_id: str | None
+    #: THE PREVIEW BINDING (corrective pass, item 6). Copies of what the human was
+    #: shown, compared against the stored preview by the domain and again by the
+    #: database guard at insert. `preview_binding_fingerprint` is the preview's own
+    #: `binding_fingerprint`; the individual fields make a mismatch nameable.
+    symbol: str
+    side: str
+    quantity: int
+    order_type: OrderType
+    limit_price: Decimal | None
+    maximum_notional: Decimal
+    quote_bid: Decimal | None
+    quote_ask: Decimal | None
+    quote_captured_at: datetime | None
+    configuration_governance_id: str
+    configuration_version: int
+    policy_fingerprint: str
+    preview_binding_fingerprint: str
     #: THE AUTHORIZATION-TIME BROKER BASIS, measured as an interval when the human
     #: authorized. `basis_host_at` is this host's conservative reading AFTER the
     #: broker clock response was read, and `basis_broker_earliest_at` the broker's
@@ -654,6 +989,20 @@ class ExecutionAuthorization:
         ):
             _require_identifier(getattr(self, field_name), field=field_name)
         _require_digest(self.request_fingerprint, field="request_fingerprint")
+        _require_digest(self.policy_fingerprint, field="policy_fingerprint")
+        _require_digest(self.preview_binding_fingerprint, field="preview_binding_fingerprint")
+        _require_identifier(self.configuration_governance_id, field="configuration_governance_id")
+        if isinstance(self.configuration_version, bool) or not isinstance(
+            self.configuration_version, int
+        ):
+            raise ValueError("configuration_version must be an int")
+        if isinstance(self.quantity, bool) or not isinstance(self.quantity, int):
+            raise ValueError("quantity must be an int")
+        if not isinstance(self.order_type, OrderType):
+            raise ValueError("order_type must be an OrderType")
+        _require_positive_money(self.maximum_notional, field="maximum_notional")
+        if self.quote_captured_at is not None:
+            _require_aware(self.quote_captured_at, field="quote_captured_at")
         if isinstance(self.preview_version, bool) or not isinstance(self.preview_version, int):
             raise ValueError("preview_version must be an int")
         if self.preview_version < 1:
@@ -796,6 +1145,62 @@ class ExecutionAuthorization:
         if self.account_reference != account_reference_now:
             return "the authorization was granted for a different paper account"
         return None
+
+
+def authorization_binding_refusal(
+    *, authorization: ExecutionAuthorization, preview: SubmissionPreview
+) -> str | None:
+    """Why `authorization` is not a permission for exactly `preview`.
+
+    Every field the human consented to must be the preview's, the preview must have
+    been authorizable, and the permission may not outlive the approved intent. The
+    database insert guard asks the same questions of the stored preview row.
+    """
+    pairs: tuple[tuple[str, object, object], ...] = (
+        ("preview_id", preview.preview_id, authorization.preview_id),
+        ("preview_version", preview.preview_version, authorization.preview_version),
+        ("intent_governance_id", preview.intent_governance_id, authorization.intent_governance_id),
+        ("request_fingerprint", preview.request_fingerprint, authorization.request_fingerprint),
+        ("account_reference", preview.account_reference, authorization.account_reference),
+        ("client_order_id", preview.order.client_order_id, authorization.client_order_id),
+        ("symbol", preview.order.symbol, authorization.symbol),
+        ("side", preview.order.side, authorization.side),
+        ("quantity", preview.order.quantity, authorization.quantity),
+        ("order_type", preview.order.order_type, authorization.order_type),
+        ("limit_price", preview.order.limit_price, authorization.limit_price),
+        ("maximum_notional", preview.policy.maximum_notional, authorization.maximum_notional),
+        ("quote_bid", preview.quote_bid, authorization.quote_bid),
+        ("quote_ask", preview.quote_ask, authorization.quote_ask),
+        ("quote_captured_at", preview.quote_captured_at, authorization.quote_captured_at),
+        (
+            "configuration_governance_id",
+            preview.policy.configuration_governance_id,
+            authorization.configuration_governance_id,
+        ),
+        (
+            "configuration_version",
+            preview.policy.configuration_version,
+            authorization.configuration_version,
+        ),
+        ("policy_fingerprint", preview.policy.fingerprint, authorization.policy_fingerprint),
+        (
+            "preview_binding_fingerprint",
+            preview.binding_fingerprint,
+            authorization.preview_binding_fingerprint,
+        ),
+    )
+    mismatched = [label for label, shown, bound in pairs if shown != bound]
+    if mismatched:
+        return (
+            "the authorization does not describe the preview it names ("
+            + ", ".join(mismatched)
+            + "); it permits nothing"
+        )
+    if not preview.is_authorizable:
+        return "the authorization names a preview that was not authorizable"
+    if authorization.expires_at > preview.intent_expires_at:
+        return "the authorization outlives the approved intent it would dispatch"
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1162,6 +1567,23 @@ def _broker_interval(basis: BrokerTimeBasis) -> BoundedInstant:
     return BoundedInstant(earliest=basis.broker_earliest_at, latest=basis.broker_latest_at)
 
 
+def effective_liquidation_deadline(
+    *, liquidation_at: datetime, proposal_basis: BrokerTimeBasis
+) -> datetime:
+    """The mandatory liquidation deadline on the broker's clock, never extended by skew.
+
+    CORRECTIVE PASS (T1). M084 writes this deadline as a TIME OF DAY -- today's 15:45
+    in the operator timezone -- not as `evaluated_at + duration`. Translating it
+    through the proposal basis adds the host-to-broker offset measured at evaluation:
+    a host running 30 minutes slow moved 15:45 to 16:15 on the broker's clock, a
+    hidden extension. The calendar instant itself is already on the true timeline.
+    The mapped instant still matters when the host ran FAST (it is then earlier), so
+    the deadline is the EARLIER of the two -- skew can only shorten it.
+    """
+    _require_aware(liquidation_at, field="liquidation_at")
+    return min(liquidation_at, proposal_basis.on_broker_timeline(liquidation_at))
+
+
 def act_chronology_refusal(
     *,
     proposal: ProposalTimeBasis,
@@ -1187,7 +1609,9 @@ def act_chronology_refusal(
             "the proposal had expired on the broker's clock when the intent was issued",
         ),
         (
-            proposal_basis.on_broker_timeline(proposal.mandatory_liquidation_at),
+            effective_liquidation_deadline(
+                liquidation_at=proposal.mandatory_liquidation_at, proposal_basis=proposal_basis
+            ),
             "the mandatory liquidation deadline had passed on the broker's clock when the "
             "intent was issued",
         ),
@@ -1273,13 +1697,18 @@ def m084_deadline_refusal_on_broker_time(
         return None
     proposal_basis = provenance.proposal.time_basis
     for deadline, label in (
-        (intent.expires_at, "the approved intent has expired on the broker's clock"),
         (
-            intent.mandatory_liquidation_at,
+            proposal_basis.on_broker_timeline(intent.expires_at),
+            "the approved intent has expired on the broker's clock",
+        ),
+        (
+            effective_liquidation_deadline(
+                liquidation_at=intent.mandatory_liquidation_at, proposal_basis=proposal_basis
+            ),
             "the mandatory liquidation deadline has passed on the broker's clock",
         ),
     ):
-        if broker_now.possibly_at_or_after(proposal_basis.on_broker_timeline(deadline)):
+        if broker_now.possibly_at_or_after(deadline):
             return label
     return None
 
@@ -1405,9 +1834,7 @@ def build_submission_preview(
     asset_class: str,
     asset_exchange: str,
     asset_fractionable: bool,
-    approved_watchlist: frozenset[str],
-    maximum_notional: Decimal,
-    quote_maximum_age_seconds: int,
+    policy: ExecutionPolicy,
     existing_position_quantity: int,
     execution_kill_switch_engaged: bool,
     created_at: datetime,
@@ -1445,6 +1872,8 @@ def build_submission_preview(
         raise ValueError("intent must be an ApprovedOrderIntent")
     if not isinstance(account, PaperAccountSnapshot):
         raise ValueError("account must be a PaperAccountSnapshot")
+    if not isinstance(policy, ExecutionPolicy):
+        raise ValueError("policy must be the ExecutionPolicy of the intent's configuration")
     _require_aware(created_at, field="created_at")
 
     order = PaperOrderRequest(
@@ -1469,8 +1898,17 @@ def build_submission_preview(
         refusals.append(f"the paper account does not permit orders ({account.account_status})")
     if account.environment is not PaperEnvironment.PAPER:
         refusals.append("the account snapshot is not a paper environment")
-    if intent.symbol not in approved_watchlist:
+    if (
+        intent.configuration_governance_id != policy.configuration_governance_id
+        or intent.configuration_version != policy.configuration_version
+    ):
+        refusals.append(
+            "the execution policy is not the one of the configuration version the intent names"
+        )
+    if intent.symbol not in policy.watchlist:
         refusals.append(f"{intent.symbol} is not on the approved watchlist")
+    if intent.symbol in policy.prohibited_instruments:
+        refusals.append(f"{intent.symbol} is a prohibited instrument")
     if not asset_tradable:
         refusals.append(f"{intent.symbol} is not tradable at the broker")
     if asset_status != "active":
@@ -1489,6 +1927,14 @@ def build_submission_preview(
         or broker_now.possibly_at_or_after(market_next_close)
     ):
         refusals.append("the regular market session is closed or cannot be established")
+    window_refusal = entry_window_refusal(policy=policy, broker_now=broker_now)
+    if window_refusal is not None:
+        refusals.append(window_refusal)
+    session_refusal = liquidation_session_refusal(
+        liquidation_at=intent.mandatory_liquidation_at, policy=policy, broker_now=broker_now
+    )
+    if session_refusal is not None:
+        refusals.append(session_refusal)
     # HOST TIMELINE. Both deadlines below were written by this host's clock.
     if intent.expires_at <= created_at:
         refusals.append("the approved intent has expired")
@@ -1509,30 +1955,24 @@ def build_submission_preview(
             "a MARKET order has no knowable cost ceiling and cannot be authorized "
             "under a notional limit"
         )
-    elif ceiling > maximum_notional:
-        refusals.append(f"the order's cost ceiling {ceiling} exceeds the limit {maximum_notional}")
+    elif ceiling > policy.maximum_notional:
+        refusals.append(
+            f"the order's cost ceiling {ceiling} exceeds the limit {policy.maximum_notional}"
+        )
     elif ceiling > account.buying_power:
         refusals.append(f"the order's cost ceiling {ceiling} exceeds paper buying power")
 
-    if quote_captured_at is None:
-        refusals.append("no quote was captured, so its freshness cannot be established")
-    else:
-        # Freshness is a SAFETY bound and must hold across the whole interval, so
-        # it is tested against the OLDEST age the evidence permits.
-        oldest = broker_now.age_of(quote_captured_at)[1]
-        if oldest > quote_maximum_age_seconds:
-            refusals.append(
-                f"the quote is {int(oldest)}s old, older than the "
-                f"{quote_maximum_age_seconds}s limit"
-            )
-        elif oldest < 0:
-            # A future-dated quote is a CONSISTENCY problem, not a safety margin,
-            # so it is refused only when it is future-dated even at the latest
-            # instant the broker's clock could now be showing. Refusing on
-            # `youngest < 0` instead would refuse sub-second feed skew on a quote
-            # that is milliseconds old -- which is precisely the defect that made
-            # every fresh quote unusable in an open market.
-            refusals.append("the captured quote is dated after the latest possible current time")
+    # Freshness, positivity, crossing and spread, on the broker's clock, under the
+    # configuration's own limits. One function, shared with the final send guard.
+    quote_problem = quote_refusal(
+        bid=quote_bid,
+        ask=quote_ask,
+        captured_at=quote_captured_at,
+        policy=policy,
+        broker_now=broker_now,
+    )
+    if quote_problem is not None:
+        refusals.append(quote_problem)
 
     return SubmissionPreview(
         preview_id=preview_id,
@@ -1547,6 +1987,7 @@ def build_submission_preview(
             endpoint_host=account.endpoint_host,
             intent_governance_id=intent.intent_governance_id,
             approved_fingerprint=intent.approved_fingerprint,
+            policy_fingerprint=policy.fingerprint,
         ),
         approved_fingerprint=intent.approved_fingerprint,
         market_is_open=market_is_open,
@@ -1561,6 +2002,8 @@ def build_submission_preview(
         asset_class=asset_class,
         asset_exchange=asset_exchange,
         asset_fractionable=asset_fractionable,
+        policy=policy,
+        intent_expires_at=intent.expires_at,
         refusals=tuple(refusals),
         created_at=created_at,
     )
@@ -1597,10 +2040,24 @@ def authorize_submission(
         raise ValueError("validity_seconds must be positive")
     if not preview.is_authorizable:
         raise ValueError("this preview cannot be authorized: " + "; ".join(preview.refusals))
+    expires_at = authorized_at + timedelta(seconds=validity_seconds)
+    if expires_at > preview.intent_expires_at:
+        raise ValueError(
+            "the requested validity would outlive the approved intent; choose a validity "
+            "that expires no later than the intent does"
+        )
+    # The human is consenting to the quote evidence the preview showed. Once that
+    # evidence is older than the configured freshness limit, it no longer describes
+    # the market, so a fresh preview is required rather than an authorization.
+    if (time_basis.host_at - preview.created_at).total_seconds() > (
+        preview.policy.quote_maximum_age_seconds
+    ):
+        raise ValueError(
+            "the preview is older than the configured quote freshness limit; preview again "
+            "and authorize what the fresh preview shows"
+        )
 
-    from datetime import timedelta
-
-    return ExecutionAuthorization(
+    authorization = ExecutionAuthorization(
         authorization_id=authorization_id,
         intent_governance_id=preview.intent_governance_id,
         preview_id=preview.preview_id,
@@ -1610,9 +2067,22 @@ def authorize_submission(
         client_order_id=preview.order.client_order_id,
         authorized_by=authorized_by,
         authorized_at=authorized_at,
-        expires_at=authorized_at + timedelta(seconds=validity_seconds),
+        expires_at=expires_at,
         consumed_at=None,
         consumed_by_attempt_id=None,
+        symbol=preview.order.symbol,
+        side=preview.order.side,
+        quantity=preview.order.quantity,
+        order_type=preview.order.order_type,
+        limit_price=preview.order.limit_price,
+        maximum_notional=preview.policy.maximum_notional,
+        quote_bid=preview.quote_bid,
+        quote_ask=preview.quote_ask,
+        quote_captured_at=preview.quote_captured_at,
+        configuration_governance_id=preview.policy.configuration_governance_id,
+        configuration_version=preview.policy.configuration_version,
+        policy_fingerprint=preview.policy.fingerprint,
+        preview_binding_fingerprint=preview.binding_fingerprint,
         # The measured interval, stored whole. SUPERSEDED: this used to pair the
         # pre-fetch `authorized_at` with the broker's reply and call the two "taken
         # at THIS moment"; the fetch latency then extended every mapped expiry.
@@ -1620,4 +2090,107 @@ def authorize_submission(
         basis_broker_earliest_at=time_basis.broker_earliest_at,
         basis_host_requested_at=time_basis.host_requested_at,
         basis_broker_latest_at=time_basis.broker_latest_at,
+    )
+    binding = authorization_binding_refusal(authorization=authorization, preview=preview)
+    if binding is not None:  # unreachable while the copies above stand
+        raise ValueError(binding)
+    return authorization
+
+
+def final_send_refusal(
+    *,
+    intent: ApprovedOrderIntent,
+    provenance: M084TimeProvenance,
+    authorization: ExecutionAuthorization,
+    policy_now: ExecutionPolicy,
+    request_fingerprint_now: str,
+    account_reference_now: str,
+    host_now: datetime,
+    broker_now: BoundedInstant,
+    market_is_open: bool,
+    market_next_close: datetime | None,
+    quote_bid: Decimal | None,
+    quote_ask: Decimal | None,
+    quote_captured_at: datetime | None,
+    kill_switch_engaged: bool,
+) -> str | None:
+    """Every condition that must hold at the LAST controllable boundary before a send.
+
+    CORRECTIVE PASS (item 7). The caller supplies values READ FRESH for this call --
+    the kill switch from the database, the configuration re-loaded and re-derived
+    into `policy_now`, the broker clock and the quote fetched again -- so no value
+    cached from an earlier step can satisfy this guard. The policy the send is judged
+    under is the configuration's, and it must equal the one the human authorized.
+    """
+    _require_aware(host_now, field="host_now")
+    if kill_switch_engaged:
+        return "the execution kill switch is engaged"
+    if (
+        intent.configuration_governance_id != policy_now.configuration_governance_id
+        or intent.configuration_version != policy_now.configuration_version
+        or authorization.configuration_governance_id != policy_now.configuration_governance_id
+        or authorization.configuration_version != policy_now.configuration_version
+    ):
+        return "the execution policy does not belong to the intent's configuration version"
+    if authorization.policy_fingerprint != policy_now.fingerprint:
+        return (
+            "the execution policy re-derived from the stored configuration is not the "
+            "policy the human authorized"
+        )
+    if authorization.maximum_notional != policy_now.maximum_notional:
+        return "the authorized notional cap is not the configuration's cap"
+    refusal = authorization.refusal_against(
+        request_fingerprint_now=request_fingerprint_now,
+        account_reference_now=account_reference_now,
+        instant=host_now,
+        broker_now=broker_now,
+    )
+    if refusal is not None:
+        return refusal
+    if host_now < authorization.authorized_at:
+        return "the authorization is future-dated"
+    if (
+        authorization.symbol != intent.symbol
+        or authorization.quantity != intent.quantity
+        or authorization.limit_price != intent.limit_price
+        or authorization.order_type != intent.order_type
+        or authorization.side != intent.side
+    ):
+        return "the authorized order terms are not the approved intent's"
+    if not policy_now.permits_symbol(intent.symbol):
+        return f"{intent.symbol} is not permitted by the configuration's watchlist"
+    if intent.limit_price is None or intent.order_type is not OrderType.LIMIT:
+        return "only a LIMIT order has a knowable cost ceiling"
+    if intent.limit_price * Decimal(intent.quantity) > policy_now.maximum_notional:
+        return "the order's cost ceiling exceeds the configuration's notional cap"
+    # HOST TIMELINE: deadlines this host recorded.
+    if host_now >= intent.expires_at or host_now >= intent.mandatory_liquidation_at:
+        return "the approved intent or liquidation deadline expired"
+    # BROKER TIMELINE: the same deadlines, each through the basis of the act that wrote it.
+    deadline_refusal = m084_deadline_refusal_on_broker_time(
+        intent=intent, provenance=provenance, broker_now=broker_now
+    )
+    if deadline_refusal is not None:
+        return deadline_refusal
+    session_refusal = liquidation_session_refusal(
+        liquidation_at=intent.mandatory_liquidation_at, policy=policy_now, broker_now=broker_now
+    )
+    if session_refusal is not None:
+        return session_refusal
+    # A close that MIGHT already have passed counts as passed.
+    if (
+        not market_is_open
+        or market_next_close is None
+        or broker_now.possibly_at_or_after(market_next_close)
+    ):
+        return "the regular market session is closed"
+    window_refusal = entry_window_refusal(policy=policy_now, broker_now=broker_now)
+    if window_refusal is not None:
+        return window_refusal
+    return quote_refusal(
+        bid=quote_bid,
+        ask=quote_ask,
+        captured_at=quote_captured_at,
+        policy=policy_now,
+        broker_now=broker_now,
     )

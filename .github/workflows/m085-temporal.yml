@@ -8,6 +8,9 @@ on:
       - '.github/workflows/m085-temporal.yml'
       - 'src/empirical_platform/**/paper_*.py'
       - 'src/empirical_platform/shared/brokerage/alpaca_paper.py'
+      - 'src/empirical_platform/entrypoints/_paper_composition.py'
+      - 'migrations/versions/**'
+      - 'tools/m085_*.py'
       - 'tests/**/test_m085*.py'
 
 permissions:
@@ -50,6 +53,7 @@ jobs:
           tests/integration/test_m085_time_basis_postgres.py
           tests/integration/test_m085_paper_execution_postgres.py
           tests/integration/test_m085_concurrency.py
+          tests/integration/test_m085_corrective_pass_postgres.py
           tests/integration/test_m084_file_audit.py
       - name: PostgreSQL time-basis mutations (sequential, sources restored)
         run: >-
@@ -64,4 +68,17 @@ jobs:
           --family database_proposal_basis_bound_to_evaluation
           --family database_decision_basis_bound_to_decision
           --family stale_proposal_refused_at_issuance
+          --family database_transition_trigger
+          --family database_single_use_trigger
+          --family repository_refuses_a_terminal_transition
+          --family database_terminal_attempt_immutable
+          --family database_broker_identity_written_once
+          --family database_authorization_equals_its_preview
+          --family database_authorization_inserted_unconsumed
+          --family database_authorization_never_outlives_the_intent
+          --family database_authorization_within_preview_freshness
+          --family database_refused_preview_not_authorizable
+          --family database_preview_carries_the_configuration_policy
+          --family database_preview_carries_the_intent_order
+          --family database_authorizable_preview_within_its_cap
           --output /tmp/m085-pg-mutation.md

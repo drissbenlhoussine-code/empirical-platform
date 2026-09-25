@@ -1,5 +1,8 @@
 # MILESTONE-085 -- Bounded Alpaca Paper Acceptance Run
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> Historical run of 2026-09-10 through the replaced tool; `--dry-run` is now refused and the tool was not run by the corrective pass.
+
 Run at `2026-09-10T13:35:55.226896+00:00` (UTC).
 
 Every number below was measured against the real Alpaca **paper** endpoint.

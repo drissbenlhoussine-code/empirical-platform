@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -43,6 +43,7 @@ from tests.integration._m085_support import (
     a_context,
     a_paper_bound_approval,
     a_paper_bound_intent,
+    a_policy,
     alembic_config,
     an_approved_intent,
     an_approved_proposal,
@@ -188,6 +189,7 @@ def preview_and_authorize(
     with a_process("m085-basis-authorize") as (m084, paper):
         preview = PreviewPaperSubmissionHandler(
             intents=m084.approved_order_intents,
+            configurations=m084.operator_trading_configurations,
             time_bases=paper.time_bases,
             snapshots=paper.paper_account_snapshots,
             previews=paper.submission_previews,
@@ -201,9 +203,6 @@ def preview_and_authorize(
                 intent_governance_id=_INTENT,
                 preview_id=f"PVW-BASIS{suffix}",
                 account_snapshot_id=f"SNP-BASIS{suffix}",
-                approved_watchlist=_WATCHLIST,
-                maximum_notional=Decimal("100000"),
-                quote_maximum_age_seconds=60,
                 created_at=world.read().utc,
             )
         )
@@ -242,6 +241,7 @@ def dispatch(
     with a_process("m085-basis-dispatch") as (m084, paper):
         return SubmitAuthorizedPaperOrderHandler(
             intents=m084.approved_order_intents,
+            configurations=m084.operator_trading_configurations,
             time_bases=paper.time_bases,
             previews=paper.submission_previews,
             authorizations=paper.execution_authorizations,
@@ -262,9 +262,6 @@ def dispatch(
                 intent_governance_id=_INTENT,
                 attempt_id=attempt_id,
                 account_snapshot_id=f"SNP-{attempt_id}",
-                approved_watchlist=_WATCHLIST,
-                maximum_notional=Decimal("100000"),
-                quote_maximum_age_seconds=60,
                 at=world.read().utc,
             )
         )
@@ -464,7 +461,7 @@ class TestAStaleProposalAndApprovalCannotReachTheBroker:
                     m084, paper, broker=broker, time_source=world, intent_id=_INTENT
                 )
             world.advance(5)
-            preview_and_authorize(world, broker, validity_seconds=600)
+            preview_and_authorize(world, broker, validity_seconds=60)
             world.advance(5)
             result = dispatch(world, broker)
         except (PaperExecutionRefusedError, ValueError) as refused:
@@ -588,6 +585,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
             an_approved_intent(m084, intent_id=_INTENT)
             preview = PreviewPaperSubmissionHandler(
                 intents=m084.approved_order_intents,
+                configurations=m084.operator_trading_configurations,
                 time_bases=paper.time_bases,
                 snapshots=paper.paper_account_snapshots,
                 previews=paper.submission_previews,
@@ -601,9 +599,6 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                     intent_governance_id=_INTENT,
                     preview_id="PVW-LEGACY",
                     account_snapshot_id="SNP-LEGACY",
-                    approved_watchlist=_WATCHLIST,
-                    maximum_notional=Decimal("100000"),
-                    quote_maximum_age_seconds=60,
                     created_at=world.read().utc,
                 )
             )
@@ -639,9 +634,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                     asset_class="us_equity",
                     asset_exchange="NASDAQ",
                     asset_fractionable=True,
-                    approved_watchlist=_WATCHLIST,
-                    maximum_notional=Decimal("100000"),
-                    quote_maximum_age_seconds=60,
+                    policy=a_policy(),
                     existing_position_quantity=0,
                     execution_kill_switch_engaged=False,
                     created_at=now,
@@ -656,7 +649,8 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                     preview=preview,
                     authorized_by="owner",
                     authorized_at=now,
-                    validity_seconds=600,
+                    # Inside the intent's life: an authorization may not outlive it.
+                    validity_seconds=60,
                     time_basis=a_basis_at(now),
                 )
             )
@@ -671,11 +665,12 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
     ) -> None:
         broker = TruthfulBroker(world)
         issue(world, broker)
-        genuine = preview_and_authorize(world, broker, validity_seconds=600)
+        genuine = preview_and_authorize(world, broker, validity_seconds=60)
         world.advance(1)
         with a_process("m085-basis-legacy") as (m084, paper):
             second = PreviewPaperSubmissionHandler(
                 intents=m084.approved_order_intents,
+                configurations=m084.operator_trading_configurations,
                 time_bases=paper.time_bases,
                 snapshots=paper.paper_account_snapshots,
                 previews=paper.submission_previews,
@@ -689,35 +684,37 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                     intent_governance_id=_INTENT,
                     preview_id="PVW-PAIR",
                     account_snapshot_id="SNP-PAIR",
-                    approved_watchlist=_WATCHLIST,
-                    maximum_notional=Decimal("100000"),
-                    quote_maximum_age_seconds=60,
                     created_at=world.read().utc,
                 )
             )
         # The shape `c7a41f0b52de` wrote: the pair, with the host reading equal to the
         # pre-fetch `authorized_at`, and no interval. Newer than the genuine one, so
-        # it is the authorization the dispatch picks up.
+        # it is the authorization the dispatch picks up. Its preview binding is copied
+        # from the preview it names (corrective pass): only the basis is legacy.
         with clean.begin() as connection:
             connection.execute(
                 text(
                     "INSERT INTO public.paper_execution_authorization (authorization_id, "
                     "intent_governance_id, preview_id, preview_version, request_fingerprint, "
                     "account_reference, client_order_id, authorized_by, authorized_at, "
-                    "expires_at, basis_host_at, basis_broker_earliest_at) VALUES ('AUT-PAIR', "
-                    ":intent, 'PVW-PAIR', :version, :fingerprint, :account, :client, 'owner', "
-                    ":at, :expires, :at, :at)"
+                    "expires_at, basis_host_at, basis_broker_earliest_at, symbol, side, "
+                    "quantity, order_type, limit_price, maximum_notional, quote_bid, quote_ask, "
+                    "quote_captured_at, configuration_governance_id, configuration_version, "
+                    "policy_fingerprint, preview_binding_fingerprint) "
+                    "SELECT 'AUT-PAIR', intent_governance_id, preview_id, preview_version, "
+                    "request_fingerprint, account_reference, client_order_id, 'owner', :at, "
+                    ":expires, :at, :at, symbol, side, quantity, order_type, limit_price, "
+                    "maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+                    "configuration_governance_id, configuration_version, policy_fingerprint, "
+                    "binding_fingerprint FROM public.paper_submission_preview "
+                    "WHERE preview_id = 'PVW-PAIR'"
                 ),
                 {
-                    "intent": _INTENT,
-                    "version": second.preview_version,
-                    "fingerprint": second.request_fingerprint,
-                    "account": second.account_reference,
-                    "client": second.order.client_order_id,
                     "at": world.read().utc,
-                    "expires": world.read().utc + timedelta(seconds=600),
+                    "expires": world.read().utc + timedelta(seconds=60),
                 },
             )
+        assert second.preview_id == "PVW-PAIR"
         with a_process("m085-basis-inspect") as (_, paper):
             legacy = paper.execution_authorizations.get("AUT-PAIR")
         assert legacy is not None
@@ -859,7 +856,7 @@ class TestTheDatabaseRefusesAMalformedAuthorizationBasis:
     def chain(self, world: World) -> tuple[World, TruthfulBroker, ExecutionAuthorization]:
         broker = TruthfulBroker(world)
         issue(world, broker)
-        return world, broker, preview_and_authorize(world, broker, validity_seconds=600)
+        return world, broker, preview_and_authorize(world, broker, validity_seconds=60)
 
     def _second_authorization(
         self, engine: Engine, offsets: tuple[float | None, float | None, float | None, float | None]
@@ -869,24 +866,32 @@ class TestTheDatabaseRefusesAMalformedAuthorizationBasis:
         Order: basis_host_at, basis_broker_earliest_at, basis_host_requested_at,
         basis_broker_latest_at. None leaves a reading NULL. `authorized_at` is `base`.
         Every value is a bind parameter, so the statement itself is a constant.
+
+        CORRECTIVE PASS. `base` is the preview's own instant and the expiry one second
+        after it, so the new insert guard -- which runs AFTER these CHECKs and refuses
+        an authorization that outlives its intent or postdates its preview's freshness
+        limit -- is satisfied by every well-formed row. SUPERSEDED: `base` was the real
+        clock and the expiry an hour later, months past the fixture intent.
         """
-        base = datetime.now(UTC)
-
-        def reading(offset: float | None) -> datetime | None:
-            return None if offset is None else base + timedelta(seconds=offset)
-
         with engine.begin() as connection:
             row = (
                 connection.execute(
                     text(
-                        "SELECT intent_governance_id, preview_id, preview_version, "
-                        "request_fingerprint, account_reference, client_order_id "
-                        "FROM public.paper_execution_authorization LIMIT 1"
+                        "SELECT a.intent_governance_id, a.preview_id, a.preview_version, "
+                        "a.request_fingerprint, a.account_reference, a.client_order_id, "
+                        "p.created_at FROM public.paper_execution_authorization a "
+                        "JOIN public.paper_submission_preview p ON p.preview_id = a.preview_id "
+                        "LIMIT 1"
                     )
                 )
                 .mappings()
                 .one()
             )
+            base: datetime = row["created_at"]
+
+            def reading(offset: float | None) -> datetime | None:
+                return None if offset is None else base + timedelta(seconds=offset)
+
             # A second preview row so the one-authorization-per-preview constraint is
             # not what refuses.
             connection.execute(
@@ -898,7 +903,11 @@ class TestTheDatabaseRefusesAMalformedAuthorizationBasis:
                     "approved_fingerprint, market_is_open, market_next_open, market_next_close, "
                     "quote_bid, quote_ask, quote_captured_at, quote_source, asset_tradable, "
                     "asset_status, asset_class, asset_exchange, asset_fractionable, refusals, "
-                    "created_at FROM public.paper_submission_preview "
+                    "created_at, configuration_governance_id, configuration_version, "
+                    "policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+                    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+                    "earliest_entry_time, latest_entry_time, operator_timezone, "
+                    "intent_expires_at, binding_fingerprint FROM public.paper_submission_preview "
                     "WHERE preview_id = :preview"
                 ),
                 {"preview": row["preview_id"]},
@@ -909,9 +918,17 @@ class TestTheDatabaseRefusesAMalformedAuthorizationBasis:
                     "intent_governance_id, preview_id, preview_version, request_fingerprint, "
                     "account_reference, client_order_id, authorized_by, authorized_at, "
                     "expires_at, basis_host_at, basis_broker_earliest_at, "
-                    "basis_host_requested_at, basis_broker_latest_at) VALUES ('AUT-SQL', "
-                    ":intent, 'PVW-SQL', :version, :fingerprint, :account, :client, 'owner', "
-                    ":authorized_at, :expires_at, :host, :earliest, :requested, :latest)"
+                    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, "
+                    "order_type, limit_price, maximum_notional, quote_bid, quote_ask, "
+                    "quote_captured_at, configuration_governance_id, configuration_version, "
+                    "policy_fingerprint, preview_binding_fingerprint) "
+                    "SELECT 'AUT-SQL', :intent, 'PVW-SQL', :version, :fingerprint, :account, "
+                    ":client, 'owner', :authorized_at, :expires_at, :host, :earliest, "
+                    ":requested, :latest, symbol, side, quantity, order_type, limit_price, "
+                    "maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+                    "configuration_governance_id, configuration_version, policy_fingerprint, "
+                    "binding_fingerprint FROM public.paper_submission_preview "
+                    "WHERE preview_id = 'PVW-SQL'"
                 ),
                 {
                     "intent": row["intent_governance_id"],
@@ -920,7 +937,7 @@ class TestTheDatabaseRefusesAMalformedAuthorizationBasis:
                     "account": row["account_reference"],
                     "client": row["client_order_id"],
                     "authorized_at": base,
-                    "expires_at": base + timedelta(hours=1),
+                    "expires_at": base + timedelta(seconds=1),
                     "host": reading(offsets[0]),
                     "earliest": reading(offsets[1]),
                     "requested": reading(offsets[2]),

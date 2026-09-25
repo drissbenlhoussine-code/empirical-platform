@@ -18,6 +18,14 @@
 > `empirical-platform-decide-paper-bound-trade-proposal` to be issuable for Paper, so the
 > operator CLI is 15 console scripts. The affected mutation families are in
 > `provenance-mutation-matrix.md`.
+>
+> **Corrected again (corrective pass):** send-time limits are no longer command
+> arguments; they are the stored configuration's, bound into the authorization and
+> re-derived at send. Uncertain broker answers are `SUBMISSION_UNKNOWN`, terminal
+> attempts are immutable, the liquidation deadline is never extended by host skew,
+> the database must be at exactly `9c4b2e7d5a18`, and `--dry-run` is refused. See
+> [corrective-pass.md](corrective-pass.md). The run-3 matrix is kept as
+> `mutation-matrix-run3.md`; every count and table below is historical.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**

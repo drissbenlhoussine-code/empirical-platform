@@ -1,5 +1,8 @@
 # MILESTONE-085 — Provenance Mutation Matrix
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> Historical run of the per-act provenance families, blocked run included. The current campaign is `mutation-matrix.md`.
+
 **24 of 24 affected families detected** on the final source, over two sequential runs.
 A surviving mutation is a defect, never a pass.
 

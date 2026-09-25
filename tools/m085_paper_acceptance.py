@@ -1,7 +1,14 @@
 """MILESTONE-085 -- the bounded real Alpaca PAPER acceptance run.
 
     python tools/m085_paper_acceptance.py            # run and write the evidence
-    python tools/m085_paper_acceptance.py --dry-run  # everything except dispatch
+    python tools/m085_paper_acceptance.py --dry-run  # REFUSED -- see below
+
+`--dry-run` IS REFUSED, NOT SUPPORTED (corrective pass, item 8). It used to run
+"everything except dispatch", which included writing a configuration, a proposal, a
+scripted APPROVE decision, an intent, three time-basis rows, a preview and an account
+snapshot, and overwriting the evidence file. A dry run that records an approval is not
+dry. The flag is kept only so that invoking it fails loudly, before any import of the
+runtime, any database connection, any broker call and any file write.
 
 THE ONLY THING IN THIS REPOSITORY THAT MAY TOUCH A REAL BROKER CREDENTIAL. Every
 other test, gate and tool runs without one. This harness is separate precisely so
@@ -174,7 +181,9 @@ def build_m084_chain(log: Log) -> object:
         maximum_spread_percent=Decimal("5"),
         maximum_estimated_slippage_percent=Decimal("1"),
         maximum_evidence_age_seconds=86_400,
-        maximum_market_data_age_seconds=600,
+        # The send-time freshness limit is now the configuration's (corrective pass,
+        # D1), so it carries the harness's own 60 s rather than a looser value.
+        maximum_market_data_age_seconds=QUOTE_MAXIMUM_AGE_SECONDS,
         permitted_session=TradingSession.REGULAR,
         earliest_entry_time=clock_time(0, 1),
         latest_entry_time=clock_time(23, 58),
@@ -343,9 +352,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="do everything except dispatch, even if every gate permits it",
+        help="REFUSED: a dry run that writes an approval is not dry; see the module docstring",
     )
     arguments = parser.parse_args(argv)
+    if arguments.dry_run:
+        print(
+            "REFUSED: --dry-run is not supported. It previously wrote a configuration, a "
+            "scripted approval, an intent and a preview. Nothing was read, written or sent.",
+            file=sys.stderr,
+            flush=True,
+        )
+        return 2
 
     from empirical_platform.entrypoints._paper_composition import paper_execution_runtime
     from empirical_platform.usecases.paper_execution import (
@@ -450,6 +467,7 @@ def main(argv: list[str] | None = None) -> int:
         with paper_execution_runtime() as context:
             preview = PreviewPaperSubmissionHandler(
                 intents=context.m084.approved_order_intents,
+                configurations=context.m084.operator_trading_configurations,
                 time_bases=context.paper.time_bases,
                 snapshots=context.paper.paper_account_snapshots,
                 previews=context.paper.submission_previews,
@@ -462,9 +480,6 @@ def main(argv: list[str] | None = None) -> int:
                     intent_governance_id=intent.intent_governance_id,  # type: ignore[attr-defined]
                     preview_id=_IDS["preview"],
                     account_snapshot_id=_IDS["snapshot"],
-                    approved_watchlist=APPROVED_WATCHLIST,
-                    maximum_notional=MAXIMUM_NOTIONAL,
-                    quote_maximum_age_seconds=QUOTE_MAXIMUM_AGE_SECONDS,
                     created_at=datetime.now(UTC),
                 )
             )
@@ -488,9 +503,6 @@ def main(argv: list[str] | None = None) -> int:
                     "the preview refuses authorization: " + "; ".join(preview.refusals)
                 )
             fingerprint = preview.request_fingerprint
-
-        if arguments.dry_run:
-            raise BlockedError("--dry-run was requested, so no authorization was created")
 
         log.step("5", "Human authorization", "single-use, expiring, bound to this fingerprint")
         with paper_execution_runtime() as context:
@@ -516,6 +528,7 @@ def main(argv: list[str] | None = None) -> int:
         with paper_execution_runtime() as context:
             result = SubmitAuthorizedPaperOrderHandler(
                 intents=context.m084.approved_order_intents,
+                configurations=context.m084.operator_trading_configurations,
                 time_bases=context.paper.time_bases,
                 previews=context.paper.submission_previews,
                 authorizations=context.paper.execution_authorizations,
@@ -531,9 +544,6 @@ def main(argv: list[str] | None = None) -> int:
                     intent_governance_id=intent.intent_governance_id,  # type: ignore[attr-defined]
                     attempt_id=_IDS["attempt"],
                     account_snapshot_id=_IDS["snapshot"] + "-2",
-                    approved_watchlist=APPROVED_WATCHLIST,
-                    maximum_notional=MAXIMUM_NOTIONAL,
-                    quote_maximum_age_seconds=QUOTE_MAXIMUM_AGE_SECONDS,
                     at=datetime.now(UTC),
                 )
             )

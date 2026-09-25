@@ -293,6 +293,19 @@ def render_preview_json(preview: SubmissionPreview) -> dict[str, Any]:
         "asset_class": preview.asset_class,
         "asset_exchange": preview.asset_exchange,
         "asset_fractionable": preview.asset_fractionable,
+        "configuration_governance_id": preview.policy.configuration_governance_id,
+        "configuration_version": preview.policy.configuration_version,
+        "policy_fingerprint": preview.policy.fingerprint,
+        "maximum_notional": _money(preview.policy.maximum_notional),
+        "quote_maximum_age_seconds": preview.policy.quote_maximum_age_seconds,
+        "maximum_spread_percent": _money(preview.policy.maximum_spread_percent),
+        "watchlist": list(preview.policy.watchlist),
+        "prohibited_instruments": list(preview.policy.prohibited_instruments),
+        "earliest_entry_time": preview.policy.earliest_entry_time.isoformat(),
+        "latest_entry_time": preview.policy.latest_entry_time.isoformat(),
+        "operator_timezone": preview.policy.operator_timezone,
+        "intent_expires_at": preview.intent_expires_at.isoformat(),
+        "binding_fingerprint": preview.binding_fingerprint,
         "refusals": list(preview.refusals),
         "is_authorizable": preview.is_authorizable,
         "created_at": preview.created_at.isoformat(),
@@ -336,6 +349,18 @@ def render_preview_text(preview: SubmissionPreview) -> str:
         f"  asset tradable    : {preview.asset_tradable} ({preview.asset_status}, "
         f"{preview.asset_class}, {preview.asset_exchange})",
         "",
+        "SEND-TIME LIMITS (from the configuration; no command can change them):",
+        f"  configuration     : {preview.policy.configuration_governance_id} "
+        f"v{preview.policy.configuration_version}",
+        f"  notional cap      : {render_money(preview.policy.maximum_notional)}",
+        f"  quote max age     : {preview.policy.quote_maximum_age_seconds}s",
+        f"  max spread        : {render_money(preview.policy.maximum_spread_percent)}%",
+        f"  watchlist         : {', '.join(preview.policy.watchlist)}",
+        f"  entry window      : {preview.policy.earliest_entry_time.isoformat()}-"
+        f"{preview.policy.latest_entry_time.isoformat()} ({preview.policy.operator_timezone})",
+        f"  policy fingerprint: {preview.policy.fingerprint}",
+        f"  intent expires at : {preview.intent_expires_at.isoformat()}",
+        "",
         f"REQUEST FINGERPRINT : {preview.request_fingerprint}",
         "",
     ]
@@ -374,6 +399,23 @@ def render_authorization_json(authorization: ExecutionAuthorization) -> dict[str
         ),
         "consumed_by_attempt_id": authorization.consumed_by_attempt_id,
         "is_consumed": authorization.is_consumed,
+        "symbol": authorization.symbol,
+        "side": authorization.side,
+        "quantity": authorization.quantity,
+        "order_type": authorization.order_type.value,
+        "limit_price": _money(authorization.limit_price),
+        "maximum_notional": _money(authorization.maximum_notional),
+        "quote_bid": _money(authorization.quote_bid),
+        "quote_ask": _money(authorization.quote_ask),
+        "quote_captured_at": (
+            None
+            if authorization.quote_captured_at is None
+            else authorization.quote_captured_at.isoformat()
+        ),
+        "configuration_governance_id": authorization.configuration_governance_id,
+        "configuration_version": authorization.configuration_version,
+        "policy_fingerprint": authorization.policy_fingerprint,
+        "preview_binding_fingerprint": authorization.preview_binding_fingerprint,
     }
 
 

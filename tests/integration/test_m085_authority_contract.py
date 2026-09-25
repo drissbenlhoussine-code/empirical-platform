@@ -83,6 +83,7 @@ _M085_REVISIONS = (
     "".join(("c7a41f", "0b52de")),
     "".join(("d4f18a", "6c2e97")),
     "".join(("e61b3f", "9a4c27")),
+    "".join(("9c4b2e", "7d5a18")),
 )
 _AUTHORIZATION_GUARD = "paper_execution_authorization_guard_update"
 
@@ -329,14 +330,28 @@ class TestTheContractReadsTheSqlInstalledAtHead:
         # The defect this corrects: the first migration's guard is still in its
         # file, and a contract reading only that file was checking it.
         guard = installed.functions[_AUTHORIZATION_GUARD]
-        (original,) = installed.superseded[_AUTHORIZATION_GUARD]
-        assert "basis_broker_latest_at" in guard
+        original, with_basis = installed.superseded[_AUTHORIZATION_GUARD]
         assert "basis_" not in original
-        (replacing,) = (_REPO_ROOT / "migrations" / "versions").glob(f"{_M085_REVISIONS[2]}_*.py")
+        assert "basis_broker_latest_at" in with_basis
+        versions = _REPO_ROOT / "migrations" / "versions"
+        (replacing,) = versions.glob(f"{_M085_REVISIONS[2]}_*.py")
         replacing_source = replacing.read_text(encoding="utf-8")
-        basis_rules = [line.strip() for line in guard.splitlines() if "basis_" in line]
+        basis_rules = [line.strip() for line in with_basis.splitlines() if "basis_" in line]
         assert basis_rules
         assert all(rule in replacing_source for rule in basis_rules)
+        # The corrective pass replaced it once more. Its basis rules are still installed,
+        # and the binding columns it added are frozen too.
+        assert all(rule in guard for rule in basis_rules)
+        assert "preview_binding_fingerprint" not in with_basis
+        (binding,) = versions.glob(f"{_M085_REVISIONS[4]}_*.py")
+        binding_source = binding.read_text(encoding="utf-8")
+        binding_rules = [
+            line.strip()
+            for line in guard.splitlines()
+            if "fingerprint IS DISTINCT FROM OLD" in line and "request_fingerprint" not in line
+        ]
+        assert len(binding_rules) == 2
+        assert all(rule in binding_source for rule in binding_rules)
 
     def test_a_rule_only_in_a_replaced_or_dropped_definition_is_not_installed(self) -> None:
         schema = installed_schema(

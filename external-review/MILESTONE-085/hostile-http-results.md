@@ -1,5 +1,8 @@
 # MILESTONE-085 — Hostile HTTP Results
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> Recorded before non-definitive order answers became SUBMISSION_UNKNOWN; the attack count below is historical.
+
 **102 passed.** Executed by `tests/integration/test_m085_hostile_http.py` against a
 real local HTTP server, over a real socket, through the real adapter.
 

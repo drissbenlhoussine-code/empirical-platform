@@ -1,5 +1,8 @@
 # MILESTONE-085 — Installed-Wheel Operator Walkthrough
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> Recorded against the six-argument preview and submit commands, which no longer exist; not re-run, because the walkthrough creates records.
+
 Run at `2026-09-10T13:31:55.163614+00:00` (UTC) against a wheel installed into a
 throwaway virtualenv **outside the source tree**. Every command below is an installed
 console script; none is `python -m` against `src/`.

@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
+from datetime import time as clock_time
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
@@ -51,6 +52,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     DecisionTimeBasis,
     ExecutionAttempt,
     ExecutionAuthorization,
+    ExecutionPolicy,
     IntentTimeBasis,
     PaperAccountSnapshot,
     PaperEnvironment,
@@ -65,7 +67,10 @@ from empirical_platform.shared.errors.foundation import FoundationError, Foundat
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 
 __all__ = [
+    "M085_SCHEMA_HEAD",
     "PaperDispatchClaim",
+    "PaperSchemaHeadError",
+    "require_exact_m085_schema_head",
     "PostgresBrokerAcknowledgementRepository",
     "PostgresExecutionAttemptRepository",
     "PostgresExecutionAuthorizationRepository",
@@ -78,6 +83,43 @@ __all__ = [
 
 _OPERATION = "m085.row_mapping"
 _KILL_SWITCH_SCOPE = "GLOBAL"
+
+#: The ONE schema revision this code's guards were written against.
+#:
+#: CORRECTIVE PASS (item 4). Nothing used to read `alembic_version`, so this code ran
+#: against a database whose triggers it had never seen -- an older head lacking the
+#: policy and binding guards, or a later one that had replaced them. Grouped so the
+#: literal is plainly a revision id rather than a credential-shaped token.
+M085_SCHEMA_HEAD = "9c4b2e7d" + "5a18"
+
+_SCHEMA_HEAD_SELECT = "SELECT version_num FROM public.alembic_version"
+
+
+class PaperSchemaHeadError(ValueError):
+    """The database is not at exactly the M085 schema head this code requires.
+
+    A `ValueError`, so operator commands render it as a refusal rather than a trace.
+    """
+
+
+def require_exact_m085_schema_head(service: PostgresPersistenceService) -> str:
+    """Refuse unless `alembic_version` holds exactly one row equal to `M085_SCHEMA_HEAD`."""
+    try:
+        with service.unit_of_work() as work:
+            rows = list(work.execute(_SCHEMA_HEAD_SELECT))
+    except Exception as error:
+        raise PaperSchemaHeadError(
+            "the database schema revision could not be read; refusing to run paper "
+            f"execution against an unverified schema ({type(error).__name__})"
+        ) from error
+    revisions = sorted(str(row.get("version_num")) for row in rows)
+    if revisions != [M085_SCHEMA_HEAD]:
+        raise PaperSchemaHeadError(
+            f"the database is at schema revision(s) {revisions or ['<none>']}, not exactly "
+            f"{M085_SCHEMA_HEAD}; refusing to run paper execution against a schema whose "
+            "guards this code was not written for"
+        )
+    return M085_SCHEMA_HEAD
 
 
 def _fail(field: str, value: object, expected: str) -> FoundationError:
@@ -177,6 +219,33 @@ def _member[EnumT: StrEnum](row: Mapping[str, Any], field: str, enum: type[EnumT
             operation=_OPERATION,
             context={"field": field, "stored_value": raw, "enum": enum.__name__},
         ) from error
+
+
+def _time_of_day(row: Mapping[str, Any], field: str) -> clock_time:
+    value = row[field]
+    if not isinstance(value, clock_time) or value.tzinfo is not None:
+        raise _fail(field, value, "naive time of day")
+    return value
+
+
+def _symbols(row: Mapping[str, Any], field: str) -> tuple[str, ...]:
+    value = row[field]
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise _fail(field, value, "an array of symbols")
+    return tuple(sorted(set(value)))
+
+
+def _binding_mismatch(field: str) -> FoundationError:
+    return FoundationError(
+        category=FoundationErrorCategory.PERSISTENCE,
+        message=(
+            f"persisted MILESTONE-085 value {field} does not match the digest recomputed "
+            "from the row; refusing to read a row whose binding no longer describes it"
+        ),
+        layer="persistence",
+        operation=_OPERATION,
+        context={"field": field},
+    )
 
 
 def _refusals(row: Mapping[str, Any], field: str) -> tuple[str, ...]:
@@ -363,20 +432,32 @@ _PREVIEW_INSERT = (
     "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
     "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
     "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at) "
+    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+    "binding_fingerprint) "
     "VALUES (:preview_id, :intent_governance_id, :preview_version, :account_snapshot_id, "
     ":account_reference, :symbol, :side, :quantity, :order_type, :limit_price, "
     ":time_in_force, :extended_hours, :client_order_id, :request_fingerprint, "
     ":approved_fingerprint, :market_is_open, :market_next_open, :market_next_close, "
     ":quote_bid, :quote_ask, :quote_captured_at, :quote_source, :asset_tradable, "
     ":asset_status, :asset_class, :asset_exchange, :asset_fractionable, :refusals, "
-    ":created_at) "
+    ":created_at, :configuration_governance_id, :configuration_version, "
+    ":policy_fingerprint, :maximum_notional, :quote_maximum_age_seconds, "
+    ":maximum_spread_percent, :policy_watchlist, :policy_prohibited_instruments, "
+    ":earliest_entry_time, :latest_entry_time, :operator_timezone, :intent_expires_at, "
+    ":binding_fingerprint) "
     "RETURNING preview_id, intent_governance_id, preview_version, account_snapshot_id, "
     "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
     "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
     "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
     "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at"
+    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+    "binding_fingerprint"
 )
 
 _PREVIEW_SELECT_BY_ID = (
@@ -385,7 +466,11 @@ _PREVIEW_SELECT_BY_ID = (
     "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
     "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
     "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at "
+    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+    "binding_fingerprint "
     "FROM public.paper_submission_preview WHERE preview_id = :preview_id"
 )
 
@@ -395,7 +480,11 @@ _PREVIEW_SELECT_LATEST = (
     "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
     "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
     "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at "
+    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+    "binding_fingerprint "
     "FROM public.paper_submission_preview WHERE intent_governance_id = :intent "
     "ORDER BY preview_version DESC LIMIT 1"
 )
@@ -406,7 +495,32 @@ _PREVIEW_MAX_VERSION = (
 )
 
 
+def _row_to_policy(row: Mapping[str, Any]) -> ExecutionPolicy:
+    policy = ExecutionPolicy(
+        configuration_governance_id=_str(row, "configuration_governance_id"),
+        configuration_version=_int(row, "configuration_version"),
+        maximum_notional=_decimal(row, "maximum_notional"),
+        quote_maximum_age_seconds=_int(row, "quote_maximum_age_seconds"),
+        maximum_spread_percent=_decimal(row, "maximum_spread_percent"),
+        watchlist=_symbols(row, "policy_watchlist"),
+        prohibited_instruments=_symbols(row, "policy_prohibited_instruments"),
+        earliest_entry_time=_time_of_day(row, "earliest_entry_time"),
+        latest_entry_time=_time_of_day(row, "latest_entry_time"),
+        operator_timezone=_str(row, "operator_timezone"),
+    )
+    if policy.fingerprint != _str(row, "policy_fingerprint"):
+        raise _binding_mismatch("policy_fingerprint")
+    return policy
+
+
 def _row_to_preview(row: Mapping[str, Any]) -> SubmissionPreview:
+    preview = _build_preview(row)
+    if preview.binding_fingerprint != _str(row, "binding_fingerprint"):
+        raise _binding_mismatch("binding_fingerprint")
+    return preview
+
+
+def _build_preview(row: Mapping[str, Any]) -> SubmissionPreview:
     return SubmissionPreview(
         preview_id=_str(row, "preview_id"),
         intent_governance_id=_str(row, "intent_governance_id"),
@@ -437,6 +551,8 @@ def _row_to_preview(row: Mapping[str, Any]) -> SubmissionPreview:
         asset_class=_str(row, "asset_class"),
         asset_exchange=_str(row, "asset_exchange"),
         asset_fractionable=_bool(row, "asset_fractionable"),
+        policy=_row_to_policy(row),
+        intent_expires_at=_instant(row, "intent_expires_at"),
         refusals=_refusals(row, "refusals"),
         created_at=_instant(row, "created_at"),
     )
@@ -484,6 +600,19 @@ class PostgresSubmissionPreviewRepository:
                     "asset_fractionable": preview.asset_fractionable,
                     "refusals": json.dumps(list(preview.refusals)),
                     "created_at": preview.created_at,
+                    "configuration_governance_id": preview.policy.configuration_governance_id,
+                    "configuration_version": preview.policy.configuration_version,
+                    "policy_fingerprint": preview.policy.fingerprint,
+                    "maximum_notional": preview.policy.maximum_notional,
+                    "quote_maximum_age_seconds": preview.policy.quote_maximum_age_seconds,
+                    "maximum_spread_percent": preview.policy.maximum_spread_percent,
+                    "policy_watchlist": list(preview.policy.watchlist),
+                    "policy_prohibited_instruments": list(preview.policy.prohibited_instruments),
+                    "earliest_entry_time": preview.policy.earliest_entry_time,
+                    "latest_entry_time": preview.policy.latest_entry_time,
+                    "operator_timezone": preview.policy.operator_timezone,
+                    "intent_expires_at": preview.intent_expires_at,
+                    "binding_fingerprint": preview.binding_fingerprint,
                 },
             )
         return _row_to_preview(rows[0])
@@ -513,23 +642,35 @@ _AUTHORIZATION_INSERT = (
     "(authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
     "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at) "
+    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+    "configuration_governance_id, configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint) "
     "VALUES (:authorization_id, :intent_governance_id, :preview_id, :preview_version, "
     ":request_fingerprint, :account_reference, :client_order_id, :authorized_by, "
     ":authorized_at, :expires_at, :consumed_at, :consumed_by_attempt_id, "
     ":basis_host_at, :basis_broker_earliest_at, :basis_host_requested_at, "
-    ":basis_broker_latest_at) "
+    ":basis_broker_latest_at, :symbol, :side, :quantity, :order_type, :limit_price, "
+    ":maximum_notional, :quote_bid, :quote_ask, :quote_captured_at, "
+    ":configuration_governance_id, :configuration_version, :policy_fingerprint, "
+    ":preview_binding_fingerprint) "
     "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
     "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at"
+    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+    "configuration_governance_id, configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint"
 )
 
 _AUTHORIZATION_SELECT_BY_ID = (
     "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
     "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at "
+    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+    "configuration_governance_id, configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint "
     "FROM public.paper_execution_authorization WHERE authorization_id = :authorization_id"
 )
 
@@ -537,7 +678,10 @@ _AUTHORIZATION_SELECT_LATEST = (
     "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
     "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at "
+    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+    "configuration_governance_id, configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint "
     "FROM public.paper_execution_authorization WHERE intent_governance_id = :intent "
     "ORDER BY authorized_at DESC, authorization_id DESC LIMIT 1"
 )
@@ -551,7 +695,10 @@ _AUTHORIZATION_CONSUME = (
     "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
     "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
     "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at"
+    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+    "configuration_governance_id, configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint"
 )
 
 
@@ -573,6 +720,19 @@ def _row_to_authorization(row: Mapping[str, Any]) -> ExecutionAuthorization:
         basis_broker_latest_at=_optional_instant(row, "basis_broker_latest_at"),
         consumed_at=_optional_instant(row, "consumed_at"),
         consumed_by_attempt_id=_optional_str(row, "consumed_by_attempt_id"),
+        symbol=_str(row, "symbol"),
+        side=_str(row, "side"),
+        quantity=_int(row, "quantity"),
+        order_type=_member(row, "order_type", OrderType),
+        limit_price=_optional_decimal(row, "limit_price"),
+        maximum_notional=_decimal(row, "maximum_notional"),
+        quote_bid=_optional_decimal(row, "quote_bid"),
+        quote_ask=_optional_decimal(row, "quote_ask"),
+        quote_captured_at=_optional_instant(row, "quote_captured_at"),
+        configuration_governance_id=_str(row, "configuration_governance_id"),
+        configuration_version=_int(row, "configuration_version"),
+        policy_fingerprint=_str(row, "policy_fingerprint"),
+        preview_binding_fingerprint=_str(row, "preview_binding_fingerprint"),
     )
 
 
@@ -605,6 +765,19 @@ class PostgresExecutionAuthorizationRepository:
                     "basis_broker_latest_at": authorization.basis_broker_latest_at,
                     "consumed_at": authorization.consumed_at,
                     "consumed_by_attempt_id": authorization.consumed_by_attempt_id,
+                    "symbol": authorization.symbol,
+                    "side": authorization.side,
+                    "quantity": authorization.quantity,
+                    "order_type": authorization.order_type.value,
+                    "limit_price": authorization.limit_price,
+                    "maximum_notional": authorization.maximum_notional,
+                    "quote_bid": authorization.quote_bid,
+                    "quote_ask": authorization.quote_ask,
+                    "quote_captured_at": authorization.quote_captured_at,
+                    "configuration_governance_id": authorization.configuration_governance_id,
+                    "configuration_version": authorization.configuration_version,
+                    "policy_fingerprint": authorization.policy_fingerprint,
+                    "preview_binding_fingerprint": authorization.preview_binding_fingerprint,
                 },
             )
         return _row_to_authorization(rows[0])
@@ -675,11 +848,16 @@ _ATTEMPT_SELECT_RECENT = (
 #: COALESCE on every broker column so that a later observation never blanks an
 #: earlier one. `terminal_at` is set outright, because it must be present exactly
 #: when the state is terminal and the database CHECK enforces that pairing.
+#:
+#: CORRECTIVE PASS (P2). `submitted_at` and `acknowledged_at` keep their FIRST value --
+#: the instant this product sent and first heard -- because the update guard now
+#: refuses rewriting them. `broker_order_id` still prefers the new value, so a broker
+#: that changes its answer is refused by the guard rather than silently ignored.
 _ATTEMPT_TRANSITION = (
     "UPDATE public.paper_execution_attempt SET "
     "state = :state, "
-    "submitted_at = COALESCE(:submitted_at, submitted_at), "
-    "acknowledged_at = COALESCE(:acknowledged_at, acknowledged_at), "
+    "submitted_at = COALESCE(submitted_at, :submitted_at), "
+    "acknowledged_at = COALESCE(acknowledged_at, :acknowledged_at), "
     "terminal_at = :terminal_at, "
     "broker_order_id = COALESCE(:broker_order_id, broker_order_id), "
     "broker_status = COALESCE(:broker_status, broker_status), "
@@ -874,6 +1052,15 @@ class PostgresExecutionAttemptRepository:
             PaperExecutionState.PARTIALLY_FILLED,
         }
         with self._service.unit_of_work() as work:
+            current = list(work.execute(_ATTEMPT_SELECT_BY_ID + " FOR UPDATE", {"key": attempt_id}))
+            if current and _member(current[0], "state", PaperExecutionState) in (
+                TERMINAL_PAPER_STATES
+            ):
+                # The legible refusal. The update guard refuses the same UPDATE, so a
+                # writer that never came through here cannot rewrite a terminal row.
+                raise ValueError(
+                    f"paper execution attempt {attempt_id!r} is terminal and is immutable"
+                )
             rows = work.execute(
                 _ATTEMPT_TRANSITION,
                 {

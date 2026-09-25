@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -34,9 +35,11 @@ import sqlalchemy as sa
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from tests.integration._m085_support import (
+    CHAIN_AT,
     EVALUATED_AT,
     a_basis_at,
     a_configuration,
+    a_policy,
     an_approved_intent,
     build_engine,
     config,
@@ -123,7 +126,7 @@ def an_account(
 def a_full_chain(
     paper: PostgresPaperExecutionRuntime,
     *,
-    validity_seconds: int = 120,
+    validity_seconds: int = 60,
 ) -> tuple[str, ExecutionAuthorization]:
     """One real M084 intent, one stored preview, one stored authorization."""
     with postgres_repository_runtime(config("m085-chain")) as m084:
@@ -149,30 +152,21 @@ def a_full_chain(
         asset_class="us_equity",
         asset_exchange="NASDAQ",
         asset_fractionable=True,
-        approved_watchlist=_WATCHLIST,
-        maximum_notional=Decimal("100000"),
-        quote_maximum_age_seconds=60,
+        policy=a_policy(),
         existing_position_quantity=0,
         execution_kill_switch_engaged=False,
-        created_at=EVALUATED_AT + timedelta(seconds=25),
-        broker_now=BoundedInstant(
-            earliest=EVALUATED_AT + timedelta(seconds=25),
-            latest=EVALUATED_AT + timedelta(seconds=25),
-        ),
+        created_at=CHAIN_AT,
+        broker_now=BoundedInstant(earliest=CHAIN_AT, latest=CHAIN_AT),
         m084_provenance=a_provenance(intent),
     )
     assert preview.is_authorizable, preview.refusals
     paper.submission_previews.save(preview)
 
-    # Anchored to the real clock, not to EVALUATED_AT. Several tests below
-    # consume this authorization with raw SQL using `now()`, and the database
-    # refuses consuming an expired authorization -- correctly. Anchoring the
-    # window here keeps those tests attacking what they mean to attack instead
-    # of all failing on expiry.
-    # The basis must be read at the SAME moment as `authorized_at`: its whole
-    # meaning is the difference between two clocks sampled together. Anchoring it
-    # to the fixture's historical instant instead would claim a three-month offset.
-    authorized_at = datetime.now(UTC)
+    # Anchored to the fixture's own timeline (corrective pass). SUPERSEDED: this was
+    # anchored to the real clock so raw SQL could consume with `now()`; an
+    # authorization may no longer outlive the intent it would dispatch, so the raw
+    # statements below consume at `authorized_at` instead.
+    authorized_at = CHAIN_AT
     authorization = authorize_submission(
         authorization_id="AUT-085-0001",
         preview=preview,
@@ -198,7 +192,7 @@ class TestTheChainRoundTrips:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         assert claim.won is True
         assert claim.attempt.state is PaperExecutionState.DISPATCH_CLAIMED
@@ -237,13 +231,17 @@ class TestTheDatabaseEnforcesSingleUse:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
+        # Inside the authorization's validity, so single use is the ONLY rule that can
+        # refuse this. At `now()` the expiry rule refused it too, and removing the
+        # single-use rule went unnoticed as a raise (corrective pass, campaign run 1).
         with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
             connection.execute(
                 text(
                     "UPDATE public.paper_execution_authorization "
-                    "SET consumed_at = now(), consumed_by_attempt_id = 'ATT-085-0002' "
+                    "SET consumed_at = authorized_at + interval '1 second', "
+                    "consumed_by_attempt_id = 'ATT-085-0002' "
                     "WHERE authorization_id = :id"
                 ),
                 {"id": authorization.authorization_id},
@@ -260,7 +258,7 @@ class TestTheDatabaseEnforcesSingleUse:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         with pytest.raises(sa.exc.DatabaseError), clean.begin() as connection:
             connection.execute(
@@ -299,31 +297,31 @@ class TestTheDatabaseEnforcesSingleUse:
         ("statement", "label"),
         [
             (
-                "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                 "consumed_by_attempt_id = 'A', request_fingerprint = :value "
                 "WHERE authorization_id = :id",
                 "request_fingerprint",
             ),
             (
-                "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                 "consumed_by_attempt_id = 'A', account_reference = :value "
                 "WHERE authorization_id = :id",
                 "account_reference",
             ),
             (
-                "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                 "consumed_by_attempt_id = 'A', client_order_id = :value "
                 "WHERE authorization_id = :id",
                 "client_order_id",
             ),
             (
-                "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                 "consumed_by_attempt_id = 'A', expires_at = CAST(:value AS timestamptz) "
                 "WHERE authorization_id = :id",
                 "expires_at",
             ),
             (
-                "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                 "consumed_by_attempt_id = 'A', authorized_by = :value "
                 "WHERE authorization_id = :id",
                 "authorized_by",
@@ -364,7 +362,7 @@ class TestTheDatabaseEnforcesOneDispatchPerIntent:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         # The INSERT GUARD refuses this before the UNIQUE constraint is even
         # reached: the authorization already names the attempt that spent it, and
@@ -403,22 +401,10 @@ class TestTheDatabaseEnforcesOneDispatchPerIntent:
             request_fingerprint_now=first.request_fingerprint,
             account_reference_now=first.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
-        second = ExecutionAuthorization(
-            authorization_id="AUT-085-0002",
-            intent_governance_id=intent_id,
-            preview_id=first.preview_id,
-            preview_version=first.preview_version,
-            request_fingerprint=first.request_fingerprint,
-            account_reference=first.account_reference,
-            client_order_id=first.client_order_id,
-            authorized_by="owner",
-            authorized_at=datetime.now(UTC),
-            expires_at=datetime.now(UTC) + timedelta(seconds=120),
-            consumed_at=None,
-            consumed_by_attempt_id=None,
-        )
+        second = replace(first, authorization_id="AUT-085-0002")
+        assert second.intent_governance_id == intent_id
         # Even STORING a second authorization for the same preview is refused,
         # which is a tighter barrier again.
         #
@@ -483,7 +469,7 @@ class TestTheDatabaseEnforcesOneDispatchPerIntent:
         with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                    "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                     "consumed_by_attempt_id = 'ATT-085-0004' WHERE authorization_id = :auth"
                 ),
                 {"auth": authorization.authorization_id},
@@ -511,7 +497,7 @@ class TestTheDatabaseEnforcesOneDispatchPerIntent:
         with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                    "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                     "consumed_by_attempt_id = 'ATT-085-0005' WHERE authorization_id = :auth"
                 ),
                 {"auth": authorization.authorization_id},
@@ -541,7 +527,7 @@ class TestTheDatabaseEnforcesOneDispatchPerIntent:
         with pytest.raises(sa.exc.DatabaseError) as raised, clean.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                    "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                     "consumed_by_attempt_id = 'ATT-085-0006' WHERE authorization_id = :auth"
                 ),
                 {"auth": authorization.authorization_id},
@@ -616,7 +602,8 @@ class TestTheTransitionTableIsClosedInTheDatabase:
             try:
                 connection.execute(
                     text(
-                        "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                        "UPDATE public.paper_execution_authorization "
+                        "SET consumed_at = authorized_at, "
                         "consumed_by_attempt_id = 'ATT-PROBE' WHERE authorization_id = :auth"
                     ),
                     {"auth": authorization.authorization_id},
@@ -713,7 +700,7 @@ class TestTheTransitionTableIsClosedInTheDatabase:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         paper.execution_attempts.transition(
             attempt_id=claim.attempt.attempt_id,
@@ -740,7 +727,7 @@ class TestTheTransitionTableIsClosedInTheDatabase:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         for statement, value in (
             (
@@ -774,14 +761,23 @@ _PREVIEW_INSERT_PROBE = (
     "order_type, limit_price, time_in_force, extended_hours, client_order_id, "
     "request_fingerprint, approved_fingerprint, market_is_open, quote_source, "
     "asset_tradable, asset_status, asset_class, asset_exchange, asset_fractionable, "
-    "refusals, created_at) "
+    "refusals, created_at, configuration_governance_id, configuration_version, "
+    "policy_fingerprint, maximum_notional, quote_maximum_age_seconds, maximum_spread_percent, "
+    "policy_watchlist, policy_prohibited_instruments, earliest_entry_time, latest_entry_time, "
+    "operator_timezone, intent_expires_at, binding_fingerprint) "
     "VALUES (:preview_id, :intent_governance_id, :preview_version, :account_snapshot_id, "
     ":account_reference, :symbol, :side, CAST(:quantity AS bigint), :order_type, "
     "CAST(:limit_price AS numeric), :time_in_force, CAST(:extended_hours AS boolean), "
     ":client_order_id, :request_fingerprint, :approved_fingerprint, "
     "CAST(:market_is_open AS boolean), :quote_source, CAST(:asset_tradable AS boolean), "
     ":asset_status, :asset_class, :asset_exchange, CAST(:asset_fractionable AS boolean), "
-    ":refusals, CAST(:created_at AS timestamptz))"
+    ":refusals, CAST(:created_at AS timestamptz), :configuration_governance_id, "
+    "CAST(:configuration_version AS integer), :policy_fingerprint, "
+    "CAST(:maximum_notional AS numeric), CAST(:quote_maximum_age_seconds AS integer), "
+    "CAST(:maximum_spread_percent AS numeric), CAST(:policy_watchlist AS varchar(32)[]), "
+    "CAST(:policy_prohibited_instruments AS varchar(32)[]), "
+    "CAST(:earliest_entry_time AS time), CAST(:latest_entry_time AS time), "
+    ":operator_timezone, CAST(:intent_expires_at AS timestamptz), :binding_fingerprint)"
 )
 
 
@@ -790,10 +786,9 @@ def _broker_clock() -> BoundedInstant:
 
     The production handler passes `PaperTimeWindow.broker_now`; these raw
     repository tests pass the equivalent so the claim is exercised through the
-    same contract rather than a weaker one.
+    same contract rather than a weaker one -- on the fixture's timeline.
     """
-    moment = datetime.now(UTC)
-    return BoundedInstant(earliest=moment, latest=moment)
+    return BoundedInstant(earliest=CHAIN_AT, latest=CHAIN_AT)
 
 
 class TestTheHardProductInvariantsAreCheckConstraints:
@@ -830,6 +825,24 @@ class TestTheHardProductInvariantsAreCheckConstraints:
     ) -> None:
         """A preview is what a human authorizes, so a forbidden one must not exist."""
         intent_id, authorization = a_full_chain(paper)
+        # The corrective pass's insert guard requires the order to be the stored
+        # intent's and the policy to be its configuration's, so the base row copies
+        # both. It runs AFTER the CHECKs, so each override below is still refused by
+        # the CHECK it names.
+        with clean.begin() as connection:
+            stored = (
+                connection.execute(
+                    text(
+                        "SELECT approved_fingerprint, expires_at, quantity, limit_price, "
+                        "configuration_governance_id, configuration_version "
+                        "FROM public.approved_order_intent WHERE intent_governance_id = :intent"
+                    ),
+                    {"intent": intent_id},
+                )
+                .mappings()
+                .one()
+            )
+        policy = a_policy()
         parameters: dict[str, object] = {
             "preview_id": "PVW-ATTACK",
             "intent_governance_id": intent_id,
@@ -838,14 +851,14 @@ class TestTheHardProductInvariantsAreCheckConstraints:
             "account_reference": authorization.account_reference,
             "symbol": "AAPL",
             "side": "BUY",
-            "quantity": "1",
+            "quantity": str(stored["quantity"]),
             "order_type": "LIMIT",
-            "limit_price": "200.10",
+            "limit_price": str(stored["limit_price"]),
             "time_in_force": "DAY",
             "extended_hours": "false",
             "client_order_id": authorization.client_order_id,
             "request_fingerprint": authorization.request_fingerprint,
-            "approved_fingerprint": "a" * 64,
+            "approved_fingerprint": stored["approved_fingerprint"],
             "market_is_open": "true",
             "quote_source": "alpaca-iex",
             "asset_tradable": "true",
@@ -855,6 +868,19 @@ class TestTheHardProductInvariantsAreCheckConstraints:
             "asset_fractionable": "true",
             "refusals": "[]",
             "created_at": "2026-06-10T12:00:25+00:00",
+            "configuration_governance_id": stored["configuration_governance_id"],
+            "configuration_version": str(stored["configuration_version"]),
+            "policy_fingerprint": policy.fingerprint,
+            "maximum_notional": str(policy.maximum_notional),
+            "quote_maximum_age_seconds": str(policy.quote_maximum_age_seconds),
+            "maximum_spread_percent": str(policy.maximum_spread_percent),
+            "policy_watchlist": list(policy.watchlist),
+            "policy_prohibited_instruments": list(policy.prohibited_instruments),
+            "earliest_entry_time": policy.earliest_entry_time.isoformat(),
+            "latest_entry_time": policy.latest_entry_time.isoformat(),
+            "operator_timezone": policy.operator_timezone,
+            "intent_expires_at": stored["expires_at"].isoformat(),
+            "binding_fingerprint": "b" * 64,
         }
         # A control: the base parameters must be ACCEPTED, or every refusal below
         # could be caused by something other than the value under test. Rolled
@@ -908,7 +934,7 @@ class TestTheHardProductInvariantsAreCheckConstraints:
         with pytest.raises(sa.exc.IntegrityError) as raised, clean.begin() as connection:
             connection.execute(
                 text(
-                    "UPDATE public.paper_execution_authorization SET consumed_at = now(), "
+                    "UPDATE public.paper_execution_authorization SET consumed_at = authorized_at, "
                     "consumed_by_attempt_id = 'ATT-T' WHERE authorization_id = :auth"
                 ),
                 {"auth": authorization.authorization_id},
@@ -1049,7 +1075,7 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         paper.broker_acknowledgements.append(
             BrokerAcknowledgement(
@@ -1124,7 +1150,7 @@ class TestTheReadPathFailsClosed:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         # BOTH the trigger and the CHECK have to be stood down to create such a
         # row, which is the point: nothing short of DDL authority can produce it.
@@ -1398,7 +1424,7 @@ class TestMilestone084IsUntouched:
             request_fingerprint_now=authorization.request_fingerprint,
             account_reference_now=authorization.account_reference,
             broker_clock=_broker_clock,
-            claimed_at=datetime.now(UTC),
+            claimed_at=CHAIN_AT,
         )
         paper.execution_attempts.transition(
             attempt_id=claim.attempt.attempt_id,

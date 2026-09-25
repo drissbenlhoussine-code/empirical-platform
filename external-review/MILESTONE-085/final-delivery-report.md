@@ -1,5 +1,8 @@
 # MILESTONE-085 — Final Delivery Report
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> The preview and submit commands no longer accept limits, uncertain broker answers are SUBMISSION_UNKNOWN rather than REJECTED, and counts below are historical.
+
 > Current temporal correction: see [temporal-correction.md](temporal-correction.md).
 > The ten-second lead workaround described below is superseded. Earlier test counts
 > and market-open results below are historical evidence, not validation of this correction.
@@ -558,3 +561,25 @@ See `temporal-correction.md` and `provenance-mutation-matrix.md`.
 
 M085 remains a candidate for Owner review: not approved, not frozen, not merged. No
 Paper authorization or submission occurred. External Paper acceptance is PENDING.
+
+## Addendum — corrective pass: send-time policy, uncertain outcomes, terminal immutability
+
+The Owner's review of `754ceda` found ten defects; all are corrected in the head that
+follows it and recorded in [corrective-pass.md](corrective-pass.md). In short:
+
+- the preview and submit commands no longer accept a notional cap, quote age or
+  watchlist; the send-time policy is the stored configuration version's, bound into the
+  authorization and re-derived at every send boundary;
+- only 400/401/403/422 with the broker's JSON error object is a refusal; every other
+  possibly-delivered outcome is `SUBMISSION_UNKNOWN`, reconciled on the same
+  `client_order_id`, never re-sent;
+- the liquidation deadline can no longer be extended by a slow host;
+- the runtime requires the database at exactly `9c4b2e7d5a18`;
+- terminal attempts are immutable in the repository and the database;
+- an authorization is bound field by field to its preview in the domain and the database;
+- the final send guard re-reads the kill switch, configuration, clock and quote;
+- `m085_paper_acceptance.py --dry-run` is refused.
+
+Sections A–Z above, their counts and the campaign results are historical. The
+acceptance database must be upgraded, with Owner authorization, before any further
+Paper acceptance. No Paper order, authorization or approval was created by this pass.

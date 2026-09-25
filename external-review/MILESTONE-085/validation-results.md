@@ -1,5 +1,8 @@
 # MILESTONE-085 — Validation Results
 
+> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
+> Gate results, counts and regression tables below describe earlier heads; the verification of this head is in `corrective-pass.md`.
+
 Every number here was produced by running something. Where a gate was not run, or
 was run and did not pass, this document says so rather than omitting it.
 
@@ -433,3 +436,10 @@ hostile-review and external acceptance campaigns were not repeated.
 WHAT THESE RUNS DO NOT ESTABLISH. No Paper or Live order was submitted, no Paper
 authorization was given, no real broker was contacted, and external Paper acceptance
 remains PENDING. CI at the pushed head is recorded on PR #15, not inferred here.
+
+## Corrective pass — verification runs
+
+Recorded in [corrective-pass.md](corrective-pass.md), sections *Verification*,
+*Mutation campaign* and *Collection reconciliation*. Campaign run 1 of that pass was
+BLOCKED at 111 of 120 and is kept as `corrective-pass-mutation-matrix-run1.md`; its
+blockers and corrections are listed there. The gate results above describe earlier heads.

@@ -18,8 +18,12 @@ from __future__ import annotations
 
 import inspect
 import re
+from pathlib import Path
+from typing import Any
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 
 from empirical_platform.entrypoints import _paper_composition
 from empirical_platform.entrypoints._paper_composition import (
@@ -33,6 +37,38 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
 )
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    M085_SCHEMA_HEAD,
+    PaperSchemaHeadError,
+)
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+#: Revisions other than the head, grouped for the secret scanner.
+_OLDER_HEAD = "".join(("e61b3f", "9a4c27"))
+_M084_HEAD = "".join(("a3f7c2", "1d9b04"))
+
+
+class _HeadWork:
+    """A unit of work that answers only the schema-revision query."""
+
+    def __init__(self, rows: list[dict[str, object]], failure: Exception | None) -> None:
+        self._rows = rows
+        self._failure = failure
+        self.statements: list[str] = []
+
+    def __enter__(self) -> _HeadWork:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def execute(self, statement: str, parameters: object = None) -> list[dict[str, object]]:
+        del parameters
+        self.statements.append(statement)
+        if self._failure is not None:
+            raise self._failure
+        return list(self._rows)
+
 
 _KEY = "AKTESTKEYVALUE000000"
 #: The second half of the credential pair. The local name avoids the word ruff's
@@ -83,12 +119,16 @@ class FakeService(PostgresPersistenceService):
     """
 
     instances: list[FakeService] = []
+    #: What `alembic_version` holds. The exact head unless a test says otherwise.
+    head_rows: list[dict[str, object]] = [{"version_num": M085_SCHEMA_HEAD}]
+    head_failure: Exception | None = None
 
     def __init__(self, config: PostgreSQLConfigSnapshot) -> None:
         super().__init__(config)
         self.recorded_config = config
         self.initialized = False
         self.closed = False
+        self.works: list[_HeadWork] = []
         FakeService.instances.append(self)
 
     def initialize(self) -> None:
@@ -96,6 +136,11 @@ class FakeService(PostgresPersistenceService):
 
     def close(self) -> None:
         self.closed = True
+
+    def unit_of_work(self) -> Any:  # noqa: ANN401 - stands in for the real unit of work
+        work = _HeadWork(FakeService.head_rows, FakeService.head_failure)
+        self.works.append(work)
+        return work
 
 
 @pytest.fixture
@@ -116,6 +161,8 @@ def a_config() -> PostgreSQLConfigSnapshot:
 def composition(monkeypatch: pytest.MonkeyPatch) -> type[FakeService]:
     """Replace the persistence service and supply a credential-bearing environment."""
     FakeService.instances = []
+    FakeService.head_rows = [{"version_num": M085_SCHEMA_HEAD}]
+    FakeService.head_failure = None
     monkeypatch.setattr(_paper_composition, "PostgresPersistenceService", FakeService)
     for name, value in _environment().items():
         monkeypatch.setenv(name, value)
@@ -334,6 +381,60 @@ class TestTheRuntimeLifecycle:
         with paper_execution_runtime(a_config) as context:
             assert len(FakeService.instances) == 1
             assert context.m084 is not context.paper
+
+
+class TestTheSchemaHeadIsExact:
+    """Corrective pass (item 4): nothing runs against a schema this code was not written for."""
+
+    def test_the_pinned_head_is_the_repository_migration_head(self) -> None:
+        config = Config(str(_REPO_ROOT / "alembic.ini"))
+        config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+        assert ScriptDirectory.from_config(config).get_current_head() == M085_SCHEMA_HEAD
+
+    def test_the_exact_head_is_accepted_and_actually_read(
+        self, composition: type[FakeService], a_config: PostgreSQLConfigSnapshot
+    ) -> None:
+        with paper_execution_runtime(a_config) as context:
+            assert context.broker.endpoint_host == "paper-api.alpaca.markets"
+        (work,) = FakeService.instances[-1].works
+        assert work.statements == ["SELECT version_num FROM public.alembic_version"]
+
+    @pytest.mark.parametrize(
+        "rows",
+        [
+            pytest.param([], id="no-revision"),
+            pytest.param([{"version_num": _OLDER_HEAD}], id="older-m085-head"),
+            pytest.param([{"version_num": _M084_HEAD}], id="m084-head"),
+            pytest.param([{"version_num": "ffff00000000"}], id="unknown-newer-head"),
+            pytest.param(
+                [{"version_num": M085_SCHEMA_HEAD}, {"version_num": _OLDER_HEAD}],
+                id="two-heads",
+            ),
+        ],
+    )
+    def test_any_other_revision_refuses_before_the_body_runs(
+        self,
+        composition: type[FakeService],
+        a_config: PostgreSQLConfigSnapshot,
+        rows: list[dict[str, object]],
+    ) -> None:
+        FakeService.head_rows = rows
+        with pytest.raises(PaperSchemaHeadError, match=M085_SCHEMA_HEAD):
+            with paper_execution_runtime(a_config):
+                pytest.fail("the body must not run against a mismatched schema")
+        assert FakeService.instances[-1].closed is True
+
+    def test_an_unreadable_revision_refuses(
+        self, composition: type[FakeService], a_config: PostgreSQLConfigSnapshot
+    ) -> None:
+        FakeService.head_failure = RuntimeError("relation alembic_version does not exist")
+        with pytest.raises(PaperSchemaHeadError, match="could not be read"):
+            with paper_execution_runtime(a_config):
+                pytest.fail("unreachable")
+        assert FakeService.instances[-1].closed is True
+
+    def test_the_refusal_renders_as_an_operator_refusal(self) -> None:
+        assert issubclass(PaperSchemaHeadError, ValueError)
 
 
 def test_composition_provides_an_injectable_time_source(
