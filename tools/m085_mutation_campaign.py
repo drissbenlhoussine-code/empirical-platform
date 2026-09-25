@@ -77,6 +77,13 @@ _CORRECTIVE_POSTGRES = "tests/integration/test_m085_corrective_pass_postgres.py"
 _COMPOSITION_TESTS = "tests/unit/test_m085_paper_composition.py"
 _DRY_RUN_TESTS = "tests/unit/test_m085_paper_acceptance_dry_run.py"
 
+#: IDENTITY-SAFETY CORRECTION (F1): the rules that make an existing broker identity a
+#: reconciliation, never a refusal and never a resend, and the M084 mechanical freeze.
+_IDENTITY_UNIT = "tests/unit/test_m085_identity_collision.py"
+_IDENTITY_POSTGRES = "tests/integration/test_m085_identity_collision_postgres.py"
+_FROZEN_GUARD = "tools/check_frozen_paths.py"
+_FROZEN_TESTS = "tests/architecture/test_frozen_milestones.py"
+
 #: Everything a mutation could touch and every file a restoration must leave as it was.
 #: Digested whole before the first family and after the last, so a campaign that
 #: restored the file it meant to but left anything else changed is caught.
@@ -1281,8 +1288,13 @@ FAMILIES: tuple[Family, ...] = (
         name="definitive_refusal_statuses",
         rule="Only 400, 401, 403 and 422 can prove an order was refused",
         path=_DOMAIN,
-        original="    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:\n        return False",
-        mutated="    if False:\n        return False",
+        # F1 moved the one status check into `classify_broker_refusal`; the former copy
+        # in `is_definitive_broker_refusal` is gone, so removing this one is not masked.
+        original=(
+            "    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:\n"
+            "        return BrokerRefusalKind.UNCERTAIN"
+        ),
+        mutated="    if False:\n        return BrokerRefusalKind.UNCERTAIN",
         detecting_test=f"{_CORRECTIVE_UNIT}::TestOnlyADefinitiveRefusalIsARefusal"
         "::test_anything_else_is_uncertain",
         expected_fragment="assert",
@@ -1291,8 +1303,9 @@ FAMILIES: tuple[Family, ...] = (
         name="definitive_refusal_requires_the_brokers_document",
         rule="A definitive status proves nothing without the broker's JSON error object",
         path=_DOMAIN,
-        original="    return isinstance(parsed, dict)",
-        mutated="    return True",
+        original="    if not isinstance(parsed, dict):\n        return None",
+        mutated='    if not isinstance(parsed, dict):\n        return {"code": 0, "message": "x"}',
+        # The 422 list-body case turns into a "document" and is then a refusal.
         detecting_test=f"{_CORRECTIVE_UNIT}::TestOnlyADefinitiveRefusalIsARefusal"
         "::test_anything_else_is_uncertain",
         expected_fragment="assert",
@@ -1301,8 +1314,14 @@ FAMILIES: tuple[Family, ...] = (
         name="adapter_uncertain_status_is_ambiguous",
         rule="The adapter reports a non-definitive order answer as ambiguous, not as a refusal",
         path=_ADAPTER,
-        original="        if is_definitive_broker_refusal(status, sanitized):",
-        mutated="        if status >= 400:",
+        original="        kind = classify_broker_refusal(status, sanitized)",
+        mutated=(
+            "        kind = (\n"
+            "            BrokerRefusalKind.DEFINITIVE_REFUSAL\n"
+            "            if status >= 400\n"
+            "            else classify_broker_refusal(status, sanitized)\n"
+            "        )"
+        ),
         detecting_test=f"{_HTTP}::TestErrorStatusesAreReportedFaithfully"
         "::test_an_uncertain_status_is_never_reported_as_a_refusal",
         expected_fragment="DID NOT RAISE",
@@ -1563,6 +1582,194 @@ FAMILIES: tuple[Family, ...] = (
         "::test_dry_run_is_refused_before_any_record_connection_or_file",
         expected_fragment="the dry run reached",
     ),
+    # == IDENTITY-SAFETY CORRECTION (F1) =====================================
+    Family(
+        name="duplicate_identity_422_is_not_a_refusal",
+        rule="Alpaca's duplicate client_order_id 422 is an existing identity, never a refusal",
+        path=_DOMAIN,
+        original="    if any(marker in message for marker in _IDENTITY_MESSAGE_MARKERS):",
+        mutated="    if False:",
+        detecting_test=f"{_IDENTITY_UNIT}::TestA422IsClassifiedSemantically"
+        "::test_the_documented_duplicate_answer_is_an_existing_identity",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="unknown_422_shape_fails_closed",
+        rule="A 422 without the broker's integer code is uncertain, not a refusal",
+        path=_DOMAIN,
+        original="    if isinstance(code, bool) or not isinstance(code, int):\n        return None",
+        mutated="    if False:\n        return None",
+        detecting_test=f"{_IDENTITY_UNIT}::TestA422IsClassifiedSemantically"
+        "::test_an_unknown_shape_is_uncertain",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="identity_collision_looks_the_identity_up",
+        rule="A collision is resolved by looking up the SAME client_order_id, not by guessing",
+        path=_USECASE,
+        original=(
+            "            status, view, sanitized = self._broker.fetch_order_by_client_order_id(\n"
+            "                order.client_order_id\n"
+            "            )\n"
+            "        except Exception as error:  # noqa: BLE001 - recorded, never retried"
+        ),
+        mutated=(
+            '            status, view, sanitized = 404, None, "{}"\n'
+            "        except Exception as error:  # noqa: BLE001 - recorded, never retried"
+        ),
+        detecting_test=f"{_IDENTITY_UNIT}::TestAnExistingIdentityIsReconciledNotRejected"
+        "::test_an_exact_match_found_before_sending_is_adopted_without_a_send",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="pre_send_lookup_uses_the_derived_identity",
+        rule="The identity asked about before sending is the derived one, not a replacement",
+        path=_USECASE,
+        original=(
+            "                    self._broker.fetch_order_by_client_order_id("
+            "fresh.order.client_order_id)"
+        ),
+        mutated=(
+            "                    self._broker.fetch_order_by_client_order_id("
+            'fresh.order.client_order_id + "-2")'
+        ),
+        detecting_test=f"{_IDENTITY_UNIT}::TestAnExistingIdentityIsReconciledNotRejected"
+        "::test_an_exact_match_found_before_sending_is_adopted_without_a_send",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="no_resend_after_a_collision",
+        rule="An intent with any attempt is never dispatched again, collision included",
+        path=_USECASE,
+        original=(
+            "        existing = self._attempts.for_intent(command.intent_governance_id)\n"
+            "        if existing is not None:"
+        ),
+        mutated=(
+            "        existing = self._attempts.for_intent(command.intent_governance_id)\n"
+            "        if False:"
+        ),
+        detecting_test=f"{_IDENTITY_UNIT}::TestAnExistingIdentityIsReconciledNotRejected"
+        "::test_a_collision_is_never_followed_by_a_second_dispatch",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="identity_match_checks_the_symbol",
+        rule="A broker order with another symbol is never adopted as ours",
+        path=_DOMAIN,
+        original=(
+            '    if symbol is None or symbol.upper() != getattr(expected, "symbol", None):\n'
+            '        mismatches.append("symbol")'
+        ),
+        mutated='    if False:\n        mismatches.append("symbol")',
+        detecting_test=f"{_IDENTITY_UNIT}::TestOnlyTheExactAuthorizedOrderIsAdopted"
+        "::test_a_mismatched_field_is_a_collision[symbol-TSLA]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="identity_match_checks_the_quantity",
+        rule="A broker order with another quantity is never adopted as ours",
+        path=_DOMAIN,
+        original=(
+            '        if Decimal(actual_text("quantity") or "x") != '
+            'Decimal(getattr(expected, "quantity", -1)):\n'
+            '            mismatches.append("quantity")'
+        ),
+        mutated='        if False:\n            mismatches.append("quantity")',
+        detecting_test=f"{_IDENTITY_UNIT}::TestOnlyTheExactAuthorizedOrderIsAdopted"
+        "::test_a_mismatched_field_is_a_collision[quantity-2]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="identity_match_checks_the_side",
+        rule="A broker order with another side is never adopted as ours",
+        path=_DOMAIN,
+        original=(
+            '    if side is None or side.upper() != str(getattr(expected, "side", "")).upper():\n'
+            '        mismatches.append("side")'
+        ),
+        mutated='    if False:\n        mismatches.append("side")',
+        detecting_test=f"{_IDENTITY_UNIT}::TestOnlyTheExactAuthorizedOrderIsAdopted"
+        "::test_a_mismatched_field_is_a_collision[side-sell]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="reconcile_recovers_unknown_after_restart",
+        rule="A new process reconciles an UNKNOWN attempt instead of leaving it",
+        path=_USECASE,
+        original=(
+            "        if attempt.is_terminal:\n"
+            "            return attempt\n"
+            "        if attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS:"
+        ),
+        mutated=(
+            "        if attempt.is_terminal or attempt.state is "
+            "PaperExecutionState.SUBMISSION_UNKNOWN:\n"
+            "            return attempt\n"
+            "        if attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS:"
+        ),
+        detecting_test=f"{_IDENTITY_UNIT}::TestRecoveryAfterRestart"
+        "::test_an_unknown_attempt_is_recovered_by_a_new_process_through_the_same_identity",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="reconcile_refuses_a_mismatching_order",
+        rule="Reconciliation never adopts a broker order that differs from the authorized one",
+        path=_USECASE,
+        original=(
+            "            else order_identity_mismatches(expected=authorization, actual=view)\n"
+            "        )\n"
+            "        if mismatches:"
+        ),
+        mutated=(
+            "            else order_identity_mismatches(expected=authorization, actual=view)\n"
+            "        )\n"
+            "        if False:"
+        ),
+        detecting_test=f"{_IDENTITY_UNIT}::TestRecoveryAfterRestart"
+        "::test_reconciliation_of_an_unknown_attempt_refuses_a_mismatching_order",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="database_rebuilt_meets_existing_identity",
+        rule="Against PostgreSQL, a rebuilt database meets the broker's order and sends nothing",
+        path=_USECASE,
+        original=(
+            "                if existing_order is not None:\n"
+            "                    raise BrokerIdentityExistsError("
+        ),
+        mutated=("                if False:\n                    raise BrokerIdentityExistsError("),
+        detecting_test=f"{_IDENTITY_POSTGRES}"
+        "::test_a_rebuilt_database_adopts_the_brokers_exact_order_and_sends_nothing",
+        expected_fragment="assert",
+    ),
+    # == M084 mechanical freeze ==============================================
+    Family(
+        name="frozen_path_guard_covers_m084",
+        rule="The frozen-path guard governs MILESTONE-084 as well as MILESTONE-083",
+        path=_FROZEN_GUARD,
+        original=(
+            '    "M084": (\n'
+            '        r"^src/empirical_platform/decision_candidate/(evaluation_context|"'
+        ),
+        mutated=(
+            '    "M084_UNFROZEN": (\n'
+            '        r"^src/empirical_platform/decision_candidate/(evaluation_context|"'
+        ),
+        detecting_test=f"{_FROZEN_TESTS}::TestBothMilestonesAreGoverned"
+        "::test_the_guard_freezes_exactly_m083_and_m084",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="frozen_path_guard_pins_m084_to_the_ratified_commit",
+        rule="M084 is compared against the ratified commit, not against whatever HEAD holds",
+        path=_FROZEN_GUARD,
+        original='_M084_BASE_GROUPS = ("11271346", "23b25178", "b4d98236", "d5ab75f8", "f2134760")',
+        mutated='_M084_BASE_GROUPS = ("a2240767", "54fb3890", "9ee04c24", "64e50e51", "df12d7ad")',
+        detecting_test=f"{_FROZEN_TESTS}::TestBothMilestonesAreGoverned"
+        "::test_m084_is_pinned_to_the_ratified_commit_and_m083_to_its_original_base",
+        expected_fragment="assert",
+    ),
 )
 
 
@@ -1588,10 +1795,27 @@ def tree_digest() -> str:
     return digest.hexdigest()
 
 
+def _forget_bytecode(path: Path) -> None:
+    """Delete the byte-compiled cache of one source file.
+
+    Python validates a `.pyc` by the source's size and mtime at one-second
+    resolution. A mutation whose replacement has the SAME LENGTH as the original,
+    written and restored within one second, therefore leaves a cache compiled from
+    the MUTATED source that the restored run happily imports -- and the campaign then
+    reports a real detection as "does not pass again after restoration" (found by the
+    M084 frozen-path-pin family, whose two commit ids are both forty characters).
+    """
+    cache = path.parent / "__pycache__"
+    if cache.is_dir():
+        for compiled in cache.glob(f"{path.stem}.*.pyc"):
+            compiled.unlink(missing_ok=True)
+
+
 def _run(test: str) -> tuple[int, str]:
     process = subprocess.run(  # noqa: S603 - fixed vector, no shell
         [
             sys.executable,
+            "-B",
             "-m",
             "pytest",
             test,
@@ -1641,10 +1865,12 @@ def run_family(family: Family) -> Result:
         )
 
     path.write_text(source.replace(family.original, family.mutated), encoding="utf-8", newline="\n")
+    _forget_bytecode(path)
     try:
         mutated_code, mutated_output = _run(family.detecting_test)
     finally:
         path.write_text(source, encoding="utf-8", newline="\n")
+        _forget_bytecode(path)
 
     after = _digest(path)
     if after != before:

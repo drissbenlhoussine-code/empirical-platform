@@ -622,6 +622,16 @@ class TestOnlyADefinitiveRefusalIsARefusal:
             (502, "<html>Bad Gateway</html>"),
             (503, '{"message": "unavailable"}'),
             (504, '{"message": "gateway timeout"}'),
+            # The broker's COMPLETE error document on a non-definitive status: the status
+            # rule alone must refuse these (F1 made the document shape a separate rule,
+            # so a body without `code` no longer exercises the status set).
+            (404, '{"code": 40410000, "message": "order not found"}'),
+            (408, '{"code": 40810000, "message": "request timeout"}'),
+            (409, '{"code": 40910000, "message": "conflict"}'),
+            (429, '{"code": 42910000, "message": "too many requests"}'),
+            (500, '{"code": 50010000, "message": "internal server error"}'),
+            (503, '{"code": 50310000, "message": "service unavailable"}'),
+            (504, '{"code": 50410000, "message": "gateway timeout"}'),
             (200, '{"id": "x"}'),
             (201, '{"id": "x"}'),
             (302, ""),

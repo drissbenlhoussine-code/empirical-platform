@@ -54,7 +54,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from datetime import time as clock_time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from types import MappingProxyType
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -75,8 +75,12 @@ __all__ = [
     "ALLOWED_PAPER_TRANSITIONS",
     "CLIENT_ORDER_ID_PREFIX",
     "DEFINITIVE_BROKER_REFUSAL_STATUSES",
+    "BrokerRefusalKind",
     "ExecutionPolicy",
     "authorization_binding_refusal",
+    "classify_broker_refusal",
+    "is_client_order_id_collision",
+    "order_identity_mismatches",
     "effective_liquidation_deadline",
     "entry_window_refusal",
     "execution_policy_from_configuration",
@@ -217,17 +221,131 @@ RECONCILIATION_UNKNOWN_POLICY: MappingProxyType[str, object] = MappingProxyType(
 DEFINITIVE_BROKER_REFUSAL_STATUSES: frozenset[int] = frozenset({400, 401, 403, 422})
 
 
-def is_definitive_broker_refusal(status: int, body: str) -> bool:
-    """Whether an answer to a delivered order request proves no order was created."""
-    if isinstance(status, bool) or not isinstance(status, int):
-        return False
-    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:
-        return False
+class BrokerRefusalKind(StrEnum):
+    """What a non-success answer to `POST /v2/orders` proves. Closed."""
+
+    #: The broker's own error document on a definitive status, about something other
+    #: than the order's identity: no order was created.
+    DEFINITIVE_REFUSAL = "DEFINITIVE_REFUSAL"
+    #: The broker's documented answer that an order ALREADY EXISTS under this
+    #: `client_order_id`. Not a refusal of the order -- proof that an order is there.
+    CLIENT_ORDER_ID_EXISTS = "CLIENT_ORDER_ID_EXISTS"
+    #: Anything else, including every shape this code does not recognise.
+    UNCERTAIN = "UNCERTAIN"
+
+
+#: Words in a broker error message that make it ABOUT the order's identity. An error
+#: about the identity is never an ordinary refusal: either it is the documented
+#: duplicate answer, or it is a shape this code does not know, and both fail closed.
+_IDENTITY_MESSAGE_MARKERS: tuple[str, ...] = ("client_order_id", "client order id")
+#: Words that, together with an identity marker on a 422, are Alpaca's documented
+#: duplicate answer (`client_order_id must be unique`).
+_IDENTITY_EXISTS_MARKERS: tuple[str, ...] = ("unique", "already", "exists", "duplicate")
+
+
+def _brokers_error_document(body: str) -> dict[str, object] | None:
+    """The broker's own error object -- an integer `code` and a text `message`.
+
+    A JSON object missing either is not the shape the broker documents; it could be
+    a proxy, a gateway or a malformed answer, and it proves nothing.
+    """
     try:
         parsed = json.loads(body)
     except (TypeError, ValueError):
-        return False
-    return isinstance(parsed, dict)
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    code = parsed.get("code")
+    message = parsed.get("message")
+    if isinstance(code, bool) or not isinstance(code, int):
+        return None
+    if not isinstance(message, str) or not message.strip():
+        return None
+    return parsed
+
+
+def classify_broker_refusal(status: int, body: str) -> BrokerRefusalKind:
+    """Classify a non-success answer semantically, never by status and JSON-ness alone.
+
+    IDENTITY-SAFETY CORRECTION (F1). A 422 whose message says the `client_order_id`
+    must be unique means the broker HOLDS an order under the identity this product
+    derived. Recording it as a terminal refusal would lose that order. It is its own
+    kind, and any other message about the identity is UNCERTAIN because its meaning
+    is not documented here.
+    """
+    if isinstance(status, bool) or not isinstance(status, int):
+        return BrokerRefusalKind.UNCERTAIN
+    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:
+        return BrokerRefusalKind.UNCERTAIN
+    document = _brokers_error_document(body)
+    if document is None:
+        return BrokerRefusalKind.UNCERTAIN
+    message = str(document["message"]).lower()
+    if any(marker in message for marker in _IDENTITY_MESSAGE_MARKERS):
+        if status == 422 and any(marker in message for marker in _IDENTITY_EXISTS_MARKERS):
+            return BrokerRefusalKind.CLIENT_ORDER_ID_EXISTS
+        return BrokerRefusalKind.UNCERTAIN
+    return BrokerRefusalKind.DEFINITIVE_REFUSAL
+
+
+def is_definitive_broker_refusal(status: int, body: str) -> bool:
+    """Whether an answer to a delivered order request proves no order was created.
+
+    One rule, stated once: the status set and the document shape are judged in
+    `classify_broker_refusal`, not repeated here where a second copy would mask a
+    removed check from the mutation campaign.
+    """
+    return classify_broker_refusal(status, body) is BrokerRefusalKind.DEFINITIVE_REFUSAL
+
+
+def is_client_order_id_collision(status: int, body: str) -> bool:
+    """Whether the broker answered that an order already exists under this identity."""
+    return classify_broker_refusal(status, body) is BrokerRefusalKind.CLIENT_ORDER_ID_EXISTS
+
+
+def order_identity_mismatches(*, expected: object, actual: object) -> tuple[str, ...]:
+    """Every field on which a broker order is NOT the authorized order. Empty = same.
+
+    `expected` is what a human authorized (a `PaperOrderRequest` or an
+    `ExecutionAuthorization`: symbol, side, quantity, order_type, limit_price,
+    client_order_id). `actual` is the broker's view. A field the broker did not
+    report is a mismatch, not a match: adopting an order this product cannot fully
+    identify is how it would come to track the wrong one.
+    """
+    mismatches: list[str] = []
+
+    def actual_text(name: str) -> str | None:
+        value = getattr(actual, name, None)
+        return value if isinstance(value, str) and value else None
+
+    if actual_text("client_order_id") != getattr(expected, "client_order_id", None):
+        mismatches.append("client_order_id")
+    symbol = actual_text("symbol")
+    if symbol is None or symbol.upper() != getattr(expected, "symbol", None):
+        mismatches.append("symbol")
+    side = actual_text("side")
+    if side is None or side.upper() != str(getattr(expected, "side", "")).upper():
+        mismatches.append("side")
+    order_type = actual_text("order_type")
+    expected_type = getattr(expected, "order_type", None)
+    expected_type_text = (
+        expected_type.value if isinstance(expected_type, OrderType) else str(expected_type)
+    )
+    if order_type is None or order_type.upper() != expected_type_text.upper():
+        mismatches.append("order_type")
+    try:
+        if Decimal(actual_text("quantity") or "x") != Decimal(getattr(expected, "quantity", -1)):
+            mismatches.append("quantity")
+    except InvalidOperation:
+        mismatches.append("quantity")
+    expected_limit = getattr(expected, "limit_price", None)
+    if expected_limit is not None:
+        try:
+            if Decimal(actual_text("limit_price") or "x") != Decimal(expected_limit):
+                mismatches.append("limit_price")
+        except InvalidOperation:
+            mismatches.append("limit_price")
+    return tuple(mismatches)
 
 
 class PaperEnvironment(StrEnum):

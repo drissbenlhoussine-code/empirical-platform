@@ -1,5 +1,11 @@
 # M085 corrective pass — send-time policy, uncertain outcomes, terminal immutability
 
+> **Superseded in part by the identity-safety correction:** this pass was committed as
+> `b24c471592619b71dac296d538bb03715d4962da`; its verification, the identity-collision defect
+> (F1) found while reviewing it, and the correction that followed are in
+> [identity-collision-correction.md](identity-collision-correction.md). The 422 rule stated
+> in item 2 below is now semantic, not "status and JSON object".
+
 Status: CORRECTED CANDIDATE — OWNER REVIEW REQUIRED. Not merged, not frozen, not
 deployed. M086 NOT_STARTED. No Paper or Live order was submitted, no order endpoint was
 called, and no human approval, configuration, context, proposal, intent, authorization
@@ -305,6 +311,13 @@ None of these exposes a send; each is recorded rather than dissolved.
   non-404, non-200 reconciliation answer for the same attempt fails to append its event.
 
 ## Governance findings
+
+> **G1 resolved (2026-09-25).** The Owner ratified `1127134` for exactly its six files and
+> directed that the frozen-path guard be extended to M084; both are recorded in
+> `PROJECT_CHECKPOINT.md` section 119 and proved by
+> `tests/architecture/test_frozen_milestones.py`. See
+> [identity-collision-correction.md](identity-collision-correction.md), section 6. The
+> paragraph below is kept as the record of the finding.
 
 **G1 — post-freeze M084 audit-tooling commit, Owner confirmation required.** Commit
 `1127134623b25178b4d98236d5ab75f8f2134760` ("fix(m084): pin the derived audit to the

@@ -47,6 +47,7 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
     AlpacaPaperClient,
     AlpacaPaperCredentials,
     BrokerAmbiguousDispatchError,
+    BrokerIdentityExistsError,
     BrokerNotSentError,
     BrokerResponseInvalidError,
     EndpointRefusedError,
@@ -431,10 +432,21 @@ class TestACredentialNeverComesBackOut:
     def test_a_definitive_refusal_echoing_the_key_is_scrubbed_before_it_is_returned(
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
-        hostile.then(_json_response(422, {"message": f"key was {_KEY}"}))
+        hostile.then(_json_response(422, {"code": 40010001, "message": f"key was {_KEY}"}))
         status, view, sanitized = client.submit_order(an_order())
         assert (status, view) == (422, None)
         assert _KEY not in sanitized
+
+    def test_an_uncertain_422_echoing_the_key_is_scrubbed_before_it_is_raised(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        # Without the broker's `code` this is not a definitive document (F1 semantics);
+        # the scrubbing must hold on the exception path too.
+        hostile.then(_json_response(422, {"message": f"key was {_KEY}"}))
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert _KEY not in str(raised.value.sanitized_body)
+        assert _KEY not in str(raised.value)
 
     def test_the_client_repr_discloses_nothing(self, client: AlpacaPaperClient) -> None:
         rendered = repr(client)
@@ -664,18 +676,71 @@ class TestErrorStatusesAreReportedFaithfully:
             client.submit_order(an_order())
         assert raised.value.http_status == status
 
-    def test_a_duplicate_client_order_id_rejection_is_reported_as_the_broker_sent_it(
+    def test_a_duplicate_client_order_id_answer_is_an_existing_identity_not_a_refusal(
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
-        # Alpaca's documented duplicate response. It is recorded, not translated
-        # into success, and not retried with a new identity.
+        # IDENTITY-SAFETY CORRECTION (F1). Alpaca's documented duplicate response means
+        # an order EXISTS under our identity. SUPERSEDED: this used to be returned as a
+        # plain 422 refusal, which the handler recorded as terminal REJECTED. It is now
+        # its own exception, carrying the answer, never retried with a new identity.
         hostile.then(
             _json_response(422, {"code": 40010001, "message": "client_order_id must be unique"})
         )
+        with pytest.raises(BrokerIdentityExistsError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == 422
+        assert raised.value.request_sent is True
+        assert "must be unique" in str(raised.value.sanitized_body)
+        assert len(hostile.requests) == 1
+
+    def test_an_ordinary_422_with_the_brokers_document_is_still_a_definitive_refusal(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(422, {"code": 40010001, "message": "qty must be integer"}))
         status, view, sanitized = client.submit_order(an_order())
-        assert status == 422
-        assert view is None
-        assert "must be unique" in sanitized
+        assert (status, view) == (422, None)
+        assert "qty must be integer" in sanitized
+
+    @pytest.mark.parametrize(
+        "document",
+        [
+            {"message": "client_order_id must be unique"},
+            {"code": "40010001", "message": "client_order_id must be unique"},
+            {"code": 40010001, "message": "client_order_id is too long"},
+            {"code": 40010001},
+            {"code": 40010001, "message": ""},
+            {"error": "unprocessable"},
+        ],
+    )
+    def test_a_422_of_unknown_shape_or_unknown_identity_meaning_is_uncertain(
+        self, client: AlpacaPaperClient, hostile: _Script, document: dict[str, object]
+    ) -> None:
+        # Fail closed: not the broker's documented error object, or an error about
+        # the identity whose meaning is not documented here. Neither is a refusal and
+        # neither is the duplicate answer; both are UNKNOWN and reconciled.
+        hostile.then(_json_response(422, document))
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == 422
+        assert len(hostile.requests) == 1
+
+    def test_the_duplicate_words_on_a_non_422_status_are_uncertain(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(
+            _json_response(400, {"code": 40010001, "message": "client_order_id must be unique"})
+        )
+        with pytest.raises(BrokerAmbiguousDispatchError):
+            client.submit_order(an_order())
+
+    def test_a_looked_up_order_reports_its_limit_price(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, an_order_payload(limit_price="4.00")))
+        status, view, _ = client.fetch_order_by_client_order_id("m085-abcdef0123456789")
+        assert status == 200
+        assert view is not None
+        assert view.limit_price == "4.00"
 
     def test_a_rate_limit_answer_is_reported_rather_than_retried_here(
         self, client: AlpacaPaperClient, hostile: _Script

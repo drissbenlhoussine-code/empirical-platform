@@ -84,6 +84,7 @@ def _reconcile(world: dict[str, Any], *, at_seconds: int) -> ExecutionAttempt:
         acknowledgements=world["acknowledgements"],
         events=world["events"],
         broker=world["broker"],
+        authorizations=world["authorizations"],
     ).handle(
         ReconcilePaperOrderCommand(
             intent_governance_id="INT-1", at=_NOW + timedelta(seconds=at_seconds)
@@ -392,7 +393,9 @@ class TestAnUncertainOutcomeIsResolvedNotRetried:
         reconciled = _reconcile(world, at_seconds=5)
         assert reconciled.state is PaperExecutionState.PAPER_ACCEPTED
         assert reconciled.broker_order_id == "broker-1"
-        assert world["broker"].lookups == [attempt.client_order_id]
+        # Two lookups of the SAME identity: the pre-send identity check (F1) and the
+        # reconciliation. Never a different id.
+        assert world["broker"].lookups == [attempt.client_order_id] * 2
         assert [state for _, state in world["attempts"].transitions][-2:] == [
             PaperExecutionState.PAPER_SUBMITTED,
             PaperExecutionState.PAPER_ACCEPTED,
@@ -531,8 +534,9 @@ class TestATerminalAttemptIsImmutable:
     def test_reconciliation_neither_asks_nor_writes_after_a_terminal_state(self) -> None:
         world = self._filled()
         transitions = list(world["attempts"].transitions)
+        lookups = list(world["broker"].lookups)  # the dispatch's own pre-send identity check
         assert _reconcile(world, at_seconds=600).state is PaperExecutionState.FILLED
-        assert world["broker"].lookups == []
+        assert world["broker"].lookups == lookups
         assert world["attempts"].transitions == transitions
 
 

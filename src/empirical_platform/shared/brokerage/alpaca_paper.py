@@ -61,8 +61,9 @@ from typing import Any, Final
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
+    BrokerRefusalKind,
     PaperOrderRequest,
-    is_definitive_broker_refusal,
+    classify_broker_refusal,
 )
 
 __all__ = [
@@ -74,6 +75,7 @@ __all__ = [
     "AlpacaPaperCredentials",
     "AlpacaPaperMarketDataClient",
     "BrokerAmbiguousDispatchError",
+    "BrokerIdentityExistsError",
     "BrokerNotSentError",
     "BrokerResponseInvalidError",
     "EndpointRefusedError",
@@ -156,6 +158,32 @@ class BrokerAmbiguousDispatchError(RuntimeError):
         super().__init__(message)
         self.http_status = http_status
         self.sanitized_body = sanitized_body
+
+
+class BrokerIdentityExistsError(RuntimeError):
+    """The broker ALREADY HOLDS an order under the `client_order_id` this product derived.
+
+    IDENTITY-SAFETY CORRECTION (F1). Raised in two places: by the adapter when
+    `POST /v2/orders` answers Alpaca's documented duplicate-identity 422, and by the
+    dispatch handler's pre-send check when a lookup finds the identity before anything
+    is sent (`request_sent=False`). Neither is a refusal of the order and neither may
+    become a terminal REJECTED: an order exists at the broker whose identity is ours,
+    and the caller must find out whether it IS ours -- field by field -- before
+    adopting it, and must never answer by sending another.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        sanitized_body: str | None = None,
+        request_sent: bool = True,
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.sanitized_body = sanitized_body
+        self.request_sent = request_sent
 
 
 class BrokerResponseInvalidError(RuntimeError):
@@ -344,6 +372,9 @@ class _OrderView:
     order_type: str
     filled_quantity: str
     filled_avg_price: str | None
+    #: Reported by the broker for a limit order; None when absent. Compared against the
+    #: authorized price before an order found by identity may be adopted.
+    limit_price: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -499,7 +530,9 @@ class _StrictConnection:
             if before_send is not None:
                 try:
                     before_send()
-                except BrokerNotSentError:
+                except (BrokerNotSentError, BrokerIdentityExistsError):
+                    # Both are decisions about THIS request made before it was sent:
+                    # not-sent, or not-to-be-sent because the identity already exists.
                     raise
                 except Exception as error:
                     raise BrokerNotSentError(
@@ -719,10 +752,22 @@ class AlpacaPaperClient:
                     http_status=status,
                     sanitized_body=sanitized,
                 ) from error
-        if is_definitive_broker_refusal(status, sanitized):
+        kind = classify_broker_refusal(status, sanitized)
+        if kind is BrokerRefusalKind.CLIENT_ORDER_ID_EXISTS:
+            # IDENTITY-SAFETY CORRECTION (F1). The broker holds an order under our
+            # identity. Not a refusal: the caller must look it up, never resend.
+            raise BrokerIdentityExistsError(
+                "POST /v2/orders answered that an order already exists under this "
+                "client_order_id; reconcile the identity, do not send again",
+                http_status=status,
+                sanitized_body=sanitized,
+                request_sent=True,
+            )
+        if kind is BrokerRefusalKind.DEFINITIVE_REFUSAL:
             # The broker's own error document on a status that proves no order exists.
             return status, None, sanitized
         # Everything else -- 5xx, 408, 409, 429, a non-JSON body from an intermediary,
+        # an error document about the identity whose meaning is not documented here,
         # any status not known to be definitive -- may have followed an acceptance.
         raise BrokerAmbiguousDispatchError(
             f"POST /v2/orders answered HTTP {status}, which does not prove the order was "
@@ -773,7 +818,11 @@ class AlpacaPaperClient:
     @staticmethod
     def _order_view(payload: dict[str, Any]) -> _OrderView:
         filled_average = payload.get("filled_avg_price")
+        limit_price = payload.get("limit_price")
         return _OrderView(
+            limit_price=(
+                None if limit_price is None else _decimal_text(limit_price, field="limit_price")
+            ),
             broker_order_id=_require_text(payload, "id"),
             client_order_id=_require_text(payload, "client_order_id"),
             status=_require_text(payload, "status"),

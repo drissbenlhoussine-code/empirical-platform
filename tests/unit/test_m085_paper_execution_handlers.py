@@ -1747,7 +1747,7 @@ class TestDecidePaperBoundTradeProposal:
 
 
 class TestReconcilePaperOrder:
-    def _dispatched(self) -> tuple[FakeAttempts, ExecutionAttempt]:
+    def _dispatched(self) -> tuple[FakeAttempts, ExecutionAttempt, FakeAuthorizations]:
         preview = a_preview()
         authorizations = FakeAuthorizations()
         authorization = authorizations.save(
@@ -1779,7 +1779,7 @@ class TestReconcilePaperOrder:
             at=_NOW,
             broker_order_id="broker-1",
         )
-        return attempts, attempt
+        return attempts, attempt, authorizations
 
     def test_an_intent_with_no_attempt_is_not_found(self) -> None:
         with pytest.raises(NotFoundError):
@@ -1788,10 +1788,11 @@ class TestReconcilePaperOrder:
                 acknowledgements=FakeAcknowledgements(),
                 events=FakeEvents(),
                 broker=FakeBroker(),
+                authorizations=FakeAuthorizations(),
             ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
 
     def test_it_asks_about_the_original_client_order_id(self) -> None:
-        attempts, attempt = self._dispatched()
+        attempts, attempt, authorizations = self._dispatched()
         broker = FakeBroker(
             lookup_view=FakeView(client_order_id=attempt.client_order_id, status="canceled")
         )
@@ -1800,12 +1801,13 @@ class TestReconcilePaperOrder:
             acknowledgements=FakeAcknowledgements(),
             events=FakeEvents(),
             broker=broker,
+            authorizations=authorizations,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert broker.lookups == [attempt.client_order_id]
         assert result.state is PaperExecutionState.CANCELED
 
     def test_a_terminal_attempt_is_returned_without_asking(self) -> None:
-        attempts, attempt = self._dispatched()
+        attempts, attempt, authorizations = self._dispatched()
         attempts.transition(
             attempt_id=attempt.attempt_id, target=PaperExecutionState.FILLED, at=_NOW
         )
@@ -1815,29 +1817,32 @@ class TestReconcilePaperOrder:
             acknowledgements=FakeAcknowledgements(),
             events=FakeEvents(),
             broker=broker,
+            authorizations=authorizations,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert broker.lookups == []
 
     def test_one_not_found_does_not_resolve_an_unknown_outcome(self) -> None:
-        attempts, attempt = self._dispatched()
+        attempts, attempt, authorizations = self._dispatched()
         events = FakeEvents()
         result = ReconcilePaperOrderHandler(
             attempts=attempts,
             acknowledgements=FakeAcknowledgements(),
             events=events,
             broker=FakeBroker(lookup_status=404, lookup_view=None),
+            authorizations=authorizations,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert result.state is PaperExecutionState.PAPER_SUBMITTED
         assert any(event.event_type == "RECONCILE_NOT_FOUND_INSUFFICIENT" for event in events.rows)
 
     def test_the_bounded_policy_resolves_only_with_enough_observations_and_time(self) -> None:
-        attempts, attempt = self._dispatched()
+        attempts, attempt, authorizations = self._dispatched()
         acknowledgements, events = FakeAcknowledgements(), FakeEvents()
         handler = ReconcilePaperOrderHandler(
             attempts=attempts,
             acknowledgements=acknowledgements,
             events=events,
             broker=FakeBroker(lookup_status=404, lookup_view=None),
+            authorizations=authorizations,
         )
         later = _NOW + timedelta(seconds=120)
         handler.handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=later))
@@ -1847,13 +1852,14 @@ class TestReconcilePaperOrder:
         assert any(event.event_type == "RECONCILE_RESOLVED_NOT_FOUND" for event in events.rows)
 
     def test_an_unusable_answer_records_an_event_and_changes_nothing(self) -> None:
-        attempts, _ = self._dispatched()
+        attempts, _, authorizations = self._dispatched()
         events = FakeEvents()
         result = ReconcilePaperOrderHandler(
             attempts=attempts,
             acknowledgements=FakeAcknowledgements(),
             events=events,
             broker=FakeBroker(lookup_status=500, lookup_view=None),
+            authorizations=authorizations,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert result.state is PaperExecutionState.PAPER_SUBMITTED
         assert any(event.event_type == "RECONCILE_UNUSABLE_ANSWER" for event in events.rows)
@@ -1861,7 +1867,7 @@ class TestReconcilePaperOrder:
 
 class TestCancelPaperOrder:
     def _dispatched(self) -> FakeAttempts:
-        attempts, _ = TestReconcilePaperOrder()._dispatched()
+        attempts, _, _ = TestReconcilePaperOrder()._dispatched()
         return attempts
 
     def test_a_successful_request_moves_to_cancel_requested_not_canceled(self) -> None:
@@ -2039,7 +2045,7 @@ class TestQueries:
             ).handle(ShowPaperExecutionQuery(intent_governance_id="INT-MISSING"))
 
     def test_list_returns_recent_attempts(self) -> None:
-        attempts, _ = TestReconcilePaperOrder()._dispatched()
+        attempts, _, _ = TestReconcilePaperOrder()._dispatched()
         rows = ListPaperExecutionsHandler(attempts=attempts).handle(
             ListPaperExecutionsQuery(limit=10)
         )

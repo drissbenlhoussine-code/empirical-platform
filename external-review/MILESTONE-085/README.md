@@ -26,6 +26,16 @@
 > the database must be at exactly `9c4b2e7d5a18`, and `--dry-run` is refused. See
 > [corrective-pass.md](corrective-pass.md). The run-3 matrix is kept as
 > `mutation-matrix-run3.md`; every count and table below is historical.
+>
+> **Corrected again (identity safety, 2026-09-25):** the corrective pass became commit
+> `b24c471` and was verified (PostgreSQL 430/430, 51/51 + 9/9 mutations). Its review found
+> F1: Alpaca's duplicate-`client_order_id` 422 was a terminal REJECTED, losing awareness of
+> an order the broker holds under our identity. Now: 422 is classified semantically, the
+> identity is looked up before any send, an existing order is adopted only when it equals
+> the authorized order field by field, a mismatch is a recorded collision, and nothing is
+> ever sent again. The Owner ratified the post-freeze M084 commit `1127134` and the
+> frozen-path guard now covers M084 as well as M083. See
+> [identity-collision-correction.md](identity-collision-correction.md).
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**

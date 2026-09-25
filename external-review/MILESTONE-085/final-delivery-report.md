@@ -2,6 +2,12 @@
 
 > **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
 > The preview and submit commands no longer accept limits, uncertain broker answers are SUBMISSION_UNKNOWN rather than REJECTED, and counts below are historical.
+>
+> **Superseded again by the identity-safety correction:** see
+> [identity-collision-correction.md](identity-collision-correction.md). The corrective pass is
+> commit `b24c471`; the duplicate-`client_order_id` 422 is no longer a refusal; M084 is
+> mechanically frozen and its post-freeze commit `1127134` is Owner-ratified (section M
+> below is thereby closed).
 
 > Current temporal correction: see [temporal-correction.md](temporal-correction.md).
 > The ten-second lead workaround described below is superseded. Earlier test counts

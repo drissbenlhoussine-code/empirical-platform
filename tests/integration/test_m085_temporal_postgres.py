@@ -260,11 +260,36 @@ def _reconcile(world: dict[str, Any]) -> object:
         acknowledgements=paper.broker_acknowledgements,
         events=paper.paper_execution_events,
         broker=world["broker"],
+        authorizations=paper.execution_authorizations,
     ).handle(
         ReconcilePaperOrderCommand(
             intent_governance_id=world["command"].intent_governance_id, at=world["clock"].utc
         )
     )
+
+
+def _our_order_as_the_broker_reports_it(
+    world: dict[str, Any], *, client_order_id: str, **fields: object
+) -> FakeView:
+    """The AUTHORIZED order, as the broker would echo it.
+
+    IDENTITY-SAFETY CORRECTION (F1): a found order is adopted only when it equals the
+    authorized order field by field, so a scripted lookup answer must describe THAT
+    order -- the fixture's defaults describe the unit-test intent, not this world's.
+    """
+    authorization = world["authorization"]
+    described: dict[str, object] = {
+        "client_order_id": client_order_id,
+        "symbol": authorization.symbol,
+        "side": authorization.side.lower(),
+        "quantity": str(authorization.quantity),
+        "order_type": authorization.order_type.value.lower(),
+        "limit_price": (
+            None if authorization.limit_price is None else str(authorization.limit_price)
+        ),
+    }
+    described.update(fields)
+    return FakeView(**described)
 
 
 def test_a_server_error_is_stored_as_unknown_and_never_resent(world: dict[str, Any]) -> None:
@@ -291,7 +316,9 @@ def test_reconciliation_resolves_an_unknown_attempt_through_the_database_edges(
     world["broker"].submit_status = 502
     world["broker"].submit_body = "<html>Bad Gateway</html>"
     unknown = handler(world).handle(world["command"]).attempt
-    world["broker"].lookup_view = FakeView(client_order_id=unknown.client_order_id, status="filled")
+    world["broker"].lookup_view = _our_order_as_the_broker_reports_it(
+        world, client_order_id=unknown.client_order_id, status="filled"
+    )
     resolved = _reconcile(world)
     assert resolved.state is PaperExecutionState.FILLED  # type: ignore[attr-defined]
     stored = world["paper"].execution_attempts.get("ATT-TIME")
@@ -319,7 +346,9 @@ def test_reconciliation_resolves_an_interrupted_dispatch_through_the_database_ed
         handler(world).handle(world["command"])
     stuck = world["paper"].execution_attempts.get("ATT-TIME")
     assert stuck is not None and stuck.state is PaperExecutionState.SUBMISSION_IN_PROGRESS
-    world["broker"].lookup_view = FakeView(client_order_id=stuck.client_order_id, status="filled")
+    world["broker"].lookup_view = _our_order_as_the_broker_reports_it(
+        world, client_order_id=stuck.client_order_id, status="filled"
+    )
     world["clock"].advance(120)
     resolved = _reconcile(world)
     assert resolved.state is PaperExecutionState.FILLED  # type: ignore[attr-defined]

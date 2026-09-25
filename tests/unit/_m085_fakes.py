@@ -51,7 +51,10 @@ from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
     SubmissionState,
 )
-from empirical_platform.shared.brokerage.alpaca_paper import BrokerNotSentError
+from empirical_platform.shared.brokerage.alpaca_paper import (
+    BrokerIdentityExistsError,
+    BrokerNotSentError,
+)
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant, BrokerTimeBasis
 
 _NOW = datetime(2026, 9, 10, 14, 0, tzinfo=UTC)
@@ -616,6 +619,10 @@ class FakeView:
             "order_type": "limit",
             "filled_quantity": "0",
             "filled_avg_price": None,
+            # The fixture intent's limit price (see `an_intent`), so a view that names
+            # nothing else describes the authorized order exactly. A test about a
+            # mismatched order overrides the field it wants to differ.
+            "limit_price": "4.00",
         }
         defaults.update(fields)
         for name, value in defaults.items():
@@ -697,6 +704,7 @@ class FakeBroker:
         self.submitted: list[object] = []
         self.cancelled: list[str] = []
         self.lookups: list[str] = []
+        self.lookup_sequence: list[tuple[int, object | None, str]] = []
 
     def fetch_account(self) -> tuple[int, dict[str, object]]:
         if self.account_status_code != 200:
@@ -739,7 +747,7 @@ class FakeBroker:
             # nothing was sent, and is reported as a definite not-sent.
             try:
                 before_send()
-            except BrokerNotSentError:
+            except (BrokerNotSentError, BrokerIdentityExistsError):
                 raise
             except Exception as error:  # noqa: BLE001 - mirrors the transport
                 raise BrokerNotSentError(
@@ -767,13 +775,35 @@ class FakeBroker:
         self, client_order_id: str
     ) -> tuple[int, object | None, str]:
         self.lookups.append(client_order_id)
+        if self.lookup_sequence:
+            # Scripted answers, consumed in order; the standing knobs answer afterwards.
+            # Lets a test say "404 before the send, found after it".
+            return self.lookup_sequence.pop(0)
         view: object | None
         if self.lookup_view is not _UNSET:
             view = self.lookup_view
         elif self.lookup_status >= 400:
             view = None
         else:
-            fields: dict[str, object] = {"client_order_id": client_order_id}
+            # A faithful broker knows only the orders it RECEIVED. Unless a test scripts
+            # an answer, an identity nothing was sent under is not found (404), and an
+            # identity that was sent echoes exactly the order that carried it. This is
+            # what lets the pre-send identity check pass for a fresh dispatch and find
+            # the order after a crash, without a test saying either.
+            sent = [
+                o for o in self.submitted if getattr(o, "client_order_id", None) == client_order_id
+            ]
+            if not sent:
+                return 404, None, '{"code": 40410000, "message": "order not found"}'
+            order = sent[-1]
+            fields: dict[str, object] = {
+                "client_order_id": client_order_id,
+                "symbol": order.symbol,
+                "side": order.side.lower(),
+                "quantity": str(order.quantity),
+                "order_type": order.order_type.value.lower(),
+                "limit_price": None if order.limit_price is None else str(order.limit_price),
+            }
             fields.update(self.lookup_fields)
             view = FakeView(**fields)
         return self.lookup_status, view, self.lookup_body

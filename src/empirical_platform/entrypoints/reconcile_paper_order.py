@@ -44,6 +44,7 @@ def run_reconcile_paper_order(
             acknowledgements=context.paper.broker_acknowledgements,
             events=context.paper.paper_execution_events,
             broker=context.broker,
+            authorizations=context.paper.execution_authorizations,
         )
         return handler.handle(
             ReconcilePaperOrderCommand(
