@@ -221,6 +221,10 @@ M084 mutation is detected, an M083 mutation is still detected, the exact ratifie
 passes, the manifest is the content at `1127134`, the six ratified files are governed, the
 M084 freeze record, authority documents and migration are byte-identical to the ratified
 commit, and the checkpoint record exists. The guard runs in CI through `python -m pytest`.
+The secret scanner's one remaining exemption -- a manifest line is cleared only when it maps
+a tracked path to the blob id git itself records for that path -- now covers both generated
+manifests; found when the exact-SHA gate run flagged the new manifest's 69 blob ids, repaired
+in `tools/secret_scan_targets.py` with tests for both manifests and for an invented id.
 
 ## 7. What this round did not do
 
