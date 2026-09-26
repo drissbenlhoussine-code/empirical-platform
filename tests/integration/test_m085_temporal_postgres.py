@@ -261,6 +261,7 @@ def _reconcile(world: dict[str, Any]) -> object:
         events=paper.paper_execution_events,
         broker=world["broker"],
         authorizations=paper.execution_authorizations,
+        previews=paper.submission_previews,
     ).handle(
         ReconcilePaperOrderCommand(
             intent_governance_id=world["command"].intent_governance_id, at=world["clock"].utc

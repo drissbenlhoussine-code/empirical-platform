@@ -53,6 +53,7 @@ from empirical_platform.decision_candidate.trade_approval import (
 )
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerIdentityExistsError,
+    BrokerIdentityUnresolvedError,
     BrokerNotSentError,
 )
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant, BrokerTimeBasis
@@ -623,6 +624,8 @@ class FakeView:
             # nothing else describes the authorized order exactly. A test about a
             # mismatched order overrides the field it wants to differ.
             "limit_price": "4.00",
+            "time_in_force": "day",
+            "extended_hours": False,
         }
         defaults.update(fields)
         for name, value in defaults.items():
@@ -705,6 +708,7 @@ class FakeBroker:
         self.cancelled: list[str] = []
         self.lookups: list[str] = []
         self.lookup_sequence: list[tuple[int, object | None, str]] = []
+        self.lookup_raises: BaseException | None = None
 
     def fetch_account(self) -> tuple[int, dict[str, object]]:
         if self.account_status_code != 200:
@@ -747,7 +751,7 @@ class FakeBroker:
             # nothing was sent, and is reported as a definite not-sent.
             try:
                 before_send()
-            except (BrokerNotSentError, BrokerIdentityExistsError):
+            except (BrokerNotSentError, BrokerIdentityExistsError, BrokerIdentityUnresolvedError):
                 raise
             except Exception as error:  # noqa: BLE001 - mirrors the transport
                 raise BrokerNotSentError(
@@ -775,6 +779,8 @@ class FakeBroker:
         self, client_order_id: str
     ) -> tuple[int, object | None, str]:
         self.lookups.append(client_order_id)
+        if self.lookup_raises is not None:
+            raise self.lookup_raises
         if self.lookup_sequence:
             # Scripted answers, consumed in order; the standing knobs answer afterwards.
             # Lets a test say "404 before the send, found after it".
@@ -803,6 +809,8 @@ class FakeBroker:
                 "quantity": str(order.quantity),
                 "order_type": order.order_type.value.lower(),
                 "limit_price": None if order.limit_price is None else str(order.limit_price),
+                "time_in_force": order.time_in_force.lower(),
+                "extended_hours": order.extended_hours,
             }
             fields.update(self.lookup_fields)
             view = FakeView(**fields)

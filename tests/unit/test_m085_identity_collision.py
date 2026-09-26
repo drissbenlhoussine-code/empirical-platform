@@ -1,5 +1,10 @@
 """IDENTITY-SAFETY CORRECTION (F1): an order that already exists under our identity.
 
+SUPERSEDED IN PART by the send-boundary correction: adoption of an order observed before the
+send, after a duplicate answer, or after a database reconstruction is no longer performed
+(observing is not attributing); those cases are specified in
+`tests/unit/test_m085_identity_lineage.py`. The tests kept here still hold.
+
 The unsafe sequence this closes: a deterministic `client_order_id` is derived; the
 broker already holds an order under it (a rebuilt database, a lost attempt row, an
 earlier process); a new submission is answered with Alpaca's duplicate-identity 422;
@@ -32,7 +37,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     classify_broker_refusal,
     is_client_order_id_collision,
     is_definitive_broker_refusal,
-    order_identity_mismatches,
+    order_terms_mismatches,
 )
 from empirical_platform.shared.brokerage.alpaca_paper import BrokerIdentityExistsError
 
@@ -156,11 +161,11 @@ def _authorized_order(**overrides: object) -> PaperOrderRequest:
 class TestOnlyTheExactAuthorizedOrderIsAdopted:
     def test_an_exact_match_has_no_mismatches(self) -> None:
         view = FakeView(client_order_id="m085-abcdef0123456789")
-        assert order_identity_mismatches(expected=_authorized_order(), actual=view) == ()
+        assert order_terms_mismatches(expected=_authorized_order(), actual=view) == ()
 
     def test_case_of_side_and_type_does_not_matter_but_the_value_does(self) -> None:
         view = FakeView(client_order_id="m085-abcdef0123456789", side="BUY", order_type="LIMIT")
-        assert order_identity_mismatches(expected=_authorized_order(), actual=view) == ()
+        assert order_terms_mismatches(expected=_authorized_order(), actual=view) == ()
 
     @pytest.mark.parametrize(
         ("field", "value"),
@@ -176,26 +181,18 @@ class TestOnlyTheExactAuthorizedOrderIsAdopted:
     def test_a_mismatched_field_is_a_collision(self, field: str, value: str) -> None:
         fields: dict[str, object] = {"client_order_id": "m085-abcdef0123456789", field: value}
         view = FakeView(**fields)
-        assert field in order_identity_mismatches(expected=_authorized_order(), actual=view)
+        assert field in order_terms_mismatches(expected=_authorized_order(), actual=view)
 
     @pytest.mark.parametrize("field", ["symbol", "quantity", "side", "order_type", "limit_price"])
     def test_a_field_the_broker_did_not_report_is_a_mismatch_not_a_match(self, field: str) -> None:
         view = FakeView(client_order_id="m085-abcdef0123456789", **{field: None})
-        assert field in order_identity_mismatches(expected=_authorized_order(), actual=view)
+        assert field in order_terms_mismatches(expected=_authorized_order(), actual=view)
 
     def test_a_non_decimal_quantity_or_price_is_a_mismatch(self) -> None:
         view = FakeView(client_order_id="m085-abcdef0123456789", quantity="one", limit_price="4,00")
         assert {"quantity", "limit_price"} <= set(
-            order_identity_mismatches(expected=_authorized_order(), actual=view)
+            order_terms_mismatches(expected=_authorized_order(), actual=view)
         )
-
-    def test_an_authorization_is_an_acceptable_expected_order(self) -> None:
-        world = handlers._world()
-        authorization = handlers._authorize(world)
-        view = FakeView(client_order_id=authorization.client_order_id)  # type: ignore[attr-defined]
-        assert order_identity_mismatches(expected=authorization, actual=view) == ()
-        wrong = FakeView(client_order_id=authorization.client_order_id, quantity="7")  # type: ignore[attr-defined]
-        assert order_identity_mismatches(expected=authorization, actual=wrong) == ("quantity",)
 
 
 # ---------------------------------------------------------------------------
@@ -212,24 +209,6 @@ class TestAnExistingIdentityIsReconciledNotRejected:
         assert world["broker"].lookups == [_identity(world)]
         assert len(world["broker"].submitted) == 1
         assert result.attempt.state is PaperExecutionState.PAPER_ACCEPTED
-
-    def test_an_exact_match_found_before_sending_is_adopted_without_a_send(self) -> None:
-        world = handlers._world()
-        handlers._authorize(world)
-        identity = _identity(world)
-        world["broker"].lookup_view = FakeView(client_order_id=identity, status="accepted")
-        result = handlers._submit(world)
-        assert world["broker"].submitted == [], "an order was sent although one existed"
-        assert result.dispatched is False
-        assert result.attempt.state is PaperExecutionState.PAPER_ACCEPTED
-        assert result.attempt.broker_order_id == "broker-1"
-        assert world["broker"].lookups == [identity, identity]
-        assert "CLIENT_ORDER_ID_COLLISION" in _events(world)
-        assert "IDENTITY_RECONCILED_EXACT_MATCH" in _events(world)
-        assert "adopted" in result.note and "nothing was sent" in result.note
-        states = [state for _, state in world["attempts"].transitions]
-        assert PaperExecutionState.SUBMISSION_UNKNOWN in states
-        assert PaperExecutionState.REJECTED not in states
 
     @pytest.mark.parametrize(
         ("field", "value"),
@@ -252,7 +231,7 @@ class TestAnExistingIdentityIsReconciledNotRejected:
         assert world["broker"].submitted == []
         assert result.attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN
         assert result.attempt.is_terminal is False
-        assert result.attempt.failure_code == "IDENTITY_EXISTS"
+        assert result.attempt.failure_code == "IDENTITY_EXISTS_UNSENT"
         assert result.attempt.broker_order_id is None
         assert "IDENTITY_COLLISION_MISMATCH" in _events(world)
         mismatch = next(
@@ -276,42 +255,6 @@ class TestAnExistingIdentityIsReconciledNotRejected:
         assert [s for _, s in world["attempts"].transitions].count(
             PaperExecutionState.SUBMISSION_IN_PROGRESS
         ) == 1
-
-    def test_the_lookup_failing_before_the_send_means_nothing_is_sent(self) -> None:
-        world = handlers._world()
-        handlers._authorize(world)
-        world["broker"].lookup_status = 500
-        world["broker"].lookup_view = None
-        result = handlers._submit(world)
-        assert world["broker"].submitted == []
-        assert result.attempt.state is PaperExecutionState.REJECTED
-        assert result.attempt.failure_code == "NOT_SENT"
-        assert "could not confirm" in str(result.attempt.failure_detail)
-        assert handlers._submit(world).dispatched is False
-
-    def test_a_duplicate_answer_after_the_send_is_reconciled_not_rejected(self) -> None:
-        # 404 before the send, then the broker answers "must be unique" -- a race with
-        # another process -- and the lookup afterwards finds the exact order.
-        world = handlers._world()
-        handlers._authorize(world)
-        identity = _identity(world)
-        broker = world["broker"]
-        broker.lookup_sequence = [(404, None, _NOT_FOUND)]
-        broker.submit_status = 422
-        broker.submit_body = _DUPLICATE
-        broker.lookup_view = FakeView(
-            client_order_id=identity, status="filled", filled_quantity="1", filled_avg_price="4.00"
-        )
-        result = handlers._submit(world)
-        assert len(broker.submitted) == 1
-        assert result.dispatched is True
-        assert result.attempt.state is PaperExecutionState.FILLED
-        assert "CLIENT_ORDER_ID_COLLISION" in _events(world)
-        assert "IDENTITY_RECONCILED_EXACT_MATCH" in _events(world)
-        assert PaperExecutionState.REJECTED not in [s for _, s in world["attempts"].transitions]
-        (submit_ack, reconcile_ack) = world["acknowledgements"].rows
-        assert (submit_ack.kind, submit_ack.http_status) == ("SUBMIT", 422)
-        assert reconcile_ack.kind == "RECONCILE"
 
     def test_a_duplicate_answer_raised_by_the_adapter_takes_the_same_path(self) -> None:
         world = handlers._world()
@@ -432,27 +375,6 @@ class TestRecoveryAfterRestart:
         assert "IDENTITY_COLLISION_MISMATCH" in _events(world)
         world["broker"].lookup_view = FakeView(client_order_id=_identity(world), status="accepted")
         assert handlers._reconcile(world, at_seconds=6).state is PaperExecutionState.PAPER_ACCEPTED
-
-    def test_a_rebuilt_database_meets_the_brokers_existing_order_without_sending_again(
-        self,
-    ) -> None:
-        # Process A dispatches. Its database is lost. Process B rebuilds the same
-        # intent, preview and authorization -- the same derived identity -- and submits.
-        # The broker still holds A's order: B adopts it and sends nothing.
-        world_a = handlers._world()
-        handlers._authorize(world_a)
-        first = handlers._submit(world_a)
-        assert first.dispatched is True
-        broker = world_a["broker"]  # the broker outlives the database
-        world_b = handlers._world(broker=broker)
-        handlers._authorize(world_b)
-        assert _identity(world_b) == _identity(world_a)
-        second = handlers._submit(world_b)
-        assert len(broker.submitted) == 1
-        assert second.dispatched is False
-        assert second.attempt.state is PaperExecutionState.PAPER_ACCEPTED
-        assert second.attempt.broker_order_id == first.attempt.broker_order_id
-        assert "IDENTITY_RECONCILED_EXACT_MATCH" in _events(world_b)
 
     def test_a_rebuilt_database_meets_a_different_order_under_its_identity(self) -> None:
         world_a = handlers._world()

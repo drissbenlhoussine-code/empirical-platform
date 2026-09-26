@@ -601,11 +601,14 @@ class TestOnlyADefinitiveRefusalIsARefusal:
     def test_the_definitive_statuses_are_exactly_these(self) -> None:
         assert frozenset({400, 401, 403, 422}) == DEFINITIVE_BROKER_REFUSAL_STATUSES
 
-    @pytest.mark.parametrize("status", [400, 401, 403, 422])
+    @pytest.mark.parametrize(
+        ("status", "code"), [(400, 40010001), (401, 40110000), (403, 40310000), (422, 42210000)]
+    )
     def test_a_definitive_status_with_the_brokers_error_document_is_a_refusal(
-        self, status: int
+        self, status: int, code: int
     ) -> None:
-        assert is_definitive_broker_refusal(status, '{"code": 40010001, "message": "no"}')
+        # SEND-BOUNDARY CORRECTION: the code must be one Alpaca documents FOR that status.
+        assert is_definitive_broker_refusal(status, f'{{"code": {code}, "message": "no"}}')
 
     @pytest.mark.parametrize(
         ("status", "body"),

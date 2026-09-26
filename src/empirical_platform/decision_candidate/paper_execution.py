@@ -51,6 +51,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from datetime import time as clock_time
@@ -80,7 +81,12 @@ __all__ = [
     "authorization_binding_refusal",
     "classify_broker_refusal",
     "is_client_order_id_collision",
-    "order_identity_mismatches",
+    "order_terms_mismatches",
+    "attempt_may_have_transmitted",
+    "RECOGNIZED_DEFINITIVE_REFUSAL_CODES",
+    "TRANSMITTED_UNCERTAIN_FAILURE_CODES",
+    "UNSENT_IDENTITY_EVENT_TYPES",
+    "UNSENT_IDENTITY_FAILURE_CODES",
     "effective_liquidation_deadline",
     "entry_window_refusal",
     "execution_policy_from_configuration",
@@ -264,14 +270,42 @@ def _brokers_error_document(body: str) -> dict[str, object] | None:
     return parsed
 
 
-def classify_broker_refusal(status: int, body: str) -> BrokerRefusalKind:
-    """Classify a non-success answer semantically, never by status and JSON-ness alone.
+#: Alpaca's DOCUMENTED refusal codes, per HTTP status, that prove no order was created
+#: (alpaca.markets/learn/how-to-fix-common-trading-api-errors-at-alpaca, read 2026-09-26):
+#: 400 40010000/40010001 request or parameter invalid; 401 40110000 credentials refused;
+#: 403 40310000 buying power / permissions / restrictions, 40310100 pattern-day-trading
+#: protection; 422 42210000 unprocessable order terms, and 40010001 -- the 400-family
+#: validation code Alpaca ALSO returns on 422 ("invalid time_in_force", "limit orders
+#: require a limit price", ..., and "client_order_id must be unique", which is handled
+#: separately below). A code embeds its status as the leading digits; a code that does not
+#: belong to the status it arrived with is inconsistent and proves nothing. An integer
+#: that is not in this table is UNRECOGNISED and proves nothing either: a JSON object's
+#: shape does not authenticate its meaning.
+RECOGNIZED_DEFINITIVE_REFUSAL_CODES: MappingProxyType[int, frozenset[int]] = MappingProxyType(
+    {
+        400: frozenset({40010000, 40010001}),
+        401: frozenset({40110000}),
+        403: frozenset({40310000, 40310100}),
+        422: frozenset({40010001, 42210000}),
+    }
+)
 
-    IDENTITY-SAFETY CORRECTION (F1). A 422 whose message says the `client_order_id`
-    must be unique means the broker HOLDS an order under the identity this product
-    derived. Recording it as a terminal refusal would lose that order. It is its own
-    kind, and any other message about the identity is UNCERTAIN because its meaning
-    is not documented here.
+#: The one (status, code) under which Alpaca documents the duplicate-identity answer.
+_DUPLICATE_IDENTITY_STATUS = 422
+_DUPLICATE_IDENTITY_CODE = 40010001
+
+
+def classify_broker_refusal(status: int, body: str) -> BrokerRefusalKind:
+    """Classify a non-success answer by DOCUMENTED semantics, never by shape alone.
+
+    IDENTITY-SAFETY CORRECTION (F1). A 422 / 40010001 whose message says the
+    `client_order_id` must be unique means the broker HOLDS an order under the identity
+    this product derived; it is its own kind. SEND-BOUNDARY CORRECTION: a refusal is
+    DEFINITIVE only when the status is a refusal status, the body is the broker's own
+    error document, the numeric code is one Alpaca documents FOR THAT STATUS, and the
+    message is not about the identity. Unrecognised codes, codes inconsistent with the
+    status, identity words under any other combination, and malformed documents are all
+    UNCERTAIN and are resolved by reconciliation against the same `client_order_id`.
     """
     if isinstance(status, bool) or not isinstance(status, int):
         return BrokerRefusalKind.UNCERTAIN
@@ -280,10 +314,18 @@ def classify_broker_refusal(status: int, body: str) -> BrokerRefusalKind:
     document = _brokers_error_document(body)
     if document is None:
         return BrokerRefusalKind.UNCERTAIN
+    code = document["code"]
     message = str(document["message"]).lower()
-    if any(marker in message for marker in _IDENTITY_MESSAGE_MARKERS):
-        if status == 422 and any(marker in message for marker in _IDENTITY_EXISTS_MARKERS):
+    about_identity = any(marker in message for marker in _IDENTITY_MESSAGE_MARKERS)
+    if about_identity:
+        if (
+            status == _DUPLICATE_IDENTITY_STATUS
+            and code == _DUPLICATE_IDENTITY_CODE
+            and any(marker in message for marker in _IDENTITY_EXISTS_MARKERS)
+        ):
             return BrokerRefusalKind.CLIENT_ORDER_ID_EXISTS
+        return BrokerRefusalKind.UNCERTAIN
+    if code not in RECOGNIZED_DEFINITIVE_REFUSAL_CODES.get(status, frozenset()):
         return BrokerRefusalKind.UNCERTAIN
     return BrokerRefusalKind.DEFINITIVE_REFUSAL
 
@@ -303,14 +345,21 @@ def is_client_order_id_collision(status: int, body: str) -> bool:
     return classify_broker_refusal(status, body) is BrokerRefusalKind.CLIENT_ORDER_ID_EXISTS
 
 
-def order_identity_mismatches(*, expected: object, actual: object) -> tuple[str, ...]:
-    """Every field on which a broker order is NOT the authorized order. Empty = same.
+def order_terms_mismatches(
+    *, expected: object, actual: object, bound_broker_order_id: str | None = None
+) -> tuple[str, ...]:
+    """THE canonical comparison of a broker order with the authorized order. Empty = same.
 
-    `expected` is what a human authorized (a `PaperOrderRequest` or an
-    `ExecutionAuthorization`: symbol, side, quantity, order_type, limit_price,
-    client_order_id). `actual` is the broker's view. A field the broker did not
-    report is a mismatch, not a match: adopting an order this product cannot fully
-    identify is how it would come to track the wrong one.
+    Used by every path that could bind a broker order to an attempt: the acknowledgement
+    of our own POST, the pre-send identity observation, the duplicate-identity answer,
+    and restart reconciliation. `expected` is the exact authorized request (a
+    `PaperOrderRequest`); `actual` is the broker's view of an order. Every authorized
+    term is compared -- client_order_id, symbol, side, quantity, order type, the limit
+    price (present for LIMIT, absent for MARKET), time_in_force and extended_hours. A
+    field the broker did not report, or reported malformed, is a MISMATCH, never
+    substituted with the expected value: adopting an order this product cannot fully
+    identify is how it would come to track the wrong one. When the attempt has already
+    bound a `broker_order_id`, a different id under the same identity is a mismatch too.
     """
     mismatches: list[str] = []
 
@@ -339,13 +388,83 @@ def order_identity_mismatches(*, expected: object, actual: object) -> tuple[str,
     except InvalidOperation:
         mismatches.append("quantity")
     expected_limit = getattr(expected, "limit_price", None)
+    actual_limit = actual_text("limit_price")
     if expected_limit is not None:
         try:
-            if Decimal(actual_text("limit_price") or "x") != Decimal(expected_limit):
+            if Decimal(actual_limit or "x") != Decimal(expected_limit):
                 mismatches.append("limit_price")
         except InvalidOperation:
             mismatches.append("limit_price")
+    elif actual_limit is not None:
+        mismatches.append("limit_price")
+    time_in_force = actual_text("time_in_force")
+    if (
+        time_in_force is None
+        or time_in_force.upper() != str(getattr(expected, "time_in_force", "")).upper()
+    ):
+        mismatches.append("time_in_force")
+    extended_hours = getattr(actual, "extended_hours", None)
+    if not isinstance(extended_hours, bool) or extended_hours is not getattr(
+        expected, "extended_hours", None
+    ):
+        mismatches.append("extended_hours")
+    if (
+        bound_broker_order_id is not None
+        and actual_text("broker_order_id") != bound_broker_order_id
+    ):
+        mismatches.append("broker_order_id")
     return tuple(mismatches)
+
+
+#: Failure codes and events that record that THIS attempt did not transmit a request able
+#: to create an order: the identity was observed or unresolved BEFORE any send, or the
+#: broker answered our POST that the identity already existed (so the order predates it).
+UNSENT_IDENTITY_FAILURE_CODES: frozenset[str] = frozenset(
+    {"IDENTITY_EXISTS_UNSENT", "IDENTITY_UNRESOLVED_UNSENT", "IDENTITY_EXISTS_SENT", "NOT_SENT"}
+)
+UNSENT_IDENTITY_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "IDENTITY_OBSERVED_BEFORE_SEND",
+        "IDENTITY_LOOKUP_INCONCLUSIVE",
+        "CLIENT_ORDER_ID_COLLISION",
+        "DISPATCH_NOT_SENT",
+    }
+)
+#: Failure codes under which OUR POST may have created the order the broker holds.
+TRANSMITTED_UNCERTAIN_FAILURE_CODES: frozenset[str] = frozenset({"AMBIGUOUS", "UNUSABLE_ANSWER"})
+
+
+def attempt_may_have_transmitted(attempt: object, events: Iterable[object]) -> bool:
+    """The lineage question: could THIS durable attempt have created an order at the broker?
+
+    True only for an attempt whose own request may have left: a dispatcher that claimed
+    and moved to SUBMISSION_IN_PROGRESS and never recorded an answer, or an UNKNOWN whose
+    recorded cause is an ambiguous or unusable answer to OUR POST. False -- and therefore
+    an order found under the identity is observed, never attributed -- when the persisted
+    record says this attempt did not send (identity observed or unresolved before the
+    send, a duplicate answer proving the order predates our POST, a definite not-sent),
+    whichever of the failure code or the append-only events says so. Both are consulted
+    so that a rewritten code cannot erase what an event recorded.
+    """
+    recorded_unsent = any(
+        getattr(event, "event_type", None) in UNSENT_IDENTITY_EVENT_TYPES for event in events
+    )
+    code = getattr(attempt, "failure_code", None)
+    if recorded_unsent or code in UNSENT_IDENTITY_FAILURE_CODES:
+        return False
+    state = getattr(attempt, "state", None)
+    if state is PaperExecutionState.SUBMISSION_IN_PROGRESS:
+        return True
+    if state is PaperExecutionState.SUBMISSION_UNKNOWN:
+        return code in TRANSMITTED_UNCERTAIN_FAILURE_CODES or (
+            isinstance(code, str) and code.startswith("UNCERTAIN_HTTP_")
+        )
+    return state in {
+        PaperExecutionState.PAPER_SUBMITTED,
+        PaperExecutionState.PAPER_ACCEPTED,
+        PaperExecutionState.PARTIALLY_FILLED,
+        PaperExecutionState.CANCEL_REQUESTED,
+    }
 
 
 class PaperEnvironment(StrEnum):

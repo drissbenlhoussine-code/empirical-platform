@@ -84,6 +84,12 @@ _IDENTITY_POSTGRES = "tests/integration/test_m085_identity_collision_postgres.py
 _FROZEN_GUARD = "tools/check_frozen_paths.py"
 _FROZEN_TESTS = "tests/architecture/test_frozen_milestones.py"
 
+#: SEND-BOUNDARY CORRECTION (A6): the final decision follows every slow read; observing an
+#: order is not attributing it; refusal semantics are documented codes, never shape.
+_SEND_BOUNDARY = "tests/unit/test_m085_send_boundary.py"
+_LINEAGE_UNIT = "tests/unit/test_m085_identity_lineage.py"
+_ACK_HTTP = "tests/integration/test_m085_acknowledgement_terms_http.py"
+
 #: Everything a mutation could touch and every file a restoration must leave as it was.
 #: Digested whole before the first family and after the last, so a campaign that
 #: restored the file it meant to but left anything else changed is caught.
@@ -844,8 +850,8 @@ FAMILIES: tuple[Family, ...] = (
         name="response_identity_validation",
         rule="An acknowledgement about another order is refused",
         path=_ADAPTER,
-        original="        if view.client_order_id != order.client_order_id:",
-        mutated="        if False:",
+        original="        mismatches = list(order_terms_mismatches(expected=order, actual=view))",
+        mutated="        mismatches: list[str] = []",
         detecting_test=f"{_HTTP}::TestAnAnswerAboutTheWrongOrderIsRefused"
         "::test_a_mismatched_acknowledgement_fails_closed[override0-client_order_id]",
         expected_fragment="DID NOT RAISE",
@@ -853,9 +859,13 @@ FAMILIES: tuple[Family, ...] = (
     Family(
         name="response_quantity_validation",
         rule="An acknowledgement for a different quantity is refused",
-        path=_ADAPTER,
-        original="            if Decimal(view.quantity) != Decimal(order.quantity):",
-        mutated="            if False:",
+        path=_DOMAIN,
+        # The adapter delegates to the canonical comparison; the quantity rule lives there.
+        original=(
+            '        if Decimal(actual_text("quantity") or "x") '
+            '!= Decimal(getattr(expected, "quantity", -1)):'
+        ),
+        mutated="        if False:",
         detecting_test=f"{_HTTP}::TestAnAnswerAboutTheWrongOrderIsRefused"
         "::test_a_mismatched_acknowledgement_fails_closed[override3-quantity]",
         expected_fragment="DID NOT RAISE",
@@ -1587,7 +1597,7 @@ FAMILIES: tuple[Family, ...] = (
         name="duplicate_identity_422_is_not_a_refusal",
         rule="Alpaca's duplicate client_order_id 422 is an existing identity, never a refusal",
         path=_DOMAIN,
-        original="    if any(marker in message for marker in _IDENTITY_MESSAGE_MARKERS):",
+        original="    if about_identity:",
         mutated="    if False:",
         detecting_test=f"{_IDENTITY_UNIT}::TestA422IsClassifiedSemantically"
         "::test_the_documented_duplicate_answer_is_an_existing_identity",
@@ -1617,8 +1627,8 @@ FAMILIES: tuple[Family, ...] = (
             '            status, view, sanitized = 404, None, "{}"\n'
             "        except Exception as error:  # noqa: BLE001 - recorded, never retried"
         ),
-        detecting_test=f"{_IDENTITY_UNIT}::TestAnExistingIdentityIsReconciledNotRejected"
-        "::test_an_exact_match_found_before_sending_is_adopted_without_a_send",
+        detecting_test=f"{_LINEAGE_UNIT}::TestAnIdentityObservedBeforeTheSendIsNotAttributed"
+        "::test_an_exact_match_found_before_sending_is_observed_not_adopted",
         expected_fragment="assert",
     ),
     Family(
@@ -1633,8 +1643,8 @@ FAMILIES: tuple[Family, ...] = (
             "                    self._broker.fetch_order_by_client_order_id("
             'fresh.order.client_order_id + "-2")'
         ),
-        detecting_test=f"{_IDENTITY_UNIT}::TestAnExistingIdentityIsReconciledNotRejected"
-        "::test_an_exact_match_found_before_sending_is_adopted_without_a_send",
+        detecting_test=f"{_LINEAGE_UNIT}::TestAnIdentityObservedBeforeTheSendIsNotAttributed"
+        "::test_an_exact_match_found_before_sending_is_observed_not_adopted",
         expected_fragment="assert",
     ),
     Family(
@@ -1717,17 +1727,21 @@ FAMILIES: tuple[Family, ...] = (
         rule="Reconciliation never adopts a broker order that differs from the authorized one",
         path=_USECASE,
         original=(
-            "            else order_identity_mismatches(expected=authorization, actual=view)\n"
-            "        )\n"
-            "        if mismatches:"
+            "        if mismatches:\n"
+            "            self._events.append(\n"
+            "                PaperExecutionEvent(\n"
+            '                    event_id=f"EVT-{attempt.attempt_id}-RECON-MISMATCH-'
+            '{sequence}"[:64],'
         ),
         mutated=(
-            "            else order_identity_mismatches(expected=authorization, actual=view)\n"
-            "        )\n"
-            "        if False:"
+            "        if False:\n"
+            "            self._events.append(\n"
+            "                PaperExecutionEvent(\n"
+            '                    event_id=f"EVT-{attempt.attempt_id}-RECON-MISMATCH-'
+            '{sequence}"[:64],'
         ),
-        detecting_test=f"{_IDENTITY_UNIT}::TestRecoveryAfterRestart"
-        "::test_reconciliation_of_an_unknown_attempt_refuses_a_mismatching_order",
+        detecting_test=f"{_LINEAGE_UNIT}::TestLegitimateRecoveryAfterALostAcknowledgement"
+        "::test_a_differing_term_is_never_adopted_even_with_lineage[symbol-TSLA]",
         expected_fragment="assert",
     ),
     Family(
@@ -1740,7 +1754,7 @@ FAMILIES: tuple[Family, ...] = (
         ),
         mutated=("                if False:\n                    raise BrokerIdentityExistsError("),
         detecting_test=f"{_IDENTITY_POSTGRES}"
-        "::test_a_rebuilt_database_adopts_the_brokers_exact_order_and_sends_nothing",
+        "::test_a_rebuilt_database_observes_the_brokers_order_without_attributing_or_sending",
         expected_fragment="assert",
     ),
     # == M084 mechanical freeze ==============================================
@@ -1768,6 +1782,179 @@ FAMILIES: tuple[Family, ...] = (
         mutated='_M084_BASE_GROUPS = ("a2240767", "54fb3890", "9ee04c24", "64e50e51", "df12d7ad")',
         detecting_test=f"{_FROZEN_TESTS}::TestBothMilestonesAreGoverned"
         "::test_m084_is_pinned_to_the_ratified_commit_and_m083_to_its_original_base",
+        expected_fragment="assert",
+    ),
+    # == SEND-BOUNDARY CORRECTION (A6) =========================================
+    Family(
+        name="send_boundary_no_read_after_the_decision",
+        rule="Nothing sits between the final decision and the transport's POST",
+        path=_USECASE,
+        original="                # 5. Nothing else. The transport sends on return.",
+        mutated=(
+            "                self._broker.fetch_order_by_client_order_id("
+            "fresh.order.client_order_id)"
+        ),
+        detecting_test=f"{_SEND_BOUNDARY}"
+        "::test_the_boundary_reads_everything_before_the_kill_switch_and_samples_time_last",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="send_boundary_kill_switch_read_after_the_slow_reads",
+        rule="The kill switch is read fresh after the slow reads, not from the pre-claim snapshot",
+        path=_USECASE,
+        original=(
+            "                kill_switch_engaged = self._kill_switch.is_engaged()\n"
+            "                # 4."
+        ),
+        mutated=(
+            "                kill_switch_engaged = evidence.kill_switch_engaged\n"
+            "                # 4."
+        ),
+        detecting_test=f"{_SEND_BOUNDARY}"
+        "::test_the_kill_switch_engaged_during_a_slow_read_stops_the_post[lookup]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="send_boundary_time_sampled_after_the_reads",
+        rule="Deadlines are judged on time sampled after every slow read",
+        path=_USECASE,
+        original=(
+            "                    host_now=timing.now(),\n"
+            "                    broker_now=timing.broker_now(),"
+        ),
+        mutated=(
+            "                    host_now=command.at,\n"
+            "                    broker_now=BoundedInstant(earliest=command.at, latest=command.at),"
+        ),
+        detecting_test=f"{_SEND_BOUNDARY}"
+        "::test_the_authorization_expiring_during_a_slow_read_stops_the_post[lookup]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="inconclusive_lookup_is_not_a_rejection",
+        rule="An inconclusive pre-send identity lookup is recoverable, not a terminal refusal",
+        path=_USECASE,
+        original=(
+            "                    raise BrokerIdentityUnresolvedError(\n"
+            '                        "the broker could not confirm that this client_order_id '
+            'is unused "'
+        ),
+        mutated=(
+            "                    raise PaperExecutionRefusedError(\n"
+            '                        "the broker could not confirm that this client_order_id '
+            'is unused "'
+        ),
+        detecting_test=f"{_LINEAGE_UNIT}::TestAnInconclusiveLookupBeforeTheSendStaysRecoverable"
+        "::test_it_becomes_unknown_with_nothing_sent[http-500]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="unresolved_identity_recovered_after_restart",
+        rule="A new process reconciles an unresolved identity instead of leaving it",
+        path=_USECASE,
+        original=(
+            "        if attempt.is_terminal:\n"
+            "            return attempt\n"
+            "        if attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS:"
+        ),
+        mutated=(
+            "        if attempt.is_terminal or attempt.state is "
+            "PaperExecutionState.SUBMISSION_UNKNOWN:\n"
+            "            return attempt\n"
+            "        if attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS:"
+        ),
+        detecting_test=f"{_LINEAGE_UNIT}::TestAnInconclusiveLookupBeforeTheSendStaysRecoverable"
+        "::test_after_a_restart_a_successful_lookup_surfaces_the_order_without_attributing_it",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="reconcile_requires_lineage_before_adoption",
+        rule="An order under our identity is adopted only by an attempt that may have sent it",
+        path=_USECASE,
+        original="            if not attempt_may_have_transmitted(",
+        mutated="            if False and not attempt_may_have_transmitted(",
+        detecting_test=f"{_LINEAGE_UNIT}::TestAnIdentityObservedBeforeTheSendIsNotAttributed"
+        "::test_nothing_is_ever_resent_and_no_later_authorization_reopens_it",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="reconcile_verifies_the_account",
+        rule="A found order is adopted only when the broker client's account is the authorized one",
+        path=_USECASE,
+        original="                if account.account_reference != authorization.account_reference:",
+        mutated="                if False:",
+        detecting_test=f"{_LINEAGE_UNIT}::TestLegitimateRecoveryAfterALostAcknowledgement"
+        "::test_an_account_that_is_not_the_authorized_one_is_never_adopted",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="lineage_unsent_never_attributed",
+        rule="An attempt recorded as not having sent can never be attributed a found order",
+        path=_DOMAIN,
+        original="    if recorded_unsent or code in UNSENT_IDENTITY_FAILURE_CODES:",
+        mutated="    if False:",
+        detecting_test=f"{_LINEAGE_UNIT}::TestLineage"
+        "::test_an_event_recording_no_send_outranks_a_state_that_would_otherwise_qualify"
+        "[SUBMISSION_UNKNOWN-AMBIGUOUS-CLIENT_ORDER_ID_COLLISION]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="unknown_error_code_is_uncertain",
+        rule="A refusal code Alpaca does not document for that status proves nothing",
+        path=_DOMAIN,
+        original="    if code not in RECOGNIZED_DEFINITIVE_REFUSAL_CODES.get(status, frozenset()):",
+        mutated="    if False:",
+        detecting_test=f"{_LINEAGE_UNIT}::TestRefusalsAreClassifiedByDocumentedSemantics"
+        "::test_unknown_or_inconsistent_semantics_are_uncertain",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="acknowledgement_terms_compared_canonically",
+        rule="Our own POST's acknowledgement is compared on every authorized term",
+        path=_ADAPTER,
+        original="        mismatches = list(order_terms_mismatches(expected=order, actual=view))",
+        mutated="        mismatches: list[str] = []",
+        detecting_test=f"{_ACK_HTTP}::test_a_differing_acknowledgement_is_uncertain",
+        expected_fragment="DID NOT RAISE",
+    ),
+    Family(
+        name="terms_compare_limit_price",
+        rule="A broker order with another limit price is never ours",
+        path=_DOMAIN,
+        original='                mismatches.append("limit_price")',
+        mutated="                pass",
+        detecting_test=f"{_LINEAGE_UNIT}::TestTheCanonicalTermsComparison"
+        "::test_every_authorized_term_is_compared[limit_price-5.00]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="terms_compare_time_in_force",
+        rule="A broker order with another time_in_force is never ours",
+        path=_DOMAIN,
+        original='        mismatches.append("time_in_force")',
+        mutated="        pass",
+        detecting_test=f"{_LINEAGE_UNIT}::TestTheCanonicalTermsComparison"
+        "::test_every_authorized_term_is_compared[time_in_force-gtc]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="terms_compare_extended_hours",
+        rule="A broker order with another extended_hours flag is never ours",
+        path=_DOMAIN,
+        original='        mismatches.append("extended_hours")',
+        mutated="        pass",
+        detecting_test=f"{_LINEAGE_UNIT}::TestTheCanonicalTermsComparison"
+        "::test_every_authorized_term_is_compared[extended_hours-True]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="terms_compare_bound_broker_order_id",
+        rule="A broker id already bound to the attempt must stay consistent",
+        path=_DOMAIN,
+        original='        mismatches.append("broker_order_id")',
+        mutated="        pass",
+        detecting_test=f"{_LINEAGE_UNIT}::TestTheCanonicalTermsComparison"
+        "::test_a_bound_broker_order_id_must_stay_consistent",
         expected_fragment="assert",
     ),
 )

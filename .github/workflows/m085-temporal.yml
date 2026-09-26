@@ -55,6 +55,10 @@ jobs:
           tests/integration/test_m085_concurrency.py
           tests/integration/test_m085_corrective_pass_postgres.py
           tests/integration/test_m085_identity_collision_postgres.py
+          tests/integration/test_m085_acknowledgement_terms_http.py
+          tests/integration/test_m085_send_boundary_transport.py
+          tests/unit/test_m085_send_boundary.py
+          tests/unit/test_m085_identity_lineage.py
           tests/integration/test_m084_file_audit.py
       - name: PostgreSQL time-basis mutations (sequential, sources restored)
         run: >-
@@ -95,4 +99,20 @@ jobs:
           --family database_rebuilt_meets_existing_identity
           --family frozen_path_guard_covers_m084
           --family frozen_path_guard_pins_m084_to_the_ratified_commit
+          --family response_identity_validation
+          --family response_quantity_validation
+          --family send_boundary_no_read_after_the_decision
+          --family send_boundary_kill_switch_read_after_the_slow_reads
+          --family send_boundary_time_sampled_after_the_reads
+          --family inconclusive_lookup_is_not_a_rejection
+          --family unresolved_identity_recovered_after_restart
+          --family reconcile_requires_lineage_before_adoption
+          --family reconcile_verifies_the_account
+          --family lineage_unsent_never_attributed
+          --family unknown_error_code_is_uncertain
+          --family acknowledgement_terms_compared_canonically
+          --family terms_compare_limit_price
+          --family terms_compare_time_in_force
+          --family terms_compare_extended_hours
+          --family terms_compare_bound_broker_order_id
           --output /tmp/m085-pg-mutation.md

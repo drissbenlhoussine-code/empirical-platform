@@ -64,6 +64,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     BrokerRefusalKind,
     PaperOrderRequest,
     classify_broker_refusal,
+    order_terms_mismatches,
 )
 
 __all__ = [
@@ -76,6 +77,7 @@ __all__ = [
     "AlpacaPaperMarketDataClient",
     "BrokerAmbiguousDispatchError",
     "BrokerIdentityExistsError",
+    "BrokerIdentityUnresolvedError",
     "BrokerNotSentError",
     "BrokerResponseInvalidError",
     "EndpointRefusedError",
@@ -184,6 +186,29 @@ class BrokerIdentityExistsError(RuntimeError):
         self.http_status = http_status
         self.sanitized_body = sanitized_body
         self.request_sent = request_sent
+
+
+class BrokerIdentityUnresolvedError(RuntimeError):
+    """The identity could not be confirmed unused before the send, and nothing was sent.
+
+    SEND-BOUNDARY CORRECTION. Raised by the dispatch handler's pre-send lookup when the
+    broker's answer is inconclusive (a 5xx, an unusable body, a transport failure).
+    "This attempt sent no POST" is NOT proof that no order exists under the identity, so
+    the caller records recoverable, operator-visible uncertainty -- never a terminal
+    rejection -- and reconciliation resolves it later against the same identity.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        sanitized_body: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.sanitized_body = sanitized_body
+        self.request_sent = False
 
 
 class BrokerResponseInvalidError(RuntimeError):
@@ -375,6 +400,10 @@ class _OrderView:
     #: Reported by the broker for a limit order; None when absent. Compared against the
     #: authorized price before an order found by identity may be adopted.
     limit_price: str | None = None
+    #: Reported by the broker; None when absent or malformed. Both are authorized terms
+    #: and both are compared by the canonical `order_terms_mismatches`.
+    time_in_force: str | None = None
+    extended_hours: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -530,9 +559,14 @@ class _StrictConnection:
             if before_send is not None:
                 try:
                     before_send()
-                except (BrokerNotSentError, BrokerIdentityExistsError):
-                    # Both are decisions about THIS request made before it was sent:
-                    # not-sent, or not-to-be-sent because the identity already exists.
+                except (
+                    BrokerNotSentError,
+                    BrokerIdentityExistsError,
+                    BrokerIdentityUnresolvedError,
+                ):
+                    # All three are decisions about THIS request made before it was sent:
+                    # not-sent, not-to-be-sent because the identity already exists, or
+                    # not-to-be-sent because the identity could not be confirmed unused.
                     raise
                 except Exception as error:
                     raise BrokerNotSentError(
@@ -819,10 +853,18 @@ class AlpacaPaperClient:
     def _order_view(payload: dict[str, Any]) -> _OrderView:
         filled_average = payload.get("filled_avg_price")
         limit_price = payload.get("limit_price")
+        time_in_force = payload.get("time_in_force")
+        extended_hours = payload.get("extended_hours")
         return _OrderView(
             limit_price=(
                 None if limit_price is None else _decimal_text(limit_price, field="limit_price")
             ),
+            # Absent or malformed terms are carried as None and are a MISMATCH downstream;
+            # nothing here substitutes what the authorized order says.
+            time_in_force=(
+                time_in_force if isinstance(time_in_force, str) and time_in_force else None
+            ),
+            extended_hours=extended_hours if isinstance(extended_hours, bool) else None,
             broker_order_id=_require_text(payload, "id"),
             client_order_id=_require_text(payload, "client_order_id"),
             status=_require_text(payload, "status"),
@@ -850,20 +892,11 @@ class AlpacaPaperClient:
         the wrong thing.
         """
         view = cls._order_view(payload)
-        mismatches: list[str] = []
-        if view.client_order_id != order.client_order_id:
-            mismatches.append("client_order_id")
-        if view.symbol != order.symbol:
-            mismatches.append("symbol")
-        if view.side.upper() != order.side:
-            mismatches.append("side")
-        if view.order_type.upper() != order.order_type.value:
-            mismatches.append("order_type")
-        try:
-            if Decimal(view.quantity) != Decimal(order.quantity):
-                mismatches.append("quantity")
-        except InvalidOperation:
-            mismatches.append("quantity")
+        # SEND-BOUNDARY CORRECTION: one canonical comparison for every path that could
+        # bind a broker order to an attempt -- this acknowledgement included. It covers
+        # the limit price, time_in_force and extended_hours as well, and treats a missing
+        # or malformed term as a mismatch.
+        mismatches = list(order_terms_mismatches(expected=order, actual=view))
         if mismatches:
             raise BrokerResponseInvalidError(
                 "the broker acknowledged an order that differs from the one authorized: "

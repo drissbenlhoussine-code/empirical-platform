@@ -51,6 +51,7 @@ from tests.unit._m085_fakes import (
     a_preview,
     a_provenance,
     a_time_basis,
+    an_account,
     an_intent,
     an_intent_time_basis,
     time_bases_for,
@@ -117,6 +118,7 @@ from empirical_platform.usecases.paper_execution import (
     SubmitAuthorizedPaperOrderHandler,
     VerifyPaperEnvironmentHandler,
     VerifyPaperEnvironmentQuery,
+    _account_reference,
 )
 from empirical_platform.usecases.paper_execution_io import (
     render_account_json,
@@ -1748,7 +1750,13 @@ class TestDecidePaperBoundTradeProposal:
 
 class TestReconcilePaperOrder:
     def _dispatched(self) -> tuple[FakeAttempts, ExecutionAttempt, FakeAuthorizations]:
-        preview = a_preview()
+        # The reconcile handler verifies the account behind the broker client against the
+        # authorization; the fixture preview must therefore carry the fake broker's account.
+        preview = a_preview(
+            account=an_account(account_reference=_account_reference("real-account-id"))
+        )
+        self.previews = FakePreviews()
+        self.previews.save(preview)
         authorizations = FakeAuthorizations()
         authorization = authorizations.save(
             authorize_submission(
@@ -1789,6 +1797,7 @@ class TestReconcilePaperOrder:
                 events=FakeEvents(),
                 broker=FakeBroker(),
                 authorizations=FakeAuthorizations(),
+                previews=FakePreviews(),
             ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
 
     def test_it_asks_about_the_original_client_order_id(self) -> None:
@@ -1802,6 +1811,7 @@ class TestReconcilePaperOrder:
             events=FakeEvents(),
             broker=broker,
             authorizations=authorizations,
+            previews=self.previews,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert broker.lookups == [attempt.client_order_id]
         assert result.state is PaperExecutionState.CANCELED
@@ -1818,6 +1828,7 @@ class TestReconcilePaperOrder:
             events=FakeEvents(),
             broker=broker,
             authorizations=authorizations,
+            previews=self.previews,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert broker.lookups == []
 
@@ -1830,6 +1841,7 @@ class TestReconcilePaperOrder:
             events=events,
             broker=FakeBroker(lookup_status=404, lookup_view=None),
             authorizations=authorizations,
+            previews=self.previews,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert result.state is PaperExecutionState.PAPER_SUBMITTED
         assert any(event.event_type == "RECONCILE_NOT_FOUND_INSUFFICIENT" for event in events.rows)
@@ -1843,6 +1855,7 @@ class TestReconcilePaperOrder:
             events=events,
             broker=FakeBroker(lookup_status=404, lookup_view=None),
             authorizations=authorizations,
+            previews=self.previews,
         )
         later = _NOW + timedelta(seconds=120)
         handler.handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=later))
@@ -1860,6 +1873,7 @@ class TestReconcilePaperOrder:
             events=events,
             broker=FakeBroker(lookup_status=500, lookup_view=None),
             authorizations=authorizations,
+            previews=self.previews,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
         assert result.state is PaperExecutionState.PAPER_SUBMITTED
         assert any(event.event_type == "RECONCILE_UNUSABLE_ANSWER" for event in events.rows)

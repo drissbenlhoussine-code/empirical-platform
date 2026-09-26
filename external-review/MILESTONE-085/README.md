@@ -44,6 +44,18 @@
 > acceptance; B adoption gap) are recorded in
 > [final-candidate-2726f6f/README.md](final-candidate-2726f6f/README.md). Paper acceptance
 > NOT_STARTED.
+>
+> **Send-boundary and identity-recovery correction (2026-09-26):** A6 is fixed — the identity
+> lookup and every slow read complete before the kill switch is re-read, time is sampled after
+> them, `final_send_refusal` re-validates on that evidence, and nothing sits between the
+> decision and the POST (a *bounded application send boundary*, not control over the broker).
+> One canonical order-terms contract (incl. `limit_price`, `time_in_force`, `extended_hours`,
+> bound `broker_order_id`, verified account) serves acknowledgement, observation and
+> reconciliation; observing an order under our identity is separated from attributing it
+> (lineage required); an inconclusive pre-send lookup is recoverable uncertainty; refusal is a
+> documented (status, code) pair. Defects were reproduced on `2726f6f` first. See
+> [send-boundary-correction/README.md](send-boundary-correction/README.md). Not pushed; Owner
+> publication approval required. Paper acceptance NOT_STARTED.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**

@@ -52,6 +52,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     ProposalTimeBasis,
     SubmissionPreview,
     act_chronology_refusal,
+    attempt_may_have_transmitted,
     authorization_binding_refusal,
     authorize_submission,
     bind_decision_time_basis,
@@ -65,7 +66,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     is_definitive_broker_refusal,
     m084_deadline_refusal_on_broker_time,
     m084_provenance_refusal,
-    order_identity_mismatches,
+    order_terms_mismatches,
     proposal_time_basis_refusal,
     request_fingerprint,
 )
@@ -103,6 +104,7 @@ from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIn
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
     BrokerIdentityExistsError,
+    BrokerIdentityUnresolvedError,
     BrokerNotSentError,
     BrokerResponseInvalidError,
 )
@@ -1385,21 +1387,56 @@ class SubmitAuthorizedPaperOrderHandler:
         def before_send() -> None:
             # The transport invokes this AFTER connect, immediately before HTTP send.
             #
-            # CORRECTIVE PASS (item 7). Every input to the final decision is READ AGAIN
-            # here -- the kill switch and the configuration from the database, the
-            # broker clock and the quote from the broker -- and time is re-derived
-            # after all of those reads, so a database wait, a lock wait, connection
-            # preparation or a slow quote ages the evidence rather than being forgiven.
-            # SUPERSEDED: this guard used to judge the market session and the quote
-            # from values cached by the pre-claim gather.
+            # SEND-BOUNDARY CORRECTION (A6). The guarantee is a refusal at the BOUNDED
+            # APPLICATION SEND BOUNDARY: every potentially blocking read completes first
+            # (the identity at the broker, the configuration from the database, the
+            # broker clock, the quote), the kill switch is read AFTER them so an
+            # engagement during any of them is seen, host/monotonic/broker-bounded time
+            # is sampled after all of them, `final_send_refusal` re-validates every rule
+            # on that evidence, and NOTHING -- no lookup, no read -- sits between that
+            # decision and the transport's POST. It is not a claim of atomic control over
+            # the broker's receipt time or over events after the request leaves.
+            # SUPERSEDED: the identity lookup used to follow the final decision, so a slow
+            # lookup let a POST leave after the authorization expired, with the kill switch
+            # engaged, or with a stale quote.
             try:
-                kill_switch_engaged = self._kill_switch.is_engaged()
+                # 1. The identity, first and slowest. Found: this attempt sends nothing and
+                #    the order is observed (never attributed). Inconclusive: nothing is sent
+                #    and the uncertainty is recorded (never a terminal rejection).
+                try:
+                    lookup_status, existing_order, lookup_body = (
+                        self._broker.fetch_order_by_client_order_id(fresh.order.client_order_id)
+                    )
+                except Exception as error:  # noqa: BLE001 - inconclusive, recorded below
+                    raise BrokerIdentityUnresolvedError(
+                        "the identity lookup before the send failed "
+                        f"({type(error).__name__}); nothing was sent"
+                    ) from error
+                if existing_order is not None:
+                    raise BrokerIdentityExistsError(
+                        "the broker already holds an order under this client_order_id; "
+                        "nothing was sent",
+                        http_status=lookup_status,
+                        sanitized_body=lookup_body,
+                        request_sent=False,
+                    )
+                if lookup_status != 404:
+                    raise BrokerIdentityUnresolvedError(
+                        "the broker could not confirm that this client_order_id is unused "
+                        f"(HTTP {lookup_status}); nothing was sent",
+                        http_status=lookup_status,
+                        sanitized_body=lookup_body,
+                    )
+                # 2. The remaining reads: configuration, broker clock, quote.
                 policy_now = _policy_for(intent, self._configurations)
                 sent_monotonic = timing.read_monotonic()
                 clock = self._broker.fetch_clock()
                 received_monotonic = timing.read_monotonic()
                 timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
                 quote = self._market_data.fetch_quote(intent.symbol)
+                # 3. The kill switch, LAST of the reads.
+                kill_switch_engaged = self._kill_switch.is_engaged()
+                # 4. Time sampled after every read; the decision made on that evidence.
                 timing.require_broker_certainty_within(policy_now.quote_maximum_age_seconds)
                 refusal = final_send_refusal(
                     intent=intent,
@@ -1419,27 +1456,7 @@ class SubmitAuthorizedPaperOrderHandler:
                 )
                 if refusal is not None:
                     raise PaperExecutionRefusedError(refusal)
-                # IDENTITY-SAFETY CORRECTION (F1). The derived identity is asked about
-                # BEFORE the order is sent. If the broker already holds it -- a rebuilt
-                # database, a lost attempt row, an earlier process -- nothing is sent
-                # and the identity is reconciled instead. If the broker cannot say,
-                # nothing is sent either: an unconfirmed identity is not a free one.
-                lookup_status, existing_order, lookup_body = (
-                    self._broker.fetch_order_by_client_order_id(fresh.order.client_order_id)
-                )
-                if existing_order is not None:
-                    raise BrokerIdentityExistsError(
-                        "the broker already holds an order under this client_order_id; "
-                        "nothing was sent, the identity is being reconciled",
-                        http_status=lookup_status,
-                        sanitized_body=lookup_body,
-                        request_sent=False,
-                    )
-                if lookup_status != 404:
-                    raise PaperExecutionRefusedError(
-                        "the broker could not confirm that this client_order_id is unused "
-                        f"(HTTP {lookup_status}); nothing was sent"
-                    )
+                # 5. Nothing else. The transport sends on return.
             except (PaperExecutionRefusedError, PaperTimeUncertainError) as error:
                 raise BrokerNotSentError(str(error)) from error
 
@@ -1487,10 +1504,10 @@ class SubmitAuthorizedPaperOrderHandler:
                 note="the request never reached the broker; no order exists",
             )
         except BrokerIdentityExistsError as error:
-            # IDENTITY-SAFETY CORRECTION (F1). An order exists under our identity --
-            # found before sending, or answered as a duplicate after sending. Never a
-            # refusal, never a resend: reconcile the identity field by field.
-            return self._identity_collision(
+            # An order exists under our identity -- found before the send, or answered
+            # as a duplicate after our POST. This attempt created nothing: observe it,
+            # never attribute it, never resend.
+            return self._identity_observed(
                 attempt=attempt,
                 order=order,
                 intent_id=intent_id,
@@ -1499,6 +1516,17 @@ class SubmitAuthorizedPaperOrderHandler:
                 sanitized_body=error.sanitized_body,
                 request_sent=error.request_sent,
                 acknowledged=False,
+                detail=str(error),
+            )
+        except BrokerIdentityUnresolvedError as error:
+            # The identity could not be confirmed unused and nothing was sent. "No POST by
+            # this attempt" is not proof that no order exists: recoverable uncertainty.
+            return self._identity_unresolved(
+                attempt=attempt,
+                intent_id=intent_id,
+                timing=timing,
+                http_status=error.http_status,
+                sanitized_body=error.sanitized_body,
                 detail=str(error),
             )
         except BrokerAmbiguousDispatchError as error:
@@ -1580,7 +1608,7 @@ class SubmitAuthorizedPaperOrderHandler:
                 # answer, when it arrives through a port that returns rather than
                 # raises. The same reconciliation path; the acknowledgement above
                 # already recorded what was said.
-                return self._identity_collision(
+                return self._identity_observed(
                     attempt=attempt,
                     order=order,
                     intent_id=intent_id,
@@ -1650,7 +1678,85 @@ class SubmitAuthorizedPaperOrderHandler:
             note="the paper broker acknowledged the order",
         )
 
-    def _identity_collision(
+    def _acknowledge(
+        self,
+        attempt_id: str,
+        *,
+        kind: str,
+        at: datetime,
+        http_status: int,
+        view: BrokerOrderView | None,
+        sanitized: str,
+    ) -> None:
+        sequence = self._acknowledgements.next_sequence(attempt_id)
+        self._acknowledgements.append(
+            BrokerAcknowledgement(
+                acknowledgement_id=f"ACK-{attempt_id}-{sequence}",
+                attempt_id=attempt_id,
+                sequence=sequence,
+                kind=kind,
+                observed_at=at,
+                http_status=http_status,
+                broker_order_id=None if view is None else view.broker_order_id,
+                broker_status=None if view is None else view.status,
+                client_order_id_echo=None if view is None else view.client_order_id,
+                payload_digest=self._digest(sanitized),
+                sanitized_payload=sanitized[:8192],
+            )
+        )
+
+    def _identity_unresolved(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        intent_id: str,
+        timing: PaperTimeWindow,
+        http_status: int | None,
+        sanitized_body: str | None,
+        detail: str,
+    ) -> PaperSubmissionResult:
+        """The pre-send identity lookup was inconclusive; nothing was sent.
+
+        SEND-BOUNDARY CORRECTION. Three facts are kept apart: this attempt did NOT
+        transmit (`dispatched=False`, failure code `IDENTITY_UNRESOLVED_UNSENT`, event
+        `IDENTITY_LOOKUP_INCONCLUSIVE`); whether an order exists under the identity is
+        UNKNOWN; and nothing is attributed. The attempt stays SUBMISSION_UNKNOWN -- open,
+        operator-visible, reconcilable -- never a terminal rejection, and a later refusal
+        of a repeat dispatch cannot overwrite what is recorded here.
+        """
+        at = timing.last_safe_at
+        if http_status is not None and sanitized_body is not None:
+            self._acknowledge(
+                attempt.attempt_id,
+                kind="RECONCILE",
+                at=at,
+                http_status=http_status,
+                view=None,
+                sanitized=sanitized_body,
+            )
+        unknown = self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.SUBMISSION_UNKNOWN,
+            at=at,
+            failure_code="IDENTITY_UNRESOLVED_UNSENT",
+            failure_detail=detail[:500],
+        )
+        self._record_event(
+            intent_id, attempt.attempt_id, "IDENTITY_LOOKUP_INCONCLUSIVE", detail, at
+        )
+        return PaperSubmissionResult(
+            attempt=unknown,
+            dispatched=False,
+            http_status=http_status,
+            broker_status=None,
+            note=(
+                "nothing was sent: the broker could not confirm whether an order already "
+                "exists under this client_order_id. The outcome is UNKNOWN until "
+                "reconciliation asks again; do not send again"
+            ),
+        )
+
+    def _identity_observed(
         self,
         *,
         attempt: ExecutionAttempt,
@@ -1663,42 +1769,41 @@ class SubmitAuthorizedPaperOrderHandler:
         acknowledged: bool,
         detail: str,
     ) -> PaperSubmissionResult:
-        """An order exists at the broker under this attempt's identity. Fail closed.
+        """An order exists under this attempt's identity, and this attempt did not create it.
 
-        IDENTITY-SAFETY CORRECTION (F1). The attempt becomes SUBMISSION_UNKNOWN --
-        an order may be ours -- and the identity is looked up at once. Only an order
-        equal to the authorized one on every field is adopted; anything else is a
-        recorded collision that an operator must resolve. Nothing is ever sent again:
-        the attempt row and the UNIQUE constraints already forbid a second dispatch,
-        and this method contains no send.
+        Found before the send: nothing was sent. Answered as a duplicate after our POST:
+        the order predates it. Either way the order is OBSERVED -- looked up, recorded with
+        its broker id and status, compared term by term with the authorized order so a
+        collision is named -- and never ATTRIBUTED to this authorization, never resent,
+        never replaced. Attribution needs lineage this attempt does not have
+        (`attempt_may_have_transmitted`). Operator-visible: SUBMISSION_UNKNOWN with an
+        identity failure code and the events below.
         """
         at = timing.last_safe_at
         if not acknowledged and http_status is not None and sanitized_body is not None:
-            sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
-            self._acknowledgements.append(
-                BrokerAcknowledgement(
-                    acknowledgement_id=f"ACK-{attempt.attempt_id}-{sequence}",
-                    attempt_id=attempt.attempt_id,
-                    sequence=sequence,
-                    kind="SUBMIT" if request_sent else "RECONCILE",
-                    observed_at=at,
-                    http_status=http_status,
-                    broker_order_id=None,
-                    broker_status=None,
-                    client_order_id_echo=None,
-                    payload_digest=self._digest(sanitized_body),
-                    sanitized_payload=sanitized_body[:8192],
-                )
+            self._acknowledge(
+                attempt.attempt_id,
+                kind="SUBMIT" if request_sent else "RECONCILE",
+                at=at,
+                http_status=http_status,
+                view=None,
+                sanitized=sanitized_body,
             )
         unknown = self._attempts.transition(
             attempt_id=attempt.attempt_id,
             target=PaperExecutionState.SUBMISSION_UNKNOWN,
             at=at,
-            failure_code="IDENTITY_EXISTS",
+            failure_code="IDENTITY_EXISTS_SENT" if request_sent else "IDENTITY_EXISTS_UNSENT",
             failure_detail=detail[:500],
         )
-        self._record_event(intent_id, attempt.attempt_id, "CLIENT_ORDER_ID_COLLISION", detail, at)
-        return self._resolve_identity(
+        self._record_event(
+            intent_id,
+            attempt.attempt_id,
+            "CLIENT_ORDER_ID_COLLISION" if request_sent else "IDENTITY_OBSERVED_BEFORE_SEND",
+            detail,
+            at,
+        )
+        return self._observe_identity(
             attempt=unknown,
             order=order,
             intent_id=intent_id,
@@ -1707,7 +1812,7 @@ class SubmitAuthorizedPaperOrderHandler:
             request_sent=request_sent,
         )
 
-    def _resolve_identity(
+    def _observe_identity(
         self,
         *,
         attempt: ExecutionAttempt,
@@ -1717,12 +1822,12 @@ class SubmitAuthorizedPaperOrderHandler:
         http_status: int | None,
         request_sent: bool,
     ) -> PaperSubmissionResult:
-        """Look the identity up and adopt the order ONLY if it is exactly the authorized one."""
+        """Look the identity up and record what the broker holds. Observation, not attribution."""
         from empirical_platform.decision_candidate.paper_execution import PaperOrderRequest
 
         assert isinstance(order, PaperOrderRequest)
 
-        def unresolved(note: str) -> PaperSubmissionResult:
+        def outcome(note: str) -> PaperSubmissionResult:
             return PaperSubmissionResult(
                 attempt=attempt,
                 dispatched=request_sent,
@@ -1744,78 +1849,55 @@ class SubmitAuthorizedPaperOrderHandler:
                 f"{type(error).__name__}: {error}",
                 at,
             )
-            return unresolved(
-                "identity collision: the broker holds an order under this client_order_id "
-                "and the lookup failed; the outcome is UNKNOWN, reconcile it, do not send again"
+            return outcome(
+                "an order may exist under this client_order_id and the lookup failed; the "
+                "outcome is UNKNOWN, reconcile it, do not send again"
             )
         at = timing.last_safe_at
-        sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
-        self._acknowledgements.append(
-            BrokerAcknowledgement(
-                acknowledgement_id=f"ACK-{attempt.attempt_id}-{sequence}",
-                attempt_id=attempt.attempt_id,
-                sequence=sequence,
-                kind="RECONCILE",
-                observed_at=at,
-                http_status=status,
-                broker_order_id=None if view is None else view.broker_order_id,
-                broker_status=None if view is None else view.status,
-                client_order_id_echo=None if view is None else view.client_order_id,
-                payload_digest=self._digest(sanitized),
-                sanitized_payload=sanitized[:8192],
-            )
+        self._acknowledge(
+            attempt.attempt_id,
+            kind="RECONCILE",
+            at=at,
+            http_status=status,
+            view=view,
+            sanitized=sanitized,
         )
         if view is None:
             self._record_event(
                 intent_id, attempt.attempt_id, "IDENTITY_LOOKUP_UNRESOLVED", f"HTTP {status}", at
             )
-            return unresolved(
-                "identity collision: the broker reported an order under this client_order_id "
-                f"but the lookup answered HTTP {status}; the outcome is UNKNOWN, reconcile it, "
-                "do not send again"
+            return outcome(
+                "the broker reported an order under this client_order_id but the lookup "
+                f"answered HTTP {status}; the outcome is UNKNOWN, reconcile it, do not send again"
             )
-        mismatches = order_identity_mismatches(expected=order, actual=view)
+        mismatches = order_terms_mismatches(expected=order, actual=view)
+        held = f"broker_order_id={view.broker_order_id} status={view.status}"
         if mismatches:
             self._record_event(
                 intent_id,
                 attempt.attempt_id,
                 "IDENTITY_COLLISION_MISMATCH",
                 "the broker's order under this client_order_id differs from the authorized "
-                "order on: " + ", ".join(mismatches),
+                f"order on: {', '.join(mismatches)} ({held})",
                 at,
             )
-            return unresolved(
+            return outcome(
                 "identity collision: the broker holds a DIFFERENT order under this "
                 f"client_order_id (mismatch: {', '.join(mismatches)}); it was NOT adopted, "
                 "nothing was sent again, and an operator must resolve it"
             )
-        submitted = self._attempts.transition(
-            attempt_id=attempt.attempt_id,
-            target=PaperExecutionState.PAPER_SUBMITTED,
-            at=at,
-            broker_order_id=view.broker_order_id,
-            broker_status=view.status,
-            filled_quantity=view.filled_quantity,
-            filled_avg_price=view.filled_avg_price,
-        )
-        final = self._apply_broker_status(attempt_id=submitted.attempt_id, view=view, at=at)
         self._record_event(
             intent_id,
             attempt.attempt_id,
-            "IDENTITY_RECONCILED_EXACT_MATCH",
-            f"broker_status={view.status} broker_order_id={view.broker_order_id}",
+            "IDENTITY_OBSERVED_NOT_ATTRIBUTED",
+            f"an order with the authorized terms exists under this client_order_id ({held}); "
+            "this attempt did not create it, so it is not attributed to this authorization",
             at,
         )
-        return PaperSubmissionResult(
-            attempt=final,
-            dispatched=request_sent,
-            http_status=http_status,
-            broker_status=view.status,
-            note=(
-                "the broker already held this exact authorized order under its "
-                "client_order_id; it was adopted by identity reconciliation and nothing "
-                "was sent again"
-            ),
+        return outcome(
+            "an order with the authorized terms already exists under this client_order_id "
+            f"({held}). It is recorded but NOT attributed to this authorization, because this "
+            "attempt did not create it; nothing was sent again, and an operator must resolve it"
         )
 
     def _uncertain(
@@ -1916,7 +1998,14 @@ class ReconcilePaperOrderCommand:
 class ReconcilePaperOrderHandler:
     """Ask the broker about the SAME client_order_id, and record the answer."""
 
-    __slots__ = ("_attempts", "_acknowledgements", "_events", "_broker", "_authorizations")
+    __slots__ = (
+        "_attempts",
+        "_acknowledgements",
+        "_events",
+        "_broker",
+        "_authorizations",
+        "_previews",
+    )
 
     def __init__(
         self,
@@ -1926,11 +2015,15 @@ class ReconcilePaperOrderHandler:
         events: PaperExecutionEventRepository,
         broker: PaperBrokerPort,
         authorizations: ExecutionAuthorizationRepository,
+        previews: SubmissionPreviewRepository,
     ) -> None:
         self._attempts = attempts
         self._acknowledgements = acknowledgements
         self._events = events
         self._broker = broker
+        # The preview the authorization names carries the exact authorized request, every
+        # term included; a found order is compared against IT before any adoption.
+        self._previews = previews
         # IDENTITY-SAFETY CORRECTION (F1). The authorization carries the exact order a
         # human approved; a found order is compared against it before any adoption.
         self._authorizations = authorizations
@@ -1974,16 +2067,35 @@ class ReconcilePaperOrderHandler:
         if view is None:
             return self._handle_absence(attempt=attempt, status=status, at=command.at)
 
-        # IDENTITY-SAFETY CORRECTION (F1). The broker answered about OUR identity, but
-        # the order it describes is adopted only if it is the authorized order on every
-        # field. A mismatch is a recorded collision and the state does not move: the
-        # platform never silently starts tracking someone else's order.
+        # SEND-BOUNDARY CORRECTION: observing an order is not attributing it.
+        #
+        # The broker answered about OUR identity. The order it describes is adopted only
+        # if (a) it equals the authorized request on every term -- the preview the
+        # authorization names carries that request -- and any broker id this attempt
+        # already bound, (b) the account behind this broker client is the authorized
+        # account, and (c) THIS durable attempt may have created it (lineage). A
+        # mismatch is a recorded collision; an order without lineage is recorded as
+        # observed and not attributed. In neither case does the state move.
         authorization = self._authorizations.get(attempt.authorization_id)
-        mismatches = (
-            ("authorization",)
-            if authorization is None
-            else order_identity_mismatches(expected=authorization, actual=view)
-        )
+        preview = None if authorization is None else self._previews.get(authorization.preview_id)
+        held = f"broker_order_id={view.broker_order_id} status={view.status}"
+        if authorization is None or preview is None:
+            mismatches: tuple[str, ...] = ("authorization",)
+        else:
+            mismatches = order_terms_mismatches(
+                expected=preview.order, actual=view, bound_broker_order_id=attempt.broker_order_id
+            )
+            try:
+                account = _read_account_snapshot(
+                    broker=self._broker,
+                    snapshot_id=f"RECON-{attempt.attempt_id}"[:64],
+                    captured_at=command.at,
+                )
+            except Exception:  # noqa: BLE001 - an unreadable account is not the authorized one
+                mismatches = (*mismatches, "account")
+            else:
+                if account.account_reference != authorization.account_reference:
+                    mismatches = (*mismatches, "account")
         if mismatches:
             self._events.append(
                 PaperExecutionEvent(
@@ -1994,7 +2106,7 @@ class ReconcilePaperOrderHandler:
                     occurred_at=command.at,
                     detail=(
                         "the broker's order under this client_order_id differs from the "
-                        "authorized order on: " + ", ".join(mismatches)
+                        f"authorized order on: {', '.join(mismatches)} ({held})"
                     )[:500],
                 )
             )
@@ -2004,10 +2116,28 @@ class ReconcilePaperOrderHandler:
             PaperExecutionState.SUBMISSION_IN_PROGRESS,
             PaperExecutionState.SUBMISSION_UNKNOWN,
         }:
-            # THE BROKER HAS THIS client_order_id, so the order exists. Record that
-            # first -- PAPER_SUBMITTED is an allowed edge from both uncertain states --
-            # and only then map the broker's status. Corrective pass (D3): an attempt
-            # stuck IN_PROGRESS could previously never be reconciled at all.
+            if not attempt_may_have_transmitted(
+                attempt, self._events.for_intent(attempt.intent_governance_id)
+            ):
+                self._events.append(
+                    PaperExecutionEvent(
+                        event_id=f"EVT-{attempt.attempt_id}-RECON-OBSERVED-{sequence}"[:64],
+                        intent_governance_id=attempt.intent_governance_id,
+                        attempt_id=attempt.attempt_id,
+                        event_type="IDENTITY_OBSERVED_NOT_ATTRIBUTED",
+                        occurred_at=command.at,
+                        detail=(
+                            "an order with the authorized terms exists under this "
+                            f"client_order_id ({held}); this attempt did not transmit a "
+                            "request that could have created it, so it is not attributed to "
+                            "this authorization; an operator must resolve it"
+                        )[:500],
+                    )
+                )
+                return attempt
+            # THE BROKER HAS THIS client_order_id and this attempt may have created the
+            # order. Record that first -- PAPER_SUBMITTED is an allowed edge from both
+            # uncertain states -- and only then map the broker's status.
             attempt = self._attempts.transition(
                 attempt_id=attempt.attempt_id,
                 target=PaperExecutionState.PAPER_SUBMITTED,

@@ -40,7 +40,10 @@ from tests.integration._m085_support import (
 from tests.integration.test_m085_temporal_postgres import Clock
 from tests.unit._m085_fakes import FakeBroker, FakeView
 
-from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
+from empirical_platform.decision_candidate.paper_execution import (
+    ExecutionAuthorization,
+    PaperExecutionState,
+)
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
@@ -71,6 +74,26 @@ def engine() -> Iterator[Engine]:
 
 class _Crash(BaseException):
     """The process dies after the request left and before anything was recorded."""
+
+
+def _authorized_order_as_the_broker_reports_it(
+    authorization: ExecutionAuthorization, **fields: object
+) -> FakeView:
+    """The authorized order, as the broker would echo it (every term), for scripted lookups."""
+    described: dict[str, object] = {
+        "client_order_id": authorization.client_order_id,
+        "symbol": authorization.symbol,
+        "side": authorization.side.lower(),
+        "quantity": str(authorization.quantity),
+        "order_type": authorization.order_type.value.lower(),
+        "limit_price": None
+        if authorization.limit_price is None
+        else str(authorization.limit_price),
+        "time_in_force": "day",
+        "extended_hours": False,
+    }
+    described.update(fields)
+    return FakeView(**described)
 
 
 class _Broker(FakeBroker):
@@ -186,6 +209,7 @@ class _Process:
             events=self.paper.paper_execution_events,
             broker=self.broker,
             authorizations=self.paper.execution_authorizations,
+            previews=self.paper.submission_previews,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id=intent_id, at=self.clock.utc))
 
     def events(self, intent_id: str) -> list[str]:
@@ -306,9 +330,13 @@ def test_recovery_refuses_a_different_order_found_under_the_identity(world: dict
 # ---------------------------------------------------------------------------
 
 
-def test_a_rebuilt_database_adopts_the_brokers_exact_order_and_sends_nothing(
+def test_a_rebuilt_database_observes_the_brokers_order_without_attributing_or_sending(
     world: dict[str, Any],
 ) -> None:
+    # Observing is not attributing. Process A dispatched; its database is lost; process B
+    # rebuilds the same identity. The broker still holds A's order: B sends nothing, records
+    # the order it sees, and does NOT adopt it -- B's attempt did not create it, and nothing
+    # in B's database carries A's lineage.
     a = world["spawn"]("a")
     intent_id, authorization = a.authorize(suffix="1")
     first = a.submit(intent_id, attempt_id="ATT-ID-1")
@@ -318,8 +346,7 @@ def test_a_rebuilt_database_adopts_the_brokers_exact_order_and_sends_nothing(
     assert len(broker.submitted) == 1
     a.close()
 
-    # The database is lost. The broker is not.
-    truncate_all(world["engine"])
+    truncate_all(world["engine"])  # the database is lost; the broker is not
     b = world["spawn"]("b")
     assert b.paper.execution_attempts.for_intent(intent_id) is None
     rebuilt_intent_id, rebuilt_authorization = b.authorize(suffix="1")
@@ -329,13 +356,21 @@ def test_a_rebuilt_database_adopts_the_brokers_exact_order_and_sends_nothing(
     second = b.submit(intent_id, attempt_id="ATT-ID-REBUILT")
     assert len(broker.submitted) == 1, "a second broker order was created"
     assert second.dispatched is False
-    assert second.attempt.state is PaperExecutionState.PAPER_ACCEPTED
-    assert second.attempt.broker_order_id == first.attempt.broker_order_id
-    assert second.attempt.client_order_id == authorization.client_order_id
+    assert second.attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    assert second.attempt.failure_code == "IDENTITY_EXISTS_UNSENT"
+    assert second.attempt.broker_order_id is None, "a historical order was adopted"
     events = b.events(intent_id)
-    assert "CLIENT_ORDER_ID_COLLISION" in events
-    assert "IDENTITY_RECONCILED_EXACT_MATCH" in events
-    # And it stays that way: a repeat dispatch sends nothing.
+    assert "IDENTITY_OBSERVED_BEFORE_SEND" in events
+    assert "IDENTITY_OBSERVED_NOT_ATTRIBUTED" in events
+    assert "IDENTITY_RECONCILED_EXACT_MATCH" not in events
+    # The broker's order is visible in the acknowledgement the observation recorded.
+    acknowledgements = b.paper.broker_acknowledgements.for_attempt("ATT-ID-REBUILT")
+    assert any(ack.broker_order_id == first.attempt.broker_order_id for ack in acknowledgements)
+    # Reconciliation keeps observing and still does not attribute; nothing is ever resent.
+    world["clock"].advance(seconds=120)
+    reconciled = b.reconcile(intent_id)
+    assert reconciled.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    assert reconciled.broker_order_id is None
     assert b.submit(intent_id, attempt_id="ATT-ID-AGAIN").dispatched is False
     assert len(broker.submitted) == 1
 
@@ -357,10 +392,10 @@ def test_a_rebuilt_database_surfaces_a_different_order_under_its_identity_as_a_c
     assert len(broker.submitted) == 1
     assert second.dispatched is False
     assert second.attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN
-    assert second.attempt.failure_code == "IDENTITY_EXISTS"
+    assert second.attempt.failure_code == "IDENTITY_EXISTS_UNSENT"
     assert second.attempt.broker_order_id is None
     events = b.events(intent_id)
-    assert "CLIENT_ORDER_ID_COLLISION" in events
+    assert "IDENTITY_OBSERVED_BEFORE_SEND" in events
     assert "IDENTITY_COLLISION_MISMATCH" in events
     assert "IDENTITY_RECONCILED_EXACT_MATCH" not in events
     assert b.submit(intent_id, attempt_id="ATT-ID-AGAIN").dispatched is False
@@ -377,9 +412,11 @@ def test_a_rebuilt_database_surfaces_a_different_order_under_its_identity_as_a_c
     assert len(broker.submitted) == 1
 
 
-def test_a_duplicate_answer_after_the_send_is_stored_as_unknown_then_reconciled(
+def test_a_duplicate_answer_after_the_send_is_observed_and_not_attributed(
     world: dict[str, Any],
 ) -> None:
+    # The broker says the identity already existed when our POST arrived: the order predates
+    # our request, so it is not ours. Stored as UNKNOWN with the answer, observed, not adopted.
     a = world["spawn"]("a")
     intent_id, authorization = a.authorize(suffix="1")
     broker = world["broker"]
@@ -388,13 +425,83 @@ def test_a_duplicate_answer_after_the_send_is_stored_as_unknown_then_reconciled(
     broker.submit_body = '{"code": 40010001, "message": "client_order_id must be unique"}'
     result = a.submit(intent_id, attempt_id="ATT-ID-1")
     assert len(broker.submitted) == 1
-    assert result.attempt.state is PaperExecutionState.PAPER_ACCEPTED
-    assert result.attempt.broker_order_id == "broker-1"
+    assert result.dispatched is True
+    assert result.attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    assert result.attempt.failure_code == "IDENTITY_EXISTS_SENT"
+    assert result.attempt.broker_order_id is None
     events = a.events(intent_id)
-    assert "CLIENT_ORDER_ID_COLLISION" in events and "IDENTITY_RECONCILED_EXACT_MATCH" in events
+    assert "CLIENT_ORDER_ID_COLLISION" in events
+    assert "IDENTITY_OBSERVED_NOT_ATTRIBUTED" in events
     acknowledgements = a.paper.broker_acknowledgements.for_attempt("ATT-ID-1")
     assert [(ack.kind, ack.http_status) for ack in acknowledgements][:2] == [
         ("SUBMIT", 422),
         ("RECONCILE", 200),
     ]
     assert authorization.client_order_id == result.attempt.client_order_id
+    # New process: nothing is resent; reconciliation still does not attribute.
+    a.close()
+    b = world["spawn"]("b")
+    assert b.submit(intent_id, attempt_id="ATT-ID-2").dispatched is False
+    world["clock"].advance(seconds=120)
+    assert b.reconcile(intent_id).state is PaperExecutionState.SUBMISSION_UNKNOWN
+    assert len(broker.submitted) == 1
+
+
+# ---------------------------------------------------------------------------
+# 3. an inconclusive identity lookup before the send is recoverable uncertainty
+# ---------------------------------------------------------------------------
+
+
+def test_an_inconclusive_lookup_then_a_restart_surfaces_the_order_without_attribution(
+    world: dict[str, Any],
+) -> None:
+    # The broker already holds an order under the identity, but the first lookup fails.
+    # Zero POSTs. A new process asks again, the lookup succeeds, the order is surfaced and
+    # recorded, attribution follows the lineage rule (this attempt never sent), no resend.
+    a = world["spawn"]("a")
+    intent_id, authorization = a.authorize(suffix="1")
+    broker = world["broker"]
+    broker.lookup_status = 500
+    broker.lookup_view = None
+    broker.lookup_body = '{"code": 50010000, "message": "internal"}'
+    first = a.submit(intent_id, attempt_id="ATT-ID-1")
+    assert broker.submitted == [], "a POST left after an inconclusive identity lookup"
+    assert first.dispatched is False
+    assert first.attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    assert first.attempt.failure_code == "IDENTITY_UNRESOLVED_UNSENT"
+    assert "IDENTITY_LOOKUP_INCONCLUSIVE" in a.events(intent_id)
+    stored = a.paper.execution_attempts.for_intent(intent_id)
+    assert stored is not None and stored.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    a.close()
+
+    b = world["spawn"]("b")
+    broker.lookup_status = 200
+    broker.lookup_view = _authorized_order_as_the_broker_reports_it(
+        authorization, broker_order_id="broker-old", status="accepted"
+    )
+    assert b.submit(intent_id, attempt_id="ATT-ID-2").dispatched is False
+    world["clock"].advance(seconds=5)
+    surfaced = b.reconcile(intent_id)
+    assert surfaced.state is PaperExecutionState.SUBMISSION_UNKNOWN
+    assert surfaced.broker_order_id is None
+    assert "IDENTITY_OBSERVED_NOT_ATTRIBUTED" in b.events(intent_id)
+    observed = [
+        e
+        for e in b.paper.paper_execution_events.for_intent(intent_id)
+        if e.event_type == "IDENTITY_OBSERVED_NOT_ATTRIBUTED"
+    ]
+    assert observed and "broker-old" in observed[-1].detail
+    assert broker.submitted == []
+    with world["engine"].connect() as connection:
+        row = connection.execute(
+            text(
+                "SELECT state, failure_code, broker_order_id FROM public.paper_execution_attempt "
+                "WHERE intent_governance_id = :i"
+            ),
+            {"i": intent_id},
+        ).one()
+    assert (row.state, row.failure_code, row.broker_order_id) == (
+        "SUBMISSION_UNKNOWN",
+        "IDENTITY_UNRESOLVED_UNSENT",
+        None,
+    )

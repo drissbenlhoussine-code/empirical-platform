@@ -85,6 +85,7 @@ def _reconcile(world: dict[str, Any], *, at_seconds: int) -> ExecutionAttempt:
         events=world["events"],
         broker=world["broker"],
         authorizations=world["authorizations"],
+        previews=world["previews"],
     ).handle(
         ReconcilePaperOrderCommand(
             intent_governance_id="INT-1", at=_NOW + timedelta(seconds=at_seconds)

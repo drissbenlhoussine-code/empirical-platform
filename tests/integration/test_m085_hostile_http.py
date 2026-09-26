@@ -112,6 +112,9 @@ def an_order_payload(**overrides: object) -> dict[str, Any]:
         "side": "buy",
         "qty": "1",
         "type": "limit",
+        "limit_price": "4.00",
+        "time_in_force": "day",
+        "extended_hours": False,
         "filled_qty": "0",
         "filled_avg_price": None,
     }
@@ -642,15 +645,29 @@ class TestMalformedAnswers:
 
 
 class TestErrorStatusesAreReportedFaithfully:
-    @pytest.mark.parametrize("status", [400, 401, 403, 422])
+    @pytest.mark.parametrize(
+        ("status", "code"), [(400, 40010001), (401, 40110000), (403, 40310000), (422, 42210000)]
+    )
     def test_a_definitive_refusal_yields_no_acknowledgement_and_keeps_its_code(
-        self, client: AlpacaPaperClient, hostile: _Script, status: int
+        self, client: AlpacaPaperClient, hostile: _Script, status: int, code: int
     ) -> None:
-        hostile.then(_json_response(status, {"code": 40010001, "message": "refused"}))
+        # SEND-BOUNDARY CORRECTION: only a code Alpaca documents FOR THAT STATUS is a
+        # refusal; the 400-family code on a 401 or 403 (as this test once sent) is now
+        # an inconsistent combination and therefore UNCERTAIN.
+        hostile.then(_json_response(status, {"code": code, "message": "refused"}))
         observed, view, sanitized = client.submit_order(an_order())
         assert observed == status
         assert view is None
         assert "refused" in sanitized
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_a_code_that_does_not_belong_to_its_status_is_uncertain(
+        self, client: AlpacaPaperClient, hostile: _Script, status: int
+    ) -> None:
+        hostile.then(_json_response(status, {"code": 40010001, "message": "refused"}))
+        with pytest.raises(BrokerAmbiguousDispatchError) as raised:
+            client.submit_order(an_order())
+        assert raised.value.http_status == status
 
     @pytest.mark.parametrize("status", [404, 408, 409, 429, 500, 502, 503, 504, 418])
     def test_an_uncertain_status_is_never_reported_as_a_refusal(

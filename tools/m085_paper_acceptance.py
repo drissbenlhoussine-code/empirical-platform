@@ -577,6 +577,7 @@ def main(argv: list[str] | None = None) -> int:
                 events=context.paper.paper_execution_events,
                 broker=context.broker,
                 authorizations=context.paper.execution_authorizations,
+                previews=context.paper.submission_previews,
             ).handle(
                 ReconcilePaperOrderCommand(
                     intent_governance_id=intent.intent_governance_id,  # type: ignore[attr-defined]
