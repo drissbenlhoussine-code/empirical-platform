@@ -239,3 +239,26 @@ Local verification of `00716e4` complete as above. Publication of the docs-only 
 this file is authorized by the Owner for the existing review branch only (fast-forward). Not merged;
 not frozen; not OWNER_ACCEPTED; not READY_FOR_PAPER; Paper acceptance NOT_STARTED; M086
 NOT_STARTED. Exact-head CI results are recorded in the PR #15 description, not here.
+
+## 9. Exact-head CI on the published head `6b6518c29550292a713c069b462e577485845584` (2026-09-26)
+
+Published by fast-forward push from `2726f6f`; remote ref and PR #15 head read back identical.
+All four runs **success**. `push` runs test the branch head; `pull_request` runs test GitHub's
+synthetic merge with `master`.
+
+| Workflow | Event | Run | Executed |
+|---|---|---|---|
+| foundation (windows-2025, CPython 3.13.15, PostgreSQL off) | push | 36240162010 | 4012 passed / 0 failed / 1255 skipped; coverage 80.37 % (TOTAL 20 380 / 3 480 — identical to local R3); all 14 steps incl. pip-audit, secret scan, build |
+| foundation | pull_request (synthetic merge) | 36240163397 | 4012 passed / 1255 skipped; 80.37 % |
+| M085 temporal PostgreSQL (ubuntu-latest, CPython 3.13.15, PostgreSQL 16.15 service, full history) | push | 36240161916 | 356 passed with `--no-cov` (= 253 PostgreSQL ids + 19 + 67 + 15 + 2 of the four new suites, exact); 52/52 mutation families detected incl. the 16 added here, tree digest `5576bb5ccdb407c2` identical before/after |
+| M085 temporal PostgreSQL | pull_request (synthetic merge) | 36240163431 | 356 passed; 52/52; digest identical |
+
+CI versions from the logs: Python 3.13.15; psycopg 3.3.6 + psycopg-binary 3.3.6 (implementation not
+printed — presumed binary; **libpq version UNKNOWN**); SQLAlchemy 2.1.1; alembic 1.20.0; pytest 9.1.1;
+PostgreSQL 16.15. The 22 extra foundation skips versus local are the git-history-dependent checks
+that a shallow checkout cannot run (as on `2726f6f`). CI does not run the full PostgreSQL suite of
+every milestone, the 39 not-rerun families, the R2b authority-contract file, or anything external.
+
+This section is recorded in a docs-only commit that is **not pushed** (publishing it would start
+another CI round on a new head that would in turn need recording); the same content is in the PR #15
+description for the published head. Outcome of the publication round: READY_FOR_INDEPENDENT_CODE_REVIEW.
