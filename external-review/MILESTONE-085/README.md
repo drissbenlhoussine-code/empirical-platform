@@ -80,6 +80,19 @@
 > Paper acceptance is NOT_STARTED. See
 > [v1-exhaustion-table-correction.md](v1-exhaustion-table-correction.md). Owner ratification of
 > the rendered table is still required.
+>
+> **Reconciliation evidence safety (REV-R1) and strict boundary parsing (REV-R2), 2026-09-26:**
+> the bounded not-found policy counted every historical 404 and applied to any non-terminal
+> state, so `404→500→404` resolved an unknown outcome, an ACCEPTED order with a persisted broker
+> id was terminally REJECTED by two later 404s, a positively observed identity was discarded, and
+> a lookup that raised left no record. Reproduced through the production handlers and on
+> PostgreSQL across restarts, then fixed: bound and observed orders are surfaced, never revoked;
+> the policy counts the consecutive trailing run; a failed lookup is recorded and breaks it. The
+> send-boundary binding is parsed strictly (duplicates, malformed, missing, unknown, reordered,
+> truncated → rejected whole). Code candidate `e010075`; see
+> [reconciliation-evidence-safety/README.md](reconciliation-evidence-safety/README.md) and
+> [reconciliation-evidence-safety/verification.md](reconciliation-evidence-safety/verification.md).
+> Not pushed. Paper acceptance NOT_STARTED.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
