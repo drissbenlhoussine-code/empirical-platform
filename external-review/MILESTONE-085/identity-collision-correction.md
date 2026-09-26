@@ -31,6 +31,13 @@ first contains it.
 | Non-PostgreSQL suite | 3651 passed / 0 failed / 783 skipped, coverage 79.39 % ≥ 79 % (same tree content, run before the commit) |
 | Combined full suite, PostgreSQL on | **INTERRUPTED** at ~8 % — the host ran low on memory and the background run was stopped; not a test failure and not reused as evidence |
 
+> **Correction (2026-09-26, A3):** the statement below that psycopg ran its pure-Python
+> implementation is verified for the runs in §1 (the implementation was printed) but the
+> Application Control block proved transient, and later runs in the same session may have loaded
+> the bundled binary implementation (libpq 18.0.3) unannounced. The exact-SHA verification of the
+> final candidate pinned and logged `PSYCOPG_IMPL=python`; see
+> [final-candidate-2726f6f/README.md](final-candidate-2726f6f/README.md) §1 and §3.
+
 Environment evidence for every PostgreSQL result above and below: PostgreSQL 16.13 on
 Windows, native service on 127.0.0.1:5432 with `trust` authentication for 127.0.0.1 (no
 password was used, requested or recorded); disposable databases `m085_pgon_c7a41f0` and

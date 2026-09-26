@@ -36,6 +36,14 @@
 > ever sent again. The Owner ratified the post-freeze M084 commit `1127134` and the
 > frozen-path guard now covers M084 as well as M083. See
 > [identity-collision-correction.md](identity-collision-correction.md).
+>
+> **Final candidate `2726f6f` (2026-09-26):** published to PR #15; exact-SHA local
+> verification, exact-head CI, the non-green full PostgreSQL baseline (5104 passed / 3 failed /
+> 43 errors / 16 skipped, all documented non-M085), 134/134 mutations, environment findings
+> A1–A5 and the focused pre-Paper review (A6 slow-identity-lookup defect — HIGH, blocks Paper
+> acceptance; B adoption gap) are recorded in
+> [final-candidate-2726f6f/README.md](final-candidate-2726f6f/README.md). Paper acceptance
+> NOT_STARTED.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
