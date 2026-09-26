@@ -81,6 +81,13 @@ detecting test files are unchanged. Historical results (`134/134` on `2726f6f`, 
   persistence error; the 404 run would then not be broken by that failed round. Bounded: it needs a
   broker failure and a database failure in the same round; the policy still needs ≥ 2 consecutive
   404s afterwards. Recorded, not fixed (no retry, no second write).
+  **SUPERSEDED (2026-09-26).** The "bounded to one observation" reading above was withdrawn in the
+  PR #15 Q-2/Q-4 verification comment (the failure can recur on every round, and the count was over
+  acknowledgements, not rounds) and the defect was reproduced. Closed at the root by code candidate
+  `093baf7`: every round is begun durably before any network work, a raised lookup completes its
+  round `FAILED`, and a round whose completion cannot be written stays visible as incomplete and
+  forbids absence resolution. See
+  [../durable-reconciliation-rounds/README.md](../durable-reconciliation-rounds/README.md).
 - **Q-3.** The "positively observed" rule treats an acknowledgement's `client_order_id_echo` or
   `broker_order_id` as a positive observation. A 200 whose view described a different order under
   our identity (a collision) is a positive observation of *an* order under the identity, which is
@@ -89,6 +96,12 @@ detecting test files are unchanged. Historical results (`134/134` on `2726f6f`, 
   events by timestamp (`command.at`, the reconciler's clock). Two reconcilers on hosts with skewed
   clocks could order a failure relative to a 404 differently than it happened; the effect is at most
   one extra or one fewer counted 404, and the ≥ 60 s / ≥ 2 rule still applies.
+  **SUPERSEDED (2026-09-26).** Reproduced in the PR #15 comment: a lagging reconciler's failure
+  event sorted before the run and was ignored, and a leading reconciler's wall clock satisfied the
+  60 s threshold early because the interval was `command.at − dispatched_at` across hosts. Closed at
+  the root by `093baf7`: rounds are ordered only by their atomically allocated sequence, and the
+  waiting interval is measured on the broker's clock between two rounds (`current.earliest −
+  anchor.latest`). See [../durable-reconciliation-rounds/README.md](../durable-reconciliation-rounds/README.md).
 - **Q-5.** Legacy `SUBMISSION_UNKNOWN` rows: none exist in any acceptance database (Paper acceptance
   NOT_STARTED); disposable databases are rebuilt per run. No backfill of boundary records or
   observations.

@@ -93,6 +93,22 @@
 > [reconciliation-evidence-safety/README.md](reconciliation-evidence-safety/README.md) and
 > [reconciliation-evidence-safety/verification.md](reconciliation-evidence-safety/verification.md).
 > Not pushed. Paper acceptance NOT_STARTED.
+>
+> **Durable reconciliation rounds and clock-safe waiting (Q-2 / Q-4), 2026-09-26:** the
+> reconciliation rounds behind the bounded not-found policy were inferred from acknowledgements and
+> timestamped events, so a failed round whose failure event could not be written vanished (the
+> next 404 completed a "consecutive" pair), a lagging reconciler's failure sorted out of the run,
+> and a leading reconciler's wall clock satisfied the 60 s threshold early. Each round is now begun
+> durably in `paper_reconciliation_round` (migration `a7d3c9e14f26`) before any network work,
+> ordered only by an atomically allocated sequence, completed exactly once (`FAILED` when the
+> lookup raised; incomplete and blocking when even that cannot be written), and the waiting interval
+> is measured on the broker's clock between two rounds; the terminal decision is re-validated
+> atomically on fresh rows. Thresholds stay 2 / 60 s; the contract does not stay unchanged. Code
+> candidate `093baf7` plus the test-only follow-up `c4cc3d0` (one mutation survivor on `093baf7`
+> was a detection gap, not a rule failure; see the folder's verification §3.1); see
+> [durable-reconciliation-rounds/README.md](durable-reconciliation-rounds/README.md) and
+> [durable-reconciliation-rounds/verification.md](durable-reconciliation-rounds/verification.md).
+> Not pushed. Paper acceptance NOT_STARTED.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
