@@ -6,6 +6,16 @@ M	external-review/MILESTONE-084/file-audit-matrix.json
 M	external-review/MILESTONE-084/file-audit-matrix.md
 A	external-review/MILESTONE-085/README.md
 A	external-review/MILESTONE-085/alpaca-contract-evidence.md
+A	external-review/MILESTONE-085/authority-contract-closure/README.md
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R1-focused.txt
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R2-postgres.txt
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R3-full-non-pg.raw
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R3-full-non-pg.txt
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R4-chunk-00.txt
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R5-static.txt
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/affected-families.txt
+A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/mutation-chunk-00.md
+A	external-review/MILESTONE-085/authority-contract-closure/verification.md
 A	external-review/MILESTONE-085/changed-files.txt
 A	external-review/MILESTONE-085/concurrency-results.md
 A	external-review/MILESTONE-085/corrective-pass-mutation-matrix-run1.md
