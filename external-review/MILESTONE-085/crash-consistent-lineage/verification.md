@@ -109,8 +109,23 @@ still deny first (`lineage_unsent_never_attributed`).
 
 | Commit | Content | Executable change |
 |---|---|---|
-| (docs commit following `806896b`) | this record; `runs-806896b/` logs; `l1/precommit-mutations.txt` removed (§3); README pointer | none |
-| (V1 renderer correction) | see [../v1-exhaustion-table-correction.md](../v1-exhaustion-table-correction.md) | `tools/render_m085_exhaustion_table.py` + its tests only; verified by its own gates (recorded there) |
+| `765e7ecf23be2811c8e0961540dda441e5dc30f0` | this record (first version); `runs-806896b/` logs; `l1/precommit-mutations.txt` removed (§3); README pointer | none (verified: `806896b..765e7ec` touches only `external-review/`) |
+| `05eec31fb321f43eeb8017c7df67fba670e4f421` | V1 narrow correction: `tools/render_m085_exhaustion_table.py` rows 21/29 recognise exactly the ratified blob ids; header separates executed rows from recorded evidence; `tests/unit/test_m085_exhaustion_table_ratified_rows.py` | tool + tests only; gates on it: ruff format/check, mypy (368 files), the new tests + base-pin + architecture (74 passed); pins verified equal to `HEAD:PROJECT_CHECKPOINT.md`, `5ae236c:PROJECT_CHECKPOINT.md` and `HEAD:…/m084-frozen-path-digests.json` |
+| `c57c5d06a8f27231a4018daa430406a8b39cd116` | V1 docs: `changed-files.txt` regenerated at that head (193 paths), `v1-exhaustion-table-correction.md`, README pointer | none |
+| (the commit carrying this version) | `exhaustion-table.md` rendered against `c57c5d0`; this §6 | none |
+
+Rendered table at `c57c5d0` (derived, not forced): **31 of 31 EXECUTED_PASS. 0 blocker(s).**. Rows 21, 28 and 29
+derive PASS because the checkpoint and manifest blobs are exactly the ratified ones and the
+inventory matches the committed diff; every other row's expectation is unchanged. The table
+header states that rows 2, 4–19 and 27 are recorded (historical) evidence, that row 12 is an
+honestly blocked submission and not an external execution, and that Paper acceptance is
+NOT_STARTED. **V1 remains OPEN** until the Owner ratifies the corrected expectations and the
+rendered table ([../v1-exhaustion-table-correction.md](../v1-exhaustion-table-correction.md)).
+
+The unpublished chain above the published `6b6518c` is therefore: `b80ef28` (CI record, preserved)
+→ `806896b` (L1 code candidate) → `765e7ec` (docs) → `05eec31` (V1 tool) → `c57c5d0` (docs) → the
+commit carrying this version (docs). Executable content differs from `00716e4` only in `806896b`
+(domain + usecase + tests + campaign + workflow) and `05eec31` (renderer + its tests).
 
 ## 7. Outcome
 
