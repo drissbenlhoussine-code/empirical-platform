@@ -1128,6 +1128,11 @@ class TestEveryAppendOnlyTableRefusesUpdateAndDelete:
             "paper_execution_event",
             "paper_execution_kill_switch",
             "paper_broker_acknowledgement",
+            # Q-2 / Q-4 (a7d3c9e14f26): DELETE is refused by the same function; UPDATE is
+            # governed by the round's own guard (completed exactly once), which
+            # `test_m085_reconciliation_rounds_postgres.py` exercises rather than the
+            # parametrization above, whose UPDATEs must be refused outright.
+            "paper_reconciliation_round",
             "paper_intent_time_basis",
             "paper_proposal_time_basis",
             "paper_decision_time_basis",

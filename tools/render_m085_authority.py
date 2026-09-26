@@ -77,7 +77,12 @@ _PROVES: dict[str, str] = {
     "reconciliation_addresses_the_original_client_order_id_under_a_bounded_not_found_policy": (
         "that reconciliation asks the broker about the ORIGINAL client order id, and "
         "that a single not-found answer does not resolve an unknown outcome -- the "
-        "policy requires repeated observations and elapsed time, and is published"
+        "policy requires repeated observations and elapsed time, and is published; each "
+        "reconciliation is a ROUND recorded durably before its network work and completed "
+        "exactly once (a failed, unusable, found or still-incomplete round ends the run of "
+        "not-found rounds), and the waiting interval is the conservative lower bound between "
+        "the first completed round's broker clock reading and the current round's, never a "
+        "reconciler's wall-clock difference"
     ),
     "the_order_endpoint_is_pinned_to_one_paper_host_and_every_redirect_is_refused": (
         "that orders can reach exactly one host, that HTTP, userinfo, an alternative "
@@ -280,7 +285,12 @@ _LIMITATIONS: dict[str, str] = {
     "the_bounded_not_found_reconciliation_policy_is_a_stated_choice_not_a_proof": (
         "The bounded not-found reconciliation policy -- repeated observations plus "
         "elapsed time before an unknown outcome is resolved -- is a stated, reviewable "
-        "CHOICE. It is not a proof that the order never existed."
+        "CHOICE. It is not a proof that the order never existed. Its time is measured on "
+        "the broker's clock between reconciliation rounds and is anchored on the first "
+        "completed round after the uncertain dispatch, not on the dispatch itself; it "
+        "assumes the broker's clock advances monotonically between rounds, and a broker "
+        "clock sample is not evidence that the broker finished processing any order. A "
+        "record without round or broker-time evidence stays unresolved."
     ),
     "the_external_paper_submission_was_measured_blocked_by_quote_staleness": (
         "The bounded external paper submission was MEASURED BLOCKED, not completed. The "

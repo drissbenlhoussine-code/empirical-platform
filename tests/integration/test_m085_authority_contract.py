@@ -84,6 +84,7 @@ _M085_REVISIONS = (
     "".join(("d4f18a", "6c2e97")),
     "".join(("e61b3f", "9a4c27")),
     "".join(("9c4b2e", "7d5a18")),
+    "".join(("a7d3c9", "e14f26")),
 )
 _AUTHORIZATION_GUARD = "paper_execution_authorization_guard_update"
 

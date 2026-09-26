@@ -578,6 +578,7 @@ def main(argv: list[str] | None = None) -> int:
                 broker=context.broker,
                 authorizations=context.paper.execution_authorizations,
                 previews=context.paper.submission_previews,
+                rounds=context.paper.reconciliation_rounds,
             ).handle(
                 ReconcilePaperOrderCommand(
                     intent_governance_id=intent.intent_governance_id,  # type: ignore[attr-defined]

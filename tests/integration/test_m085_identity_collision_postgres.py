@@ -210,6 +210,8 @@ class _Process:
             broker=self.broker,
             authorizations=self.paper.execution_authorizations,
             previews=self.paper.submission_previews,
+            rounds=self.paper.reconciliation_rounds,
+            time_source=self.clock,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id=intent_id, at=self.clock.utc))
 
     def events(self, intent_id: str) -> list[str]:

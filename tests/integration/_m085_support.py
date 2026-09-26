@@ -116,6 +116,7 @@ def a_policy(configuration_id: str = "CFG-085-0001") -> ExecutionPolicy:
 
 #: The M085 tables, in dependency order for TRUNCATE.
 M085_TABLES = (
+    "paper_reconciliation_round",
     "paper_intent_time_basis",
     "paper_decision_time_basis",
     "paper_proposal_time_basis",
@@ -187,8 +188,22 @@ def build_engine() -> Iterator[Engine]:
 
 
 def truncate_all(engine: Engine) -> None:
+    """Empty every M085/M084 table THAT EXISTS.
+
+    A test that downgrades below a revision leaves later tables absent; truncating only what
+    the catalog holds lets such a test clean up without naming the schema it stepped below.
+    """
+    wanted = (*M085_TABLES, *M084_TABLES)
     with engine.begin() as connection:
-        connection.execute(text("TRUNCATE " + ", ".join((*M085_TABLES, *M084_TABLES))))
+        present = {
+            row[0]
+            for row in connection.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            ).all()
+        }
+        existing = [table for table in wanted if table in present]
+        if existing:
+            connection.execute(text("TRUNCATE " + ", ".join(existing)))
 
 
 def database_identity(engine: Engine) -> dict[str, str]:

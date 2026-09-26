@@ -98,6 +98,13 @@ _CRASH_POSTGRES = "tests/integration/test_m085_pre_send_crash_postgres.py"
 _ABSENCE_UNIT = "tests/unit/test_m085_absence_policy.py"
 _BINDING_PARSER = "tests/unit/test_m085_boundary_binding_parser.py"
 
+#: DURABLE RECONCILIATION ROUNDS (Q-2 / Q-4): every round is begun durably before any network
+#: work, ordered by an atomically allocated sequence, and the waiting interval is measured on
+#: the broker's clock between two rounds -- never on a host wall clock, never from the dispatch.
+_ROUNDS_MIGRATION = "migrations/versions/a7d3c9e14f26_add_m085_reconciliation_round_journal.py"
+_ROUNDS_UNIT = "tests/unit/test_m085_reconciliation_rounds.py"
+_ROUNDS_POSTGRES = "tests/integration/test_m085_reconciliation_rounds_postgres.py"
+
 #: Everything a mutation could touch and every file a restoration must leave as it was.
 #: Digested whole before the first family and after the last, so a campaign that
 #: restored the file it meant to but left anything else changed is caught.
@@ -2064,8 +2071,11 @@ FAMILIES: tuple[Family, ...] = (
         name="absence_counts_only_the_consecutive_suffix",
         rule="The bounded policy counts the trailing consecutive not-found run, not every 404",
         path=_DOMAIN,
-        original="        break  # any other answer ends the consecutive run",
-        mutated="        continue  # MUTATED: every historical not-found answer counts",
+        original=(
+            "        break  # any other round -- FOUND, UNUSABLE, FAILED or still incomplete "
+            "-- ends the run"
+        ),
+        mutated="        continue  # MUTATED: every historical not-found round counts",
         detecting_test=f"{_ABSENCE_UNIT}::test_an_unusable_answer_breaks_the_consecutive_not_found_run",
         expected_fragment="assert",
     ),
@@ -2073,8 +2083,11 @@ FAMILIES: tuple[Family, ...] = (
         name="lookup_failure_breaks_the_absence_run",
         rule="A recorded lookup failure breaks the consecutive not-found run",
         path=_DOMAIN,
-        original="    if latest_failure is not None and latest_failure >= run_started:",
-        mutated="    if False:",
+        original="    return round_.outcome is ReconciliationRoundOutcome.NOT_FOUND",
+        mutated=(
+            "    return round_.outcome in (ReconciliationRoundOutcome.NOT_FOUND, "
+            "ReconciliationRoundOutcome.FAILED)  # MUTATED"
+        ),
         detecting_test=f"{_ABSENCE_UNIT}::test_a_lookup_that_raises_is_recorded_and_breaks_the_run",
         expected_fragment="assert",
     ),
@@ -2127,6 +2140,234 @@ FAMILIES: tuple[Family, ...] = (
         "::test_ambiguous_or_damaged_evidence_is_rejected_as_a_whole"
         "[fields-out-of-canonical-order]",
         expected_fragment="assert",
+    ),
+    # == DURABLE RECONCILIATION ROUNDS (Q-2 / Q-4) ================================
+    Family(
+        name="round_begun_durably_before_any_network_work",
+        rule="No lookup runs before the round it belongs to is committed",
+        path=_USECASE,
+        original=(
+            "        round_ = self._rounds.begin(\n"
+            "            attempt=attempt,\n"
+            "            account_reference=authorization_for_round.account_reference,\n"
+            "            started_at=command.at,\n"
+            "        )\n"
+            "        window = PaperTimeWindow(self._time_source)\n"
+            "        try:\n"
+            "            sample = self._sample_broker_clock(window)\n"
+            "            status, view, sanitized = self._broker.fetch_order_by_client_order_id(\n"
+            "                attempt.client_order_id\n"
+            "            )\n"
+        ),
+        mutated=(
+            "        window = PaperTimeWindow(self._time_source)\n"
+            "        sample = self._sample_broker_clock(window)\n"
+            "        status, view, sanitized = self._broker.fetch_order_by_client_order_id(\n"
+            "            attempt.client_order_id\n"
+            "        )  # MUTATED: the network work runs before the round is durable\n"
+            "        round_ = self._rounds.begin(\n"
+            "            attempt=attempt,\n"
+            "            account_reference=authorization_for_round.account_reference,\n"
+            "            started_at=command.at,\n"
+            "        )\n"
+            "        try:\n"
+            "            pass\n"
+        ),
+        detecting_test=f"{_ROUNDS_UNIT}::test_q2_when_beginning_the_round_fails_no_lookup_is_made",
+        expected_fragment="a lookup ran under an unproven round",
+    ),
+    Family(
+        name="incomplete_round_ends_the_consecutive_run",
+        rule="A round whose outcome is unknown is never skipped when counting consecutive 404s",
+        path=_DOMAIN,
+        original=(
+            "        if round_.is_complete and _is_negative_round(round_):\n"
+            "            run += 1\n"
+            "            continue\n"
+            "        break"
+        ),
+        mutated=(
+            "        if _is_negative_round(round_):\n"
+            "            run += 1\n"
+            "            continue\n"
+            "        if not round_.is_complete:\n"
+            "            continue  # MUTATED: an unfinished round is skipped as if absent\n"
+            "        break"
+        ),
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_q2_a_failed_round_whose_outcome_write_fails_stays_incomplete_and_blocks_resolution",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="incomplete_round_blocks_resolution",
+        rule="An incomplete round anywhere in the journal forbids an absence decision",
+        path=_DOMAIN,
+        original="    if incomplete_sequences:\n        return verdict(",
+        mutated="    if False:\n        return verdict(",
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_a_delayed_earlier_round_blocks_later_negatives_until_it_completes",
+        expected_fragment="an in-flight round was ignored",
+    ),
+    Family(
+        name="rounds_ordered_by_sequence_never_by_timestamp",
+        rule="Safety decisions order rounds by their allocated sequence, not by host timestamps",
+        path=_DOMAIN,
+        original="    ordered = sorted(rounds, key=lambda r: r.sequence)",
+        mutated=(
+            "    ordered = sorted(rounds, key=lambda r: r.completed_at or r.started_at)"
+            "  # MUTATED: wall time"
+        ),
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_q4_a_failure_recorded_by_a_skewed_reconciler_still_breaks_the_run"
+        "[reconciler-B-lags]",
+        expected_fragment="resolved early",
+    ),
+    Family(
+        name="found_round_forbids_absence_resolution",
+        rule="A completed FOUND round is positive evidence that later 404s never override",
+        path=_DOMAIN,
+        original="    if found_sequences:\n        return verdict(",
+        mutated="    if False:\n        return verdict(",
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_a_delayed_earlier_round_blocks_later_negatives_until_it_completes",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="waiting_bound_uses_the_conservative_endpoints",
+        rule="The waiting lower bound is current.earliest - anchor.latest, never the reverse",
+        path=_DOMAIN,
+        original=(
+            "    lower_bound = (current.broker_earliest_at - anchor.broker_latest_at)"
+            ".total_seconds()"
+        ),
+        mutated=(
+            "    lower_bound = (current.broker_latest_at - anchor.broker_earliest_at)"
+            ".total_seconds()  # MUTATED"
+        ),
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_q4_interval_uncertainty_straddling_the_threshold_waits_for_the_lower_bound",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="missing_broker_time_evidence_is_unresolved",
+        rule="Rounds without a broker clock interval never satisfy the waiting interval",
+        path=_DOMAIN,
+        original=(
+            "    if lower_bound is None:\n"
+            '        return verdict(False, "no compatible broker-time evidence for the waiting '
+            'interval")'
+        ),
+        mutated=(
+            "    if lower_bound is None:\n"
+            "        lower_bound = float(MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS)"
+            "  # MUTATED: read as sufficient"
+        ),
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_completed_rounds_without_broker_time_evidence_never_satisfy_the_interval",
+        expected_fragment="missing broker-time evidence was read as sufficient",
+    ),
+    Family(
+        name="contradictory_broker_readings_are_not_trusted",
+        rule="A current reading earlier than the anchor yields no interval, not its magnitude",
+        path=_DOMAIN,
+        original=(
+            "    if lower_bound < 0:\n"
+            "        return None  # the readings contradict a monotone broker clock; not trusted"
+        ),
+        mutated="    if lower_bound < 0:\n        lower_bound = -lower_bound  # MUTATED",
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_q4_a_broker_clock_that_reads_backwards_is_not_trusted_for_the_interval",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="round_interval_is_the_broker_clock_not_the_caller_wall_time",
+        rule="A completed round carries the broker clock interval sampled in it, not command.at",
+        path=_USECASE,
+        original=(
+            "            broker_earliest_at=sample.earliest,\n"
+            "            broker_latest_at=sample.latest,"
+        ),
+        mutated=(
+            "            broker_earliest_at=command.at,  # MUTATED: host wall time\n"
+            "            broker_latest_at=command.at,"
+        ),
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_q4_a_leading_host_clock_cannot_manufacture_the_waiting_interval",
+        expected_fragment="host wall time counted as waiting",
+    ),
+    Family(
+        name="raised_lookup_is_a_failed_round_not_a_not_found_one",
+        rule="A round whose network work raised is completed FAILED; no HTTP status is fabricated",
+        path=_USECASE,
+        original="                outcome=ReconciliationRoundOutcome.FAILED,",
+        mutated=(
+            "                outcome=ReconciliationRoundOutcome.NOT_FOUND,"
+            "  # MUTATED: a raised lookup recorded as a 404"
+        ),
+        detecting_test=f"{_ROUNDS_UNIT}"
+        "::test_a_failed_broker_clock_fetch_makes_the_round_failed_without_time_evidence",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="database_round_sequence_allocated_under_the_attempt_lock",
+        rule="Sequence allocation serialises on the attempt row; MAX+1 is never unprotected",
+        path=_REPOSITORY,
+        original='    "WHERE attempt_id = :attempt_id FOR UPDATE"',
+        mutated='    "WHERE attempt_id = :attempt_id"  # MUTATED: no lock',
+        detecting_test=f"{_ROUNDS_POSTGRES}"
+        "::test_allocation_holds_the_attempt_lock_between_reading_and_inserting",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="database_round_completed_exactly_once",
+        rule="The completion statement matches only the still-incomplete round",
+        path=_REPOSITORY,
+        original='    "WHERE round_id = :round_id AND outcome IS NULL "',
+        mutated='    "WHERE round_id = :round_id "  # MUTATED: any round',
+        detecting_test=f"{_ROUNDS_POSTGRES}"
+        "::test_the_journal_completes_a_round_exactly_once_and_binds_it_to_the_attempt",
+        expected_fragment="immutable",
+    ),
+    Family(
+        name="database_finalisation_rejects_a_stale_round_snapshot",
+        rule="Terminal absence resolution requires the round set the caller judged",
+        path=_REPOSITORY,
+        original=(
+            "            if evaluation.rounds_version != expected_version:\n"
+            "                return None  # the snapshot the caller judged is stale"
+        ),
+        mutated="            if False:\n                return None",
+        detecting_test=f"{_ROUNDS_POSTGRES}"
+        "::test_a_round_completed_by_another_process_after_the_snapshot_is_never_finalised_from_it",
+        expected_fragment="finalised from a stale snapshot",
+    ),
+    Family(
+        name="database_finalisation_re_evaluates_on_fresh_rows",
+        rule="Terminal absence resolution re-applies the policy on the locked, fresh rows",
+        path=_REPOSITORY,
+        original=(
+            "            if not evaluation.resolvable:\n"
+            "                return None  # the fresh evidence forbids the resolution"
+        ),
+        mutated="            if False:\n                return None",
+        detecting_test=f"{_ROUNDS_POSTGRES}"
+        "::test_finalisation_honours_positive_evidence_recorded_without_a_round",
+        expected_fragment="a positive observation on fresh rows was ignored at finalisation",
+    ),
+    Family(
+        name="database_round_sequence_unique_per_attempt",
+        rule="The schema refuses two rounds with the same (attempt_id, sequence)",
+        path=_ROUNDS_MIGRATION,
+        original=(
+            "        sa.UniqueConstraint(\n"
+            '            "attempt_id", "sequence", '
+            'name="uq_paper_reconciliation_round_attempt_sequence"\n'
+            "        ),\n"
+        ),
+        mutated="        # MUTATED: no uniqueness of (attempt_id, sequence)\n",
+        detecting_test=f"{_ROUNDS_POSTGRES}"
+        "::test_the_journal_completes_a_round_exactly_once_and_binds_it_to_the_attempt",
+        expected_fragment="DID NOT RAISE",
     ),
 )
 

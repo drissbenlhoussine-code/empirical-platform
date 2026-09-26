@@ -205,7 +205,8 @@ def test_two_consecutive_not_found_answers_still_resolve_a_never_observed_unknow
     _unknown_after_an_ambiguous_post(world)
     world["broker"].lookup_sequence = [_NOT_FOUND, _NOT_FOUND]
     assert handlers._reconcile(world, at_seconds=61).state is PaperExecutionState.SUBMISSION_UNKNOWN
-    resolved = handlers._reconcile(world, at_seconds=120)
+    # Q-4: 60 s on the broker clock after the FIRST round (the anchor), not after dispatch.
+    resolved = handlers._reconcile(world, at_seconds=121)
     assert resolved.state is PaperExecutionState.REJECTED
     assert resolved.failure_code == "NOT_FOUND_AT_BROKER"
     assert "RECONCILE_RESOLVED_NOT_FOUND" in _events(world)

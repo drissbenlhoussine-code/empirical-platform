@@ -79,18 +79,22 @@ def _submit(world: dict[str, Any]) -> Any:  # noqa: ANN401 - PaperSubmissionResu
 
 
 def _reconcile(world: dict[str, Any], *, at_seconds: int) -> ExecutionAttempt:
-    return ReconcilePaperOrderHandler(
-        attempts=world["attempts"],
-        acknowledgements=world["acknowledgements"],
-        events=world["events"],
-        broker=world["broker"],
-        authorizations=world["authorizations"],
-        previews=world["previews"],
-    ).handle(
-        ReconcilePaperOrderCommand(
-            intent_governance_id="INT-1", at=_NOW + timedelta(seconds=at_seconds)
+    # The reconciler's host clock and the fake broker's clock (`datetime.now`, frozen) both
+    # read the command instant: the waiting interval is measured on the broker clock.
+    with freeze_time(_NOW + timedelta(seconds=at_seconds)):
+        return ReconcilePaperOrderHandler(
+            attempts=world["attempts"],
+            acknowledgements=world["acknowledgements"],
+            events=world["events"],
+            broker=world["broker"],
+            authorizations=world["authorizations"],
+            previews=world["previews"],
+            rounds=world["rounds"],
+        ).handle(
+            ReconcilePaperOrderCommand(
+                intent_governance_id="INT-1", at=_NOW + timedelta(seconds=at_seconds)
+            )
         )
-    )
 
 
 class _StaleQuote(FakeQuote):
@@ -411,7 +415,10 @@ class TestAnUncertainOutcomeIsResolvedNotRetried:
         world["broker"].lookup_status = 404
         world["broker"].lookup_view = None
         assert _reconcile(world, at_seconds=120).state is PaperExecutionState.SUBMISSION_UNKNOWN
-        resolved = _reconcile(world, at_seconds=121)
+        # Q-4: the waiting interval runs on the broker clock from the FIRST round (the anchor);
+        # one second after it is not 60 seconds after it.
+        assert _reconcile(world, at_seconds=121).state is PaperExecutionState.SUBMISSION_UNKNOWN
+        resolved = _reconcile(world, at_seconds=181)
         assert resolved.state is PaperExecutionState.REJECTED
         assert resolved.failure_code == "NOT_FOUND_AT_BROKER"
         assert len(world["broker"].submitted) == 1

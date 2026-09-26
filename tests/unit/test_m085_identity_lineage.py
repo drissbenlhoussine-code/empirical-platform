@@ -477,7 +477,8 @@ class TestAnInconclusiveLookupBeforeTheSendStaysRecoverable:
             handlers._reconcile(world, at_seconds=120).state
             is PaperExecutionState.SUBMISSION_UNKNOWN
         )
-        resolved = handlers._reconcile(world, at_seconds=121)
+        # Q-4: measured on the broker clock from the first round; 60 s after it resolves.
+        resolved = handlers._reconcile(world, at_seconds=181)
         assert resolved.state is PaperExecutionState.REJECTED
         assert resolved.failure_code == "NOT_FOUND_AT_BROKER"
         assert broker.submitted == []

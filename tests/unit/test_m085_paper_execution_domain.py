@@ -1200,3 +1200,17 @@ class TestTheReconciliationPolicyIsBoundedAndPublished:
             RECONCILIATION_UNKNOWN_POLICY["not_found_alone_resolves_unknown"]
             is NOT_FOUND_ALONE_RESOLVES_UNKNOWN
         )
+
+    def test_the_policy_states_its_round_and_time_semantics(self) -> None:
+        # Q-2 / Q-4: the numbers alone (2, 60) do not say what they are counted over or
+        # measured on. The published document must.
+        assert RECONCILIATION_UNKNOWN_POLICY["incomplete_round_blocks_resolution"] is True
+        assert RECONCILIATION_UNKNOWN_POLICY["found_round_blocks_resolution"] is True
+        consecutiveness = str(RECONCILIATION_UNKNOWN_POLICY["consecutiveness_evaluated_over"])
+        assert "sequence order" in consecutiveness
+        lower_bound = str(RECONCILIATION_UNKNOWN_POLICY["waiting_interval_lower_bound"])
+        assert "broker clock" in lower_bound
+        assert "broker_earliest_at" in lower_bound
+        assert "first completed reconciliation round" in str(
+            RECONCILIATION_UNKNOWN_POLICY["waiting_interval_anchor"]
+        )

@@ -88,7 +88,14 @@ __all__ = [
     "send_boundary_event_binds",
     "parse_send_boundary_binding",
     "attempt_positively_observed",
-    "consecutive_not_found_suffix",
+    "absence_evaluation",
+    "AbsenceEvaluation",
+    "ReconciliationRound",
+    "ReconciliationRoundOutcome",
+    "consecutive_not_found_rounds",
+    "rounds_in_order",
+    "waiting_anchor",
+    "waiting_lower_bound_seconds",
     "BOUND_ORDER_STATES",
     "POSITIVE_OBSERVATION_EVENT_TYPES",
     "RECONCILE_LOOKUP_FAILED_EVENT_TYPE",
@@ -220,6 +227,21 @@ RECONCILIATION_UNKNOWN_POLICY: MappingProxyType[str, object] = MappingProxyType(
         ),
         "resolution_when_policy_satisfied": RESOLUTION_WHEN_POLICY_SATISFIED,
         "resolution_requires_operator_visible_event": (RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT),
+        # Q-2 / Q-4: what "consecutive" and "elapsed" are measured over.
+        "consecutiveness_evaluated_over": (
+            "durable reconciliation rounds in allocated sequence order; an incomplete, "
+            "failed, unusable or positively answered round ends the run"
+        ),
+        "incomplete_round_blocks_resolution": True,
+        "found_round_blocks_resolution": True,
+        "waiting_interval_anchor": (
+            "the first completed reconciliation round carrying a broker clock interval, "
+            "established after the uncertain dispatch"
+        ),
+        "waiting_interval_lower_bound": (
+            "current_round.broker_earliest_at - anchor_round.broker_latest_at, on the "
+            "broker clock; never a reconciler wall-clock difference"
+        ),
     }
 )
 
@@ -605,53 +627,264 @@ def attempt_positively_observed(
     )
 
 
-def _is_not_found_answer(acknowledgement: object) -> bool:
-    return (
-        getattr(acknowledgement, "kind", None) == "RECONCILE"
-        and getattr(acknowledgement, "http_status", None) == 404
-        and getattr(acknowledgement, "broker_order_id", None) is None
-    )
+# ---------------------------------------------------------------------------
+# Durable reconciliation rounds (Q-2 / Q-4)
+# ---------------------------------------------------------------------------
 
 
-def _instant(record: object, attribute: str) -> datetime:
-    value = getattr(record, attribute, None)
-    if not isinstance(value, datetime):
-        raise ValueError(f"{attribute} must be an aware datetime on a persisted record")
-    return value
+class ReconciliationRoundOutcome(StrEnum):
+    """What one reconciliation round established. Closed."""
+
+    #: The broker answered 404 for the derived client_order_id.
+    NOT_FOUND = "NOT_FOUND"
+    #: The broker described an order under the identity (attributed or merely observed).
+    FOUND = "FOUND"
+    #: The broker answered, but with nothing usable (a non-404 without an order).
+    UNUSABLE = "UNUSABLE"
+    #: The round's network work raised; no answer was observed.
+    FAILED = "FAILED"
 
 
-def consecutive_not_found_suffix(
-    acknowledgements: Iterable[object], events: Iterable[object]
-) -> int:
-    """The trailing run of consecutive RECONCILE/404 answers, in sequence order.
+@dataclass(frozen=True, slots=True)
+class ReconciliationRound:
+    """One reconciliation round, begun DURABLY before its network work (Q-2 / Q-4).
 
-    Any other reconciliation answer (a 500, a 200, anything with an order view) ends the run,
-    and so does a recorded lookup failure (`RECONCILE_LOOKUP_FAILED`) that occurred at or after
-    the run began: only the not-found answers observed AFTER the latest failure count. This is
-    the "consecutive" the published policy states; a count of every historical 404 is not.
+    Identity is the attempt plus an allocated per-attempt `sequence`; context is the attempt's
+    authorization, client_order_id and the authorized account. A round starts incomplete
+    (`outcome` None) and is completed exactly once with what THAT round established, the
+    acknowledgement it produced (if the broker answered) and the broker clock interval sampled
+    during the round. `started_at` and `completed_at` are host wall-clock readings kept for
+    operators; nothing safety-relevant is ordered by them -- rounds are ordered by `sequence`
+    and time is measured on the broker's clock.
     """
-    reconcile_answers = sorted(
-        (a for a in acknowledgements if getattr(a, "kind", None) == "RECONCILE"),
-        key=lambda a: getattr(a, "sequence", 0),
-    )
-    run: list[object] = []
-    for acknowledgement in reversed(reconcile_answers):
-        if _is_not_found_answer(acknowledgement):
-            run.append(acknowledgement)
+
+    round_id: str
+    attempt_id: str
+    intent_governance_id: str
+    authorization_id: str
+    client_order_id: str
+    account_reference: str
+    sequence: int
+    started_at: datetime
+    outcome: ReconciliationRoundOutcome | None
+    completed_at: datetime | None
+    acknowledgement_sequence: int | None
+    broker_earliest_at: datetime | None
+    broker_latest_at: datetime | None
+    detail: str | None
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "round_id",
+            "attempt_id",
+            "intent_governance_id",
+            "authorization_id",
+            "client_order_id",
+        ):
+            _require_identifier(getattr(self, field_name), field=field_name)
+        if not isinstance(self.account_reference, str) or not self.account_reference.strip():
+            raise ValueError("account_reference must be a non-empty string")
+        if (
+            isinstance(self.sequence, bool)
+            or not isinstance(self.sequence, int)
+            or self.sequence < 1
+        ):
+            raise ValueError("sequence must be an int starting at 1")
+        _require_aware(self.started_at, field="started_at")
+        if (self.outcome is None) != (self.completed_at is None):
+            raise ValueError("outcome and completed_at are recorded together or not at all")
+        if self.outcome is not None and not isinstance(self.outcome, ReconciliationRoundOutcome):
+            raise ValueError("outcome must be a ReconciliationRoundOutcome")
+        if self.completed_at is not None:
+            _require_aware(self.completed_at, field="completed_at")
+        if (self.broker_earliest_at is None) != (self.broker_latest_at is None):
+            raise ValueError("the broker interval has both ends or neither")
+        if self.broker_earliest_at is not None and self.broker_latest_at is not None:
+            _require_aware(self.broker_earliest_at, field="broker_earliest_at")
+            _require_aware(self.broker_latest_at, field="broker_latest_at")
+            if self.broker_latest_at < self.broker_earliest_at:
+                raise ValueError("a broker interval cannot end before it starts")
+
+    @property
+    def is_complete(self) -> bool:
+        return self.outcome is not None
+
+    @property
+    def has_broker_interval(self) -> bool:
+        return self.broker_earliest_at is not None and self.broker_latest_at is not None
+
+
+def _is_negative_round(round_: ReconciliationRound) -> bool:
+    return round_.outcome is ReconciliationRoundOutcome.NOT_FOUND
+
+
+def rounds_in_order(rounds: Iterable[ReconciliationRound]) -> tuple[ReconciliationRound, ...]:
+    """Rounds in their DURABLE order: the allocated per-attempt sequence, never a timestamp.
+
+    Q-4: timestamps written by different hosts are not comparable; the sequence is allocated
+    atomically in the database and is the only order safety decisions may use.
+    """
+    ordered = sorted(rounds, key=lambda r: r.sequence)
+    return tuple(ordered)
+
+
+def consecutive_not_found_rounds(rounds: Iterable[ReconciliationRound]) -> int:
+    """The trailing run of COMPLETED NOT_FOUND rounds, in sequence order.
+
+    Any other round ends the run: FOUND, UNUSABLE, FAILED -- and a round that is still
+    incomplete, whose result is not known and therefore cannot be treated as absent.
+    """
+    run = 0
+    for round_ in reversed(rounds_in_order(rounds)):
+        if round_.is_complete and _is_negative_round(round_):
+            run += 1
             continue
-        break  # any other answer ends the consecutive run
-    if not run:
-        return 0
-    run_started = min(_instant(a, "observed_at") for a in run)
-    failures = [
-        _instant(event, "occurred_at")
-        for event in events
-        if getattr(event, "event_type", None) == RECONCILE_LOOKUP_FAILED_EVENT_TYPE
-    ]
-    latest_failure = max(failures) if failures else None
-    if latest_failure is not None and latest_failure >= run_started:
-        run = [a for a in run if _instant(a, "observed_at") > latest_failure]
-    return len(run)
+        break  # any other round -- FOUND, UNUSABLE, FAILED or still incomplete -- ends the run
+    return run
+
+
+def waiting_anchor(rounds: Iterable[ReconciliationRound]) -> ReconciliationRound | None:
+    """The act that anchors the waiting interval: the FIRST completed round carrying a broker
+    clock interval, in sequence order.
+
+    The dispatch itself has no persisted broker-bounded instant, and inventing one is refused;
+    this anchor is established AFTER the uncertain dispatch, so measuring from it is
+    conservative -- it can only understate how long the outcome has been unknown.
+    """
+    for round_ in rounds_in_order(rounds):
+        if round_.is_complete and round_.has_broker_interval:
+            return round_
+    return None
+
+
+def waiting_lower_bound_seconds(rounds: Iterable[ReconciliationRound]) -> float | None:
+    """The CONSERVATIVE minimum elapsed duration, on the broker's clock, between the anchor
+    round and the latest completed round: `current.earliest - anchor.latest`.
+
+    Both endpoints are bounded broker readings sampled by the reconciler that ran each round
+    (timestamp at least, timestamp plus the measured round trip at most). Comparing the latest
+    possible anchor reading with the earliest possible current reading is the smallest
+    duration the evidence supports; the unsafe mistake is believing more time has passed than
+    may have. None when the evidence is missing or not comparable: no anchor, no later
+    completed round with an interval, or a current reading earlier than the anchor (the
+    broker's clock is assumed monotone; a reading that contradicts that is not trusted).
+
+    ASSUMED, NOT MEASURED: that the broker's clock advances monotonically between rounds, and
+    that a broker clock sample says nothing about whether the broker has finished processing
+    any order.
+    """
+    ordered = rounds_in_order(rounds)
+    anchor = waiting_anchor(ordered)
+    if anchor is None:
+        return None  # no compatible broker-time evidence
+    current = None
+    for round_ in reversed(ordered):
+        if round_.is_complete and round_.has_broker_interval:
+            current = round_
+            break
+    if current is None or current.sequence <= anchor.sequence:
+        return None  # no compatible broker-time evidence
+    assert current.broker_earliest_at is not None and anchor.broker_latest_at is not None
+    lower_bound = (current.broker_earliest_at - anchor.broker_latest_at).total_seconds()
+    if lower_bound < 0:
+        return None  # the readings contradict a monotone broker clock; not trusted
+    return lower_bound
+
+
+@dataclass(frozen=True, slots=True)
+class AbsenceEvaluation:
+    """Everything the bounded not-found policy decided from, and what it decided."""
+
+    rounds_version: tuple[int, int]
+    incomplete_sequences: tuple[int, ...]
+    found_sequences: tuple[int, ...]
+    consecutive_not_found: int
+    waiting_lower_bound_seconds: float | None
+    anchor_sequence: int | None
+    resolvable: bool
+    reason: str
+
+
+def absence_evaluation(
+    *,
+    state: object,
+    broker_order_id: object,
+    acknowledgements: Iterable[object],
+    events: Iterable[object],
+    rounds: Iterable[ReconciliationRound],
+) -> AbsenceEvaluation:
+    """Whether the bounded not-found policy may resolve THIS attempt, from durable evidence.
+
+    Pure, so the same function judges the reconciler's snapshot and, inside the finalising
+    transaction, the freshly re-read rows. Resolution requires, in this order: a
+    `SUBMISSION_UNKNOWN` attempt (a bound order is never revoked by absence); no broker id and
+    no positive observation on record; no completed FOUND round (a positive round is never
+    overridden by later absence); no incomplete round (unfinished work could invalidate
+    the decision); at least `MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS` trailing completed
+    NOT_FOUND rounds in sequence order; and a broker-time waiting lower bound of at least
+    `MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS` between the anchor round and the latest completed
+    round. Missing or incompatible time evidence keeps the outcome unresolved.
+    """
+    ordered = rounds_in_order(rounds)
+    version = (len(ordered), ordered[-1].sequence if ordered else 0)
+    incomplete_sequences = tuple(r.sequence for r in ordered if not r.is_complete)
+    found_sequences = tuple(
+        r.sequence for r in ordered if r.outcome is ReconciliationRoundOutcome.FOUND
+    )
+    run = consecutive_not_found_rounds(ordered)
+    lower_bound = waiting_lower_bound_seconds(ordered)
+    anchor = waiting_anchor(ordered)
+    anchor_sequence = None if anchor is None else anchor.sequence
+
+    def verdict(resolvable: bool, reason: str) -> AbsenceEvaluation:
+        return AbsenceEvaluation(
+            rounds_version=version,
+            incomplete_sequences=incomplete_sequences,
+            found_sequences=found_sequences,
+            consecutive_not_found=run,
+            waiting_lower_bound_seconds=lower_bound,
+            anchor_sequence=anchor_sequence,
+            resolvable=resolvable,
+            reason=reason,
+        )
+
+    if state in BOUND_ORDER_STATES:
+        return verdict(False, "a bound, acknowledged order is never resolved by absence")
+    if state is not PaperExecutionState.SUBMISSION_UNKNOWN:
+        return verdict(
+            False, f"state {getattr(state, 'value', state)} is not resolvable by absence"
+        )
+    if broker_order_id is not None or attempt_positively_observed(acknowledgements, events):
+        return verdict(False, "an order under this identity was positively observed")
+    if found_sequences:
+        return verdict(
+            False,
+            "reconciliation round(s) "
+            + ", ".join(str(s) for s in found_sequences)
+            + " FOUND an order under this identity; absence never overrides a positive round",
+        )
+    if incomplete_sequences:
+        return verdict(
+            False,
+            "reconciliation round(s) "
+            + ", ".join(str(s) for s in incomplete_sequences)
+            + " are incomplete; unfinished work could invalidate an absence decision",
+        )
+    if run < MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS:
+        return verdict(False, f"only {run} consecutive completed not-found round(s)")
+    if lower_bound is None:
+        return verdict(False, "no compatible broker-time evidence for the waiting interval")
+    if lower_bound < MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS:
+        return verdict(
+            False,
+            f"the waiting interval lower bound is {int(lower_bound)}s on the broker clock; "
+            f"{MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS}s are required",
+        )
+    return verdict(
+        True,
+        f"{run} consecutive completed not-found rounds; waiting lower bound {int(lower_bound)}s "
+        f"on the broker clock from anchor round {anchor_sequence}",
+    )
 
 
 def reached_send_boundary(

@@ -60,7 +60,10 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperExecutionState,
     PaperOrderRequest,
     ProposalTimeBasis,
+    ReconciliationRound,
+    ReconciliationRoundOutcome,
     SubmissionPreview,
+    absence_evaluation,
 )
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
@@ -68,6 +71,7 @@ from empirical_platform.shared.persistence.postgres import PostgresPersistenceSe
 
 __all__ = [
     "M085_SCHEMA_HEAD",
+    "PostgresReconciliationRoundRepository",
     "PaperDispatchClaim",
     "PaperSchemaHeadError",
     "require_exact_m085_schema_head",
@@ -90,7 +94,7 @@ _KILL_SWITCH_SCOPE = "GLOBAL"
 #: against a database whose triggers it had never seen -- an older head lacking the
 #: policy and binding guards, or a later one that had replaced them. Grouped so the
 #: literal is plainly a revision id rather than a credential-shaped token.
-M085_SCHEMA_HEAD = "9c4b2e7d" + "5a18"
+M085_SCHEMA_HEAD = "a7d3c9e1" + "4f26"
 
 _SCHEMA_HEAD_SELECT = "SELECT version_num FROM public.alembic_version"
 
@@ -1460,6 +1464,225 @@ class PostgresTimeBasisRepository:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Reconciliation rounds (Q-2 / Q-4)
+# ---------------------------------------------------------------------------
+
+#: Serialises allocation per attempt. The UNIQUE (attempt_id, sequence) constraint is the
+#: guarantee; this lock is what turns a racing writer's failure into a wait.
+_ROUND_LOCK_ATTEMPT = (
+    "SELECT attempt_id FROM public.paper_execution_attempt "
+    "WHERE attempt_id = :attempt_id FOR UPDATE"
+)
+_ROUND_MAX_SEQUENCE = (
+    "SELECT COALESCE(MAX(sequence), 0) AS highest "
+    "FROM public.paper_reconciliation_round WHERE attempt_id = :attempt_id"
+)
+_ROUND_INSERT = (
+    "INSERT INTO public.paper_reconciliation_round "
+    "(round_id, attempt_id, intent_governance_id, authorization_id, client_order_id, "
+    "account_reference, sequence, started_at, outcome, completed_at, acknowledgement_sequence, "
+    "broker_earliest_at, broker_latest_at, detail) "
+    "VALUES (:round_id, :attempt_id, :intent_governance_id, :authorization_id, :client_order_id, "
+    ":account_reference, :sequence, :started_at, NULL, NULL, NULL, NULL, NULL, NULL) "
+    "RETURNING round_id, attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
+    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail"
+)
+_ROUND_SELECT_BY_ATTEMPT = (
+    "SELECT round_id, attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
+    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail "
+    "FROM public.paper_reconciliation_round WHERE attempt_id = :attempt_id ORDER BY sequence ASC"
+)
+_ROUND_SELECT_BY_ID = (
+    "SELECT round_id, attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
+    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail "
+    "FROM public.paper_reconciliation_round WHERE round_id = :round_id"
+)
+#: Completes exactly the still-incomplete round; a completed round matches no row.
+_ROUND_COMPLETE = (
+    "UPDATE public.paper_reconciliation_round SET outcome = :outcome, "
+    "completed_at = :completed_at, acknowledgement_sequence = :acknowledgement_sequence, "
+    "broker_earliest_at = :broker_earliest_at, "
+    "broker_latest_at = :broker_latest_at, detail = :detail "
+    "WHERE round_id = :round_id AND outcome IS NULL "
+    "RETURNING round_id, attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
+    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail"
+)
+
+
+def _optional_int(row: Mapping[str, Any], field: str) -> int | None:
+    value = row[field]
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _fail(field, value, "int or NULL")
+    return int(value)
+
+
+def _row_to_round(row: Mapping[str, Any]) -> ReconciliationRound:
+    outcome = _optional_str(row, "outcome")
+    return ReconciliationRound(
+        round_id=_str(row, "round_id"),
+        attempt_id=_str(row, "attempt_id"),
+        intent_governance_id=_str(row, "intent_governance_id"),
+        authorization_id=_str(row, "authorization_id"),
+        client_order_id=_str(row, "client_order_id"),
+        account_reference=_str(row, "account_reference"),
+        sequence=_int(row, "sequence"),
+        started_at=_instant(row, "started_at"),
+        outcome=None if outcome is None else ReconciliationRoundOutcome(outcome),
+        completed_at=_optional_instant(row, "completed_at"),
+        acknowledgement_sequence=_optional_int(row, "acknowledgement_sequence"),
+        broker_earliest_at=_optional_instant(row, "broker_earliest_at"),
+        broker_latest_at=_optional_instant(row, "broker_latest_at"),
+        detail=_optional_str(row, "detail"),
+    )
+
+
+class PostgresReconciliationRoundRepository:
+    """Durable reconciliation rounds, allocated atomically and completed exactly once."""
+
+    __slots__ = ("_service",)
+
+    def __init__(self, service: PostgresPersistenceService) -> None:
+        self._service = service
+
+    def begin(
+        self, *, attempt: ExecutionAttempt, account_reference: str, started_at: datetime
+    ) -> ReconciliationRound:
+        with self._service.unit_of_work() as work:
+            locked = list(work.execute(_ROUND_LOCK_ATTEMPT, {"attempt_id": attempt.attempt_id}))
+            if not locked:
+                raise ValueError(f"no paper execution attempt {attempt.attempt_id!r} exists")
+            highest = list(work.execute(_ROUND_MAX_SEQUENCE, {"attempt_id": attempt.attempt_id}))
+            sequence = _int(highest[0], "highest") + 1
+            rows = work.execute(
+                _ROUND_INSERT,
+                {
+                    "round_id": f"RND-{attempt.attempt_id}-{sequence}"[:64],
+                    "attempt_id": attempt.attempt_id,
+                    "intent_governance_id": attempt.intent_governance_id,
+                    "authorization_id": attempt.authorization_id,
+                    "client_order_id": attempt.client_order_id,
+                    "account_reference": account_reference,
+                    "sequence": sequence,
+                    "started_at": started_at,
+                },
+            )
+        return _row_to_round(rows[0])
+
+    def complete(
+        self,
+        round_id: str,
+        *,
+        outcome: ReconciliationRoundOutcome,
+        completed_at: datetime,
+        acknowledgement_sequence: int | None = None,
+        broker_earliest_at: datetime | None = None,
+        broker_latest_at: datetime | None = None,
+        detail: str | None = None,
+    ) -> ReconciliationRound:
+        if not isinstance(outcome, ReconciliationRoundOutcome):
+            raise ValueError("outcome must be a ReconciliationRoundOutcome")
+        with self._service.unit_of_work() as work:
+            rows = list(
+                work.execute(
+                    _ROUND_COMPLETE,
+                    {
+                        "round_id": round_id,
+                        "outcome": outcome.value,
+                        "completed_at": completed_at,
+                        "acknowledgement_sequence": acknowledgement_sequence,
+                        "broker_earliest_at": broker_earliest_at,
+                        "broker_latest_at": broker_latest_at,
+                        "detail": None if detail is None else detail[:500],
+                    },
+                )
+            )
+            if not rows:
+                existing = list(work.execute(_ROUND_SELECT_BY_ID, {"round_id": round_id}))
+                if not existing:
+                    raise ValueError(f"no reconciliation round {round_id!r} exists")
+                raise ValueError(
+                    f"reconciliation round {round_id!r} is already complete and is immutable"
+                )
+        return _row_to_round(rows[0])
+
+    def for_attempt(self, attempt_id: str) -> tuple[ReconciliationRound, ...]:
+        with self._service.unit_of_work() as work:
+            rows: Sequence[Mapping[str, Any]] = work.execute(
+                _ROUND_SELECT_BY_ATTEMPT, {"attempt_id": attempt_id}
+            )
+        return tuple(_row_to_round(row) for row in rows)
+
+    def resolve_not_found(
+        self,
+        *,
+        attempt_id: str,
+        expected_version: tuple[int, int],
+        at: datetime,
+        failure_code: str,
+        failure_detail: str,
+    ) -> ExecutionAttempt | None:
+        """Terminal absence-based resolution, decided again on FRESH rows under a lock.
+
+        Nothing here talks to the broker. The attempt row is locked, the rounds,
+        acknowledgements and events are re-read in the same transaction, the policy is
+        re-evaluated on them, and the round set must be exactly the one the caller judged
+        (`expected_version`). Any difference -- a round begun or completed meanwhile, a
+        positive observation, a state change -- returns None and writes nothing.
+        """
+        with self._service.unit_of_work() as work:
+            current = list(work.execute(_ATTEMPT_SELECT_BY_ID + " FOR UPDATE", {"key": attempt_id}))
+            if not current:
+                return None
+            attempt = _row_to_attempt(current[0])
+            rounds = tuple(
+                _row_to_round(row)
+                for row in work.execute(_ROUND_SELECT_BY_ATTEMPT, {"attempt_id": attempt_id})
+            )
+            acknowledgements = tuple(
+                _row_to_acknowledgement(row)
+                for row in work.execute(_ACKNOWLEDGEMENT_SELECT, {"attempt_id": attempt_id})
+            )
+            events = tuple(
+                _row_to_event(row)
+                for row in work.execute(_EVENT_SELECT, {"intent": attempt.intent_governance_id})
+            )
+            evaluation = absence_evaluation(
+                state=attempt.state,
+                broker_order_id=attempt.broker_order_id,
+                acknowledgements=acknowledgements,
+                events=events,
+                rounds=rounds,
+            )
+            if evaluation.rounds_version != expected_version:
+                return None  # the snapshot the caller judged is stale
+            if not evaluation.resolvable:
+                return None  # the fresh evidence forbids the resolution
+            rows = work.execute(
+                _ATTEMPT_TRANSITION,
+                {
+                    "attempt_id": attempt_id,
+                    "state": PaperExecutionState.REJECTED.value,
+                    "submitted_at": None,
+                    "acknowledged_at": None,
+                    "terminal_at": at,
+                    "broker_order_id": None,
+                    "broker_status": None,
+                    "filled_quantity": None,
+                    "filled_avg_price": None,
+                    "failure_code": failure_code,
+                    "failure_detail": failure_detail[:500],
+                },
+            )
+        return _row_to_attempt(rows[0]) if rows else None
+
+
 class PostgresPaperExecutionRuntime:
     """The eight MILESTONE-085 repositories over one caller-owned service.
 
@@ -1505,3 +1728,7 @@ class PostgresPaperExecutionRuntime:
     @property
     def time_bases(self) -> PostgresTimeBasisRepository:
         return PostgresTimeBasisRepository(self._service)
+
+    @property
+    def reconciliation_rounds(self) -> PostgresReconciliationRoundRepository:
+        return PostgresReconciliationRoundRepository(self._service)

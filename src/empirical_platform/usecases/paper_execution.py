@@ -53,7 +53,9 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperExecutionEvent,
     PaperExecutionState,
     ProposalTimeBasis,
+    ReconciliationRoundOutcome,
     SubmissionPreview,
+    absence_evaluation,
     act_chronology_refusal,
     attempt_may_have_transmitted,
     attempt_positively_observed,
@@ -63,7 +65,6 @@ from empirical_platform.decision_candidate.paper_execution import (
     bind_intent_time_basis,
     bind_proposal_time_basis,
     build_submission_preview,
-    consecutive_not_found_suffix,
     decision_time_basis_refusal,
     execution_policy_from_configuration,
     final_send_refusal,
@@ -86,6 +87,7 @@ from empirical_platform.decision_candidate.paper_execution_repositories import (
     PaperBrokerPort,
     PaperExecutionEventRepository,
     PaperMarketDataPort,
+    ReconciliationRoundRepository,
     SubmissionPreviewRepository,
     TimeBasisRepository,
 )
@@ -2051,6 +2053,8 @@ class ReconcilePaperOrderHandler:
         "_broker",
         "_authorizations",
         "_previews",
+        "_rounds",
+        "_time_source",
     )
 
     def __init__(
@@ -2062,11 +2066,17 @@ class ReconcilePaperOrderHandler:
         broker: PaperBrokerPort,
         authorizations: ExecutionAuthorizationRepository,
         previews: SubmissionPreviewRepository,
+        rounds: ReconciliationRoundRepository,
+        time_source: PaperTimeSource | None = None,
     ) -> None:
         self._attempts = attempts
         self._acknowledgements = acknowledgements
         self._events = events
         self._broker = broker
+        # DURABLE ROUNDS (Q-2 / Q-4). Every reconciliation round is written before its network
+        # work and completed against its own identity; the policy reads rounds, not clocks.
+        self._rounds = rounds
+        self._time_source = time_source or SystemPaperTimeSource()
         # The preview the authorization names carries the exact authorized request, every
         # term included; a found order is compared against IT before any adoption.
         self._previews = previews
@@ -2090,14 +2100,50 @@ class ReconcilePaperOrderHandler:
             if (command.at - started).total_seconds() < MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS:
                 return attempt
 
+        authorization_for_round = self._authorizations.get(attempt.authorization_id)
+        if authorization_for_round is None:
+            # The round is bound to the authorized account; without the authorization there is
+            # nothing to bind it to, and no lookup runs under an unbound round.
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-NOT-BEGUN"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_ROUND_NOT_BEGUN",
+                    occurred_at=command.at,
+                    detail=(
+                        "the attempt's authorization is missing; no reconciliation round was "
+                        "begun and no lookup was made"
+                    ),
+                )
+            )
+            return attempt
+        # Q-2 / Q-4. The round is COMMITTED before any network work. If this raises, nothing
+        # was looked up and nothing pretends otherwise.
+        round_ = self._rounds.begin(
+            attempt=attempt,
+            account_reference=authorization_for_round.account_reference,
+            started_at=command.at,
+        )
+        window = PaperTimeWindow(self._time_source)
         try:
+            sample = self._sample_broker_clock(window)
             status, view, sanitized = self._broker.fetch_order_by_client_order_id(
                 attempt.client_order_id
             )
         except Exception as error:
-            # REV-R1. A lookup that raised is not an answer and must not vanish: recorded as an
-            # event, it breaks the consecutive not-found run on either side of it. The failure
-            # is then re-raised so the caller sees it.
+            # The round's network work raised: no answer was observed. The round is completed
+            # as FAILED against its own identity -- durably ordered by its sequence -- so the
+            # not-found rounds on either side of it are never read as consecutive (Q-2, Q-4).
+            # If even this write fails, the round stays INCOMPLETE and blocks absence-based
+            # resolution until it is resolved. The event is kept for operators; the failure is
+            # then re-raised so the caller sees it.
+            self._rounds.complete(
+                round_.round_id,
+                outcome=ReconciliationRoundOutcome.FAILED,
+                completed_at=command.at,
+                detail=f"the round's network work raised {type(error).__name__}",
+            )
             self._record_lookup_failure(attempt, error, command.at)
             raise
         sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
@@ -2115,6 +2161,22 @@ class ReconcilePaperOrderHandler:
                 payload_digest=SubmitAuthorizedPaperOrderHandler._digest(sanitized),
                 sanitized_payload=sanitized[:8192],
             )
+        )
+        if view is not None:
+            outcome = ReconciliationRoundOutcome.FOUND
+        elif status == 404:
+            outcome = ReconciliationRoundOutcome.NOT_FOUND
+        else:
+            outcome = ReconciliationRoundOutcome.UNUSABLE
+        # Completed against THIS round's identity, with the acknowledgement it produced and the
+        # broker clock interval sampled in it. A completed round is immutable.
+        self._rounds.complete(
+            round_.round_id,
+            outcome=outcome,
+            completed_at=command.at,
+            acknowledgement_sequence=sequence,
+            broker_earliest_at=sample.earliest,
+            broker_latest_at=sample.latest,
         )
 
         if view is None:
@@ -2237,6 +2299,20 @@ class ReconcilePaperOrderHandler:
             filled_avg_price=view.filled_avg_price,
         )
 
+    def _sample_broker_clock(self, window: PaperTimeWindow) -> BoundedInstant:
+        """Bound the broker's clock from one round trip, inside this round.
+
+        The interval is [timestamp, timestamp + round trip] at the moment the answer was read:
+        the broker stamped it somewhere inside the trip. Only this process's monotonic clock
+        bounds the trip; no host wall clock enters, and no monotonic value crosses a process.
+        A broker clock sample says nothing about whether the broker finished processing any
+        order -- it only orders THIS round on the broker's timeline.
+        """
+        sent = window.read_monotonic()
+        clock = self._broker.fetch_clock()
+        received = window.read_monotonic()
+        return window.observe_broker_clock(clock.timestamp, sent, received)
+
     def _record_lookup_failure(
         self, attempt: ExecutionAttempt, error: BaseException, at: datetime
     ) -> None:
@@ -2334,9 +2410,17 @@ class ReconcilePaperOrderHandler:
                 )
             )
             return attempt
-        # Event ids are keyed on the acknowledgement SEQUENCE (unique per attempt), not on the
-        # run length: a consecutive count resets when the run is broken and would repeat.
-        observations = consecutive_not_found_suffix(acknowledgements, events)
+        # Event ids are keyed on the acknowledgement SEQUENCE (unique per attempt), never on a
+        # count: a consecutive count resets when the run is broken and would repeat.
+        rounds = self._rounds.for_attempt(attempt.attempt_id)
+        evaluation = absence_evaluation(
+            state=attempt.state,
+            broker_order_id=attempt.broker_order_id,
+            acknowledgements=acknowledgements,
+            events=events,
+            rounds=rounds,
+        )
+        observations = evaluation.consecutive_not_found
         # An attempt still SUBMISSION_IN_PROGRESS may belong to a dispatcher that has
         # not sent yet: connect, the database reads and the clock and quote fetches in
         # `before_send` are not bounded by the not-found window, and the reconciling
@@ -2360,25 +2444,71 @@ class ReconcilePaperOrderHandler:
                 )
             )
             return attempt
-        elapsed = (at - (attempt.submitted_at or attempt.claimed_at)).total_seconds()
-        enough_observations = observations >= MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS
-        enough_time = elapsed >= MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS
-        if not (enough_observations and enough_time):
+        if not evaluation.resolvable:
+            if evaluation.found_sequences:
+                # A completed round FOUND an order under this identity, whether or not its
+                # observation reached the acknowledgement journal. Absence never overrides
+                # it; an operator must establish what the broker holds.
+                # This branch is reached only when the observation itself is NOT on the
+                # attempt's acknowledgements or events (those return above): the round says
+                # FOUND but its observation write was lost. A distinct anomaly, named as such.
+                event_type = "RECONCILE_FOUND_ROUND_WITHOUT_OBSERVATION"
+            elif evaluation.incomplete_sequences:
+                event_type = "RECONCILE_ROUND_INCOMPLETE"
+            elif (
+                observations >= MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS
+                and evaluation.waiting_lower_bound_seconds is None
+            ):
+                event_type = "RECONCILE_TIME_EVIDENCE_INSUFFICIENT"
+            else:
+                event_type = "RECONCILE_NOT_FOUND_INSUFFICIENT"
             self._events.append(
                 PaperExecutionEvent(
                     event_id=f"EVT-{attempt.attempt_id}-RECON-404-{sequence}"[:64],
                     intent_governance_id=attempt.intent_governance_id,
                     attempt_id=attempt.attempt_id,
-                    event_type="RECONCILE_NOT_FOUND_INSUFFICIENT",
+                    event_type=event_type,
                     occurred_at=at,
                     detail=(
-                        f"observations={observations} elapsed={int(elapsed)}s; "
-                        "policy not yet satisfied, state unchanged"
+                        f"rounds={evaluation.rounds_version[0]} "
+                        f"consecutive_not_found={observations} "
+                        f"waiting_lower_bound={evaluation.waiting_lower_bound_seconds}; "
+                        f"{evaluation.reason}; state unchanged"
                     )[:500],
                 )
             )
             return attempt
 
+        # Q-4. The decision above was made on a snapshot. The terminal transition is made
+        # ONLY inside the repository, which re-reads everything under a lock, re-evaluates the
+        # same policy on the fresh rows, and requires the round set to be the one judged here.
+        # No broker call happens inside that transaction.
+        resolved = self._rounds.resolve_not_found(
+            attempt_id=attempt.attempt_id,
+            expected_version=evaluation.rounds_version,
+            at=at,
+            failure_code="NOT_FOUND_AT_BROKER",
+            failure_detail=(
+                "the broker reported no such client_order_id across "
+                f"{observations} consecutive completed reconciliation rounds; waiting lower "
+                f"bound {int(evaluation.waiting_lower_bound_seconds or 0)}s on the broker clock"
+            ),
+        )
+        if resolved is None:
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-STALE-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_RESOLUTION_REVALIDATION_FAILED",
+                    occurred_at=at,
+                    detail=(
+                        "the absence decision did not hold when re-evaluated on fresh rows "
+                        f"(judged rounds_version={evaluation.rounds_version}); state unchanged"
+                    )[:500],
+                )
+            )
+            return self._attempts.get(attempt.attempt_id) or attempt
         self._events.append(
             PaperExecutionEvent(
                 event_id=f"EVT-{attempt.attempt_id}-RECON-RESOLVED"[:64],
@@ -2387,20 +2517,13 @@ class ReconcilePaperOrderHandler:
                 event_type="RECONCILE_RESOLVED_NOT_FOUND",
                 occurred_at=at,
                 detail=(
-                    f"observations={observations} elapsed={int(elapsed)}s; bounded policy satisfied"
+                    f"rounds={evaluation.rounds_version[0]} consecutive_not_found={observations} "
+                    f"waiting_lower_bound={int(evaluation.waiting_lower_bound_seconds or 0)}s; "
+                    "bounded policy satisfied and re-validated atomically"
                 )[:500],
             )
         )
-        return self._attempts.transition(
-            attempt_id=attempt.attempt_id,
-            target=PaperExecutionState.REJECTED,
-            at=at,
-            failure_code="NOT_FOUND_AT_BROKER",
-            failure_detail=(
-                "the broker reported no such client_order_id across "
-                f"{observations} observations over {int(elapsed)}s"
-            ),
-        )
+        return resolved
 
 
 # ---------------------------------------------------------------------------

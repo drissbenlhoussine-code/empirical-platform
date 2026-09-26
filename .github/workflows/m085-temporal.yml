@@ -64,6 +64,8 @@ jobs:
           tests/unit/test_m085_absence_policy.py
           tests/unit/test_m085_boundary_binding_parser.py
           tests/integration/test_m085_absence_policy_postgres.py
+          tests/unit/test_m085_reconciliation_rounds.py
+          tests/integration/test_m085_reconciliation_rounds_postgres.py
           tests/integration/test_m084_file_audit.py
       - name: PostgreSQL time-basis mutations (sequential, sources restored)
         run: >-
@@ -132,4 +134,19 @@ jobs:
           --family absence_never_revokes_a_positive_observation
           --family binding_parser_rejects_padding_and_duplicates
           --family binding_parser_requires_canonical_keys
+          --family round_begun_durably_before_any_network_work
+          --family incomplete_round_ends_the_consecutive_run
+          --family incomplete_round_blocks_resolution
+          --family rounds_ordered_by_sequence_never_by_timestamp
+          --family found_round_forbids_absence_resolution
+          --family waiting_bound_uses_the_conservative_endpoints
+          --family missing_broker_time_evidence_is_unresolved
+          --family contradictory_broker_readings_are_not_trusted
+          --family round_interval_is_the_broker_clock_not_the_caller_wall_time
+          --family raised_lookup_is_a_failed_round_not_a_not_found_one
+          --family database_round_sequence_allocated_under_the_attempt_lock
+          --family database_round_completed_exactly_once
+          --family database_finalisation_rejects_a_stale_round_snapshot
+          --family database_finalisation_re_evaluates_on_fresh_rows
+          --family database_round_sequence_unique_per_attempt
           --output /tmp/m085-pg-mutation.md

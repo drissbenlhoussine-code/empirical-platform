@@ -119,6 +119,32 @@ def main(argv: list[str]) -> int:
         acknowledgements = _DiesOnAppend(
             acknowledgements, lambda: die("after-post-before-acknowledgement")
         )
+    elif scenario == "R":
+        # Q-2: a RECONCILIATION round that dies inside its lookup, AFTER the round was begun
+        # durably. The parent must find the STARTED round and nothing else for it.
+        from empirical_platform.usecases.paper_execution import (
+            ReconcilePaperOrderCommand,
+            ReconcilePaperOrderHandler,
+        )
+
+        def lookup_then_die(client_order_id: str) -> tuple[int, object | None, str]:
+            (out / "lookup-asked.txt").write_text(client_order_id, encoding="utf-8")
+            die("during-reconciliation-lookup-after-round-begun")
+            raise AssertionError("unreachable")
+
+        broker.fetch_order_by_client_order_id = lookup_then_die  # type: ignore[method-assign]
+        ReconcilePaperOrderHandler(
+            attempts=attempts,
+            acknowledgements=acknowledgements,  # type: ignore[arg-type]
+            events=events,
+            broker=broker,
+            authorizations=paper.execution_authorizations,
+            previews=paper.submission_previews,
+            rounds=paper.reconciliation_rounds,
+            time_source=clock,
+        ).handle(ReconcilePaperOrderCommand(intent_governance_id=intent_id, at=clock.utc))
+        (out / "died-at.txt").write_text("did-not-die", encoding="utf-8")
+        return 0
     else:
         raise SystemExit(f"unknown scenario {scenario!r}")
 

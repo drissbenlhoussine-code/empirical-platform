@@ -37,6 +37,8 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperExecutionState,
     PaperOrderRequest,
     ProposalTimeBasis,
+    ReconciliationRound,
+    ReconciliationRoundOutcome,
     SubmissionPreview,
 )
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
@@ -56,6 +58,7 @@ __all__ = [
     "PaperAccountSnapshotRepository",
     "PaperBrokerPort",
     "PaperExecutionEventRepository",
+    "ReconciliationRoundRepository",
     "PaperMarketDataPort",
     "SubmissionPreviewRepository",
 ]
@@ -220,6 +223,51 @@ class BrokerAcknowledgementRepository(Protocol):
     def for_attempt(self, attempt_id: str) -> tuple[BrokerAcknowledgement, ...]: ...
 
     def next_sequence(self, attempt_id: str) -> int: ...
+
+
+class ReconciliationRoundRepository(Protocol):
+    """Durable reconciliation rounds (Q-2 / Q-4): begun before network work, completed once.
+
+    `begin` allocates the per-attempt sequence ATOMICALLY and commits the incomplete round;
+    only after it returns may a lookup run. `complete` records the outcome against that exact
+    round and refuses to rewrite a completed one. `resolve_not_found` performs the terminal
+    absence-based resolution atomically: it re-reads the attempt, rounds, acknowledgements and
+    events under a lock, re-evaluates the policy on the fresh rows, checks the round set is the
+    one the caller evaluated (`expected_version`), and only then transitions -- returning None
+    when the decision no longer holds.
+    """
+
+    def begin(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        account_reference: str,
+        started_at: datetime,
+    ) -> ReconciliationRound: ...
+
+    def complete(
+        self,
+        round_id: str,
+        *,
+        outcome: ReconciliationRoundOutcome,
+        completed_at: datetime,
+        acknowledgement_sequence: int | None = None,
+        broker_earliest_at: datetime | None = None,
+        broker_latest_at: datetime | None = None,
+        detail: str | None = None,
+    ) -> ReconciliationRound: ...
+
+    def for_attempt(self, attempt_id: str) -> tuple[ReconciliationRound, ...]: ...
+
+    def resolve_not_found(
+        self,
+        *,
+        attempt_id: str,
+        expected_version: tuple[int, int],
+        at: datetime,
+        failure_code: str,
+        failure_detail: str,
+    ) -> ExecutionAttempt | None: ...
 
 
 class PaperExecutionEventRepository(Protocol):

@@ -42,7 +42,10 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperExecutionState,
     PaperOrderRequest,
     ProposalTimeBasis,
+    ReconciliationRound,
+    ReconciliationRoundOutcome,
     SubmissionPreview,
+    absence_evaluation,
     bind_intent_time_basis,
     build_submission_preview,
     execution_policy_from_configuration,
@@ -570,6 +573,127 @@ class FakeAcknowledgements:
 
     def next_sequence(self, attempt_id: str) -> int:
         return len(self.for_attempt(attempt_id)) + 1
+
+
+class FakeReconciliationRounds:
+    """In-memory reconciliation rounds with the repository's contract (Q-2 / Q-4).
+
+    Sequences are allocated per attempt; a completed round is immutable; `resolve_not_found`
+    re-evaluates the policy on the CURRENT fake rows (attempts, acknowledgements, events,
+    rounds) and refuses when the round set is not the one the caller judged. Knobs let a test
+    make `begin` or `complete` fail like a database would.
+    """
+
+    def __init__(
+        self, attempts: FakeAttempts, acknowledgements: FakeAcknowledgements, events: FakeEvents
+    ) -> None:
+        self._attempts = attempts
+        self._acknowledgements = acknowledgements
+        self._events = events
+        self.rows: dict[str, ReconciliationRound] = {}
+        self.begun: list[str] = []
+        self.begin_raises: BaseException | None = None
+        self.complete_raises: BaseException | None = None
+        self.resolutions: list[tuple[str, tuple[int, int], bool]] = []
+
+    def begin(
+        self, *, attempt: ExecutionAttempt, account_reference: str, started_at: datetime
+    ) -> ReconciliationRound:
+        if self.begin_raises is not None:
+            raise self.begin_raises
+        if attempt.attempt_id not in self._attempts.rows:
+            raise ValueError(f"no paper execution attempt {attempt.attempt_id!r} exists")
+        sequence = len(self.for_attempt(attempt.attempt_id)) + 1
+        round_ = ReconciliationRound(
+            round_id=f"RND-{attempt.attempt_id}-{sequence}"[:64],
+            attempt_id=attempt.attempt_id,
+            intent_governance_id=attempt.intent_governance_id,
+            authorization_id=attempt.authorization_id,
+            client_order_id=attempt.client_order_id,
+            account_reference=account_reference,
+            sequence=sequence,
+            started_at=started_at,
+            outcome=None,
+            completed_at=None,
+            acknowledgement_sequence=None,
+            broker_earliest_at=None,
+            broker_latest_at=None,
+            detail=None,
+        )
+        self.rows[round_.round_id] = round_
+        self.begun.append(round_.round_id)
+        return round_
+
+    def complete(
+        self,
+        round_id: str,
+        *,
+        outcome: ReconciliationRoundOutcome,
+        completed_at: datetime,
+        acknowledgement_sequence: int | None = None,
+        broker_earliest_at: datetime | None = None,
+        broker_latest_at: datetime | None = None,
+        detail: str | None = None,
+    ) -> ReconciliationRound:
+        if self.complete_raises is not None:
+            raise self.complete_raises
+        current = self.rows.get(round_id)
+        if current is None:
+            raise ValueError(f"no reconciliation round {round_id!r} exists")
+        if current.is_complete:
+            raise ValueError(
+                f"reconciliation round {round_id!r} is already complete and is immutable"
+            )
+        updated = replace(
+            current,
+            outcome=outcome,
+            completed_at=completed_at,
+            acknowledgement_sequence=acknowledgement_sequence,
+            broker_earliest_at=broker_earliest_at,
+            broker_latest_at=broker_latest_at,
+            detail=None if detail is None else detail[:500],
+        )
+        self.rows[round_id] = updated
+        return updated
+
+    def for_attempt(self, attempt_id: str) -> tuple[ReconciliationRound, ...]:
+        return tuple(
+            sorted(
+                (r for r in self.rows.values() if r.attempt_id == attempt_id),
+                key=lambda r: r.sequence,
+            )
+        )
+
+    def resolve_not_found(
+        self,
+        *,
+        attempt_id: str,
+        expected_version: tuple[int, int],
+        at: datetime,
+        failure_code: str,
+        failure_detail: str,
+    ) -> ExecutionAttempt | None:
+        attempt = self._attempts.rows.get(attempt_id)
+        if attempt is None:
+            return None
+        evaluation = absence_evaluation(
+            state=attempt.state,
+            broker_order_id=attempt.broker_order_id,
+            acknowledgements=self._acknowledgements.for_attempt(attempt_id),
+            events=self._events.for_intent(attempt.intent_governance_id),
+            rounds=self.for_attempt(attempt_id),
+        )
+        ok = evaluation.rounds_version == expected_version and evaluation.resolvable
+        self.resolutions.append((attempt_id, expected_version, ok))
+        if not ok:
+            return None
+        return self._attempts.transition(
+            attempt_id=attempt_id,
+            target=PaperExecutionState.REJECTED,
+            at=at,
+            failure_code=failure_code,
+            failure_detail=failure_detail,
+        )
 
 
 class FakeEvents:
