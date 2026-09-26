@@ -60,6 +60,18 @@
 > [send-boundary-correction/verification.md](send-boundary-correction/verification.md); design and
 > defect log in [send-boundary-correction/README.md](send-boundary-correction/README.md). Not
 > pushed; Owner publication approval required. Paper acceptance NOT_STARTED.
+>
+> **Crash-consistent lineage, review finding L1 (2026-09-26):** `SUBMISSION_IN_PROGRESS` was
+> persisted before the pre-send identity lookup and counted as lineage on its own, so a process
+> that died during the lookup (or after finding an order but before persisting the observation)
+> let reconciliation attribute a historical order to an attempt that sent nothing. Reproduced at
+> unit level and with a real child-process death against PostgreSQL, then fixed: a
+> `SEND_BOUNDARY_ENTERED` event bound to attempt/authorization/request/account/identity is
+> written after every preparatory read and before the final kill-switch/time checks, and lineage
+> requires it. Code candidate `806896b`; see
+> [crash-consistent-lineage/README.md](crash-consistent-lineage/README.md) and
+> [crash-consistent-lineage/verification.md](crash-consistent-lineage/verification.md). Not
+> pushed. Paper acceptance NOT_STARTED.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
