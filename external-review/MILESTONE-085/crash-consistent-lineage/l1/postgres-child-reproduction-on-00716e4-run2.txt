@@ -1,0 +1,12 @@
+L1 PostgreSQL child-process reproduction (run 2) on HEAD=b80ef2829867aa7684bd4dc6dc666e2b958b2f13 (executable content == 00716e4) 2026-09-26T13:11:14Z
+psycopg impl python
+E       AssertionError: the historical order was attributed: state=FILLED broker_order_id=broker-historical events=['AUTHORIZATION_GRANTED', 'PREVIEW_CREATED', 'RECONCILED']
+E       assert 'broker-historical' is None
+E        +  where 'broker-historical' = ExecutionAttempt(attempt_id='ATT-CRASH-A', intent_governance_id='INT-085-0001', authorization_id='AUT-ID-A', client_or...broker_status='filled', filled_quantity=Decimal('0E-8'), filled_avg_price=None, failure_code=None, failure_detail=None).broker_order_id
+E       AssertionError: the historical order was attributed: state=FILLED broker_order_id=broker-historical events=['AUTHORIZATION_GRANTED', 'PREVIEW_CREATED', 'RECONCILED']
+E       assert 'broker-historical' is None
+E        +  where 'broker-historical' = ExecutionAttempt(attempt_id='ATT-CRASH-B', intent_governance_id='INT-085-0001', authorization_id='AUT-ID-B', client_or...broker_status='filled', filled_quantity=Decimal('0E-8'), filled_avg_price=None, failure_code=None, failure_detail=None).broker_order_id
+PASSED tests/integration/test_m085_pre_send_crash_postgres.py::test_our_own_post_then_death_is_recovered_without_resending
+FAILED tests/integration/test_m085_pre_send_crash_postgres.py::test_a_death_during_the_pre_send_lookup_never_lends_lineage_to_a_historical_order
+FAILED tests/integration/test_m085_pre_send_crash_postgres.py::test_a_death_after_discovery_before_persistence_never_lends_lineage
+2 failed, 1 passed in 7.23s

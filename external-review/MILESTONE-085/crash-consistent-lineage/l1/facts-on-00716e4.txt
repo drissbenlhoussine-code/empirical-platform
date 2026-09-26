@@ -1,0 +1,10 @@
+HEAD=b80ef2829867aa7684bd4dc6dc666e2b958b2f13 (executable content == 00716e4) 2026-09-26T13:06:30Z
+A. historical order exists, death DURING pre-send lookup: process died
+  [at death] state=SUBMISSION_IN_PROGRESS failure_code=None broker_order_id=None POSTs=0 acks=0 events=[] lineage=True
+  [after restart + reconcile(+61s)] state=FILLED failure_code=None broker_order_id=broker-historical POSTs=0 acks=1 events=['RECONCILED'] lineage=False
+B. historical order FOUND, death before observation persisted: process died
+  [at death] state=SUBMISSION_IN_PROGRESS failure_code=None broker_order_id=None POSTs=0 acks=0 events=[] lineage=True
+  [after restart + reconcile(+61s)] state=FILLED failure_code=None broker_order_id=broker-historical POSTs=0 acks=1 events=['RECONCILED'] lineage=False
+C. positive control: our POST left, death before acknowledgement: process died
+  [at death] state=SUBMISSION_IN_PROGRESS failure_code=None broker_order_id=None POSTs=1 acks=0 events=[] lineage=True
+  [after restart + reconcile(+61s)] state=PAPER_ACCEPTED failure_code=None broker_order_id=broker-1 POSTs=1 acks=1 events=['RECONCILED'] lineage=True

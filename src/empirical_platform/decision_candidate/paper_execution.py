@@ -83,6 +83,10 @@ __all__ = [
     "is_client_order_id_collision",
     "order_terms_mismatches",
     "attempt_may_have_transmitted",
+    "reached_send_boundary",
+    "send_boundary_binding",
+    "send_boundary_event_binds",
+    "SEND_BOUNDARY_EVENT_TYPE",
     "RECOGNIZED_DEFINITIVE_REFUSAL_CODES",
     "TRANSMITTED_UNCERTAIN_FAILURE_CODES",
     "UNSENT_IDENTITY_EVENT_TYPES",
@@ -435,19 +439,112 @@ UNSENT_IDENTITY_EVENT_TYPES: frozenset[str] = frozenset(
 #: Failure codes under which OUR POST may have created the order the broker holds.
 TRANSMITTED_UNCERTAIN_FAILURE_CODES: frozenset[str] = frozenset({"AMBIGUOUS", "UNUSABLE_ANSWER"})
 
+#: CRASH-CONSISTENT LINEAGE (L1). The append-only event that records that THIS attempt
+#: entered the phase in which transmission is possible: the identity was verified absent at
+#: the broker (404) and every preparatory read completed, so the only steps left before the
+#: request leaves are the final kill-switch read, the time sample and the decision. It is
+#: written BEFORE those final checks (so a slow write is covered by them) and its detail
+#: binds the attempt, the authorization, the request fingerprint, the account and the
+#: identity evidence. `SUBMISSION_IN_PROGRESS` alone is preparation: a dispatcher that died
+#: during the identity lookup, or after finding an existing order but before persisting the
+#: observation, leaves no unsent marker either -- and must lend no lineage.
+SEND_BOUNDARY_EVENT_TYPE = "SEND_BOUNDARY_ENTERED"
+_IDENTITY_VERIFIED_ABSENT = 404
 
-def attempt_may_have_transmitted(attempt: object, events: Iterable[object]) -> bool:
+
+def send_boundary_binding(
+    *,
+    attempt_id: str,
+    authorization_id: str,
+    request_fingerprint: str,
+    account_reference: str,
+    client_order_id: str,
+    identity_lookup_status: int,
+) -> str:
+    """The detail of a `SEND_BOUNDARY_ENTERED` event: what the boundary was bound to."""
+    return " ".join(
+        (
+            f"attempt={attempt_id}",
+            f"authorization={authorization_id}",
+            f"fingerprint={request_fingerprint}",
+            f"account={account_reference}",
+            f"client_order_id={client_order_id}",
+            f"identity_lookup={identity_lookup_status}",
+        )
+    )
+
+
+def _binding_fields(detail: object) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    if not isinstance(detail, str):
+        return fields
+    for token in detail.split():
+        key, separator, value = token.partition("=")
+        if separator and key and value:
+            fields[key] = value
+    return fields
+
+
+def send_boundary_event_binds(
+    event: object, attempt: object, *, account_reference: str | None = None
+) -> bool:
+    """Whether `event` is THIS attempt's send-boundary record, bound field by field.
+
+    The event must name the attempt, and its detail must carry the attempt's own
+    authorization, request fingerprint and client_order_id, an identity lookup that
+    answered 404, and -- when the caller knows it -- the authorized account. A boundary
+    event of another attempt, another authorization, another request or another account
+    lends nothing.
+    """
+    if getattr(event, "event_type", None) != SEND_BOUNDARY_EVENT_TYPE:
+        return False
+    if getattr(event, "attempt_id", None) != getattr(attempt, "attempt_id", None):
+        return False
+    bound = _binding_fields(getattr(event, "detail", None))
+    expected: dict[str, object] = {
+        "attempt": getattr(attempt, "attempt_id", None),
+        "authorization": getattr(attempt, "authorization_id", None),
+        "fingerprint": getattr(attempt, "request_fingerprint", None),
+        "client_order_id": getattr(attempt, "client_order_id", None),
+        "identity_lookup": _IDENTITY_VERIFIED_ABSENT,
+    }
+    if account_reference is not None:
+        expected["account"] = account_reference
+    return all(
+        value is not None and bound.get(key) == str(value) for key, value in expected.items()
+    )
+
+
+def reached_send_boundary(
+    attempt: object, events: Iterable[object], *, account_reference: str | None = None
+) -> bool:
+    """Whether the persisted record proves THIS attempt reached the send-capable phase."""
+    return any(
+        send_boundary_event_binds(event, attempt, account_reference=account_reference)
+        for event in events
+    )
+
+
+def attempt_may_have_transmitted(
+    attempt: object, events: Iterable[object], *, account_reference: str | None = None
+) -> bool:
     """The lineage question: could THIS durable attempt have created an order at the broker?
 
-    True only for an attempt whose own request may have left: a dispatcher that claimed
-    and moved to SUBMISSION_IN_PROGRESS and never recorded an answer, or an UNKNOWN whose
-    recorded cause is an ambiguous or unusable answer to OUR POST. False -- and therefore
-    an order found under the identity is observed, never attributed -- when the persisted
-    record says this attempt did not send (identity observed or unresolved before the
-    send, a duplicate answer proving the order predates our POST, a definite not-sent),
-    whichever of the failure code or the append-only events says so. Both are consulted
-    so that a rewritten code cannot erase what an event recorded.
+    True only for an attempt whose own request may have left. The persisted record must
+    say so in two parts: (1) no UNSENT marker -- neither a failure code nor an append-only
+    event recording that this attempt did not send (identity observed or unresolved before
+    the send, a duplicate answer proving the order predates our POST, a definite
+    not-sent); both are consulted so a rewritten code cannot erase what an event recorded;
+    and (2) for `SUBMISSION_IN_PROGRESS` and for an UNKNOWN whose recorded cause is an
+    ambiguous or unusable answer to OUR POST, a `SEND_BOUNDARY_ENTERED` event bound to this
+    attempt (`reached_send_boundary`). CRASH-CONSISTENT LINEAGE (L1): `SUBMISSION_IN_PROGRESS`
+    is persisted before the identity lookup, so on its own it proves preparation, not
+    transmission; the absence of an unsent marker proves nothing. A legacy uncertain record
+    without the boundary event stays visible and unresolved -- observed, never attributed --
+    rather than being backfilled with invented lineage. Acknowledged states carry a broker
+    id the broker itself echoed and need no further proof.
     """
+    events = tuple(events)
     recorded_unsent = any(
         getattr(event, "event_type", None) in UNSENT_IDENTITY_EVENT_TYPES for event in events
     )
@@ -456,10 +553,13 @@ def attempt_may_have_transmitted(attempt: object, events: Iterable[object]) -> b
         return False
     state = getattr(attempt, "state", None)
     if state is PaperExecutionState.SUBMISSION_IN_PROGRESS:
-        return True
+        return reached_send_boundary(attempt, events, account_reference=account_reference)
     if state is PaperExecutionState.SUBMISSION_UNKNOWN:
-        return code in TRANSMITTED_UNCERTAIN_FAILURE_CODES or (
+        transmitted_code = code in TRANSMITTED_UNCERTAIN_FAILURE_CODES or (
             isinstance(code, str) and code.startswith("UNCERTAIN_HTTP_")
+        )
+        return transmitted_code and reached_send_boundary(
+            attempt, events, account_reference=account_reference
         )
     return state in {
         PaperExecutionState.PAPER_SUBMITTED,

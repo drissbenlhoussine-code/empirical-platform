@@ -1,0 +1,24 @@
+L1 PostgreSQL child-process reproduction on HEAD=b80ef2829867aa7684bd4dc6dc666e2b958b2f13 (executable content == 00716e4) 2026-09-26T13:09:53Z
+m085_pgon_b24c471
+psycopg impl python
+E       AssertionError: a record that died inside the lookup must not count as lineage
+E       assert not True
+E        +  where True = attempt_may_have_transmitted(ExecutionAttempt(attempt_id='ATT-CRASH-A', intent_governance_id='INT-085-0001', authorization_id='AUT-ID-A', client_or...order_id=None, broker_status=None, filled_quantity=None, filled_avg_price=None, failure_code=None, failure_detail=None), (PaperExecutionEvent(event_id='EVT-AUT-ID-A-AUTH', intent_governance_id='INT-085-0001', attempt_id=None, event_type='A...tetime(2026, 6, 10, 15, 0, 25, tzinfo=zoneinfo.ZoneInfo(key='Europe/Kiev')), detail='v1 authorizable=True refusals=0')))
+E       AssertionError: (1, '', 'Traceback (most recent call last):
+E           File "<frozen runpy>", line 203, in _run_module_as_main
+E           File "<froze...^^^^^^^^^^^^^
+E         AttributeError: \'PostgresBrokerAcknowledgementRepository\' object attribute \'append\' is read-only
+E         ')
+E       assert 1 == 3
+E        +  where 1 = CompletedProcess(args=['C:\\Users\\LuxSy\\Documents\\trading\\.venv\\Scripts\\python.exe', '-B', '-m', 'tests.integrat...^^^^^^^^^^^^^\nAttributeError: \'PostgresBrokerAcknowledgementRepository\' object attribute \'append\' is read-only\n').returncode
+E       AssertionError: (1, '', 'Traceback (most recent call last):
+E           File "<frozen runpy>", line 203, in _run_module_as_main
+E           File "<froze...^^^^^^^^^^^^^
+E         AttributeError: \'PostgresBrokerAcknowledgementRepository\' object attribute \'append\' is read-only
+E         ')
+E       assert 1 == 3
+E        +  where 1 = CompletedProcess(args=['C:\\Users\\LuxSy\\Documents\\trading\\.venv\\Scripts\\python.exe', '-B', '-m', 'tests.integrat...^^^^^^^^^^^^^\nAttributeError: \'PostgresBrokerAcknowledgementRepository\' object attribute \'append\' is read-only\n').returncode
+FAILED tests/integration/test_m085_pre_send_crash_postgres.py::test_a_death_during_the_pre_send_lookup_never_lends_lineage_to_a_historical_order
+FAILED tests/integration/test_m085_pre_send_crash_postgres.py::test_a_death_after_discovery_before_persistence_never_lends_lineage
+FAILED tests/integration/test_m085_pre_send_crash_postgres.py::test_our_own_post_then_death_is_recovered_without_resending
+3 failed in 8.63s

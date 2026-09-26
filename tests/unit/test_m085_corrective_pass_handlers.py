@@ -422,13 +422,16 @@ class TestAnInterruptedDispatchCanBeReconciled:
         """A dispatch that crashed after claiming and before recording any answer."""
         world = _world()
         _authorize(world)
-
-        def crash(*args: object, **kwargs: object) -> object:
-            raise KeyboardInterrupt
-
-        world["broker"].submit_order = crash
+        # CRASH-CONSISTENT LINEAGE (L1): the interruption comes AFTER the request left --
+        # the fake broker receives the order, then raises -- so the attempt carries its
+        # send-boundary record. An attempt that died before that boundary has no lineage and
+        # is never attributed a found order (`test_m085_pre_send_crash.py`); this helper used
+        # to replace `submit_order` wholesale, i.e. die before any send, which was the L1 gap.
+        world["broker"].submit_raises = KeyboardInterrupt()
         with pytest.raises(KeyboardInterrupt):
             _submit(world)
+        world["broker"].submit_raises = None
+        assert len(world["broker"].submitted) == 1
         (attempt,) = world["attempts"].rows.values()
         assert attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS
         return world
@@ -443,9 +446,10 @@ class TestAnInterruptedDispatchCanBeReconciled:
         for seconds in (120, 240, 900):
             state = _reconcile(world, at_seconds=seconds).state
             assert state is PaperExecutionState.SUBMISSION_IN_PROGRESS
-        assert len(world["broker"].lookups) == 3
+        # One pre-send identity lookup by the dispatcher, then one per reconciliation.
+        assert len(world["broker"].lookups) == 1 + 3
         assert world["attempts"].transitions == transitions
-        assert world["broker"].submitted == []
+        assert len(world["broker"].submitted) == 1, "reconciliation never sends"
 
     def test_absence_while_the_dispatcher_is_still_sending_never_rejects(self) -> None:
         # THE REVIEW'S RACE. The dispatcher is past the claim but has not sent: two
@@ -475,8 +479,9 @@ class TestAnInterruptedDispatchCanBeReconciled:
 
     def test_a_live_dispatch_is_left_to_finish(self) -> None:
         world = self._stuck_in_progress()
+        lookups_before = list(world["broker"].lookups)  # the dispatcher's own pre-send lookup
         assert _reconcile(world, at_seconds=10).state is PaperExecutionState.SUBMISSION_IN_PROGRESS
-        assert world["broker"].lookups == []
+        assert world["broker"].lookups == lookups_before, "a live dispatch is not even looked up"
 
     def test_a_stale_in_progress_attempt_is_reconciled_to_the_brokers_answer(self) -> None:
         world = self._stuck_in_progress()
@@ -486,9 +491,9 @@ class TestAnInterruptedDispatchCanBeReconciled:
         )
         reconciled = _reconcile(world, at_seconds=120)
         assert reconciled.state is PaperExecutionState.FILLED
-        assert world["broker"].lookups == [attempt.client_order_id]
+        assert world["broker"].lookups[-1] == attempt.client_order_id
         # And it is still one order: the reconciliation asked, it did not send.
-        assert world["broker"].submitted == []
+        assert len(world["broker"].submitted) == 1
         # EVERY RECORDED EDGE IS ONE THE CLOSED TABLE ALLOWS. The fake store does not
         # enforce the table -- the database trigger does -- so without this the handler
         # could jump SUBMISSION_IN_PROGRESS -> FILLED here and be refused only in

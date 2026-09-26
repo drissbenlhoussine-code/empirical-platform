@@ -38,6 +38,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
     PAPER_ENDPOINT_HOST,
+    SEND_BOUNDARY_EVENT_TYPE,
     BrokerAcknowledgement,
     DecisionTimeBasis,
     ExecutionAttempt,
@@ -69,6 +70,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     order_terms_mismatches,
     proposal_time_basis_refusal,
     request_fingerprint,
+    send_boundary_binding,
 )
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     BrokerAcknowledgementRepository,
@@ -1434,9 +1436,16 @@ class SubmitAuthorizedPaperOrderHandler:
                 received_monotonic = timing.read_monotonic()
                 timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
                 quote = self._market_data.fetch_quote(intent.symbol)
-                # 3. The kill switch, LAST of the reads.
+                # 3. The send-capable boundary, DURABLY (L1). The identity is verified
+                #    absent and every preparatory read is complete: record that THIS attempt
+                #    reached the phase in which transmission is possible, bound to the
+                #    attempt, authorization, request, account and identity evidence. Only
+                #    this record lends lineage to a later reconciliation. It is a database
+                #    write that may block, so the kill switch and time are read AFTER it.
+                self._enter_send_boundary(attempt, fresh.order, evidence, lookup_status, timing)
+                # 4. The kill switch, LAST of the reads.
                 kill_switch_engaged = self._kill_switch.is_engaged()
-                # 4. Time sampled after every read; the decision made on that evidence.
+                # 5. Time sampled after every read and write; the decision on that evidence.
                 timing.require_broker_certainty_within(policy_now.quote_maximum_age_seconds)
                 refusal = final_send_refusal(
                     intent=intent,
@@ -1456,7 +1465,7 @@ class SubmitAuthorizedPaperOrderHandler:
                 )
                 if refusal is not None:
                     raise PaperExecutionRefusedError(refusal)
-                # 5. Nothing else. The transport sends on return.
+                # 6. Nothing else. The transport sends on return.
             except (PaperExecutionRefusedError, PaperTimeUncertainError) as error:
                 raise BrokerNotSentError(str(error)) from error
 
@@ -1963,6 +1972,39 @@ class SubmitAuthorizedPaperOrderHandler:
             filled_avg_price=view.filled_avg_price,
         )
 
+    def _enter_send_boundary(
+        self,
+        attempt: ExecutionAttempt,
+        order: object,
+        evidence: PaperEvidence,
+        identity_lookup_status: int,
+        timing: PaperTimeWindow,
+    ) -> None:
+        """Persist that THIS attempt reached the send-capable phase (L1).
+
+        Written inside `before_send` after the identity lookup answered 404 and every other
+        preparatory read completed, and before the final kill-switch read, time sample and
+        decision. A crash before this write leaves `SUBMISSION_IN_PROGRESS` with no lineage;
+        a crash after it leaves a record that says exactly what was verified and when. A
+        database failure here raises, the transport reports a definite not-sent, and the
+        attempt closes as REJECTED / NOT_SENT with nothing at the broker. The write does not
+        claim the broker received anything: it records that the request COULD leave.
+        """
+        self._record_event(
+            attempt.intent_governance_id,
+            attempt.attempt_id,
+            SEND_BOUNDARY_EVENT_TYPE,
+            send_boundary_binding(
+                attempt_id=attempt.attempt_id,
+                authorization_id=attempt.authorization_id,
+                request_fingerprint=attempt.request_fingerprint,
+                account_reference=evidence.account.account_reference,
+                client_order_id=str(getattr(order, "client_order_id", "")),
+                identity_lookup_status=identity_lookup_status,
+            ),
+            timing.last_safe_at,
+        )
+
     def _record_event(
         self, intent_id: str, attempt_id: str, event_type: str, detail: str, at: datetime
     ) -> None:
@@ -2116,8 +2158,11 @@ class ReconcilePaperOrderHandler:
             PaperExecutionState.SUBMISSION_IN_PROGRESS,
             PaperExecutionState.SUBMISSION_UNKNOWN,
         }:
+            assert authorization is not None  # every mismatch, including a missing one, returned
             if not attempt_may_have_transmitted(
-                attempt, self._events.for_intent(attempt.intent_governance_id)
+                attempt,
+                self._events.for_intent(attempt.intent_governance_id),
+                account_reference=authorization.account_reference,
             ):
                 self._events.append(
                     PaperExecutionEvent(

@@ -59,6 +59,8 @@ jobs:
           tests/integration/test_m085_send_boundary_transport.py
           tests/unit/test_m085_send_boundary.py
           tests/unit/test_m085_identity_lineage.py
+          tests/unit/test_m085_pre_send_crash.py
+          tests/integration/test_m085_pre_send_crash_postgres.py
           tests/integration/test_m084_file_audit.py
       - name: PostgreSQL time-basis mutations (sequential, sources restored)
         run: >-
@@ -115,4 +117,9 @@ jobs:
           --family terms_compare_time_in_force
           --family terms_compare_extended_hours
           --family terms_compare_bound_broker_order_id
+          --family lineage_requires_the_send_boundary_record
+          --family send_boundary_record_is_bound_field_by_field
+          --family send_boundary_recorded_before_the_send
+          --family final_checks_follow_the_boundary_write
+          --family historical_adoption_requires_the_account_binding
           --output /tmp/m085-pg-mutation.md

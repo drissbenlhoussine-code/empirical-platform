@@ -335,16 +335,20 @@ def test_reconciliation_resolves_an_unknown_attempt_through_the_database_edges(
 def test_reconciliation_resolves_an_interrupted_dispatch_through_the_database_edges(
     world: dict[str, Any],
 ) -> None:
-    # D3 AT THE DATABASE. A dispatch interrupted after the claim stays
+    # D3 AT THE DATABASE. A dispatch interrupted AFTER THE REQUEST LEFT stays
     # SUBMISSION_IN_PROGRESS in the real table. Once the not-found window has passed,
     # reconciliation finds the order by client_order_id and records it through
     # PAPER_SUBMITTED, because the trigger refuses SUBMISSION_IN_PROGRESS -> FILLED.
-    def interrupted(*args: object, **kwargs: object) -> object:
-        raise KeyboardInterrupt
-
-    world["broker"].submit_order = interrupted
+    # CRASH-CONSISTENT LINEAGE (L1): the interruption must come after the send -- the fake
+    # broker receives the order and then raises -- because a dispatch interrupted BEFORE
+    # the send-capable boundary has no lineage and is never attributed a found order
+    # (`test_m085_pre_send_crash_postgres.py`). This test used to replace `submit_order`
+    # wholesale, i.e. die before any send, and asserted adoption: that was the L1 gap.
+    world["broker"].submit_raises = KeyboardInterrupt()
     with pytest.raises(KeyboardInterrupt):
         handler(world).handle(world["command"])
+    world["broker"].submit_raises = None
+    assert len(world["broker"].submitted) == 1
     stuck = world["paper"].execution_attempts.get("ATT-TIME")
     assert stuck is not None and stuck.state is PaperExecutionState.SUBMISSION_IN_PROGRESS
     world["broker"].lookup_view = _our_order_as_the_broker_reports_it(
@@ -355,8 +359,8 @@ def test_reconciliation_resolves_an_interrupted_dispatch_through_the_database_ed
     assert resolved.state is PaperExecutionState.FILLED  # type: ignore[attr-defined]
     stored = world["paper"].execution_attempts.get("ATT-TIME")
     assert stored is not None and stored.state is PaperExecutionState.FILLED
-    assert world["broker"].lookups == [stuck.client_order_id]
-    assert world["broker"].submitted == []
+    assert world["broker"].lookups[-1] == stuck.client_order_id
+    assert len(world["broker"].submitted) == 1, "recovery never resends"
 
 
 def test_absence_never_resolves_an_interrupted_dispatch_in_the_database(

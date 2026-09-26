@@ -31,12 +31,14 @@ from tests.unit._m085_fakes import FakeView
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
     RECOGNIZED_DEFINITIVE_REFUSAL_CODES,
+    SEND_BOUNDARY_EVENT_TYPE,
     BrokerRefusalKind,
     PaperExecutionState,
     PaperOrderRequest,
     attempt_may_have_transmitted,
     classify_broker_refusal,
     order_terms_mismatches,
+    send_boundary_binding,
 )
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
@@ -262,14 +264,30 @@ class TestLineage:
     def test_an_event_recording_no_send_outranks_a_state_that_would_otherwise_qualify(
         self, state: PaperExecutionState, code: str | None, event_type: str
     ) -> None:
-        attempt = SimpleNamespace(state=state, failure_code=code)
-        # Without the event this attempt WOULD qualify as possibly transmitted ...
-        assert attempt_may_have_transmitted(attempt, []) is True
+        attempt = SimpleNamespace(
+            attempt_id="ATT-1",
+            authorization_id="AUT-1",
+            request_fingerprint="a" * 64,
+            client_order_id="m085-0123456789abcdef",
+            state=state,
+            failure_code=code,
+        )
+        boundary = SimpleNamespace(
+            event_type=SEND_BOUNDARY_EVENT_TYPE,
+            attempt_id="ATT-1",
+            detail=send_boundary_binding(
+                attempt_id="ATT-1",
+                authorization_id="AUT-1",
+                request_fingerprint="a" * 64,
+                account_reference="ref:account",
+                client_order_id="m085-0123456789abcdef",
+                identity_lookup_status=404,
+            ),
+        )
+        # With its send-boundary record this attempt WOULD qualify as possibly transmitted ...
+        assert attempt_may_have_transmitted(attempt, [boundary]) is True
         # ... and the append-only record that nothing was sent is what denies it.
-        events = [
-            SimpleNamespace(event_type="DISPATCH_CLAIMED"),
-            SimpleNamespace(event_type=event_type),
-        ]
+        events = [boundary, SimpleNamespace(event_type=event_type)]
         assert attempt_may_have_transmitted(attempt, events) is False
 
     def test_a_duplicate_answer_to_our_post_means_the_order_predates_it(self) -> None:

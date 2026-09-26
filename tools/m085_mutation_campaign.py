@@ -90,6 +90,10 @@ _SEND_BOUNDARY = "tests/unit/test_m085_send_boundary.py"
 _LINEAGE_UNIT = "tests/unit/test_m085_identity_lineage.py"
 _ACK_HTTP = "tests/integration/test_m085_acknowledgement_terms_http.py"
 
+#: CRASH-CONSISTENT LINEAGE (L1): preparation is not transmission.
+_CRASH_UNIT = "tests/unit/test_m085_pre_send_crash.py"
+_CRASH_POSTGRES = "tests/integration/test_m085_pre_send_crash_postgres.py"
+
 #: Everything a mutation could touch and every file a restoration must leave as it was.
 #: Digested whole before the first family and after the last, so a campaign that
 #: restored the file it meant to but left anything else changed is caught.
@@ -1807,7 +1811,7 @@ FAMILIES: tuple[Family, ...] = (
         name="send_boundary_no_read_after_the_decision",
         rule="Nothing sits between the final decision and the transport's POST",
         path=_USECASE,
-        original="                # 5. Nothing else. The transport sends on return.",
+        original="                # 6. Nothing else. The transport sends on return.",
         mutated=(
             "                self._broker.fetch_order_by_client_order_id("
             "fresh.order.client_order_id)"
@@ -1822,11 +1826,11 @@ FAMILIES: tuple[Family, ...] = (
         path=_USECASE,
         original=(
             "                kill_switch_engaged = self._kill_switch.is_engaged()\n"
-            "                # 4."
+            "                # 5."
         ),
         mutated=(
             "                kill_switch_engaged = evidence.kill_switch_engaged\n"
-            "                # 4."
+            "                # 5."
         ),
         detecting_test=f"{_SEND_BOUNDARY}"
         "::test_the_kill_switch_engaged_during_a_slow_read_stops_the_post[lookup]",
@@ -1973,6 +1977,82 @@ FAMILIES: tuple[Family, ...] = (
         mutated="        pass",
         detecting_test=f"{_LINEAGE_UNIT}::TestTheCanonicalTermsComparison"
         "::test_a_bound_broker_order_id_must_stay_consistent",
+        expected_fragment="assert",
+    ),
+    # == CRASH-CONSISTENT LINEAGE (L1) ===========================================
+    Family(
+        name="lineage_requires_the_send_boundary_record",
+        rule="SUBMISSION_IN_PROGRESS alone is preparation; lineage needs the persisted boundary",
+        path=_DOMAIN,
+        original=(
+            "    if state is PaperExecutionState.SUBMISSION_IN_PROGRESS:\n"
+            "        return reached_send_boundary(attempt, events, "
+            "account_reference=account_reference)"
+        ),
+        mutated=(
+            "    if state is PaperExecutionState.SUBMISSION_IN_PROGRESS:\n        return True"
+        ),
+        detecting_test=f"{_CRASH_UNIT}::test_a_death_during_the_pre_send_lookup_leaves_no_lineage",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="send_boundary_record_is_bound_field_by_field",
+        rule="A boundary record lends lineage only when every bound field is this attempt's",
+        path=_DOMAIN,
+        original=(
+            "    return all(\n"
+            "        value is not None and bound.get(key) == str(value) "
+            "for key, value in expected.items()\n"
+            "    )"
+        ),
+        mutated="    return True",
+        detecting_test=f"{_CRASH_UNIT}"
+        "::test_a_boundary_record_that_does_not_bind_lends_no_lineage[authorization_id]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="send_boundary_recorded_before_the_send",
+        rule="The send-capable boundary is persisted before the request can leave",
+        path=_USECASE,
+        original=(
+            "                self._enter_send_boundary(attempt, fresh.order, evidence, "
+            "lookup_status, timing)"
+        ),
+        mutated="                pass",
+        detecting_test=f"{_CRASH_UNIT}"
+        "::test_our_own_post_then_death_before_acknowledgement_is_recovered_without_resending",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="final_checks_follow_the_boundary_write",
+        rule="The kill switch is read after the boundary write, which may block",
+        path=_USECASE,
+        original=(
+            "                self._enter_send_boundary(attempt, fresh.order, evidence, "
+            "lookup_status, timing)\n"
+            "                # 4. The kill switch, LAST of the reads.\n"
+            "                kill_switch_engaged = self._kill_switch.is_engaged()"
+        ),
+        mutated=(
+            "                kill_switch_engaged = self._kill_switch.is_engaged()\n"
+            "                self._enter_send_boundary(attempt, fresh.order, evidence, "
+            "lookup_status, timing)\n"
+            "                # 4. The kill switch, LAST of the reads."
+        ),
+        detecting_test=f"{_CRASH_UNIT}"
+        "::test_the_kill_switch_engaged_during_the_boundary_write_stops_the_post",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="historical_adoption_requires_the_account_binding",
+        rule="Reconciliation verifies the boundary record against the authorized account",
+        path=_USECASE,
+        original=(
+            "                account_reference=authorization.account_reference,\n            ):"
+        ),
+        mutated="                account_reference=None,\n            ):",
+        detecting_test=f"{_CRASH_UNIT}"
+        "::test_a_tampered_account_in_the_persisted_boundary_record_blocks_attribution",
         expected_fragment="assert",
     ),
 )

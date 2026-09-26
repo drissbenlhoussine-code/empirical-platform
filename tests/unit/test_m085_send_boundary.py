@@ -30,6 +30,7 @@ from tests.unit._m085_fakes import (
     FakeBroker,
     FakeClock,
     FakeConfigurations,
+    FakeEvents,
     FakeIntents,
     FakeKillSwitch,
     FakeMarketData,
@@ -39,7 +40,10 @@ from tests.unit._m085_fakes import (
     time_bases_for,
 )
 
-from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
+from empirical_platform.decision_candidate.paper_execution import (
+    SEND_BOUNDARY_EVENT_TYPE,
+    PaperExecutionState,
+)
 
 _NOT_FOUND = '{"code": 40410000, "message": "order not found"}'
 _LIMIT_SECONDS = 60  # the fixture configuration's quote-freshness limit
@@ -130,12 +134,26 @@ class _TracedConfigurations(FakeConfigurations):
         return super().get(configuration_governance_id, configuration_version)
 
 
+class _TracedEvents(FakeEvents):
+    """The boundary record's persistence is a step of the boundary too (L1)."""
+
+    def __init__(self, trace: _Trace) -> None:
+        super().__init__()
+        self._trace = trace
+
+    def append(self, event: object) -> object:
+        if getattr(event, "event_type", None) == SEND_BOUNDARY_EVENT_TYPE:
+            self._trace.hit("persist_boundary")
+        return super().append(event)  # type: ignore[arg-type]
+
+
 def _world(trace: _Trace) -> dict[str, Any]:
     world = handlers._world(
         broker=_TracedBroker(trace),
         kill_switch=_TracedKillSwitch(trace),
         market_data=_TracedMarketData(trace),
         configurations=_TracedConfigurations(trace),
+        events=_TracedEvents(trace),
     )
     trace.armed = lambda: any(
         state is PaperExecutionState.SUBMISSION_IN_PROGRESS
@@ -179,6 +197,15 @@ def test_the_boundary_reads_everything_before_the_kill_switch_and_samples_time_l
     assert boundary[-2] == "kill_switch"
     assert {"configuration", "clock", "quote"} <= set(boundary[1:-2]), boundary
     assert "lookup" not in boundary[1:], "the identity lookup ran after the final decision"
+    # CRASH-CONSISTENT LINEAGE (L1): the boundary record is written after every
+    # preparatory read and BEFORE the kill switch is read -- a write that may block must
+    # not sit between the final decision and the POST, nor precede the reads it vouches for.
+    assert boundary.count("persist_boundary") == 1
+    assert (
+        max(boundary.index(read) for read in ("configuration", "clock", "quote"))
+        < (boundary.index("persist_boundary"))
+        < boundary.index("kill_switch")
+    ), boundary
 
 
 # ---------------------------------------------------------------------------
