@@ -1,0 +1,9 @@
+export of 2726f6f at C:/Users/LuxSy/AppData/Local/Temp/claude/C--Users-LuxSy-Documents-trading/4ea5c03d-9064-4731-82e1-b203d29d8375/scratchpad/wt-2726f6f start=2026-09-26T10:42:18Z
+imports from C:\Users\LuxSy\AppData\Local\Temp\claude\C--Users-LuxSy-Documents-trading\4ea5c03d-9064-4731-82e1-b203d29d8375\scratchpad\wt-2726f6f\src\empirical_platform\__init__.py
+pytest exit=1
+FAILED tests/architecture/test_frozen_paths.py::TestNothingFrozenChanged::test_every_recorded_entry_is_a_governed_path
+FAILED tests/architecture/test_frozen_paths.py::TestNothingFrozenChanged::test_every_recorded_blob_id_is_a_real_object_of_this_repository
+FAILED tests/architecture/test_frozen_paths.py::TestNothingFrozenChanged::test_an_invented_blob_id_is_reported_as_a_breach
+FAILED tests/unit/test_m085_base_pin.py::TestThePresenceOfTheBaseIsReportedNotAssumed::test_presence_is_a_boolean_answer
+21 failed, 3891 passed, 1254 skipped in 141.61s (0:02:21)
+end=2026-09-26T10:44:43Z

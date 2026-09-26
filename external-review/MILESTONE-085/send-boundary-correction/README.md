@@ -9,10 +9,12 @@ round ran against controlled fakes, a local hostile HTTP server bound to 127.0.0
 disposable PostgreSQL database.
 
 Base of this correction: `2726f6f` (the published final candidate, PR #15) with the docs-only
-commit `38dc069` on top. The commit that contains this document is the code candidate; its
-SHA (`CODE_CANDIDATE_SHA`) is reported in the round report and the exact-SHA verification of it
-is recorded in [verification.md](verification.md) by a docs-only follow-up, because a document
-cannot name the commit that first contains it.
+commit `38dc069` on top. Code candidate (`CODE_CANDIDATE_SHA`):
+**`00716e460ffdb7de99f554d443e05c3ddf9003a9`** = `80d1faa` (the correction) + `00716e4` (one
+masking duplicate removed after the first exact-SHA mutation run, §3.1). The exact-SHA
+verification is recorded in [verification.md](verification.md); this pointer was added by the
+docs-only commit that follows the candidate, because a document cannot name the commit that
+first contains it.
 
 ## 1. What was wrong on `2726f6f`
 

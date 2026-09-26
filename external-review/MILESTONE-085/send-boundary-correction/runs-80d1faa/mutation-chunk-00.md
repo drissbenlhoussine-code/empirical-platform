@@ -1,0 +1,38 @@
+# MILESTONE-085 — Mutation Matrix
+
+**22 of 22 families detected.** A surviving mutation is a defect,
+never a pass.
+
+Each row names its detecting test BEFORE the mutation was applied. For every family the
+campaign required a green baseline, applied the mutation to the real governing rule,
+required the named test to fail FOR THE INTENDED REASON, restored the file, verified the
+restoration by SHA-256 against the digest taken beforehand, and re-ran the test to
+require it green again.
+
+**Tree-wide restoration: VERIFIED.** SHA-256 over every file under src, tests, tools, migrations, scripts (byte-compiled caches excluded): before `793a800c6fdbc2e321db2f4a067b8aba00e327429f9db18a34ff6d64514cbcbe`, after `793a800c6fdbc2e321db2f4a067b8aba00e327429f9db18a34ff6d64514cbcbe`.
+
+| Family | Rule removed | File | Detecting test | Status | Detail |
+|---|---|---|---|---|---|
+| `authorization_basis_interval_required` | An authorization without an interval-shaped basis is not dispatchable | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_the_replaced_pre_fetch_pairing_is_no_longer_trusted` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `broker_basis_required` | An authorization carrying a basis cannot be checked without broker time | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_a_basis_cannot_be_checked_without_broker_time` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `broker_basis_authorization_expiry` | An approval expires on the broker's clock, through its own basis | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_a_host_clock_ahead_only_while_authorizing_cannot_extend_the_authorization` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `authorization_not_future_dated_against_its_basis` | authorized_at may not postdate the host reading its expiry is mapped with | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_a_future_dated_authorization_cannot_be_mapped` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `m084_deadline_on_proposal_time_basis` | M084 deadlines are enforced on the broker's clock through the proposal's own basis | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_the_intent_deadline_is_mapped_through_the_proposal_basis` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `m084_deadline_never_through_a_later_basis` | A deadline written at evaluation is never translated through the issuance basis | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_the_intent_deadline_is_mapped_through_the_proposal_basis` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `proposal_basis_required` | A proposal evaluated without its own basis cannot be issued for Paper | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_a_proposal_or_approval_without_its_own_basis_is_refused_before_m084_writes` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `decision_basis_required` | An approval recorded without its own basis cannot be issued for Paper | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_a_proposal_or_approval_without_its_own_basis_is_refused_before_m084_writes` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `proposal_basis_matches_the_exact_proposal` | Proposal evidence describing different deadlines is refused | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_proposal_evidence_describing_another_proposal_refuses_the_preview` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `approval_before_proposal_expiry_on_broker_time` | An approval recorded after the proposal expired on the broker's clock is refused | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_an_approval_recorded_after_the_proposal_expired_is_refused` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `approval_expiry_at_issuance_through_the_decision_basis` | An intent issued after the approval expired on the broker's clock is refused | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_an_approval_that_expired_before_issuance_is_refused` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `stale_proposal_refused_at_issuance` | Issuance is refused when a deadline it relies on passed on the broker's clock | `src/empirical_platform/usecases/paper_execution.py` | `test_the_chain_is_refused_somewhere_and_nothing_is_sent` | **EXECUTED_PASS** | detected; restored to `ce8c362456349df3` |
+| `approval_refused_for_a_proposal_expired_on_broker_time` | A human cannot approve a proposal that may have expired on the broker's clock | `src/empirical_platform/usecases/paper_execution.py` | `test_a_proposal_that_expired_on_the_broker_clock_cannot_be_approved` | **EXECUTED_PASS** | detected; restored to `ce8c362456349df3` |
+| `evaluation_uses_the_measured_host_reading` | The proposal is evaluated at the basis host reading, not at an unmeasured instant | `src/empirical_platform/usecases/paper_execution.py` | `test_the_proposal_is_evaluated_at_the_host_reading_taken_after_the_clock_response` | **EXECUTED_PASS** | detected; restored to `ce8c362456349df3` |
+| `decision_uses_the_measured_host_reading` | The approval is decided at the basis host reading, not at an unmeasured instant | `src/empirical_platform/usecases/paper_execution.py` | `test_an_approval_is_decided_at_the_host_reading_taken_after_the_clock_response` | **EXECUTED_PASS** | detected; restored to `ce8c362456349df3` |
+| `intent_basis_required` | An intent issued without its own basis is not dispatchable | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_an_intent_without_its_own_basis_is_refused_before_any_broker_call` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `intent_basis_matches_the_exact_intent` | Evidence describing a different intent is refused | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_evidence_describing_a_different_intent_is_refused[expires_at]` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `intent_basis_bound_to_issuance` | An intent-time basis cannot be attached after the intent was issued | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_intent_evidence_cannot_be_attached_after_issuance` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `issuance_uses_the_measured_host_reading` | The intent is issued at the basis host reading, not at an unmeasured instant | `src/empirical_platform/usecases/paper_execution.py` | `test_the_intent_is_issued_at_the_host_reading_taken_after_the_clock_response` | **EXECUTED_PASS** | detected; restored to `ce8c362456349df3` |
+| `post_fetch_time` | Post-fetch evaluation uses current time | `src/empirical_platform/usecases/paper_execution.py` | `test_an_intent_expiring_during_the_fetch_is_refused` | **EXECUTED_PASS** | detected; restored to `ce8c362456349df3` |
+| `final_authorization_expiry` | Authorization is still valid at HTTP send | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_elapsed_work_cannot_extend_a_deadline[authorization-connect]` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+| `final_intent_expiry` | Intent expiry is checked after preparation | `src/empirical_platform/decision_candidate/paper_execution.py` | `test_elapsed_work_cannot_extend_a_deadline[intent-prepare]` | **EXECUTED_PASS** | detected; restored to `08dc76f828f401b2` |
+

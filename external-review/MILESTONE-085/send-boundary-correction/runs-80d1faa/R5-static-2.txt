@@ -1,0 +1,26 @@
+HEAD=80d1faa9643ac0bb50fe5da618932a399f6d7cf7 dirty=0 start=2026-09-26T09:55:49Z
+== authority renderers (--check)
+m082: current-authority.md matches current-authority.json
+  exit=0
+m083: current-authority.md matches current-authority.json
+  exit=0
+m084: current-authority.md matches current-authority.json
+  exit=0
+m085: current-authority.md matches current-authority.json
+  exit=0
+== M084 file audit
+file-audit matrix matches the diff (75 paths)
+== M085 exhaustion table
+C:\Users\LuxSy\Documents\trading\external-review\MILESTONE-085\exhaustion-table.md is not the current rendering
+== secret scan
+    + CategoryInfo          : OperationStopped: (Command failed ...on -m pip_audit:String) [], RuntimeException
+    + FullyQualifiedErrorId : Command failed with exit code 1: python -m pip_audit
+ 
+== pip-audit
+------------------ ---------------------------------------------------------------------------------
+empirical-platform Dependency not found on PyPI and could not be audited: empirical-platform (0.0.0)
+== build
+Successfully built empirical_platform-0.0.0.tar.gz and empirical_platform-0.0.0-py3-none-any.whl
+empirical_platform-0.0.0-py3-none-any.whl
+empirical_platform-0.0.0.tar.gz
+end=2026-09-26T09:56:16Z
