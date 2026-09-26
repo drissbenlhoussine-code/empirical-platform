@@ -1,0 +1,63 @@
+R3c on 2726f6f (tests/integration/test_m08[0-4]*.py, PostgreSQL on, role empirical_m085_verify,
+fresh disposable database m085_pgon_53f878c, psycopg impl python / libpq 16.0.13):
+3 failed, 674 passed, 2 skipped, 43 errors
+
+FAILED (3):
+  test_an_unexpected_checker_error_fails_closed
+  test_a_non_superuser_cannot_shadow_the_event_table_through_pg_temp
+  test_28_migration_up_down_up_is_clean
+
+ERROR at setup (43), by test id:
+  test_e1_multi_row_single_statement_insert_each_row_gets_the_full_set
+  test_e2_insert_select_derived_source_still_fires_the_capture_trigger
+  test_e3_caller_supplied_empty_array_is_overwritten_when_receipts_exist
+  test_e4_caller_supplied_null_is_overwritten_before_not_null_is_checked
+  test_e5_copy_from_stdin_fires_the_same_capture_trigger
+  test_e6_exactly_64_characters_succeeds_65_is_rejected_by_the_column_type
+  test_e7_repeatable_read_holds_one_snapshot_across_the_whole_transaction
+  test_e8_serializable_write_skew_raises_and_retry_succeeds
+  test_e9_hostile_named_schema_on_search_path_cannot_alter_the_result
+  test_e10_real_check_violation_is_not_misclassified_as_a_pk_conflict
+  test_e11_a_null_array_element_is_refused_on_read_not_coerced_into_an_identity
+  test_e12_a_well_formed_row_still_reads_back_unchanged_after_the_strict_mapping
+  test_e13_the_installed_capture_function_pins_collate_c_explicitly
+  test_1_empty_receipt_table_produces_an_explicit_empty_set
+  test_2_one_receipt_is_captured_exactly_once
+  test_3_many_receipts_are_stored_in_canonical_lexical_order
+  test_4_insertion_order_does_not_affect_the_stored_representation
+  test_5_later_receipt_insertion_does_not_change_an_existing_watermark
+  test_6_backdating_a_later_receipt_label_does_not_change_an_existing_watermark
+  test_7_an_unreceipted_m076_event_never_appears
+  test_8_no_event_payload_or_receipt_metadata_appears
+  test_9_caller_supplied_omitted_subset_is_overwritten
+  test_10_caller_supplied_extra_nonexistent_id_is_overwritten
+  test_11_caller_supplied_duplicates_and_reordering_is_overwritten
+  test_12_direct_sql_without_membership_produces_the_exact_database_set
+  test_13_pg_temp_relation_shadowing_cannot_alter_the_result
+  test_14_blank_watermark_ids_are_refused_by_python_and_postgresql[]
+  test_14_blank_watermark_ids_are_refused_by_python_and_postgresql[   ]
+  test_14_blank_watermark_ids_are_refused_by_python_and_postgresql[\t]
+  test_15_an_unexpected_database_failure_propagates_with_no_empty_set_fallback
+  test_16_a_receipt_committed_before_capture_is_included
+  test_17_a_receipt_uncommitted_in_another_transaction_is_excluded
+  test_18_and_19_a_receipt_committed_after_the_snapshot_is_excluded_and_a_later_watermark_may_include_it
+  test_20_same_transaction_receipt_visibility_is_statement_snapshot_not_prior_commit
+  test_21_two_concurrent_captures_with_different_ids_are_each_internally_coherent
+  test_22_two_concurrent_captures_with_the_same_id_yield_one_immutable_winner
+  test_23_rollback_leaves_no_header_or_partial_set
+  test_24_the_count_can_never_split_from_membership
+  test_25_update_is_refused
+  test_26_delete_is_refused
+  test_27_identity_collision_is_handled_honestly_not_silently_refreshed
+  test_31_a_watermark_read_is_byte_identical_after_unrelated_future_inserts
+  test_32_truncate_drop_and_trigger_disable_are_outside_the_enforcement_boundary
+
+distinct driver messages (count):
+   43 psycopg.errors.FeatureNotSupported: cannot truncate a table referenced in a foreign key constraint
+   43 sqlalchemy.exc.NotSupportedError: (psycopg.errors.FeatureNotSupported) cannot truncate a table referenced in a foreign key constraint
+    2 psycopg.errors.InsufficientPrivilege: permission denied to drop objects
+    2 sqlalchemy.exc.ProgrammingError: (psycopg.errors.InsufficientPrivilege) permission denied to drop objects
+
+Baseline reference: external-review/MILESTONE-085/validation-results.md (table 'Count | Location | Cause'),
+first recorded at candidate 754ceda; the M084 freeze record documents the FK-truncate limitation
+('The frozen M083 reset is inexecutable at the M084 head'). Frozen tests were not modified.

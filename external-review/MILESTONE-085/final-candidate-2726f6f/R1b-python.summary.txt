@@ -1,0 +1,4 @@
+SHA=2726f6f53f74a0f6d0c63198d0970d3bce822efe
+psycopg impl python libpq 160013
+266 passed in 145.35s (0:02:25)
+exit=0

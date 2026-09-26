@@ -214,9 +214,11 @@ class TestNothingFrozenChanged:
                 f"base commit {BASE[:12]} is absent from this clone (shallow checkout); "
                 "the blob-object check above covers every recorded id and did run"
             )
+        # M083's manifest against M083's base. M084's manifest is checked against its own
+        # base in tests/architecture/test_frozen_milestones.py.
         mismatched = {
             path: identifier
-            for path, identifier in base_digests().items()
+            for path, identifier in base_digests("M083").items()
             if blob_id(BASE, path) != identifier
         }
         assert mismatched == {}, f"recorded ids that differ from the base object: {mismatched}"
@@ -248,4 +250,6 @@ class TestNothingFrozenChanged:
         assert EXEMPT == frozenset()
 
     def test_the_guard_names_the_frozen_milestones_it_knows(self) -> None:
-        assert set(FROZEN) == {"M083"}
+        # M084 was added on 2026-09-25 at the Owner's direction, pinned to the ratified
+        # post-freeze commit; see tests/architecture/test_frozen_milestones.py.
+        assert set(FROZEN) == {"M083", "M084"}

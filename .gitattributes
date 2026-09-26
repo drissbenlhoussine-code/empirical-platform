@@ -28,3 +28,15 @@
 # The fixture's own bytes are unchanged by this rule; only the guarantee that
 # a checkout reproduces them exactly is added.
 tests/fixtures/m063_robustness_study/synthetic_broad_robustness_dataset_bundle.json -text
+
+# MILESTONE-085 review package.
+#
+# These are GENERATED documents with `--check` gates over them, and the generators
+# write LF explicitly. Pinning the checkout to LF as well means the file on disk is
+# the file that was generated, on any platform, so a Windows checkout cannot make a
+# byte-comparison gate disagree with a POSIX one -- which is exactly how the first
+# CI run of this milestone failed. Scoped to this package: the M063/M064/M065
+# dataset fixtures carry sha256 seals and keep their exemption from any EOL rule.
+external-review/MILESTONE-085/*.md text eol=lf
+external-review/MILESTONE-085/*.json text eol=lf
+external-review/MILESTONE-085/*.txt text eol=lf

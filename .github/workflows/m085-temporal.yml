@@ -1,0 +1,152 @@
+name: M085 temporal PostgreSQL
+
+on:
+  push:
+    branches: [feature/m085-alpaca-paper-human-approved-execution]
+  pull_request:
+    paths:
+      - '.github/workflows/m085-temporal.yml'
+      - 'src/empirical_platform/**/paper_*.py'
+      - 'src/empirical_platform/shared/brokerage/alpaca_paper.py'
+      - 'src/empirical_platform/entrypoints/_paper_composition.py'
+      - 'migrations/versions/**'
+      - 'tools/m085_*.py'
+      - 'tests/**/test_m085*.py'
+
+permissions:
+  contents: read
+
+jobs:
+  temporal-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: empirical
+          POSTGRES_DB: empirical_platform
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U empirical -d empirical_platform"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
+      EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform
+      EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[persistence,object-storage,test]'
+      - name: Set isolated database placeholder
+        run: echo "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
+      - name: Real PostgreSQL time boundaries and existing lifecycle/concurrency
+        run: >-
+          python -m pytest --no-cov -q
+          tests/integration/test_m085_temporal_postgres.py
+          tests/integration/test_m085_time_basis_postgres.py
+          tests/integration/test_m085_paper_execution_postgres.py
+          tests/integration/test_m085_concurrency.py
+          tests/integration/test_m085_corrective_pass_postgres.py
+          tests/integration/test_m085_identity_collision_postgres.py
+          tests/integration/test_m085_acknowledgement_terms_http.py
+          tests/integration/test_m085_send_boundary_transport.py
+          tests/unit/test_m085_send_boundary.py
+          tests/unit/test_m085_identity_lineage.py
+          tests/unit/test_m085_pre_send_crash.py
+          tests/integration/test_m085_pre_send_crash_postgres.py
+          tests/unit/test_m085_absence_policy.py
+          tests/unit/test_m085_boundary_binding_parser.py
+          tests/integration/test_m085_absence_policy_postgres.py
+          tests/unit/test_m085_reconciliation_rounds.py
+          tests/integration/test_m085_reconciliation_rounds_postgres.py
+          tests/integration/test_m084_file_audit.py
+      - name: PostgreSQL time-basis mutations (sequential, sources restored)
+        run: >-
+          python tools/m085_mutation_campaign.py
+          --family claim_time_after_lock
+          --family database_basis_interval_shape
+          --family database_basis_immutable
+          --family database_intent_basis_matches_intent
+          --family database_intent_basis_bound_to_issuance
+          --family database_proposal_basis_matches_proposal
+          --family database_decision_basis_matches_approval
+          --family database_proposal_basis_bound_to_evaluation
+          --family database_decision_basis_bound_to_decision
+          --family stale_proposal_refused_at_issuance
+          --family database_transition_trigger
+          --family database_single_use_trigger
+          --family repository_refuses_a_terminal_transition
+          --family database_terminal_attempt_immutable
+          --family database_broker_identity_written_once
+          --family database_authorization_equals_its_preview
+          --family database_authorization_inserted_unconsumed
+          --family database_authorization_never_outlives_the_intent
+          --family database_authorization_within_preview_freshness
+          --family database_refused_preview_not_authorizable
+          --family database_preview_carries_the_configuration_policy
+          --family database_preview_carries_the_intent_order
+          --family database_authorizable_preview_within_its_cap
+          --family duplicate_identity_422_is_not_a_refusal
+          --family unknown_422_shape_fails_closed
+          --family identity_collision_looks_the_identity_up
+          --family pre_send_lookup_uses_the_derived_identity
+          --family no_resend_after_a_collision
+          --family identity_match_checks_the_symbol
+          --family identity_match_checks_the_quantity
+          --family identity_match_checks_the_side
+          --family reconcile_recovers_unknown_after_restart
+          --family reconcile_refuses_a_mismatching_order
+          --family database_rebuilt_meets_existing_identity
+          --family frozen_path_guard_covers_m084
+          --family frozen_path_guard_pins_m084_to_the_ratified_commit
+          --family response_identity_validation
+          --family response_quantity_validation
+          --family send_boundary_no_read_after_the_decision
+          --family send_boundary_kill_switch_read_after_the_slow_reads
+          --family send_boundary_time_sampled_after_the_reads
+          --family inconclusive_lookup_is_not_a_rejection
+          --family unresolved_identity_recovered_after_restart
+          --family reconcile_requires_lineage_before_adoption
+          --family reconcile_verifies_the_account
+          --family lineage_unsent_never_attributed
+          --family unknown_error_code_is_uncertain
+          --family acknowledgement_terms_compared_canonically
+          --family terms_compare_limit_price
+          --family terms_compare_time_in_force
+          --family terms_compare_extended_hours
+          --family terms_compare_bound_broker_order_id
+          --family lineage_requires_the_send_boundary_record
+          --family send_boundary_record_is_bound_field_by_field
+          --family send_boundary_recorded_before_the_send
+          --family final_checks_follow_the_boundary_write
+          --family historical_adoption_requires_the_account_binding
+          --family absence_counts_only_the_consecutive_suffix
+          --family lookup_failure_breaks_the_absence_run
+          --family lookup_failure_is_recorded
+          --family absence_never_rejects_a_known_order
+          --family absence_never_revokes_a_positive_observation
+          --family binding_parser_rejects_padding_and_duplicates
+          --family binding_parser_requires_canonical_keys
+          --family round_begun_durably_before_any_network_work
+          --family incomplete_round_ends_the_consecutive_run
+          --family incomplete_round_blocks_resolution
+          --family rounds_ordered_by_sequence_never_by_timestamp
+          --family found_round_forbids_absence_resolution
+          --family waiting_bound_uses_the_conservative_endpoints
+          --family missing_broker_time_evidence_is_unresolved
+          --family contradictory_broker_readings_are_not_trusted
+          --family round_interval_is_the_broker_clock_not_the_caller_wall_time
+          --family raised_lookup_is_a_failed_round_not_a_not_found_one
+          --family database_round_sequence_allocated_under_the_attempt_lock
+          --family database_round_completed_exactly_once
+          --family database_finalisation_rejects_a_stale_round_snapshot
+          --family database_finalisation_re_evaluates_on_fresh_rows
+          --family database_round_sequence_unique_per_attempt
+          --output /tmp/m085-pg-mutation.md

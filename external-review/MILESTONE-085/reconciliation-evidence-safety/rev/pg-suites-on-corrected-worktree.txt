@@ -1,0 +1,13 @@
+PG suites on the corrected working tree (uncommitted) 2026-09-26T15:21:07Z
+psycopg impl python
+E           psycopg.errors.UniqueViolation: duplicate key value violates unique constraint "paper_execution_event_pkey"
+E           DETAIL:  Key (event_id)=(EVT-ATT-ABS-A-RECON-404-1) already exists.
+E           sqlalchemy.exc.IntegrityError: (psycopg.errors.UniqueViolation) duplicate key value violates unique constraint "paper_execution_event_pkey"
+E           DETAIL:  Key (event_id)=(EVT-ATT-ABS-A-RECON-404-1) already exists.
+E           [SQL: INSERT INTO public.paper_execution_event (event_id, intent_governance_id, attempt_id, event_type, occurred_at, detail) VALUES (%(event_id)s, %(intent_governance_id)s, %(attempt_id)s, %(event_type)s, %(occurred_at)s, %(detail)s) RETURNING even
+E           [parameters: {'event_id': 'EVT-ATT-ABS-A-RECON-404-1', 'intent_governance_id': 'INT-085-0001', 'attempt_id': 'ATT-ABS-A', 'event_type': 'RECONCILE_NOT_FOUND_INSUFFICIENT', 'occurred_at': datetime.datetime(2026, 6, 10, 12, 3, 26, tzinfo=datetime.tim
+E           (Background on this error at: https://sqlalche.me/e/20/gkpj)
+E           empirical_platform.shared.errors.foundation.FoundationError: Persistence execute failed in the database driver
+FAILED tests/integration/test_m085_absence_policy_postgres.py::test_an_unusable_answer_between_two_not_found_answers_does_not_resolve_the_unknown
+1 failed, 329 passed in 224.80s (0:03:44)
+end=2026-09-26T15:24:54Z

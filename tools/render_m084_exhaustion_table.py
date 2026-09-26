@@ -21,6 +21,7 @@ EXECUTED_PASS would be a list of intentions.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -33,8 +34,77 @@ PACKAGE = REPO_ROOT / "external-review" / "MILESTONE-084"
 TABLE = PACKAGE / "exhaustion-table.md"
 # Grouped so that no token here is a 40-character hex string; see
 # `tools/check_frozen_paths.py` for why the alternative was rejected.
+#
+# BASE and HEAD are the two parents of the M084 merge commit: the master commit
+# the pull request was merged into, and the approved pull-request head. The pin
+# stops at that head deliberately -- see the FIND-F-01 note in
+# `tools/render_m084_file_audit.py`, which holds the same pair and which
+# `tests/unit/test_m084_audit_portability.py` requires this copy to agree with.
 _BASE_GROUPS = ("707161a1", "e8edeb7e", "0c95f3da", "fc7180ba", "9d782cc6")
 BASE = "".join(_BASE_GROUPS)
+_HEAD_GROUPS = ("e661fa9c", "56a09fd0", "d2c5410c", "46b0fcc2", "9c725427")
+HEAD = "".join(_HEAD_GROUPS)
+
+# pyproject pins `requires-python = ">=3.13,<3.14"`. Recorded here so that a
+# gate cannot be run under an interpreter this project does not support and have
+# its exit code read as evidence anyway. `tests/unit/test_m084_audit_portability.py`
+# asserts this constant still matches pyproject.
+SUPPORTED_PYTHON = (3, 13)
+
+
+class UnsupportedInterpreterError(RuntimeError):
+    """The running interpreter is not one this project supports."""
+
+
+def interpreter() -> str:
+    """The interpreter running this tool, once proven to be a supported one.
+
+    FIND-F-02. The original code ran `.venv313/bin/python` with a replacement
+    environment of `PATH=/usr/bin:/bin:/usr/local/bin`. Both are POSIX-only: on
+    Windows that executable does not exist (a venv puts it at
+    `Scripts/python.exe`), and replacing the whole environment drops the
+    variables Windows needs to start a process at all. Every `_gate` row
+    therefore failed for an environment reason on Windows while claiming to
+    measure a gate, so the table could not be rendered at all.
+
+    Using `sys.executable` follows the interpreter that is already running this
+    tool, which is the one the operator chose. It is checked rather than trusted:
+    an unsupported version raises instead of quietly producing exit codes from a
+    Python this project does not support.
+    """
+    if sys.version_info[:2] != SUPPORTED_PYTHON:
+        expected = ".".join(str(part) for part in SUPPORTED_PYTHON)
+        running = ".".join(str(part) for part in sys.version_info[:2])
+        raise UnsupportedInterpreterError(
+            f"this project supports Python {expected}; this is {running}. "
+            "Run the audit tools under a supported interpreter rather than "
+            "reading their exit codes as evidence."
+        )
+    return sys.executable
+
+
+def _child_environment() -> dict[str, str]:
+    """The parent environment plus this repository on `PYTHONPATH`.
+
+    Inherited rather than replaced, and joined with `os.pathsep` rather than a
+    hard-coded `:`, so the same code works on Windows and on POSIX.
+    """
+    environment = dict(os.environ)
+    existing = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = f"{REPO_ROOT}{os.pathsep}{existing}" if existing else str(REPO_ROOT)
+    return environment
+
+
+def _pinned_blob(path: str) -> str | None:
+    """`path` as the approved M084 head holds it, or None if it is absent there."""
+    result = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
+        ["git", "show", f"{HEAD}:{path}"],  # noqa: S607
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,12 +133,12 @@ def _contains(name: str, needle: str, description: str) -> Callable[[], tuple[bo
 def _gate(arguments: list[str], description: str) -> Callable[[], tuple[bool, str]]:
     def check() -> tuple[bool, str]:
         result = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
-            [".venv313/bin/python", *arguments],  # noqa: S607
+            [interpreter(), *arguments],
             cwd=REPO_ROOT,
             capture_output=True,
             text=True,
             check=False,
-            env={"PYTHONPATH": str(REPO_ROOT), "PATH": "/usr/bin:/bin:/usr/local/bin"},
+            env=_child_environment(),
         )
         return result.returncode == 0, f"{description} — exit {result.returncode}"
 
@@ -224,12 +294,18 @@ ITEMS: tuple[Item, ...] = (
 
 
 def _count_suppressions() -> tuple[bool, str]:
-    """Count real suppressions in the diff, by token rather than by grep."""
+    """Count real suppressions in M084's own diff, by token rather than by grep.
+
+    FIND-F-01. Both the path set and the sources are pinned to the approved M084
+    head. Against a moving `HEAD` this counted whatever later commits added, and
+    read each file from the working tree, so a later milestone's `noqa` would
+    have been reported as M084's.
+    """
     import io
     import tokenize
 
     changed = subprocess.run(  # noqa: S603 - fixed argument vector, no shell
-        ["git", "diff", "--name-only", f"{BASE}..HEAD"],  # noqa: S607
+        ["git", "diff", "--name-only", f"{BASE}..{HEAD}"],  # noqa: S607
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -237,10 +313,11 @@ def _count_suppressions() -> tuple[bool, str]:
     ).stdout.split()
     noqa = ignores = pragmas = skips = 0
     for path in changed:
-        full = REPO_ROOT / path
-        if not full.is_file() or full.suffix != ".py":
+        if not path.endswith(".py"):
             continue
-        source = full.read_text(encoding="utf-8")
+        source = _pinned_blob(path)
+        if source is None:
+            continue
         for token in tokenize.generate_tokens(io.StringIO(source).readline):
             if token.type != tokenize.COMMENT:
                 continue

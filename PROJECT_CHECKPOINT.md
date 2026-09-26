@@ -812,6 +812,12 @@ M084_PULL_REQUEST=14
 M084_MERGE_COMMIT=a7cca5109a4d8f9154f08f3dc4d4f4398e8c866c
 M084_MACRO_REVIEW_STATUS=APPROVED_AFTER_TWELVE_FINDINGS_ONE_GOVERNANCE_BREACH_CORRECTED_AND_ONE_OWNER_DIRECTED_SECRET_SCANNER_CORRECTION
 M084_OWNER_FREEZE_STATUS=APPROVED_AND_FROZEN
+M084_POST_FREEZE_RATIFIED_COMMIT=1127134623b25178b4d98236d5ab75f8f2134760
+M084_POST_FREEZE_RATIFICATION_DATE=2026-09-25
+M084_POST_FREEZE_RATIFICATION_SCOPE=six audit-tooling files only; no production, migration, authority, business-rule, execution-semantics or freeze-claim change; see section 119
+M084_FROZEN_PATH_GUARD=tools/check_frozen_paths.py (M083 and M084)
+M084_FROZEN_PATH_GUARD_BASE=1127134623b25178b4d98236d5ab75f8f2134760
+M084_FROZEN_PATH_MANIFEST=external-review/MILESTONE-085/m084-frozen-path-digests.json
 M084_OWNER_FREEZE_COMMIT=f04057e
 M084_STATUS=APPROVED_AND_FROZEN
 M084_POSITIVE_AUTHORITY=Exactly twelve bounded claims: one_versioned_operator_configuration_governing_one_evaluation; one_evaluation_context_bound_to_exactly_one_persisted_m083_watermark; the_receipt_count_and_set_digest_read_from_the_loaded_watermark_not_from_the_caller; deterministic_single_reason_no_trade_or_one_proposal_from_one_input_set; quantity_price_and_risk_verdict_derived_by_the_engine_never_supplied_by_the_caller; one_fingerprint_binding_one_approval_to_one_exact_set_of_order_terms; order_terms_immutable_after_insert_with_status_the_only_mutable_column; a_closed_proposal_state_machine_in_which_only_prepared_has_outgoing_edges; at_most_one_explicit_human_decision_per_proposal; at_most_one_order_intent_per_proposal_derived_from_that_decision; every_stored_intent_is_not_submitted_and_no_transition_away_from_it_exists; no_module_of_the_package_imports_an_order_submission_dependency. Nothing further.
@@ -3098,3 +3104,58 @@ Effective from MILESTONE-036 onward: `MACRO_MILESTONE_PROTOCOL_ACTIVE_FROM=MILES
 **Status:** `APPROVED_AND_FROZEN`.
 
 **Next permitted action:** MILESTONE-083 — recommendation only; not started as part of M082.
+
+## 119. MILESTONE-084 Post-Freeze Owner Ratification and Mechanical Freeze Extension
+
+**Owner decision, 2026-09-25.** The Owner explicitly ratified commit
+`1127134623b25178b4d98236d5ab75f8f2134760` (`fix(m084): pin the derived audit to the
+approved tree, and let it run anywhere`, 2026-09-10 01:01:48 +0300, parent
+`a224076754fb38909ee04c2464e50e51df12d7ad` = `master`, the first commit of the
+MILESTONE-085 branch) **only for the exact six files and exact changes** investigated in
+the M085 corrective-round report:
+
+- `external-review/MILESTONE-084/file-audit-matrix.json` (adds `head_groups`; all 75 `files[]` rows byte-identical)
+- `external-review/MILESTONE-084/file-audit-matrix.md` (header names the pinned approved head instead of `.. HEAD`)
+- `tests/integration/test_m084_file_audit.py` (matrix checked against the pinned approved tree, not a moving `HEAD`)
+- `tests/unit/test_m084_audit_portability.py` (new; anti-vacuity for the pin and the interpreter portability)
+- `tools/render_m084_exhaustion_table.py` (uses `sys.executable` and `os.pathsep`; refuses an unsupported interpreter)
+- `tools/render_m084_file_audit.py` (reads the audited files at the approved head with `git show`)
+
+**Basis of the ratification, verified before it was granted.** Those changes are
+portability and derived-audit-tooling corrections (M084 findings FIND-F-01 and
+FIND-F-02). They did NOT alter M084 production behavior, M084 database migrations, the
+M084 authority JSON/schema/document, M084 business rules, M084 execution semantics, or the
+M084 freeze claim: `MILESTONE_084_DECISION_TO_APPROVAL_PRODUCT_CORE_MACRO_MILESTONE_FREEZE.md`,
+this checkpoint, `current-authority.json`, `current-authority.schema.json`,
+`current-authority.md` and `migrations/versions/a3f7c21d9b04_create_m084_decision_to_approval_schema.py`
+are byte-identical between the M084 merge `a7cca5109a4d8f9154f08f3dc4d4f4398e8c866c`
+and `1127134`, and `tools/render_m084_authority.py --check` passes. History is not
+rewritten: the commit stands as authored; this section is the record of its authorization,
+which the repository previously held only in the commit message itself.
+
+**The ratification is not a permission.** It covers nothing beyond those six files and
+those exact changes. No further modification of any MILESTONE-084 file is authorized.
+
+**Mechanical freeze extended.** `tools/check_frozen_paths.py` previously governed M083
+only, so the modification above was detectable by no mechanical check. It now governs
+**both M083 and M084**: M083 as before (27 paths, base `707161a1e8edeb7e0c95f3dafc7180ba9d782cc6`,
+manifest `external-review/MILESTONE-084/frozen-path-digests.json`), and M084 pinned to the
+**exact ratified state** `1127134623b25178b4d98236d5ab75f8f2134760` (69 paths: every path
+carrying an M084 milestone token plus M084's token-less production, entrypoint, repository,
+usecase and negative-fixture modules derived from the `A` rows of
+`external-review/MILESTONE-084/changed-files.txt`; manifest
+`external-review/MILESTONE-085/m084-frozen-path-digests.json`, written from that commit,
+kept outside the M084 package because the manifest governs it). Deliberately not frozen as
+M084's: the six `M` rows of M084's own audit (`pyproject.toml`,
+`postgres_repositories/runtime.py`, `tests/architecture/test_module_boundaries.py`,
+`tests/unit/test_secret_scan_targets.py`, `tools/check_architecture.py`,
+`tools/secret_scan_targets.py`), which pre-existed M084 and are shared repository
+infrastructure, and the guard with its test, which the Owner directed be extended.
+`tests/architecture/test_frozen_milestones.py` proves that an M084 governed-path mutation is
+detected, that an M083 governed-path mutation is still detected, that the exact ratified
+state passes, that the manifest is the content at the ratified commit, and that this record
+exists; it runs under `python -m pytest` in the `foundation` workflow on every push and pull
+request, so no later milestone can edit an M084 frozen file without a red build.
+
+**Status:** MILESTONE-084 remains `APPROVED_AND_FROZEN`. MILESTONE-085 is not accepted, not
+merged, not frozen by this section.

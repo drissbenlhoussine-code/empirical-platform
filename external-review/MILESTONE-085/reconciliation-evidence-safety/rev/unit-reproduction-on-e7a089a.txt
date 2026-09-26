@@ -1,0 +1,24 @@
+REV-R1 reproduction on HEAD=94ffe908067e3b5bf10753352afe0abeaf258b24 (executable content == e7a089a) 2026-09-26T15:10:48Z
+E       AssertionError: 404 -> 500 -> 404 was counted as two consecutive not-found observations
+E       assert <PaperExecutionState.REJECTED: 'REJECTED'> is <PaperExecutionState.SUBMISSION_UNKNOWN: 'SUBMISSION_UNKNOWN'>
+E        +  where <PaperExecutionState.REJECTED: 'REJECTED'> = ExecutionAttempt(attempt_id='ATT-1', intent_governance_id='INT-1', authorization_id='AUT-1', client_order_id='m085-5b9...de='NOT_FOUND_AT_BROKER', failure_detail='the broker reported no such client
+E        +  and   <PaperExecutionState.SUBMISSION_UNKNOWN: 'SUBMISSION_UNKNOWN'> = PaperExecutionState.SUBMISSION_UNKNOWN
+>       assert "RECONCILE_LOOKUP_FAILED" in _events(world), "the failed lookup left no record"
+E       AssertionError: the failed lookup left no record
+E       assert 'RECONCILE_LOOKUP_FAILED' in ['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT']
+E        +  where ['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT'] = _events({'intents': <tests.unit._m085_fakes.FakeIntents object at 0x0000026F0FCB4A50>, 'configurations': <tests.unit._m085_fak...ots object at 0x00000
+E           AssertionError: absence at +120s changed a known accepted order to REJECTED
+E           assert <PaperExecutionState.REJECTED: 'REJECTED'> is <PaperExecutionState.PAPER_ACCEPTED: 'PAPER_ACCEPTED'>
+E            +  where <PaperExecutionState.REJECTED: 'REJECTED'> = ExecutionAttempt(attempt_id='ATT-1', intent_governance_id='INT-1', authorization_id='AUT-1', client_order_id='m085-5b9...de='NOT_FOUND_AT_BROKER', failure_detail='the broker reported no such cl
+E            +  and   <PaperExecutionState.PAPER_ACCEPTED: 'PAPER_ACCEPTED'> = PaperExecutionState.PAPER_ACCEPTED
+E       AssertionError: a later 404 terminally rejected an attempt whose identity was positively observed
+E       assert <PaperExecutionState.REJECTED: 'REJECTED'> is <PaperExecutionState.SUBMISSION_UNKNOWN: 'SUBMISSION_UNKNOWN'>
+E        +  where <PaperExecutionState.REJECTED: 'REJECTED'> = ExecutionAttempt(attempt_id='ATT-1', intent_governance_id='INT-1', authorization_id='AUT-1', client_order_id='m085-5b9...de='NOT_FOUND_AT_BROKER', failure_detail='the broker reported no such client
+E        +  and   <PaperExecutionState.SUBMISSION_UNKNOWN: 'SUBMISSION_UNKNOWN'> = PaperExecutionState.SUBMISSION_UNKNOWN
+PASSED tests/unit/test_m085_absence_policy.py::test_two_consecutive_not_found_answers_still_resolve_a_never_observed_unknown
+PASSED tests/unit/test_m085_absence_policy.py::test_a_possibly_live_dispatcher_is_still_never_resolved_by_absence
+FAILED tests/unit/test_m085_absence_policy.py::test_an_unusable_answer_breaks_the_consecutive_not_found_run
+FAILED tests/unit/test_m085_absence_policy.py::test_a_lookup_that_raises_is_recorded_and_breaks_the_run
+FAILED tests/unit/test_m085_absence_policy.py::test_absence_never_rejects_a_previously_accepted_order
+FAILED tests/unit/test_m085_absence_policy.py::test_absence_never_discards_a_prior_positive_observation
+4 failed, 2 passed in 0.89s
