@@ -1,0 +1,25 @@
+HEAD=94ffe908067e3b5bf10753352afe0abeaf258b24 (executable content == e7a089a) 2026-09-26T15:11:48Z
+A. ambiguous POST, then 404 -> 500 -> 404
+  [after dispatch] state=SUBMISSION_UNKNOWN failure_code=UNCERTAIN_HTTP_503 broker_order_id=None terminal=False POSTs=1 acks=[('SUBMIT', 503, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN']
+  [after reconcile +61s] state=SUBMISSION_UNKNOWN failure_code=UNCERTAIN_HTTP_503 broker_order_id=None terminal=False POSTs=1 acks=[('SUBMIT', 503, None), ('RECONCILE', 404, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT']
+  [after reconcile +120s] state=SUBMISSION_UNKNOWN failure_code=UNCERTAIN_HTTP_503 broker_order_id=None terminal=False POSTs=1 acks=[('SUBMIT', 503, None), ('RECONCILE', 404, None), ('RECONCILE', 500, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT', 'RECONCILE_UNUSABLE_ANSWER']
+  [after reconcile +180s] state=REJECTED failure_code=NOT_FOUND_AT_BROKER broker_order_id=None terminal=True POSTs=1 acks=[('SUBMIT', 503, None), ('RECONCILE', 404, None), ('RECONCILE', 500, None), ('RECONCILE', 404, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT', 'RECONCILE_UNUSABLE_ANSWER', 'RECONCILE_RESOLVED_NOT_FOUND']
+  later reconciliation possible: False
+A'. ambiguous POST, then 404 -> lookup raises -> 404
+  [after dispatch] state=SUBMISSION_UNKNOWN failure_code=UNCERTAIN_HTTP_503 broker_order_id=None terminal=False POSTs=1 acks=[('SUBMIT', 503, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN']
+  [after reconcile +61s] state=SUBMISSION_UNKNOWN failure_code=UNCERTAIN_HTTP_503 broker_order_id=None terminal=False POSTs=1 acks=[('SUBMIT', 503, None), ('RECONCILE', 404, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT']
+  reconcile +120s raised RuntimeError
+  [after reconcile +120s] state=SUBMISSION_UNKNOWN failure_code=UNCERTAIN_HTTP_503 broker_order_id=None terminal=False POSTs=1 acks=[('SUBMIT', 503, None), ('RECONCILE', 404, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT']
+  [after reconcile +180s] state=REJECTED failure_code=NOT_FOUND_AT_BROKER broker_order_id=None terminal=True POSTs=1 acks=[('SUBMIT', 503, None), ('RECONCILE', 404, None), ('RECONCILE', 404, None)] events=['SEND_BOUNDARY_ENTERED', 'DISPATCH_OUTCOME_UNKNOWN', 'RECONCILE_NOT_FOUND_INSUFFICIENT', 'RECONCILE_RESOLVED_NOT_FOUND']
+  later reconciliation possible: False
+B. accepted order with bound broker id, then 404 -> 404
+  [after dispatch] state=PAPER_ACCEPTED failure_code=None broker_order_id=broker-1 terminal=False POSTs=1 acks=[('SUBMIT', 200, 'broker-1')] events=['SEND_BOUNDARY_ENTERED', 'PAPER_ORDER_SUBMITTED']
+  [after reconcile +61s] state=PAPER_ACCEPTED failure_code=None broker_order_id=broker-1 terminal=False POSTs=1 acks=[('SUBMIT', 200, 'broker-1'), ('RECONCILE', 404, None)] events=['SEND_BOUNDARY_ENTERED', 'PAPER_ORDER_SUBMITTED', 'RECONCILE_NOT_FOUND_INSUFFICIENT']
+  [after reconcile +120s] state=REJECTED failure_code=NOT_FOUND_AT_BROKER broker_order_id=broker-1 terminal=True POSTs=1 acks=[('SUBMIT', 200, 'broker-1'), ('RECONCILE', 404, None), ('RECONCILE', 404, None)] events=['SEND_BOUNDARY_ENTERED', 'PAPER_ORDER_SUBMITTED', 'RECONCILE_NOT_FOUND_INSUFFICIENT', 'RECONCILE_RESOLVED_NOT_FOUND']
+  later reconciliation possible: False
+C. unresolved identity (0 POSTs), then 404 -> 200 observed not attributed -> 404
+  [after dispatch] state=SUBMISSION_UNKNOWN failure_code=IDENTITY_UNRESOLVED_UNSENT broker_order_id=None terminal=False POSTs=0 acks=[('RECONCILE', 500, None)] events=['IDENTITY_LOOKUP_INCONCLUSIVE']
+  [after reconcile +61s] state=SUBMISSION_UNKNOWN failure_code=IDENTITY_UNRESOLVED_UNSENT broker_order_id=None terminal=False POSTs=0 acks=[('RECONCILE', 500, None), ('RECONCILE', 404, None)] events=['IDENTITY_LOOKUP_INCONCLUSIVE', 'RECONCILE_NOT_FOUND_INSUFFICIENT']
+  [after reconcile +120s] state=SUBMISSION_UNKNOWN failure_code=IDENTITY_UNRESOLVED_UNSENT broker_order_id=None terminal=False POSTs=0 acks=[('RECONCILE', 500, None), ('RECONCILE', 404, None), ('RECONCILE', 200, 'broker-historical')] events=['IDENTITY_LOOKUP_INCONCLUSIVE', 'RECONCILE_NOT_FOUND_INSUFFICIENT', 'IDENTITY_OBSERVED_NOT_ATTRIBUTED']
+  [after reconcile +180s] state=REJECTED failure_code=NOT_FOUND_AT_BROKER broker_order_id=None terminal=True POSTs=0 acks=[('RECONCILE', 500, None), ('RECONCILE', 404, None), ('RECONCILE', 200, 'broker-historical'), ('RECONCILE', 404, None)] events=['IDENTITY_LOOKUP_INCONCLUSIVE', 'RECONCILE_NOT_FOUND_INSUFFICIENT', 'IDENTITY_OBSERVED_NOT_ATTRIBUTED', 'RECONCILE_RESOLVED_NOT_FOUND']
+  later reconciliation possible: False

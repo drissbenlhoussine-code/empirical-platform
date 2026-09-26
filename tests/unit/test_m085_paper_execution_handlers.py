@@ -1749,7 +1749,7 @@ class TestDecidePaperBoundTradeProposal:
 
 
 class TestReconcilePaperOrder:
-    def _dispatched(self) -> tuple[FakeAttempts, ExecutionAttempt, FakeAuthorizations]:
+    def _in_progress(self) -> tuple[FakeAttempts, ExecutionAttempt, FakeAuthorizations]:
         # The reconcile handler verifies the account behind the broker client against the
         # authorization; the fixture preview must therefore carry the fake broker's account.
         preview = a_preview(
@@ -1776,16 +1776,31 @@ class TestReconcilePaperOrder:
             account_reference_now=authorization.account_reference,
             claimed_at=_NOW,
         )
-        attempts.transition(
+        attempt = attempts.transition(
             attempt_id=claim.attempt.attempt_id,
             target=PaperExecutionState.SUBMISSION_IN_PROGRESS,
             at=_NOW,
         )
+        return attempts, attempt, authorizations
+
+    def _dispatched(self) -> tuple[FakeAttempts, ExecutionAttempt, FakeAuthorizations]:
+        attempts, attempt, authorizations = self._in_progress()
         attempt = attempts.transition(
-            attempt_id=claim.attempt.attempt_id,
+            attempt_id=attempt.attempt_id,
             target=PaperExecutionState.PAPER_SUBMITTED,
             at=_NOW,
             broker_order_id="broker-1",
+        )
+        return attempts, attempt, authorizations
+
+    def _unknown_never_observed(self) -> tuple[FakeAttempts, ExecutionAttempt, FakeAuthorizations]:
+        # An ambiguous answer to our POST and nothing else: no broker id, no observation.
+        attempts, attempt, authorizations = self._in_progress()
+        attempt = attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.SUBMISSION_UNKNOWN,
+            at=_NOW,
+            failure_code="AMBIGUOUS",
         )
         return attempts, attempt, authorizations
 
@@ -1833,7 +1848,7 @@ class TestReconcilePaperOrder:
         assert broker.lookups == []
 
     def test_one_not_found_does_not_resolve_an_unknown_outcome(self) -> None:
-        attempts, attempt, authorizations = self._dispatched()
+        attempts, attempt, authorizations = self._unknown_never_observed()
         events = FakeEvents()
         result = ReconcilePaperOrderHandler(
             attempts=attempts,
@@ -1843,11 +1858,35 @@ class TestReconcilePaperOrder:
             authorizations=authorizations,
             previews=self.previews,
         ).handle(ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=_NOW))
-        assert result.state is PaperExecutionState.PAPER_SUBMITTED
+        assert result.state is PaperExecutionState.SUBMISSION_UNKNOWN
         assert any(event.event_type == "RECONCILE_NOT_FOUND_INSUFFICIENT" for event in events.rows)
 
-    def test_the_bounded_policy_resolves_only_with_enough_observations_and_time(self) -> None:
+    def test_not_found_never_changes_a_bound_order_and_records_it(self) -> None:
+        # REV-R1: a PAPER_SUBMITTED order with a bound broker id is a KNOWN order; absence is an
+        # anomaly to surface, never a step towards rejection. This test used to expect the
+        # bounded policy to count here.
         attempts, attempt, authorizations = self._dispatched()
+        acknowledgements, events = FakeAcknowledgements(), FakeEvents()
+        handler = ReconcilePaperOrderHandler(
+            attempts=attempts,
+            acknowledgements=acknowledgements,
+            events=events,
+            broker=FakeBroker(lookup_status=404, lookup_view=None),
+            authorizations=authorizations,
+            previews=self.previews,
+        )
+        later = _NOW + timedelta(seconds=120)
+        for _ in range(3):
+            result = handler.handle(
+                ReconcilePaperOrderCommand(intent_governance_id="INT-1", at=later)
+            )
+            assert result.state is PaperExecutionState.PAPER_SUBMITTED
+            assert result.broker_order_id == "broker-1"
+        assert [e.event_type for e in events.rows].count("RECONCILE_NOT_FOUND_KNOWN_ORDER") == 3
+        assert not any(e.event_type == "RECONCILE_RESOLVED_NOT_FOUND" for e in events.rows)
+
+    def test_the_bounded_policy_resolves_only_with_enough_observations_and_time(self) -> None:
+        attempts, attempt, authorizations = self._unknown_never_observed()
         acknowledgements, events = FakeAcknowledgements(), FakeEvents()
         handler = ReconcilePaperOrderHandler(
             attempts=attempts,

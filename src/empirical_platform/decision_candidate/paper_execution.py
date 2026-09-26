@@ -86,6 +86,13 @@ __all__ = [
     "reached_send_boundary",
     "send_boundary_binding",
     "send_boundary_event_binds",
+    "parse_send_boundary_binding",
+    "attempt_positively_observed",
+    "consecutive_not_found_suffix",
+    "BOUND_ORDER_STATES",
+    "POSITIVE_OBSERVATION_EVENT_TYPES",
+    "RECONCILE_LOOKUP_FAILED_EVENT_TYPE",
+    "SEND_BOUNDARY_BINDING_KEYS",
     "SEND_BOUNDARY_EVENT_TYPE",
     "RECOGNIZED_DEFINITIVE_REFUSAL_CODES",
     "TRANSMITTED_UNCERTAIN_FAILURE_CODES",
@@ -461,27 +468,71 @@ def send_boundary_binding(
     client_order_id: str,
     identity_lookup_status: int,
 ) -> str:
-    """The detail of a `SEND_BOUNDARY_ENTERED` event: what the boundary was bound to."""
+    """The detail of a `SEND_BOUNDARY_ENTERED` event: what the boundary was bound to.
+
+    Every value must survive the strict parser (`parse_send_boundary_binding`): non-empty,
+    no whitespace, no `=`. A value that could not be read back is refused here rather than
+    written as a record that would later bind nothing.
+    """
+    values = (
+        attempt_id,
+        authorization_id,
+        request_fingerprint,
+        account_reference,
+        client_order_id,
+        str(identity_lookup_status),
+    )
+    for key, value in zip(SEND_BOUNDARY_BINDING_KEYS, values, strict=True):
+        if not isinstance(value, str) or not _binding_value_is_encodable(value):
+            raise ValueError(f"send-boundary binding value for {key!r} is not encodable")
     return " ".join(
-        (
-            f"attempt={attempt_id}",
-            f"authorization={authorization_id}",
-            f"fingerprint={request_fingerprint}",
-            f"account={account_reference}",
-            f"client_order_id={client_order_id}",
-            f"identity_lookup={identity_lookup_status}",
-        )
+        f"{key}={value}" for key, value in zip(SEND_BOUNDARY_BINDING_KEYS, values, strict=True)
     )
 
 
-def _binding_fields(detail: object) -> dict[str, str]:
+#: The canonical binding: exactly these keys, in this order, single-space separated.
+SEND_BOUNDARY_BINDING_KEYS: tuple[str, ...] = (
+    "attempt",
+    "authorization",
+    "fingerprint",
+    "account",
+    "client_order_id",
+    "identity_lookup",
+)
+
+
+def _binding_value_is_encodable(value: str) -> bool:
+    return bool(value) and "=" not in value and not any(character.isspace() for character in value)
+
+
+def parse_send_boundary_binding(detail: object) -> dict[str, str] | None:
+    """Parse a boundary record STRICTLY, or return None for anything ambiguous or damaged.
+
+    REV-R2. The previous parser overwrote duplicate keys with the last value and skipped
+    malformed tokens, so ambiguous or partly damaged evidence could still bind. Accepted now:
+    exactly `len(SEND_BOUNDARY_BINDING_KEYS)` tokens separated by single spaces, the i-th token
+    being `<SEND_BOUNDARY_BINDING_KEYS[i]>=<value>` with a non-empty value that contains no
+    whitespace and no `=`. Identical or conflicting duplicates, empty values, malformed tokens,
+    missing or unknown fields, padding, reordering and truncation all return None: the record
+    is rejected as a whole, never repaired by choosing a value.
+    """
+    if not isinstance(detail, str) or not detail:
+        return None
+    tokens = detail.split(" ")
+    if len(tokens) != len(SEND_BOUNDARY_BINDING_KEYS):
+        return None
     fields: dict[str, str] = {}
-    if not isinstance(detail, str):
-        return fields
-    for token in detail.split():
+    # The length rule above is what refuses padding and appended duplicates; the slice only
+    # keeps that rule independently testable rather than letting a longer record raise here.
+    for token, expected_key in zip(
+        tokens[: len(SEND_BOUNDARY_BINDING_KEYS)], SEND_BOUNDARY_BINDING_KEYS, strict=True
+    ):
         key, separator, value = token.partition("=")
-        if separator and key and value:
-            fields[key] = value
+        if not separator or key != expected_key or not value:
+            return None
+        if not _binding_value_is_encodable(value):
+            return None
+        fields[key] = value
     return fields
 
 
@@ -500,7 +551,9 @@ def send_boundary_event_binds(
         return False
     if getattr(event, "attempt_id", None) != getattr(attempt, "attempt_id", None):
         return False
-    bound = _binding_fields(getattr(event, "detail", None))
+    bound = parse_send_boundary_binding(getattr(event, "detail", None))
+    if bound is None:
+        return False
     expected: dict[str, object] = {
         "attempt": getattr(attempt, "attempt_id", None),
         "authorization": getattr(attempt, "authorization_id", None),
@@ -513,6 +566,92 @@ def send_boundary_event_binds(
     return all(
         value is not None and bound.get(key) == str(value) for key, value in expected.items()
     )
+
+
+#: REV-R1. Events that record a POSITIVE observation of an order under this identity: the
+#: broker said one exists (before or after our send), or reconciliation saw it. Once any of
+#: these is on record, a later "not found" is an anomaly to surface, never proof of absence.
+POSITIVE_OBSERVATION_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "IDENTITY_OBSERVED_BEFORE_SEND",
+        "CLIENT_ORDER_ID_COLLISION",
+        "IDENTITY_OBSERVED_NOT_ATTRIBUTED",
+        "IDENTITY_COLLISION_MISMATCH",
+        "RECONCILED",
+    }
+)
+#: A reconciliation whose lookup raised. Recorded so that the 404s on either side of it are
+#: not read as consecutive.
+RECONCILE_LOOKUP_FAILED_EVENT_TYPE = "RECONCILE_LOOKUP_FAILED"
+
+
+def attempt_positively_observed(
+    acknowledgements: Iterable[object], events: Iterable[object]
+) -> bool:
+    """Whether the broker ever described an order under this attempt's identity.
+
+    True when any acknowledgement carried a broker order id or an echoed client_order_id (the
+    broker returned an order view), or when any event in `POSITIVE_OBSERVATION_EVENT_TYPES`
+    was recorded. The bounded not-found policy resolves what was NEVER observed; it does not
+    revoke an observation.
+    """
+    for acknowledgement in acknowledgements:
+        if getattr(acknowledgement, "broker_order_id", None) is not None:
+            return True
+        if getattr(acknowledgement, "client_order_id_echo", None) is not None:
+            return True
+    return any(
+        getattr(event, "event_type", None) in POSITIVE_OBSERVATION_EVENT_TYPES for event in events
+    )
+
+
+def _is_not_found_answer(acknowledgement: object) -> bool:
+    return (
+        getattr(acknowledgement, "kind", None) == "RECONCILE"
+        and getattr(acknowledgement, "http_status", None) == 404
+        and getattr(acknowledgement, "broker_order_id", None) is None
+    )
+
+
+def _instant(record: object, attribute: str) -> datetime:
+    value = getattr(record, attribute, None)
+    if not isinstance(value, datetime):
+        raise ValueError(f"{attribute} must be an aware datetime on a persisted record")
+    return value
+
+
+def consecutive_not_found_suffix(
+    acknowledgements: Iterable[object], events: Iterable[object]
+) -> int:
+    """The trailing run of consecutive RECONCILE/404 answers, in sequence order.
+
+    Any other reconciliation answer (a 500, a 200, anything with an order view) ends the run,
+    and so does a recorded lookup failure (`RECONCILE_LOOKUP_FAILED`) that occurred at or after
+    the run began: only the not-found answers observed AFTER the latest failure count. This is
+    the "consecutive" the published policy states; a count of every historical 404 is not.
+    """
+    reconcile_answers = sorted(
+        (a for a in acknowledgements if getattr(a, "kind", None) == "RECONCILE"),
+        key=lambda a: getattr(a, "sequence", 0),
+    )
+    run: list[object] = []
+    for acknowledgement in reversed(reconcile_answers):
+        if _is_not_found_answer(acknowledgement):
+            run.append(acknowledgement)
+            continue
+        break  # any other answer ends the consecutive run
+    if not run:
+        return 0
+    run_started = min(_instant(a, "observed_at") for a in run)
+    failures = [
+        _instant(event, "occurred_at")
+        for event in events
+        if getattr(event, "event_type", None) == RECONCILE_LOOKUP_FAILED_EVENT_TYPE
+    ]
+    latest_failure = max(failures) if failures else None
+    if latest_failure is not None and latest_failure >= run_started:
+        run = [a for a in run if _instant(a, "observed_at") > latest_failure]
+    return len(run)
 
 
 def reached_send_boundary(
@@ -606,6 +745,16 @@ TERMINAL_PAPER_STATES: frozenset[PaperExecutionState] = frozenset(
         PaperExecutionState.CANCELED,
         PaperExecutionState.REJECTED,
         PaperExecutionState.EXPIRED,
+    }
+)
+
+#: States in which the broker has acknowledged an order bound to this attempt.
+BOUND_ORDER_STATES: frozenset[PaperExecutionState] = frozenset(
+    {
+        PaperExecutionState.PAPER_SUBMITTED,
+        PaperExecutionState.PAPER_ACCEPTED,
+        PaperExecutionState.PARTIALLY_FILLED,
+        PaperExecutionState.CANCEL_REQUESTED,
     }
 )
 

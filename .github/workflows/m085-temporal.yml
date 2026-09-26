@@ -61,6 +61,9 @@ jobs:
           tests/unit/test_m085_identity_lineage.py
           tests/unit/test_m085_pre_send_crash.py
           tests/integration/test_m085_pre_send_crash_postgres.py
+          tests/unit/test_m085_absence_policy.py
+          tests/unit/test_m085_boundary_binding_parser.py
+          tests/integration/test_m085_absence_policy_postgres.py
           tests/integration/test_m084_file_audit.py
       - name: PostgreSQL time-basis mutations (sequential, sources restored)
         run: >-
@@ -122,4 +125,11 @@ jobs:
           --family send_boundary_recorded_before_the_send
           --family final_checks_follow_the_boundary_write
           --family historical_adoption_requires_the_account_binding
+          --family absence_counts_only_the_consecutive_suffix
+          --family lookup_failure_breaks_the_absence_run
+          --family lookup_failure_is_recorded
+          --family absence_never_rejects_a_known_order
+          --family absence_never_revokes_a_positive_observation
+          --family binding_parser_rejects_padding_and_duplicates
+          --family binding_parser_requires_canonical_keys
           --output /tmp/m085-pg-mutation.md

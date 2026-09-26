@@ -94,6 +94,10 @@ _ACK_HTTP = "tests/integration/test_m085_acknowledgement_terms_http.py"
 _CRASH_UNIT = "tests/unit/test_m085_pre_send_crash.py"
 _CRASH_POSTGRES = "tests/integration/test_m085_pre_send_crash_postgres.py"
 
+#: REV-R1 (absence never revokes an observation) and REV-R2 (strict boundary evidence).
+_ABSENCE_UNIT = "tests/unit/test_m085_absence_policy.py"
+_BINDING_PARSER = "tests/unit/test_m085_boundary_binding_parser.py"
+
 #: Everything a mutation could touch and every file a restoration must leave as it was.
 #: Digested whole before the first family and after the last, so a campaign that
 #: restored the file it meant to but left anything else changed is caught.
@@ -2053,6 +2057,75 @@ FAMILIES: tuple[Family, ...] = (
         mutated="                account_reference=None,\n            ):",
         detecting_test=f"{_CRASH_UNIT}"
         "::test_a_tampered_account_in_the_persisted_boundary_record_blocks_attribution",
+        expected_fragment="assert",
+    ),
+    # == REV-R1: absence never revokes an observation ===========================
+    Family(
+        name="absence_counts_only_the_consecutive_suffix",
+        rule="The bounded policy counts the trailing consecutive not-found run, not every 404",
+        path=_DOMAIN,
+        original="        break  # any other answer ends the consecutive run",
+        mutated="        continue  # MUTATED: every historical not-found answer counts",
+        detecting_test=f"{_ABSENCE_UNIT}::test_an_unusable_answer_breaks_the_consecutive_not_found_run",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="lookup_failure_breaks_the_absence_run",
+        rule="A recorded lookup failure breaks the consecutive not-found run",
+        path=_DOMAIN,
+        original="    if latest_failure is not None and latest_failure >= run_started:",
+        mutated="    if False:",
+        detecting_test=f"{_ABSENCE_UNIT}::test_a_lookup_that_raises_is_recorded_and_breaks_the_run",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="lookup_failure_is_recorded",
+        rule="A reconciliation lookup that raises leaves an event behind",
+        path=_USECASE,
+        original="            self._record_lookup_failure(attempt, error, command.at)",
+        mutated="            pass",
+        detecting_test=f"{_ABSENCE_UNIT}::test_a_lookup_that_raises_is_recorded_and_breaks_the_run",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="absence_never_rejects_a_known_order",
+        rule="A bound, acknowledged order is never rejected because a lookup said 404",
+        path=_USECASE,
+        original="        if attempt.state in BOUND_ORDER_STATES:",
+        mutated="        if False:",
+        detecting_test=f"{_ABSENCE_UNIT}::test_absence_never_rejects_a_previously_accepted_order",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="absence_never_revokes_a_positive_observation",
+        rule="An UNKNOWN whose identity was positively observed is never resolved by absence",
+        path=_USECASE,
+        original="        if attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN and (",
+        mutated="        if False and (",
+        detecting_test=f"{_ABSENCE_UNIT}::test_absence_never_discards_a_prior_positive_observation",
+        expected_fragment="assert",
+    ),
+    # == REV-R2: strict boundary evidence =========================================
+    Family(
+        name="binding_parser_rejects_padding_and_duplicates",
+        rule="A boundary record with more or fewer than the canonical tokens is rejected whole",
+        path=_DOMAIN,
+        original=("    if len(tokens) != len(SEND_BOUNDARY_BINDING_KEYS):\n        return None"),
+        mutated="    if False:\n        return None",
+        detecting_test=f"{_BINDING_PARSER}"
+        "::test_ambiguous_or_damaged_evidence_is_rejected_as_a_whole"
+        "[identical-duplicate-appended]",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="binding_parser_requires_canonical_keys",
+        rule="Each token must carry the canonical key for its position",
+        path=_DOMAIN,
+        original="        if not separator or key != expected_key or not value:",
+        mutated="        if not separator or not value:",
+        detecting_test=f"{_BINDING_PARSER}"
+        "::test_ambiguous_or_damaged_evidence_is_rejected_as_a_whole"
+        "[fields-out-of-canonical-order]",
         expected_fragment="assert",
     ),
 )

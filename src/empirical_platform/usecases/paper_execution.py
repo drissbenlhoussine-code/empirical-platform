@@ -35,9 +35,11 @@ from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 
 from empirical_platform.decision_candidate.paper_execution import (
+    BOUND_ORDER_STATES,
     MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
     PAPER_ENDPOINT_HOST,
+    RECONCILE_LOOKUP_FAILED_EVENT_TYPE,
     SEND_BOUNDARY_EVENT_TYPE,
     BrokerAcknowledgement,
     DecisionTimeBasis,
@@ -54,12 +56,14 @@ from empirical_platform.decision_candidate.paper_execution import (
     SubmissionPreview,
     act_chronology_refusal,
     attempt_may_have_transmitted,
+    attempt_positively_observed,
     authorization_binding_refusal,
     authorize_submission,
     bind_decision_time_basis,
     bind_intent_time_basis,
     bind_proposal_time_basis,
     build_submission_preview,
+    consecutive_not_found_suffix,
     decision_time_basis_refusal,
     execution_policy_from_configuration,
     final_send_refusal,
@@ -2086,9 +2090,16 @@ class ReconcilePaperOrderHandler:
             if (command.at - started).total_seconds() < MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS:
                 return attempt
 
-        status, view, sanitized = self._broker.fetch_order_by_client_order_id(
-            attempt.client_order_id
-        )
+        try:
+            status, view, sanitized = self._broker.fetch_order_by_client_order_id(
+                attempt.client_order_id
+            )
+        except Exception as error:
+            # REV-R1. A lookup that raised is not an answer and must not vanish: recorded as an
+            # event, it breaks the consecutive not-found run on either side of it. The failure
+            # is then re-raised so the caller sees it.
+            self._record_lookup_failure(attempt, error, command.at)
+            raise
         sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
         self._acknowledgements.append(
             BrokerAcknowledgement(
@@ -2107,7 +2118,9 @@ class ReconcilePaperOrderHandler:
         )
 
         if view is None:
-            return self._handle_absence(attempt=attempt, status=status, at=command.at)
+            return self._handle_absence(
+                attempt=attempt, status=status, at=command.at, sequence=sequence
+            )
 
         # SEND-BOUNDARY CORRECTION: observing an order is not attributing it.
         #
@@ -2224,16 +2237,47 @@ class ReconcilePaperOrderHandler:
             filled_avg_price=view.filled_avg_price,
         )
 
+    def _record_lookup_failure(
+        self, attempt: ExecutionAttempt, error: BaseException, at: datetime
+    ) -> None:
+        failures = sum(
+            1
+            for event in self._events.for_intent(attempt.intent_governance_id)
+            if event.attempt_id == attempt.attempt_id
+            and event.event_type == RECONCILE_LOOKUP_FAILED_EVENT_TYPE
+        )
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{attempt.attempt_id}-RECON-FAIL-{failures + 1}"[:64],
+                intent_governance_id=attempt.intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type=RECONCILE_LOOKUP_FAILED_EVENT_TYPE,
+                occurred_at=at,
+                detail=(
+                    f"the reconciliation lookup raised {type(error).__name__}; no answer was "
+                    "observed and the not-found run, if any, is broken here"
+                )[:500],
+            )
+        )
+
     def _handle_absence(
-        self, *, attempt: ExecutionAttempt, status: int, at: datetime
+        self, *, attempt: ExecutionAttempt, status: int, at: datetime, sequence: int
     ) -> ExecutionAttempt:
         """The broker does not know this order. That is not proof it never did.
 
         A 404 immediately after an ambiguous dispatch may simply mean the request
         is still in flight. The bounded policy in
-        `RECONCILIATION_UNKNOWN_POLICY` decides, using the number of consecutive
+        `RECONCILIATION_UNKNOWN_POLICY` decides, using the number of CONSECUTIVE
         not-found observations and the time since the dispatch -- never the first
         answer alone.
+
+        REV-R1. The policy resolves an outcome that was NEVER observed. It does not apply to
+        an order the broker acknowledged and bound to this attempt (a later 404 is an anomaly
+        to surface, not a rejection), nor to an attempt whose identity was positively
+        observed (before the send, as a duplicate answer, or by reconciliation): both stay
+        visible and reconcilable, state unchanged. Where it applies, "consecutive" is the
+        trailing run of not-found answers -- a 500, a found order or a lookup that raised
+        breaks the run -- not a count of every historical 404.
         """
         if status != 404:
             self._events.append(
@@ -2248,11 +2292,51 @@ class ReconcilePaperOrderHandler:
             )
             return attempt
 
-        observations = [
-            acknowledgement
-            for acknowledgement in self._acknowledgements.for_attempt(attempt.attempt_id)
-            if acknowledgement.kind == "RECONCILE" and acknowledgement.http_status == 404
-        ]
+        acknowledgements = self._acknowledgements.for_attempt(attempt.attempt_id)
+        events = self._events.for_intent(attempt.intent_governance_id)
+        if attempt.state in BOUND_ORDER_STATES:
+            # A known order: the broker acknowledged it and this attempt bound its id. A 404
+            # now is an anomaly the operator must see; it revokes nothing.
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-KNOWN-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_NOT_FOUND_KNOWN_ORDER",
+                    occurred_at=at,
+                    detail=(
+                        f"the broker reported no order under this client_order_id, but "
+                        f"{attempt.state.value} with broker_order_id={attempt.broker_order_id} "
+                        "is on record; absence revokes nothing, state unchanged, an operator "
+                        "must establish what the broker holds"
+                    )[:500],
+                )
+            )
+            return attempt
+        if attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN and (
+            attempt.broker_order_id is not None
+            or attempt_positively_observed(acknowledgements, events)
+        ):
+            # The identity was positively observed (before the send, as a duplicate answer,
+            # or by an earlier reconciliation). A later 404 is surfaced, never counted.
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-OBS404-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_NOT_FOUND_AFTER_OBSERVATION",
+                    occurred_at=at,
+                    detail=(
+                        "the broker reported no order under this client_order_id after an "
+                        "order was positively observed under it; absence does not revoke the "
+                        "observation, state unchanged, an operator must resolve it"
+                    )[:500],
+                )
+            )
+            return attempt
+        # Event ids are keyed on the acknowledgement SEQUENCE (unique per attempt), not on the
+        # run length: a consecutive count resets when the run is broken and would repeat.
+        observations = consecutive_not_found_suffix(acknowledgements, events)
         # An attempt still SUBMISSION_IN_PROGRESS may belong to a dispatcher that has
         # not sent yet: connect, the database reads and the clock and quote fetches in
         # `before_send` are not bounded by the not-found window, and the reconciling
@@ -2263,13 +2347,13 @@ class ReconcilePaperOrderHandler:
         if dispatch_may_be_live:
             self._events.append(
                 PaperExecutionEvent(
-                    event_id=f"EVT-{attempt.attempt_id}-RECON-404-LIVE-{len(observations)}"[:64],
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-404-LIVE-{sequence}"[:64],
                     intent_governance_id=attempt.intent_governance_id,
                     attempt_id=attempt.attempt_id,
                     event_type="RECONCILE_NOT_FOUND_DISPATCH_MAY_BE_LIVE",
                     occurred_at=at,
                     detail=(
-                        f"observations={len(observations)}; the attempt is still "
+                        f"observations={observations}; the attempt is still "
                         "SUBMISSION_IN_PROGRESS, so absence proves nothing and the state "
                         "is unchanged; an operator must establish whether it was sent"
                     )[:500],
@@ -2277,18 +2361,18 @@ class ReconcilePaperOrderHandler:
             )
             return attempt
         elapsed = (at - (attempt.submitted_at or attempt.claimed_at)).total_seconds()
-        enough_observations = len(observations) >= MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS
+        enough_observations = observations >= MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS
         enough_time = elapsed >= MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS
         if not (enough_observations and enough_time):
             self._events.append(
                 PaperExecutionEvent(
-                    event_id=f"EVT-{attempt.attempt_id}-RECON-404-{len(observations)}"[:64],
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-404-{sequence}"[:64],
                     intent_governance_id=attempt.intent_governance_id,
                     attempt_id=attempt.attempt_id,
                     event_type="RECONCILE_NOT_FOUND_INSUFFICIENT",
                     occurred_at=at,
                     detail=(
-                        f"observations={len(observations)} elapsed={int(elapsed)}s; "
+                        f"observations={observations} elapsed={int(elapsed)}s; "
                         "policy not yet satisfied, state unchanged"
                     )[:500],
                 )
@@ -2303,8 +2387,7 @@ class ReconcilePaperOrderHandler:
                 event_type="RECONCILE_RESOLVED_NOT_FOUND",
                 occurred_at=at,
                 detail=(
-                    f"observations={len(observations)} elapsed={int(elapsed)}s; "
-                    "bounded policy satisfied"
+                    f"observations={observations} elapsed={int(elapsed)}s; bounded policy satisfied"
                 )[:500],
             )
         )
@@ -2315,7 +2398,7 @@ class ReconcilePaperOrderHandler:
             failure_code="NOT_FOUND_AT_BROKER",
             failure_detail=(
                 "the broker reported no such client_order_id across "
-                f"{len(observations)} observations over {int(elapsed)}s"
+                f"{observations} observations over {int(elapsed)}s"
             ),
         )
 
