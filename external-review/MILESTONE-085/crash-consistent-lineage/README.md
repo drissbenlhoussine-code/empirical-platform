@@ -116,7 +116,7 @@ it; nothing is sent).
 
 ## 4. Tests collected
 
-`tests/unit/test_m085_pre_send_crash.py` (24 ids): A, "death before the lookup", B, C; the
+`tests/unit/test_m085_pre_send_crash.py` (21 ids): A, "death before the lookup", B, C; the
 predicate on a bare record (incl. a legacy UNKNOWN/AMBIGUOUS without the event → False); a
 boundary record that does not bind (8 tampers: event attempt id, attempt, authorization,
 fingerprint, client_order_id, `identity_lookup=200`, account, event type); a tampered account in

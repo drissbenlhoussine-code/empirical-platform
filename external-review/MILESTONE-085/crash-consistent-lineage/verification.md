@@ -23,7 +23,7 @@ detect-secrets 1.5.0; ruff 0.16.3; mypy 1.20.2. No CI has run on `806896b` (not 
 
 | Stage | Scope | Result | Log |
 |---|---|---|---|
-| R1 focused | `test_m085_pre_send_crash.py` (24), send boundary (19), identity lineage (67), identity collision, handlers, corrective pass (domain + handlers), domain, entrypoints, hostile HTTP (125), acknowledgement terms (15), send-boundary transport (2) | **820 passed** | `runs-806896b/R1-focused.txt` |
+| R1 focused | `test_m085_pre_send_crash.py` (21), send boundary (19), identity lineage (67), identity collision, handlers, corrective pass (domain + handlers), domain, entrypoints, hostile HTTP (125), acknowledgement terms (15), send-boundary transport (2) | **820 passed** | `runs-806896b/R1-focused.txt` |
 | R2 PostgreSQL | **`test_m085_pre_send_crash_postgres.py` (3, real child-process death)**, temporal 7 (one test corrected, §4), time-basis 48, lifecycle 57, concurrency 49, corrective pass 62, identity collision 7, authority contract 71, M084 file audit 23 | **327 passed** | `runs-806896b/R2-postgres.txt` |
 | R3 non-PostgreSQL full suite | `pytest tests`, PostgreSQL opt-in unset | **4055 passed, 0 failed, 1236 skipped** (all opt-in gates; +3 versus `00716e4` = the new PostgreSQL crash tests); **coverage 80.39 % ≥ 79 %** (20 411 statements / 3 481 missed) | `runs-806896b/R3-full-non-pg.txt` |
 | R4 mutations | the **102** families whose target file changed `00716e4..806896b` (domain 68, usecases 34 — includes the 5 new L1 families); five sequential chunks; whole-tree SHA-256 before/after | **102 / 102 detected**; digest `a8bce8c2…a2fabf` identical before and after every chunk; tree clean after each | `runs-806896b/mutation-chunk-0{0..4}.md`, `R4-chunk-0{0..4}.txt`, `affected-families.txt` |
