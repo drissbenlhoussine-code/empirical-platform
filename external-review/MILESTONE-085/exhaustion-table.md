@@ -44,7 +44,7 @@ M084 blob-id manifest) by git blob id, and report any other content.
 | 25 | Type checking is strict and clean | **EXECUTED_PASS** | mypy strict — exit 0 |
 | 26 | Lint and format gates hold | **EXECUTED_PASS** | ruff check — exit 0 |
 | 27 | Documentation matches the executable evidence | **EXECUTED_PASS** | recorded (`validation-results.md`) |
-| 28 | The changed-files list is exact | **EXECUTED_PASS** | 193 paths, identical to `git diff --name-status` |
+| 28 | The changed-files list is exact | **EXECUTED_PASS** | 219 paths, identical to `git diff --name-status` |
 | 29 | PROJECT_CHECKPOINT.md untouched beyond the ratified §119 record | **EXECUTED_PASS** | PROJECT_CHECKPOINT.md holds exactly the Owner-ratified §119 record (blob ba9f84393943) |
 | 30 | No M086 path exists | **EXECUTED_PASS** | tracked M086 paths: none |
 | 31 | Working tree clean | **EXECUTED_PASS** | working tree: clean |
