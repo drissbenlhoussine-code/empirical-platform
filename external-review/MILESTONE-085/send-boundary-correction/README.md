@@ -151,6 +151,22 @@ were added) and both families are detected. The pre-commit run's tree digest was
 before and after. The exact-SHA rerun on the committed content is in
 [verification.md](verification.md).
 
+### 3.1 Found by the exact-SHA verification of the first candidate `80d1faa`
+
+Running the 108 families whose target file changed (plus the 14 new ones) against the
+committed `80d1faa` detected 106 and left two survivors, both in `classify_broker_refusal`:
+`definitive_refusal_statuses` (the early `status not in DEFINITIVE_BROKER_REFUSAL_STATUSES`
+exit) and `definitive_refusal_requires_the_brokers_document` (a non-object body given a
+fabricated `code: 0`). Neither was a behavioural defect: the new per-status code table
+(`RECOGNIZED_DEFINITIVE_REFUSAL_CODES.get(status, frozenset())`) already refuses any status
+absent from the table and any code it does not list, so both mutations had become
+*equivalent* — exactly the "second copy masks the removal of the first" condition the
+campaign exists to catch. Correction in the second candidate: `DEFINITIVE_BROKER_REFUSAL_STATUSES`
+is now derived from the table's keys, the redundant early exit is gone, and the two families
+mutate the table itself (a 500 entry; a fabricated *documented* code). The `80d1faa` run is
+kept in [verification.md](verification.md) with its two survivors; the full sequence was rerun
+on the second candidate.
+
 ## 4. Boundaries respected
 
 - M083 / M084 frozen paths untouched (frozen-path guard in the verification).

@@ -1298,13 +1298,26 @@ FAMILIES: tuple[Family, ...] = (
         name="definitive_refusal_statuses",
         rule="Only 400, 401, 403 and 422 can prove an order was refused",
         path=_DOMAIN,
-        # F1 moved the one status check into `classify_broker_refusal`; the former copy
-        # in `is_definitive_broker_refusal` is gone, so removing this one is not masked.
+        # SEND-BOUNDARY CORRECTION: the status set is the key set of the documented-code
+        # table and is derived from it, so the table is the ONE place the rule can be
+        # broken. The former early `status not in DEFINITIVE_...` exit was removed
+        # because the table's `.get(status, frozenset())` made it a masking duplicate
+        # (found as a surviving mutation in the exact-SHA verification of 80d1faa).
         original=(
-            "    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:\n"
-            "        return BrokerRefusalKind.UNCERTAIN"
+            "        422: frozenset({40010001, 42210000}),\n"
+            "    }\n"
+            ")\n"
+            "\n"
+            "#: HTTP statuses on `POST /v2/orders` under which"
         ),
-        mutated="    if False:\n        return BrokerRefusalKind.UNCERTAIN",
+        mutated=(
+            "        422: frozenset({40010001, 42210000}),\n"
+            "        500: frozenset({50010000}),\n"
+            "    }\n"
+            ")\n"
+            "\n"
+            "#: HTTP statuses on `POST /v2/orders` under which"
+        ),
         detecting_test=f"{_CORRECTIVE_UNIT}::TestOnlyADefinitiveRefusalIsARefusal"
         "::test_anything_else_is_uncertain",
         expected_fragment="assert",
@@ -1314,8 +1327,13 @@ FAMILIES: tuple[Family, ...] = (
         rule="A definitive status proves nothing without the broker's JSON error object",
         path=_DOMAIN,
         original="    if not isinstance(parsed, dict):\n        return None",
-        mutated='    if not isinstance(parsed, dict):\n        return {"code": 0, "message": "x"}',
-        # The 422 list-body case turns into a "document" and is then a refusal.
+        mutated=(
+            "    if not isinstance(parsed, dict):\n"
+            '        return {"code": 42210000, "message": "x"}'
+        ),
+        # The 422 list-body case turns into a "document" carrying a DOCUMENTED code and is
+        # then a refusal. (A fabricated code 0 is refused by the code table regardless, so
+        # that earlier mutation had become equivalent -- exact-SHA verification of 80d1faa.)
         detecting_test=f"{_CORRECTIVE_UNIT}::TestOnlyADefinitiveRefusalIsARefusal"
         "::test_anything_else_is_uncertain",
         expected_fragment="assert",

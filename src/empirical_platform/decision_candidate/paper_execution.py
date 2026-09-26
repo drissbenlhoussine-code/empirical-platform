@@ -213,18 +213,39 @@ RECONCILIATION_UNKNOWN_POLICY: MappingProxyType[str, object] = MappingProxyType(
 )
 
 
-#: HTTP statuses on `POST /v2/orders` that are a DEFINITIVE refusal by the broker.
+#: Alpaca's DOCUMENTED refusal codes, per HTTP status, that prove no order was created
+#: (alpaca.markets/learn/how-to-fix-common-trading-api-errors-at-alpaca, read 2026-09-26):
+#: 400 40010000/40010001 request or parameter invalid; 401 40110000 credentials refused;
+#: 403 40310000 buying power / permissions / restrictions, 40310100 pattern-day-trading
+#: protection; 422 42210000 unprocessable order terms, and 40010001 -- the 400-family
+#: validation code Alpaca ALSO returns on 422 ("invalid time_in_force", "limit orders
+#: require a limit price", ..., and "client_order_id must be unique", which is handled
+#: separately below). A code embeds its status as the leading digits; a code that does not
+#: belong to the status it arrived with is inconsistent and proves nothing. An integer
+#: that is not in this table is UNRECOGNISED and proves nothing either: a JSON object's
+#: shape does not authenticate its meaning.
 #:
-#: CORRECTIVE PASS (D2). Every other answer to a request that was delivered -- a
-#: 5xx, a 3xx, a 408, a 409, a 429, a 200/201 whose body is not a valid order, or
-#: any status not listed here -- is UNCERTAIN: an intermediary may have answered
-#: after the broker accepted the order, so the attempt becomes SUBMISSION_UNKNOWN
-#: and is resolved by reconciliation against the same `client_order_id`. A listed
-#: status counts only when the body is a JSON object, i.e. the broker's own error
-#: document rather than a proxy page. Absent from the list on purpose: 404 (a
-#: gateway can produce it) and 429 (rate limiting is not documented as proof that
-#: the order was not recorded).
-DEFINITIVE_BROKER_REFUSAL_STATUSES: frozenset[int] = frozenset({400, 401, 403, 422})
+#: CORRECTIVE PASS (D2). Every other answer to a request that was delivered -- a 5xx, a
+#: 3xx, a 408, a 409, a 429, a 200/201 whose body is not a valid order, any status absent
+#: from this table, or a listed status whose body is not the broker's own error document
+#: -- is UNCERTAIN: an intermediary may have answered after the broker accepted the
+#: order, so the attempt becomes SUBMISSION_UNKNOWN and is resolved by reconciliation
+#: against the same `client_order_id`. Absent on purpose: 404 (a gateway can produce it)
+#: and 429 (rate limiting is not documented as proof that the order was not recorded).
+#: This table is the ONE statement of the rule; the status set below is derived from it
+#: so that no second copy can mask the removal of the first.
+RECOGNIZED_DEFINITIVE_REFUSAL_CODES: MappingProxyType[int, frozenset[int]] = MappingProxyType(
+    {
+        400: frozenset({40010000, 40010001}),
+        401: frozenset({40110000}),
+        403: frozenset({40310000, 40310100}),
+        422: frozenset({40010001, 42210000}),
+    }
+)
+
+#: HTTP statuses on `POST /v2/orders` under which the broker documents a definitive
+#: refusal: exactly the keys of the table above.
+DEFINITIVE_BROKER_REFUSAL_STATUSES: frozenset[int] = frozenset(RECOGNIZED_DEFINITIVE_REFUSAL_CODES)
 
 
 class BrokerRefusalKind(StrEnum):
@@ -270,26 +291,6 @@ def _brokers_error_document(body: str) -> dict[str, object] | None:
     return parsed
 
 
-#: Alpaca's DOCUMENTED refusal codes, per HTTP status, that prove no order was created
-#: (alpaca.markets/learn/how-to-fix-common-trading-api-errors-at-alpaca, read 2026-09-26):
-#: 400 40010000/40010001 request or parameter invalid; 401 40110000 credentials refused;
-#: 403 40310000 buying power / permissions / restrictions, 40310100 pattern-day-trading
-#: protection; 422 42210000 unprocessable order terms, and 40010001 -- the 400-family
-#: validation code Alpaca ALSO returns on 422 ("invalid time_in_force", "limit orders
-#: require a limit price", ..., and "client_order_id must be unique", which is handled
-#: separately below). A code embeds its status as the leading digits; a code that does not
-#: belong to the status it arrived with is inconsistent and proves nothing. An integer
-#: that is not in this table is UNRECOGNISED and proves nothing either: a JSON object's
-#: shape does not authenticate its meaning.
-RECOGNIZED_DEFINITIVE_REFUSAL_CODES: MappingProxyType[int, frozenset[int]] = MappingProxyType(
-    {
-        400: frozenset({40010000, 40010001}),
-        401: frozenset({40110000}),
-        403: frozenset({40310000, 40310100}),
-        422: frozenset({40010001, 42210000}),
-    }
-)
-
 #: The one (status, code) under which Alpaca documents the duplicate-identity answer.
 _DUPLICATE_IDENTITY_STATUS = 422
 _DUPLICATE_IDENTITY_CODE = 40010001
@@ -301,15 +302,16 @@ def classify_broker_refusal(status: int, body: str) -> BrokerRefusalKind:
     IDENTITY-SAFETY CORRECTION (F1). A 422 / 40010001 whose message says the
     `client_order_id` must be unique means the broker HOLDS an order under the identity
     this product derived; it is its own kind. SEND-BOUNDARY CORRECTION: a refusal is
-    DEFINITIVE only when the status is a refusal status, the body is the broker's own
-    error document, the numeric code is one Alpaca documents FOR THAT STATUS, and the
-    message is not about the identity. Unrecognised codes, codes inconsistent with the
-    status, identity words under any other combination, and malformed documents are all
+    DEFINITIVE only when the body is the broker's own error document, the numeric code
+    is one Alpaca documents FOR THE STATUS IT ARRIVED WITH (which makes the status one
+    of the documented refusal statuses), and the message is not about the identity.
+    Unrecognised codes, codes inconsistent with the status, statuses absent from the
+    table, identity words under any other combination, and malformed documents are all
     UNCERTAIN and are resolved by reconciliation against the same `client_order_id`.
+    The status rule is NOT restated here: `RECOGNIZED_DEFINITIVE_REFUSAL_CODES` is its
+    one statement, and a second copy would mask the removal of the first.
     """
     if isinstance(status, bool) or not isinstance(status, int):
-        return BrokerRefusalKind.UNCERTAIN
-    if status not in DEFINITIVE_BROKER_REFUSAL_STATUSES:
         return BrokerRefusalKind.UNCERTAIN
     document = _brokers_error_document(body)
     if document is None:
