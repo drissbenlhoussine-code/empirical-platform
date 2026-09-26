@@ -72,6 +72,14 @@
 > [crash-consistent-lineage/README.md](crash-consistent-lineage/README.md) and
 > [crash-consistent-lineage/verification.md](crash-consistent-lineage/verification.md). Not
 > pushed. Paper acceptance NOT_STARTED.
+>
+> **V1 (stale exhaustion table) — narrow correction prepared, issue OPEN:** rows 21 and 29 now
+> recognise exactly the Owner-ratified §119 checkpoint record and the M085-owned M084 manifest
+> by git blob id (any other content is still reported); the changed-file inventory is regenerated;
+> the table header separates executed rows from recorded (historical) evidence and states that
+> Paper acceptance is NOT_STARTED. See
+> [v1-exhaustion-table-correction.md](v1-exhaustion-table-correction.md). Owner ratification of
+> the rendered table is still required.
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
