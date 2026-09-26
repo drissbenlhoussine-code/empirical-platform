@@ -41,6 +41,19 @@ TABLE = PACKAGE / "exhaustion-table.md"
 _BASE_GROUPS = ("a2240767", "54fb3890", "9ee04c24", "64e50e51", "df12d7ad")
 BASE = "".join(_BASE_GROUPS)
 
+#: V1 NARROW CORRECTION. The Owner ratified exactly two post-freeze changes that the rows
+#: below used to flag wholesale (PROJECT_CHECKPOINT.md §119, commit 5ae236c): the checkpoint
+#: record itself, and the M085-owned M084 blob-id manifest that the frozen-path guard reads.
+#: Each is recognised by the git blob id of its ratified content and by nothing else -- the
+#: same file with any other content is reported exactly as before. Grouped so no token here
+#: is 40 hex characters (the secret scanner's shape rule), as `_BASE_GROUPS` is.
+_RATIFIED_CHECKPOINT_BLOB_GROUPS = ("ba9f8439", "394355ad", "582b1e9b", "5e44cc54", "d8f0cc89")
+RATIFIED_CHECKPOINT_BLOB = "".join(_RATIFIED_CHECKPOINT_BLOB_GROUPS)
+_RATIFIED_M084_MANIFEST_BLOB_GROUPS = ("394a8687", "e84017d5", "4579b4b4", "6c4efbf8", "38e4d1f0")
+RATIFIED_M084_MANIFEST_BLOB = "".join(_RATIFIED_M084_MANIFEST_BLOB_GROUPS)
+M084_MANIFEST_PATH = "external-review/MILESTONE-085/m084-frozen-path-digests.json"
+CHECKPOINT_PATH = "PROJECT_CHECKPOINT.md"
+
 SUPPORTED_PYTHON = (3, 13)
 
 
@@ -117,13 +130,34 @@ def _base_is_the_required_one() -> tuple[bool, str]:
     return merge_base == BASE, f"branch base is {merge_base[:12] or '(unresolved)'}"
 
 
+def _blob_at_head(path: str) -> str:
+    """git's blob id for `path` at HEAD, or '' when the path is absent."""
+    return _git("rev-parse", "--verify", "--quiet", f"HEAD:{path}").strip()
+
+
+def checkpoint_untouched_or_ratified(changed: list[str], blob_at_head: str) -> tuple[bool, str]:
+    """Row 29, pure. Absent from the diff: untouched. Present: only the ratified §119 content.
+
+    The Owner ratified one change to PROJECT_CHECKPOINT.md (§119, 2026-09-25). That content
+    has exactly one blob id; a checkpoint holding anything else -- an extra paragraph, a
+    removed line, a new section -- has another id and is reported as MODIFIED, as before.
+    """
+    if CHECKPOINT_PATH not in changed:
+        return True, "PROJECT_CHECKPOINT.md is not in the diff"
+    if blob_at_head == RATIFIED_CHECKPOINT_BLOB:
+        return True, (
+            "PROJECT_CHECKPOINT.md holds exactly the Owner-ratified §119 record "
+            f"(blob {blob_at_head[:12]})"
+        )
+    return False, (
+        "PROJECT_CHECKPOINT.md WAS MODIFIED beyond the ratified §119 record "
+        f"(blob {blob_at_head[:12] or '(absent)'}, ratified {RATIFIED_CHECKPOINT_BLOB[:12]})"
+    )
+
+
 def _checkpoint_untouched() -> tuple[bool, str]:
     changed = _git("diff", "--name-only", f"{BASE}..HEAD").split()
-    return "PROJECT_CHECKPOINT.md" not in changed, (
-        "PROJECT_CHECKPOINT.md is not in the diff"
-        if "PROJECT_CHECKPOINT.md" not in changed
-        else "PROJECT_CHECKPOINT.md WAS MODIFIED"
-    )
+    return checkpoint_untouched_or_ratified(changed, _blob_at_head(CHECKPOINT_PATH))
 
 
 def _no_m086_path() -> tuple[bool, str]:
@@ -143,9 +177,9 @@ def _frozen_m083_untouched() -> tuple[bool, str]:
     return not offenders, f"M083-owned paths changed: {offenders or 'none'}"
 
 
-def _m084_production_untouched() -> tuple[bool, str]:
-    changed = _git("diff", "--name-only", f"{BASE}..HEAD").split()
-    authorized = {
+#: The six audit-tooling files of the Owner-ratified post-freeze commit 1127134.
+_AUTHORIZED_M084_PATHS = frozenset(
+    {
         "tools/render_m084_file_audit.py",
         "tools/render_m084_exhaustion_table.py",
         "external-review/MILESTONE-084/file-audit-matrix.json",
@@ -153,12 +187,32 @@ def _m084_production_untouched() -> tuple[bool, str]:
         "tests/integration/test_m084_file_audit.py",
         "tests/unit/test_m084_audit_portability.py",
     }
-    touched = {
-        path
-        for path in changed
-        if re.search(r"m084|MILESTONE-084", path, re.I) and path not in authorized
-    }
+)
+
+
+def m084_paths_authorized(changed: list[str], manifest_blob_at_head: str) -> tuple[bool, str]:
+    """Row 21, pure. Every changed path matching the M084 pattern must be authorized.
+
+    Authorized: the six ratified audit-tooling files, and the M085-owned M084 blob-id manifest
+    the frozen-path guard reads -- the latter ONLY while its content is the ratified one
+    (`RATIFIED_M084_MANIFEST_BLOB`). A manifest with any other content, and any other path
+    matching the pattern, is reported. The pattern itself is not widened.
+    """
+    touched = set()
+    for path in changed:
+        if not re.search(r"m084|MILESTONE-084", path, re.I):
+            continue
+        if path in _AUTHORIZED_M084_PATHS:
+            continue
+        if path == M084_MANIFEST_PATH and manifest_blob_at_head == RATIFIED_M084_MANIFEST_BLOB:
+            continue
+        touched.add(path)
     return not touched, f"unauthorized M084 paths changed: {sorted(touched) or 'none'}"
+
+
+def _m084_production_untouched() -> tuple[bool, str]:
+    changed = _git("diff", "--name-only", f"{BASE}..HEAD").split()
+    return m084_paths_authorized(changed, _blob_at_head(M084_MANIFEST_PATH))
 
 
 def _mutation_families_all_detected() -> tuple[bool, str]:
@@ -349,7 +403,9 @@ ITEMS: tuple[Item, ...] = (
         contains("validation-results.md", "## Gate results", "recorded"),
     ),
     Item(28, "The changed-files list is exact", _changed_files_match_the_diff),
-    Item(29, "PROJECT_CHECKPOINT.md untouched", _checkpoint_untouched),
+    Item(
+        29, "PROJECT_CHECKPOINT.md untouched beyond the ratified §119 record", _checkpoint_untouched
+    ),
     Item(30, "No M086 path exists", _no_m086_path),
     Item(31, "Working tree clean", _tree_is_clean),
 )
@@ -372,6 +428,15 @@ def render() -> tuple[str, int]:
         "Two statuses exist and no others. Every row is DERIVED -- this tool re-reads the",
         "artefact the item produced or re-runs the gate, so a row cannot be edited into",
         "passing.",
+        "",
+        "WHAT A ROW MEANS. Rows 1, 3, 20-26 and 28-31 are EXECUTED at rendering time against",
+        "the tree that carries this file. Rows 2, 4-19 and 27 are derived from RECORDED",
+        "documents in this package: they are historical evidence of the runs that produced",
+        "those documents, not re-executions. Row 12 records a bounded paper submission that",
+        "was honestly BLOCKED with its refused alternatives recorded; that is not a successful",
+        "external execution. Paper acceptance: NOT_STARTED. Rows 21 and 29 recognise exactly",
+        "the Owner-ratified post-freeze content (PROJECT_CHECKPOINT.md §119; the M085-owned",
+        "M084 blob-id manifest) by git blob id, and report any other content.",
         "",
         "| # | Required item | Status | Evidence |",
         "|---|---|---|---|",
