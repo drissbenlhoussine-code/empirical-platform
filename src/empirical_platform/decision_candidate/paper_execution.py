@@ -225,6 +225,21 @@ RECONCILIATION_UNKNOWN_POLICY: MappingProxyType[str, object] = MappingProxyType(
         "minimum_seconds_since_dispatch_before_not_found_counts": (
             MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS
         ),
+        # CANONICAL name of the same threshold. The key above is its historical name from
+        # the time the interval was measured from the dispatch; the interval is now the
+        # broker-time lower bound between the anchor round and the current round. The old
+        # key is kept as a compatibility alias and is named as such below; it is not read by
+        # any runtime consumer.
+        "minimum_broker_seconds_between_qualifying_reconciliation_rounds": (
+            MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS
+        ),
+        "legacy_key_aliases": MappingProxyType(
+            {
+                "minimum_seconds_since_dispatch_before_not_found_counts": (
+                    "minimum_broker_seconds_between_qualifying_reconciliation_rounds"
+                )
+            }
+        ),
         "resolution_when_policy_satisfied": RESOLUTION_WHEN_POLICY_SATISFIED,
         "resolution_requires_operator_visible_event": (RESOLUTION_REQUIRES_OPERATOR_VISIBLE_EVENT),
         # Q-2 / Q-4: what "consecutive" and "elapsed" are measured over.

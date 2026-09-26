@@ -58,6 +58,7 @@ _REPOSITORY = (
 _MIGRATION = "migrations/versions/b1e9d47c30a5_create_m085_paper_execution_schema.py"
 _SCHEMA = "external-review/MILESTONE-085/current-authority.schema.json"
 _CONTRACT = "external-review/MILESTONE-085/current-authority.json"
+_RENDERER = "tools/render_m085_authority.py"
 
 _UNIT = "tests/unit/test_m085_paper_execution_domain.py"
 _HTTP = "tests/integration/test_m085_hostile_http.py"
@@ -920,7 +921,7 @@ FAMILIES: tuple[Family, ...] = (
         name="authority_enum_closure",
         rule="A claim the schema does not name cannot enter the contract",
         path=_SCHEMA,
-        original='      "minItems": 14,\n      "maxItems": 14,',
+        original='      "minItems": 23,\n      "maxItems": 23,',
         mutated='      "minItems": 1,\n      "maxItems": 99,',
         detecting_test=f"{_AUTHORITY}::TestTheContractIsValidAndClosed"
         "::test_every_list_length_is_exact",
@@ -928,13 +929,55 @@ FAMILIES: tuple[Family, ...] = (
     ),
     Family(
         name="authority_version_const",
-        rule="The authority version is frozen at 1",
+        rule="The authority version is frozen at 2 (AUTH-1 closure)",
         path=_SCHEMA,
-        original='"authority_version": {\n      "const": 1\n    },',
+        original='"authority_version": {\n      "const": 2\n    },',
         mutated='"authority_version": {\n      "type": "integer"\n    },',
         detecting_test=f"{_AUTHORITY}::TestTheContractIsValidAndClosed"
-        "::test_the_authority_version_is_pinned_to_one",
+        "::test_the_authority_version_is_pinned_to_two",
         expected_fragment="assert",
+    ),
+    Family(
+        name="authority_meaning_digest_pins_the_sentences",
+        rule="A renderer sentence cannot change materially under an unchanged canonical contract",
+        path=_RENDERER,
+        original=(
+            '        "dispatch -- never `broker_now - host_submitted_at`, never a difference '
+            'between two "\n'
+            "        \"reconcilers' wall clocks, and never a monotonic value carried across "
+            'processes"\n'
+        ),
+        mutated=(
+            '        "dispatch -- or `broker_now - host_submitted_at`, or a difference '
+            'between two "\n'
+            '        "reconcilers\' wall clocks where the broker clock is unavailable"\n'
+        ),
+        detecting_test=f"{_AUTHORITY}::TestTheMeaningIsPinnedToTheContract"
+        "::test_the_renderer_tables_digest_to_the_declared_meaning",
+        expected_fragment="MeaningDriftError",
+    ),
+    Family(
+        name="authority_meaning_digest_is_a_schema_const",
+        rule="The declared meaning digest is pinned by the schema, not merely typed",
+        path=_SCHEMA,
+        original='    "rendered_meaning_digest": {\n      "type": "integer",\n      "const": ',
+        mutated='    "rendered_meaning_digest": {\n      "type": "integer",\n      "minimum": ',
+        detecting_test=f"{_AUTHORITY}::TestTheMeaningIsPinnedToTheContract"
+        "::test_the_schema_pins_the_declared_meaning_digest",
+        expected_fragment="assert",
+    ),
+    Family(
+        name="authority_names_the_durable_round_guarantee",
+        rule="The durable-round guarantee is a mandatory identifier of authority version 2",
+        path=_CONTRACT,
+        original=(
+            '    "every_reconciliation_network_attempt_is_a_durable_round_begun_before_'
+            'its_network_work",\n'
+        ),
+        mutated="",
+        detecting_test=f"{_AUTHORITY}::TestTheContractIsValidAndClosed"
+        "::test_the_contract_satisfies_its_own_schema",
+        expected_fragment="SchemaError",
     ),
     Family(
         name="deterministic_markdown_check",

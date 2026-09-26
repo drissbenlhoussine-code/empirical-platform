@@ -22,11 +22,27 @@ must name EVERY identifier its section of the contract can hold, and a test
 asserts that the table keys and the schema enums are equal sets. A `.get(key, "")`
 would let a claim render as a blank line, which is how a claim gets published with
 no statement of what it means.
+
+THE RENDERED-MEANING DIGEST (authority version 2; review finding AUTH-1). The five
+tables ARE the meaning of the identifiers, and until version 2 nothing bound them to
+the contract: a sentence could be rewritten materially while `current-authority.json`
+stayed byte-identical, and the document would re-render "from the contract" with a
+different meaning. At `832b20b..673394e` exactly that happened to
+`reconciliation_addresses_the_original_client_order_id_under_a_bounded_not_found_policy`.
+The canonical contract therefore now carries `rendered_meaning_digest`: the SHA-256 of
+the five tables (identifier -> sentence, canonical JSON, sorted keys), written as an
+integer so that no hex token exists for the secret scanner to mistake. The schema pins
+it as a `const`; this tool refuses to render, and `--check` fails, when the tables do
+not digest to the value the contract declares. A material change of meaning is thereby
+a visible change to the canonical contract and to its schema, never a renderer-only
+edit. New guarantees get NEW identifiers; an existing identifier's sentence is not
+widened to carry them.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -77,12 +93,63 @@ _PROVES: dict[str, str] = {
     "reconciliation_addresses_the_original_client_order_id_under_a_bounded_not_found_policy": (
         "that reconciliation asks the broker about the ORIGINAL client order id, and "
         "that a single not-found answer does not resolve an unknown outcome -- the "
-        "policy requires repeated observations and elapsed time, and is published; each "
-        "reconciliation is a ROUND recorded durably before its network work and completed "
-        "exactly once (a failed, unusable, found or still-incomplete round ends the run of "
-        "not-found rounds), and the waiting interval is the conservative lower bound between "
-        "the first completed round's broker clock reading and the current round's, never a "
-        "reconciler's wall-clock difference"
+        "policy requires repeated observations and elapsed time, and is published"
+    ),
+    "every_reconciliation_network_attempt_is_a_durable_round_begun_before_its_network_work": (
+        "that every reconciliation network attempt is a ROUND whose row is inserted and "
+        "committed BEFORE the broker clock is sampled or the order is looked up, so a "
+        "round that dies, raises or fails to record its answer is still visible as begun "
+        "and incomplete -- and if the round cannot be begun, no lookup runs at all"
+    ),
+    "rounds_are_ordered_by_a_durable_per_attempt_sequence_never_by_reconciler_wall_clocks": (
+        "that reconciliation rounds are ordered ONLY by a per-attempt sequence allocated "
+        "in the database, never by a timestamp written by a reconciler's wall clock, so "
+        "two hosts with skewed clocks cannot reorder a failure relative to the not-found "
+        "answers around it"
+    ),
+    "a_failed_unusable_found_or_incomplete_round_ends_the_qualifying_not_found_run": (
+        "that the qualifying run is the trailing consecutive run of COMPLETED not-found "
+        "rounds in sequence order, and that a FAILED, UNUSABLE or FOUND round, or a round "
+        "still incomplete, ends it -- a lookup that raised is completed FAILED and is never "
+        "given a fabricated HTTP status"
+    ),
+    "absence_resolution_requires_unknown_and_no_bound_order_observation_found_or_open_round": (
+        "that absence-based terminal resolution applies only to a SUBMISSION_UNKNOWN "
+        "attempt with no bound broker order, no positive observation of its identity, no "
+        "completed FOUND round and no incomplete round -- each of those keeps the attempt "
+        "visible and reconcilable instead, and a bound or observed order is never revoked "
+        "by absence"
+    ),
+    "absence_resolution_requires_two_completed_not_found_rounds_and_sixty_broker_seconds": (
+        "that absence-based terminal resolution further requires at least TWO qualifying "
+        "completed not-found rounds and a justified, conservative lower bound of at least "
+        "SIXTY seconds of BROKER time between the anchor round and the current round"
+    ),
+    "waiting_interval_is_current_broker_earliest_minus_anchor_broker_latest_never_wall_clocks": (
+        "that the waiting interval is `current.broker_earliest_at - anchor.broker_latest_at`, "
+        "both endpoints being broker clock readings widened by the measuring process's own "
+        "round trip and the anchor being the first completed round after the uncertain "
+        "dispatch -- never `broker_now - host_submitted_at`, never a difference between two "
+        "reconcilers' wall clocks, and never a monotonic value carried across processes"
+    ),
+    "missing_contradictory_or_incompatible_round_or_time_evidence_keeps_the_outcome_unresolved": (
+        "that missing, contradictory or incompatible round or time evidence -- no anchor, "
+        "no later completed round carrying an interval, a broker reading earlier than the "
+        "anchor's, or acknowledgements without rounds -- keeps the outcome UNRESOLVED "
+        "rather than defaulting any value"
+    ),
+    "absence_finalisation_revalidates_fresh_evidence_under_the_attempt_lock_not_a_snapshot": (
+        "that the terminal absence write happens ONLY inside the repository, which locks "
+        "the attempt row, re-reads the rounds, acknowledgements and events in that same "
+        "transaction, re-evaluates the same pure policy on them and requires the exact "
+        "round set the caller judged -- a stale snapshot, and any fresh evidence against "
+        "the decision, returns without writing; no broker call happens inside that "
+        "transaction"
+    ),
+    "round_sequence_allocation_holds_the_attempt_row_lock_so_a_race_waits_instead_of_colliding": (
+        "that a round's sequence is allocated while holding the attempt row lock, so a "
+        "racing reconciler WAITS and receives the next sequence instead of colliding on "
+        "the unique constraint or duplicating a number"
     ),
     "the_order_endpoint_is_pinned_to_one_paper_host_and_every_redirect_is_refused": (
         "that orders can reach exactly one host, that HTTP, userinfo, an alternative "
@@ -90,9 +157,14 @@ _PROVES: dict[str, str] = {
         "each refused, and that every redirect is refused rather than followed"
     ),
     "every_broker_answer_is_validated_field_by_field_against_the_request_that_was_sent": (
-        "that a broker acknowledgement is compared field by field against the request "
-        "that was sent -- client order id, symbol, side, quantity and order type -- and a "
-        "mismatch fails closed instead of being persisted"
+        "that a broker order view is compared field by field against the authorized "
+        "request -- client order id, symbol, side, quantity, order type, the limit price "
+        "where the order has one (and its absence where it has none), time in force and "
+        "extended hours, plus the already bound broker order id where the attempt has one "
+        "-- that a field the broker did not report is a mismatch and is never substituted, "
+        "that a mismatch fails closed instead of being persisted, and that an order found "
+        "by reconciliation is adopted only when the broker client's account is the "
+        "authorized one"
     ),
     "the_execution_state_machine_is_closed_and_mirrored_by_a_database_trigger": (
         "that the execution state machine is closed, that its edges are mirrored by a "
@@ -177,6 +249,13 @@ _DOES_NOT_PROVE: dict[str, str] = {
     "that_an_order_was_not_accepted_merely_because_the_client_timed_out": (
         "that an order was not accepted merely because the client timed out"
     ),
+    "that_the_broker_never_accepted_an_order_the_bounded_absence_policy_resolved_as_rejected": (
+        "that the broker never accepted an order which the bounded absence policy "
+        "resolved as REJECTED / NOT_FOUND_AT_BROKER. The policy is a local, bounded, "
+        "published choice over the evidence this product could gather -- not broker "
+        "truth -- and it grants no permission to send again: the intent's single "
+        "dispatch is spent"
+    ),
     "that_cancellation_guarantees_no_fill_occurred": (
         "that a cancellation guarantees no fill occurred. A cancel request races the "
         "venue and can lose, which is why the model has a CANCEL_REQUESTED to FILLED "
@@ -247,6 +326,27 @@ _ENFORCEMENT: dict[str, str] = {
     "time_basis_evidence_is_append_only_and_never_backfilled": (
         "Time-basis evidence refuses UPDATE and DELETE, and no migration writes any"
     ),
+    "a_reconciliation_round_begins_incomplete_by_trigger": (
+        "A reconciliation round cannot be inserted already completed, with an "
+        "acknowledgement sequence, or with a broker clock interval"
+    ),
+    "a_round_is_bound_to_its_attempt_intent_authorization_and_client_order_id_by_trigger": (
+        "A reconciliation round must name an attempt that exists and carry that "
+        "attempt's own intent, authorization and client order id"
+    ),
+    "unique_reconciliation_round_sequence_per_attempt": (
+        "No two reconciliation rounds of one attempt can hold the same sequence"
+    ),
+    "a_reconciliation_round_identity_is_immutable_by_trigger": (
+        "A reconciliation round's id, attempt, intent, authorization, client order id, "
+        "account reference, sequence and start instant cannot change"
+    ),
+    "a_round_is_completed_exactly_once_and_only_to_a_completed_outcome_by_trigger": (
+        "A reconciliation round may be updated only from incomplete to a completed "
+        "outcome with its completion instant, and a completed round refuses every "
+        "further update"
+    ),
+    "reconciliation_rounds_refuse_delete": "Reconciliation rounds refuse DELETE",
 }
 
 _LIMITATIONS: dict[str, str] = {
@@ -285,12 +385,20 @@ _LIMITATIONS: dict[str, str] = {
     "the_bounded_not_found_reconciliation_policy_is_a_stated_choice_not_a_proof": (
         "The bounded not-found reconciliation policy -- repeated observations plus "
         "elapsed time before an unknown outcome is resolved -- is a stated, reviewable "
-        "CHOICE. It is not a proof that the order never existed. Its time is measured on "
-        "the broker's clock between reconciliation rounds and is anchored on the first "
-        "completed round after the uncertain dispatch, not on the dispatch itself; it "
-        "assumes the broker's clock advances monotonically between rounds, and a broker "
-        "clock sample is not evidence that the broker finished processing any order. A "
-        "record without round or broker-time evidence stays unresolved."
+        "CHOICE. It is not a proof that the order never existed."
+    ),
+    "the_waiting_interval_assumes_a_monotone_broker_clock_not_evidence_of_processing": (
+        "The waiting interval ASSUMES that the broker's clock advances monotonically "
+        "between rounds (a reading that contradicts this yields no interval), and it "
+        "treats a broker clock sample as ordering evidence only: a sample says nothing "
+        "about whether the broker finished processing any order. The database checks the "
+        "interval's shape and pairing, not that the clock was actually read."
+    ),
+    "legacy_acknowledgements_without_rounds_are_operator_evidence_and_never_count": (
+        "Attempts reconciled before the round journal existed carry acknowledgements but "
+        "no rounds. Those acknowledgements are operator evidence and never rounds: no time "
+        "basis is fabricated and no round history is invented for them, so resolving such "
+        "an attempt requires two new completed rounds with justified broker time."
     ),
     "the_external_paper_submission_was_measured_blocked_by_quote_staleness": (
         "The bounded external paper submission was MEASURED BLOCKED, not completed. The "
@@ -333,6 +441,45 @@ _FUTURE: dict[str, str] = {
     ),
 }
 
+#: The five tables, in the shape the digest is taken over. Named once so the digest
+#: and the bijection tests describe the same object.
+MEANING_TABLES: dict[str, dict[str, str]] = {
+    "proves": _PROVES,
+    "does_not_prove": _DOES_NOT_PROVE,
+    "database_enforcement": _ENFORCEMENT,
+    "structural_limitations": _LIMITATIONS,
+    "intended_future_use": _FUTURE,
+}
+
+
+def rendered_meaning_digest(tables: dict[str, dict[str, str]] = MEANING_TABLES) -> int:
+    """SHA-256 of the identifier -> sentence tables, as an integer.
+
+    Canonical JSON (sorted keys, no whitespace, ASCII-escaped) so the value is the same
+    bytes on every platform. An integer rather than a hex string on purpose: the
+    repository's secret scanner treats any 64-hex token as a possible credential, and
+    the right answer to that is not an allow-list entry but a value with no such token.
+    """
+    canonical = json.dumps(tables, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return int(hashlib.sha256(canonical.encode("utf-8")).hexdigest(), 16)
+
+
+class MeaningDriftError(AssertionError):
+    """The renderer's sentences no longer digest to what the canonical contract declares."""
+
+
+def require_declared_meaning(contract: dict[str, Any]) -> None:
+    """Refuse to render a meaning the canonical contract has not declared."""
+    declared = contract["rendered_meaning_digest"]
+    actual = rendered_meaning_digest()
+    if declared != actual:
+        raise MeaningDriftError(
+            "the renderer's identifier -> sentence tables digest to a value the canonical "
+            "contract does not declare; a change of meaning must be made in "
+            "current-authority.json (rendered_meaning_digest) and its schema, with a new "
+            "identifier for any new guarantee"
+        )
+
 
 def render(contract: dict[str, Any]) -> str:
     out: list[str] = []
@@ -359,6 +506,13 @@ def render(contract: dict[str, Any]) -> str:
     add("without changing the schema, and a claim removed from it fails the item counts.")
     add("")
     add(f"Authority version `{contract['authority_version']}`.")
+    add("")
+    add(
+        f"Rendered-meaning digest `{contract['rendered_meaning_digest']}`: the SHA-256, as an "
+        "integer, of the renderer's identifier-to-sentence tables. The contract declares it "
+        "and the schema pins it, so the meaning of an identifier cannot change without a "
+        "visible change to the canonical contract."
+    )
     add("")
     add("## What it proves")
     add("")
@@ -396,10 +550,24 @@ def render(contract: dict[str, Any]) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="fail if the document has drifted")
+    parser.add_argument(
+        "--print-meaning-digest",
+        action="store_true",
+        help="print the digest of the current tables and exit (for updating the contract)",
+    )
     args = parser.parse_args(argv)
+
+    if args.print_meaning_digest:
+        print(rendered_meaning_digest())
+        return 0
 
     contract = json.loads(CONTRACT.read_text(encoding="utf-8"))
     validate(contract, json.loads(SCHEMA.read_text(encoding="utf-8")))
+    try:
+        require_declared_meaning(contract)
+    except MeaningDriftError as error:
+        print(f"{CONTRACT}: {error}", file=sys.stderr)
+        return 1
     expected = render(contract)
 
     if args.check:

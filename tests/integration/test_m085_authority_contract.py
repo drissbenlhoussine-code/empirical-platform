@@ -53,13 +53,20 @@ from tools.render_m085_authority import (
     _PROVES,
     CONTRACT,
     DOCUMENT,
+    MEANING_TABLES,
     SCHEMA,
+    MeaningDriftError,
     render,
+    rendered_meaning_digest,
+    require_declared_meaning,
 )
 
 from empirical_platform.decision_candidate.paper_execution import (
     ALLOWED_PAPER_TRANSITIONS,
+    MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
+    MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
     PAPER_ENDPOINT_HOST,
+    RECONCILIATION_UNKNOWN_POLICY,
     TERMINAL_PAPER_STATES,
     ExecutionAttempt,
     ExecutionAuthorization,
@@ -158,6 +165,7 @@ def _alembic() -> Config:
 _EXPECTED_TOP_LEVEL = (
     "milestone",
     "authority_version",
+    "rendered_meaning_digest",
     "title",
     "proves",
     "does_not_prove",
@@ -266,6 +274,33 @@ _ENFORCEMENT_FRAGMENTS: tuple[tuple[str, str], ...] = (
         "time_basis_evidence_is_append_only_and_never_backfilled",
         "paper_intent_time_basis_append_only_trigger",
     ),
+    # AUTHORITY VERSION 2: the reconciliation round journal (migration a7d3c9e14f26).
+    ("a_reconciliation_round_begins_incomplete_by_trigger", "must begin incomplete"),
+    (
+        "a_round_is_bound_to_its_attempt_intent_authorization_and_client_order_id_by_trigger",
+        "does not describe attempt",
+    ),
+    (
+        "a_round_is_bound_to_its_attempt_intent_authorization_and_client_order_id_by_trigger",
+        "names attempt % which does not exist",
+    ),
+    (
+        "unique_reconciliation_round_sequence_per_attempt",
+        "uq_paper_reconciliation_round_attempt_sequence",
+    ),
+    (
+        "a_reconciliation_round_identity_is_immutable_by_trigger",
+        "reconciliation round % identity is immutable",
+    ),
+    (
+        "a_round_is_completed_exactly_once_and_only_to_a_completed_outcome_by_trigger",
+        "is complete (%) and is immutable",
+    ),
+    (
+        "a_round_is_completed_exactly_once_and_only_to_a_completed_outcome_by_trigger",
+        "may only be updated to a completed outcome",
+    ),
+    ("reconciliation_rounds_refuse_delete", "paper_reconciliation_round_append_only_trigger"),
 )
 
 #: Each deadline-evidence table: its insert guard, the stored fields that guard must
@@ -453,11 +488,16 @@ class TestTheContractIsValidAndClosed:
     def test_the_top_level_keys_are_exactly_these(self, contract: dict[str, Any]) -> None:
         assert tuple(contract) == _EXPECTED_TOP_LEVEL
 
-    def test_the_authority_version_is_pinned_to_one(
+    def test_the_authority_version_is_pinned_to_two(
         self, contract: dict[str, Any], schema: dict[str, Any]
     ) -> None:
-        assert contract["authority_version"] == 1
-        assert schema["properties"]["authority_version"]["const"] == 1
+        """Version 2 (AUTH-1): the enforcement surface and the meaning of reconciliation
+        changed materially with the durable round journal, so the version advanced. Version
+        1 is rejected by the same const; historical version-1 evidence is not rewritten."""
+        assert contract["authority_version"] == 2
+        assert schema["properties"]["authority_version"]["const"] == 2
+        with pytest.raises(SchemaError):
+            validate({**contract, "authority_version": 1}, schema)
 
     def test_the_milestone_is_pinned(self, schema: dict[str, Any]) -> None:
         assert schema["properties"]["milestone"]["const"] == "M085"
@@ -805,3 +845,420 @@ class TestTheBlockedSubmissionIsDeclaredNotHidden:
         # accepted an order. Checked as a set membership, not by reading prose.
         assert "a_paper_order_was_accepted_by_the_broker" not in contract["proves"]
         assert "the_external_paper_submission_completed" not in contract["proves"]
+
+
+#: The identifiers authority version 2 introduced for the durable reconciliation rounds
+#: (review finding AUTH-1). Each is mandatory: the exact item counts make dropping any one
+#: a schema failure, and the renderer refuses a sentence for one it does not name.
+_V2_PROVES = (
+    "every_reconciliation_network_attempt_is_a_durable_round_begun_before_its_network_work",
+    "rounds_are_ordered_by_a_durable_per_attempt_sequence_never_by_reconciler_wall_clocks",
+    "a_failed_unusable_found_or_incomplete_round_ends_the_qualifying_not_found_run",
+    "absence_resolution_requires_unknown_and_no_bound_order_observation_found_or_open_round",
+    "absence_resolution_requires_two_completed_not_found_rounds_and_sixty_broker_seconds",
+    "waiting_interval_is_current_broker_earliest_minus_anchor_broker_latest_never_wall_clocks",
+    "missing_contradictory_or_incompatible_round_or_time_evidence_keeps_the_outcome_unresolved",
+    "absence_finalisation_revalidates_fresh_evidence_under_the_attempt_lock_not_a_snapshot",
+    "round_sequence_allocation_holds_the_attempt_row_lock_so_a_race_waits_instead_of_colliding",
+)
+_V2_DOES_NOT_PROVE = (
+    "that_the_broker_never_accepted_an_order_the_bounded_absence_policy_resolved_as_rejected",
+)
+_V2_ENFORCEMENT = (
+    "a_reconciliation_round_begins_incomplete_by_trigger",
+    "a_round_is_bound_to_its_attempt_intent_authorization_and_client_order_id_by_trigger",
+    "unique_reconciliation_round_sequence_per_attempt",
+    "a_reconciliation_round_identity_is_immutable_by_trigger",
+    "a_round_is_completed_exactly_once_and_only_to_a_completed_outcome_by_trigger",
+    "reconciliation_rounds_refuse_delete",
+)
+_V2_LIMITATIONS = (
+    "the_waiting_interval_assumes_a_monotone_broker_clock_not_evidence_of_processing",
+    "legacy_acknowledgements_without_rounds_are_operator_evidence_and_never_count",
+)
+#: The v1 identifiers whose sentences the v2 renderer restores to their v1 wording: the
+#: `832b20b` rendering had widened them to carry the round semantics that now have their
+#: own identifiers. Their sentences must therefore NOT mention rounds or the broker clock.
+_RESTORED_V1_SENTENCES = (
+    (
+        "proves",
+        "reconciliation_addresses_the_original_client_order_id_under_a_bounded_not_found_policy",
+    ),
+    (
+        "structural_limitations",
+        "the_bounded_not_found_reconciliation_policy_is_a_stated_choice_not_a_proof",
+    ),
+)
+
+
+class TestTheMeaningIsPinnedToTheContract:
+    """AUTH-1. The renderer's sentences are the meaning of the identifiers; the contract
+    now declares their digest and the schema pins it, so a material change of meaning is a
+    visible canonical-contract change and can no longer ride under an unchanged JSON."""
+
+    def test_the_renderer_tables_digest_to_the_declared_meaning(
+        self, contract: dict[str, Any]
+    ) -> None:
+        # The renderer's own refusal first: under a drifted sentence THIS is what a reviewer
+        # sees, and it is the same check `--check` and a render run.
+        require_declared_meaning(contract)
+        assert contract["rendered_meaning_digest"] == rendered_meaning_digest()
+
+    def test_the_schema_pins_the_declared_meaning_digest(
+        self, contract: dict[str, Any], schema: dict[str, Any]
+    ) -> None:
+        declared = schema["properties"]["rendered_meaning_digest"]
+        assert declared["type"] == "integer"
+        assert declared["const"] == contract["rendered_meaning_digest"] == rendered_meaning_digest()
+        with pytest.raises(SchemaError):
+            validate({**contract, "rendered_meaning_digest": rendered_meaning_digest() + 1}, schema)
+
+    def test_the_digest_covers_every_table_and_is_not_a_hex_token(self) -> None:
+        assert set(MEANING_TABLES) == set(_EXPECTED_TOP_LEVEL[4:])
+        assert MEANING_TABLES["proves"] is _PROVES
+        assert MEANING_TABLES["database_enforcement"] is _ENFORCEMENT
+        digest = rendered_meaning_digest()
+        assert isinstance(digest, int) and not isinstance(digest, bool)
+        assert digest.bit_length() <= 256
+        # Stated in the contract as an integer, so no 64-hex token exists anywhere.
+        assert '"rendered_meaning_digest": ' + str(digest) in CONTRACT.read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("section", list(MEANING_TABLES))
+    def test_a_material_change_to_any_sentence_changes_the_digest(
+        self, contract: dict[str, Any], section: str
+    ) -> None:
+        """The escape hatch, executed: rewrite ONE sentence of ONE table and the renderer
+        refuses the unchanged contract. No keyword comparison is involved; the whole
+        identifier -> sentence mapping is digested."""
+        table = dict(MEANING_TABLES[section])
+        key = next(iter(table))
+        table[key] = table[key] + " and also something it did not use to mean"
+        drifted = {**MEANING_TABLES, section: table}
+        assert rendered_meaning_digest(drifted) != contract["rendered_meaning_digest"]
+
+    def test_renaming_an_identifier_changes_the_digest(self, contract: dict[str, Any]) -> None:
+        table = dict(_PROVES)
+        sentence = table.pop(_V2_PROVES[0])
+        table["a_rounds_claim_under_another_name"] = sentence
+        assert (
+            rendered_meaning_digest({**MEANING_TABLES, "proves": table})
+            != contract["rendered_meaning_digest"]
+        )
+
+    def test_the_renderer_refuses_an_undeclared_meaning(self, contract: dict[str, Any]) -> None:
+        with pytest.raises(MeaningDriftError):
+            require_declared_meaning({**contract, "rendered_meaning_digest": 7})
+
+    def test_the_document_states_the_declared_digest(self, contract: dict[str, Any]) -> None:
+        assert f"`{contract['rendered_meaning_digest']}`" in DOCUMENT.read_text(encoding="utf-8")
+
+
+class TestAuthorityVersionTwoNamesTheRoundGuarantees:
+    """AUTH-1. Each new guarantee is its own closed identifier; none rides inside an old one."""
+
+    @pytest.mark.parametrize("identifier", _V2_PROVES)
+    def test_each_round_guarantee_is_a_mandatory_positive_claim(
+        self, contract: dict[str, Any], schema: dict[str, Any], identifier: str
+    ) -> None:
+        assert identifier in contract["proves"]
+        assert identifier in schema["properties"]["proves"]["items"]["enum"]
+        narrowed = {**contract, "proves": [k for k in contract["proves"] if k != identifier]}
+        with pytest.raises(SchemaError):
+            validate(narrowed, schema)
+
+    @pytest.mark.parametrize("identifier", _V2_DOES_NOT_PROVE)
+    def test_the_bounded_policy_is_declared_not_to_prove_broker_truth(
+        self, contract: dict[str, Any], schema: dict[str, Any], identifier: str
+    ) -> None:
+        assert identifier in contract["does_not_prove"]
+        narrowed = {
+            **contract,
+            "does_not_prove": [k for k in contract["does_not_prove"] if k != identifier],
+        }
+        with pytest.raises(SchemaError):
+            validate(narrowed, schema)
+
+    @pytest.mark.parametrize("identifier", _V2_ENFORCEMENT)
+    def test_each_round_enforcement_is_mandatory_and_true(
+        self, contract: dict[str, Any], schema: dict[str, Any], identifier: str
+    ) -> None:
+        assert contract["database_enforcement"][identifier] is True
+        assert identifier in schema["properties"]["database_enforcement"]["required"]
+        without = dict(contract["database_enforcement"])
+        del without[identifier]
+        with pytest.raises(SchemaError):
+            validate({**contract, "database_enforcement": without}, schema)
+        with pytest.raises(SchemaError):
+            validate(
+                {
+                    **contract,
+                    "database_enforcement": {**contract["database_enforcement"], identifier: False},
+                },
+                schema,
+            )
+
+    @pytest.mark.parametrize("identifier", _V2_LIMITATIONS)
+    def test_each_round_limitation_is_mandatory(
+        self, contract: dict[str, Any], schema: dict[str, Any], identifier: str
+    ) -> None:
+        assert identifier in contract["structural_limitations"]
+        narrowed = {
+            **contract,
+            "structural_limitations": [
+                k for k in contract["structural_limitations"] if k != identifier
+            ],
+        }
+        with pytest.raises(SchemaError):
+            validate(narrowed, schema)
+
+    def test_no_v1_identifier_was_dropped(self, contract: dict[str, Any]) -> None:
+        """Historical claims survive the bump; version 2 only adds."""
+        v1_proves = 14
+        v1_does_not_prove = 19
+        v1_enforcement = 18
+        v1_limitations = 11
+        assert len(contract["proves"]) == v1_proves + len(_V2_PROVES)
+        assert len(contract["does_not_prove"]) == v1_does_not_prove + len(_V2_DOES_NOT_PROVE)
+        assert len(contract["database_enforcement"]) == v1_enforcement + len(_V2_ENFORCEMENT)
+        assert len(contract["structural_limitations"]) == v1_limitations + len(_V2_LIMITATIONS)
+        for identifier in (
+            "protection_against_a_database_owner_ddl_a_disabled_trigger_or_a_superuser",
+            "row_level_refusals_do_not_cover_truncate_drop_a_disabled_trigger_or_a_superuser",
+            "the_external_paper_submission_was_measured_blocked_by_quote_staleness",
+        ):
+            assert identifier in contract["does_not_prove"] + contract["structural_limitations"]
+
+    @pytest.mark.parametrize(("section", "identifier"), _RESTORED_V1_SENTENCES)
+    def test_the_widened_v1_sentences_are_restored_to_their_own_meaning(
+        self, section: str, identifier: str
+    ) -> None:
+        # The round semantics live in their own identifiers now, so the old identifiers say
+        # only what they said at version 1. Checked as the absence of the round vocabulary
+        # from THESE two sentences; the new identifiers' sentences are digested separately.
+        sentence = MEANING_TABLES[section][identifier]
+        assert "round" not in sentence.lower()
+        assert "broker clock" not in sentence.lower()
+        assert "broker's clock" not in sentence.lower()
+
+
+class TestTheRoundClaimsMatchTheCode:
+    """Point 4 for version 2: weakening the round implementation must fail here."""
+
+    @staticmethod
+    def _tree(relative: str) -> ast.Module:
+        return ast.parse((_REPO_ROOT / "src" / "empirical_platform" / relative).read_text("utf-8"))
+
+    @staticmethod
+    def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        raise AssertionError(name)
+
+    def test_the_thresholds_are_two_rounds_and_sixty_broker_seconds(self) -> None:
+        assert MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS == 2
+        assert MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS == 60
+        policy = RECONCILIATION_UNKNOWN_POLICY
+        assert policy["minimum_consecutive_not_found_observations"] == 2
+        assert policy["minimum_broker_seconds_between_qualifying_reconciliation_rounds"] == 60
+        # The historical key is a declared alias with the same value, not a second meaning.
+        aliases = dict(policy["legacy_key_aliases"])  # type: ignore[call-overload]
+        assert aliases == {
+            "minimum_seconds_since_dispatch_before_not_found_counts": (
+                "minimum_broker_seconds_between_qualifying_reconciliation_rounds"
+            )
+        }
+        assert policy["minimum_seconds_since_dispatch_before_not_found_counts"] == 60
+        assert policy["incomplete_round_blocks_resolution"] is True
+        assert policy["found_round_blocks_resolution"] is True
+
+    def test_rounds_are_ordered_by_sequence_and_nothing_else(self) -> None:
+        tree = self._tree("decision_candidate/paper_execution.py")
+        function = self._function(tree, "rounds_in_order")
+        keys = [
+            ast.unparse(keyword.value)
+            for call in ast.walk(function)
+            if isinstance(call, ast.Call) and ast.unparse(call.func) == "sorted"
+            for keyword in call.keywords
+            if keyword.arg == "key"
+        ]
+        assert keys == ["lambda r: r.sequence"]
+        source = ast.unparse(function)
+        for forbidden in ("started_at", "completed_at", "observed_at", "occurred_at"):
+            assert forbidden not in source
+
+    def test_the_waiting_interval_is_current_earliest_minus_anchor_latest(self) -> None:
+        tree = self._tree("decision_candidate/paper_execution.py")
+        function = self._function(tree, "waiting_lower_bound_seconds")
+        subtractions = [
+            (ast.unparse(node.left), ast.unparse(node.right))
+            for node in ast.walk(function)
+            if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Sub)
+        ]
+        assert subtractions == [("current.broker_earliest_at", "anchor.broker_latest_at")]
+        source = ast.unparse(function)
+        assert "started_at" not in source and "completed_at" not in source
+        # A negative bound is refused, never trusted as a magnitude.
+        assert "if lower_bound < 0" in source
+
+    def test_the_evaluation_refuses_what_the_contract_says_it_refuses(self) -> None:
+        from datetime import UTC, datetime, timedelta
+        from types import SimpleNamespace
+
+        from empirical_platform.decision_candidate.paper_execution import (
+            AbsenceEvaluation,
+            PaperExecutionState,
+            ReconciliationRound,
+            ReconciliationRoundOutcome,
+            absence_evaluation,
+        )
+
+        t0 = datetime(2026, 1, 1, tzinfo=UTC)
+
+        def round_(sequence: int, outcome: object, seconds: float | None) -> ReconciliationRound:
+            at = None if seconds is None else t0 + timedelta(seconds=seconds)
+            return ReconciliationRound(
+                round_id=f"RND-A-{sequence}",
+                attempt_id="A",
+                intent_governance_id="I",
+                authorization_id="U",
+                client_order_id="c",
+                account_reference="ref:x",
+                sequence=sequence,
+                started_at=t0,
+                outcome=outcome,  # type: ignore[arg-type]
+                completed_at=None if outcome is None else t0,
+                acknowledgement_sequence=None,
+                broker_earliest_at=at,
+                broker_latest_at=at,
+                detail=None,
+            )
+
+        not_found = ReconciliationRoundOutcome.NOT_FOUND
+        clean = [round_(1, not_found, 0), round_(2, not_found, 60)]
+
+        def evaluate(
+            state: object = PaperExecutionState.SUBMISSION_UNKNOWN, **overrides: object
+        ) -> AbsenceEvaluation:
+            arguments: dict[str, Any] = {
+                "state": state,
+                "broker_order_id": None,
+                "acknowledgements": [],
+                "events": [],
+                "rounds": clean,
+            }
+            arguments.update(overrides)
+            return absence_evaluation(**arguments)
+
+        assert evaluate().resolvable  # positive control: 2 rounds, 60 broker seconds
+        assert not evaluate(rounds=[round_(1, not_found, 0), round_(2, not_found, 59)]).resolvable
+        assert not evaluate(state=PaperExecutionState.PAPER_ACCEPTED).resolvable
+        assert not evaluate(state=PaperExecutionState.SUBMISSION_IN_PROGRESS).resolvable
+        assert not evaluate(broker_order_id="b").resolvable
+        assert not evaluate(acknowledgements=[SimpleNamespace(broker_order_id="b")]).resolvable
+        assert not evaluate(
+            rounds=[
+                round_(1, ReconciliationRoundOutcome.FOUND, 0),
+                *clean[1:],
+                round_(3, not_found, 120),
+            ]
+        ).resolvable
+        assert not evaluate(
+            rounds=[round_(1, None, None), round_(2, not_found, 0), round_(3, not_found, 60)]
+        ).resolvable
+        assert not evaluate(
+            rounds=[
+                round_(1, not_found, 0),
+                round_(2, ReconciliationRoundOutcome.FAILED, None),
+                round_(3, not_found, 60),
+            ]
+        ).resolvable
+        assert not evaluate(
+            rounds=[round_(1, not_found, None), round_(2, not_found, None)]
+        ).resolvable  # no time
+        assert not evaluate(
+            rounds=[round_(1, not_found, 200), round_(2, not_found, 100)]
+        ).resolvable  # backwards
+
+    def test_the_round_is_begun_before_the_clock_is_sampled_or_the_order_looked_up(self) -> None:
+        tree = self._tree("usecases/paper_execution.py")
+        handler = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef) and node.name == "ReconcilePaperOrderHandler"
+        )
+        handle = next(
+            n for n in handler.body if isinstance(n, ast.FunctionDef) and n.name == "handle"
+        )
+        source = ast.unparse(handle)
+        begin = source.index("self._rounds.begin(")
+        assert begin < source.index("self._sample_broker_clock(")
+        assert begin < source.index("self._broker.fetch_order_by_client_order_id(")
+        # A raised lookup completes the round FAILED; nothing fabricates a status for it.
+        assert "outcome=ReconciliationRoundOutcome.FAILED" in source
+
+    def test_allocation_holds_the_attempt_lock_and_finalisation_revalidates(self) -> None:
+        from empirical_platform.shared.persistence.postgres_repositories import (
+            paper_execution_repositories as repositories,
+        )
+
+        assert repositories._ROUND_LOCK_ATTEMPT.rstrip().endswith("FOR UPDATE")
+        tree = ast.parse(Path(repositories.__file__).read_text("utf-8"))
+        repository = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef)
+            and node.name == "PostgresReconciliationRoundRepository"
+        )
+        begin = ast.unparse(
+            next(n for n in repository.body if isinstance(n, ast.FunctionDef) and n.name == "begin")
+        )
+        assert (
+            begin.index("_ROUND_LOCK_ATTEMPT")
+            < begin.index("_ROUND_MAX_SEQUENCE")
+            < begin.index("_ROUND_INSERT")
+        )
+        resolve = ast.unparse(
+            next(
+                n
+                for n in repository.body
+                if isinstance(n, ast.FunctionDef) and n.name == "resolve_not_found"
+            )
+        )
+        assert "FOR UPDATE" in resolve
+        assert resolve.index("FOR UPDATE") < resolve.index("absence_evaluation(")
+        assert "evaluation.rounds_version != expected_version" in resolve
+        assert "if not evaluation.resolvable" in resolve
+        assert resolve.index("absence_evaluation(") < resolve.index("_ATTEMPT_TRANSITION")
+        for network in ("fetch_order_by_client_order_id", "fetch_clock", "submit_order"):
+            assert network not in ast.unparse(repository)
+
+    def test_every_authorized_term_the_sentence_names_is_compared(self) -> None:
+        """The broker-answer claim lists the compared fields; the code must compare exactly
+        those (parsed from the appended mismatch names, not read from prose)."""
+        tree = self._tree("decision_candidate/paper_execution.py")
+        function = self._function(tree, "order_terms_mismatches")
+        appended = {
+            call.args[0].value
+            for call in ast.walk(function)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "append"
+            and call.args
+            and isinstance(call.args[0], ast.Constant)
+        }
+        assert appended == {
+            "client_order_id",
+            "symbol",
+            "side",
+            "order_type",
+            "quantity",
+            "limit_price",
+            "time_in_force",
+            "extended_hours",
+            "broker_order_id",
+        }
+        usecase = (_REPO_ROOT / "src/empirical_platform/usecases/paper_execution.py").read_text(
+            "utf-8"
+        )
+        assert "account.account_reference != authorization.account_reference" in usecase

@@ -1206,6 +1206,22 @@ class TestTheReconciliationPolicyIsBoundedAndPublished:
         # measured on. The published document must.
         assert RECONCILIATION_UNKNOWN_POLICY["incomplete_round_blocks_resolution"] is True
         assert RECONCILIATION_UNKNOWN_POLICY["found_round_blocks_resolution"] is True
+        # The canonical threshold name says what is measured; the historical name is an
+        # alias, declared as such, with the same value.
+        assert (
+            RECONCILIATION_UNKNOWN_POLICY[
+                "minimum_broker_seconds_between_qualifying_reconciliation_rounds"
+            ]
+            == MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS
+        )
+        aliases = RECONCILIATION_UNKNOWN_POLICY["legacy_key_aliases"]
+        assert dict(aliases) == {  # type: ignore[call-overload]
+            "minimum_seconds_since_dispatch_before_not_found_counts": (
+                "minimum_broker_seconds_between_qualifying_reconciliation_rounds"
+            )
+        }
+        for legacy, canonical in dict(aliases).items():  # type: ignore[call-overload]
+            assert RECONCILIATION_UNKNOWN_POLICY[legacy] == RECONCILIATION_UNKNOWN_POLICY[canonical]
         consecutiveness = str(RECONCILIATION_UNKNOWN_POLICY["consecutiveness_evaluated_over"])
         assert "sequence order" in consecutiveness
         lower_bound = str(RECONCILIATION_UNKNOWN_POLICY["waiting_interval_lower_bound"])

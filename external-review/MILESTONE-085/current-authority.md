@@ -7,7 +7,9 @@ The contract is validated against `current-authority.schema.json`, whose enumera
 whose list lengths are exact, so a claim this document does not already name cannot be added
 without changing the schema, and a claim removed from it fails the item counts.
 
-Authority version `1`.
+Authority version `2`.
+
+Rendered-meaning digest `4864319168061979829721062024490150901234943423146037573433541079945133988008`: the SHA-256, as an integer, of the renderer's identifier-to-sentence tables. The contract declares it and the schema pins it, so the meaning of an identifier cannot change without a visible change to the canonical contract.
 
 ## What it proves
 
@@ -20,9 +22,18 @@ One authorization, one dispatch, and the records they leave establish:
 - that the dispatch claim is committed to PostgreSQL BEFORE any network request, so an order cannot exist at the broker with nothing persisted to prove it;
 - that a duplicate dispatch request returns the persisted winning attempt and sends NOTHING -- the loser is handed the winner rather than an error, because a caller given an error is a caller that may retry;
 - that a request which MAY have been delivered becomes SUBMISSION_UNKNOWN, a state whose closed transition table has no edge back into submission, so an ambiguous dispatch can be resolved but never retried into a second order;
-- that reconciliation asks the broker about the ORIGINAL client order id, and that a single not-found answer does not resolve an unknown outcome -- the policy requires repeated observations and elapsed time, and is published; each reconciliation is a ROUND recorded durably before its network work and completed exactly once (a failed, unusable, found or still-incomplete round ends the run of not-found rounds), and the waiting interval is the conservative lower bound between the first completed round's broker clock reading and the current round's, never a reconciler's wall-clock difference;
+- that reconciliation asks the broker about the ORIGINAL client order id, and that a single not-found answer does not resolve an unknown outcome -- the policy requires repeated observations and elapsed time, and is published;
+- that every reconciliation network attempt is a ROUND whose row is inserted and committed BEFORE the broker clock is sampled or the order is looked up, so a round that dies, raises or fails to record its answer is still visible as begun and incomplete -- and if the round cannot be begun, no lookup runs at all;
+- that reconciliation rounds are ordered ONLY by a per-attempt sequence allocated in the database, never by a timestamp written by a reconciler's wall clock, so two hosts with skewed clocks cannot reorder a failure relative to the not-found answers around it;
+- that the qualifying run is the trailing consecutive run of COMPLETED not-found rounds in sequence order, and that a FAILED, UNUSABLE or FOUND round, or a round still incomplete, ends it -- a lookup that raised is completed FAILED and is never given a fabricated HTTP status;
+- that absence-based terminal resolution applies only to a SUBMISSION_UNKNOWN attempt with no bound broker order, no positive observation of its identity, no completed FOUND round and no incomplete round -- each of those keeps the attempt visible and reconcilable instead, and a bound or observed order is never revoked by absence;
+- that absence-based terminal resolution further requires at least TWO qualifying completed not-found rounds and a justified, conservative lower bound of at least SIXTY seconds of BROKER time between the anchor round and the current round;
+- that the waiting interval is `current.broker_earliest_at - anchor.broker_latest_at`, both endpoints being broker clock readings widened by the measuring process's own round trip and the anchor being the first completed round after the uncertain dispatch -- never `broker_now - host_submitted_at`, never a difference between two reconcilers' wall clocks, and never a monotonic value carried across processes;
+- that missing, contradictory or incompatible round or time evidence -- no anchor, no later completed round carrying an interval, a broker reading earlier than the anchor's, or acknowledgements without rounds -- keeps the outcome UNRESOLVED rather than defaulting any value;
+- that the terminal absence write happens ONLY inside the repository, which locks the attempt row, re-reads the rounds, acknowledgements and events in that same transaction, re-evaluates the same pure policy on them and requires the exact round set the caller judged -- a stale snapshot, and any fresh evidence against the decision, returns without writing; no broker call happens inside that transaction;
+- that a round's sequence is allocated while holding the attempt row lock, so a racing reconciler WAITS and receives the next sequence instead of colliding on the unique constraint or duplicating a number;
 - that orders can reach exactly one host, that HTTP, userinfo, an alternative host, an IP literal, a non-canonical port, a path, a query and a fragment are each refused, and that every redirect is refused rather than followed;
-- that a broker acknowledgement is compared field by field against the request that was sent -- client order id, symbol, side, quantity and order type -- and a mismatch fails closed instead of being persisted;
+- that a broker order view is compared field by field against the authorized request -- client order id, symbol, side, quantity, order type, the limit price where the order has one (and its absence where it has none), time in force and extended hours, plus the already bound broker order id where the attempt has one -- that a field the broker did not report is a mismatch and is never substituted, that a mismatch fails closed instead of being persisted, and that an order found by reconciliation is adopted only when the broker client's account is the authorized one;
 - that the execution state machine is closed, that its edges are mirrored by a database trigger, and that the two are compared across every ordered pair of states so they cannot drift;
 - that the MILESTONE-084 intent is READ and never rewritten: its submission state is still NOT_SUBMITTED after a dispatch, because M085 records execution in its own tables keyed by the intent's identity;
 - that no broker credential reaches a domain type, a database row, a renderer or an audit record, and that a credential echoed back by a peer is scrubbed out of the stored response body;
@@ -47,6 +58,7 @@ One authorization, one dispatch, and the records they leave establish:
 - **Not** cryptographic non-repudiation of a human authorization. The record is a database row, not a signature.
 - **Not** recovery of an unknown broker outcome without reconciliation.
 - **Not** that an order was not accepted merely because the client timed out.
+- **Not** that the broker never accepted an order which the bounded absence policy resolved as REJECTED / NOT_FOUND_AT_BROKER. The policy is a local, bounded, published choice over the evidence this product could gather -- not broker truth -- and it grants no permission to send again: the intent's single dispatch is spent.
 - **Not** that a cancellation guarantees no fill occurred. A cancel request races the venue and can lose, which is why the model has a CANCEL_REQUESTED to FILLED edge.
 - **Not** that a paper acknowledgement is a real-market execution.
 
@@ -72,6 +84,12 @@ One authorization, one dispatch, and the records they leave establish:
 | Time-basis evidence naming a proposal, approval or intent that does not exist, or describing different deadlines than the stored record, is refused | **yes** |
 | Time-basis evidence whose host reading is not the instant of the act it describes -- evaluation, decision or issuance -- cannot be stored | **yes** |
 | Time-basis evidence refuses UPDATE and DELETE, and no migration writes any | **yes** |
+| A reconciliation round cannot be inserted already completed, with an acknowledgement sequence, or with a broker clock interval | **yes** |
+| A reconciliation round must name an attempt that exists and carry that attempt's own intent, authorization and client order id | **yes** |
+| No two reconciliation rounds of one attempt can hold the same sequence | **yes** |
+| A reconciliation round's id, attempt, intent, authorization, client order id, account reference, sequence and start instant cannot change | **yes** |
+| A reconciliation round may be updated only from incomplete to a completed outcome with its completion instant, and a completed round refuses every further update | **yes** |
+| Reconciliation rounds refuse DELETE | **yes** |
 
 ## Structural limitations
 
@@ -81,7 +99,9 @@ One authorization, one dispatch, and the records they leave establish:
 - Because exactly one attempt may exist per intent, a rejected or expired dispatch cannot be retried in this milestone. A new attempt requires a new MILESTONE-084 intent. This is deliberate and is the safe direction to err in.
 - Referential integrity to the MILESTONE-084 intent is a trigger rather than a foreign key, because a foreign key made M084's own test fixture inexecutable. A TRUNCATE of `approved_order_intent`, which requires table ownership, can therefore leave paper rows referring to an intent that is gone.
 - The broker-status map is closed. A status Alpaca returns that it does not name is recorded and leaves the state unchanged, which requires an operator to look -- deliberately, rather than guessing which known state it meant.
-- The bounded not-found reconciliation policy -- repeated observations plus elapsed time before an unknown outcome is resolved -- is a stated, reviewable CHOICE. It is not a proof that the order never existed. Its time is measured on the broker's clock between reconciliation rounds and is anchored on the first completed round after the uncertain dispatch, not on the dispatch itself; it assumes the broker's clock advances monotonically between rounds, and a broker clock sample is not evidence that the broker finished processing any order. A record without round or broker-time evidence stays unresolved.
+- The bounded not-found reconciliation policy -- repeated observations plus elapsed time before an unknown outcome is resolved -- is a stated, reviewable CHOICE. It is not a proof that the order never existed.
+- The waiting interval ASSUMES that the broker's clock advances monotonically between rounds (a reading that contradicts this yields no interval), and it treats a broker clock sample as ordering evidence only: a sample says nothing about whether the broker finished processing any order. The database checks the interval's shape and pairing, not that the clock was actually read.
+- Attempts reconciled before the round journal existed carry acknowledgements but no rounds. Those acknowledgements are operator evidence and never rounds: no time basis is fabricated and no round history is invented for them, so resolving such an attempt requires two new completed rounds with justified broker time.
 - The bounded external paper submission was MEASURED BLOCKED, not completed. The market was closed, the only available IEX quote was over three hours old, and the freshness tolerance was not widened to get past it. Every local, database and hostile-adapter validation is unaffected; see `paper-acceptance-results.md` for the measured numbers.
 - The paper account is stored as a stable digest, not an account number. Two accounts are distinguishable from each other but no account is identifiable from the stored value -- which is the intent, and also a limit on what an auditor can do with it alone.
 - A proposal, approval or intent created through MILESTONE-084 alone has no broker time basis, because none can be measured for an instant that has passed. It is refused for Paper at approval, issuance, preview and dispatch, and it is never backfilled.
