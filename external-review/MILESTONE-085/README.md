@@ -109,6 +109,19 @@
 > [durable-reconciliation-rounds/README.md](durable-reconciliation-rounds/README.md) and
 > [durable-reconciliation-rounds/verification.md](durable-reconciliation-rounds/verification.md).
 > Not pushed. Paper acceptance NOT_STARTED.
+>
+> **Canonical authority contract closure (AUTH-1), 2026-09-27:** the durable-round guarantees
+> had reached `current-authority.md` only through a widened renderer sentence while
+> `current-authority.json`, its schema and `authority_version` stayed unchanged. The canonical
+> contract now names each guarantee and each database enforcement as its own closed identifier
+> (authority version 1 → 2, no v1 identifier dropped, the widened sentences restored), the
+> broker-answer validation claim states the fields actually compared, the policy threshold gains a
+> canonical name with the old key declared a legacy alias, and the contract carries a
+> rendered-meaning digest pinned by the schema so that a renderer-only change of meaning can no
+> longer pass as "same authority". Code candidate `88ea0ed`; see
+> [authority-contract-closure/README.md](authority-contract-closure/README.md) and
+> [authority-contract-closure/verification.md](authority-contract-closure/verification.md).
+> Not pushed. Paper acceptance NOT_STARTED. V1 pending Owner ratification (statement prepared there).
 
 
 **Status: corrected candidate pending Owner review. NOT approved, NOT frozen, NOT merged.**
