@@ -483,6 +483,13 @@ class TestAnInterruptedDispatchCanBeReconciled:
         assert result.attempt.state is not PaperExecutionState.REJECTED
         assert result.attempt.failure_code != "NOT_FOUND_AT_BROKER"
         assert len(world["broker"].submitted) == 1
+        # The operator sees WHY absence counted for nothing: the dispatch may be live. The pure
+        # evaluation also refuses this state, so the handler's rule is what names the reason.
+        events = [e.event_type for e in world["events"].rows if e.attempt_id is not None]
+        assert events.count("RECONCILE_NOT_FOUND_DISPATCH_MAY_BE_LIVE") == 2, (
+            "the live-dispatch reason was not surfaced to the operator"
+        )
+        assert "RECONCILE_NOT_FOUND_INSUFFICIENT" not in events
 
     def test_a_live_dispatch_is_left_to_finish(self) -> None:
         world = self._stuck_in_progress()

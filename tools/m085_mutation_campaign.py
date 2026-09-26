@@ -1453,9 +1453,11 @@ FAMILIES: tuple[Family, ...] = (
         mutated="        if False:",
         detecting_test=f"{_CORRECTIVE_HANDLERS}::TestAnInterruptedDispatchCanBeReconciled"
         "::test_absence_while_the_dispatcher_is_still_sending_never_rejects",
-        # Without the rule the second not-found answer records REJECTED, the order is
-        # sent anyway, and recording its acknowledgement hits the immutable terminal row.
-        expected_fragment="terminal and is immutable",
+        # DURABLE ROUNDS: the pure `absence_evaluation` also refuses a non-UNKNOWN state, so
+        # removing this branch no longer records REJECTED (it used to hit the immutable terminal
+        # row when the order was then sent). What the branch alone provides is the operator's
+        # reason -- `RECONCILE_NOT_FOUND_DISPATCH_MAY_BE_LIVE` -- and the test asserts it.
+        expected_fragment="the live-dispatch reason was not surfaced to the operator",
     ),
     # P2 -- a terminal attempt is immutable
     Family(
