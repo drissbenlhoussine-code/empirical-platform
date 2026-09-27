@@ -54,7 +54,7 @@ as the candidate (the `dirty` count in each header is the number of not-yet-comm
 | No inter-process lock on the simulation state dir | `SimulationStateLock` (OS file lock) taken first in `simulation_console_runtime` and in `compose_operator_console`, released last; launcher exits 2 with `REFUSED` | `test_m086_simulation_state_lock.py` (in-process, cross-process, dead holder); PostgreSQL `test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state`; subprocess `test_a_second_launcher_process_is_refused_with_exit_code_2` |
 | Reconciler not joined before resources closed | `_Reconciler.stop()` signals and joins (30 s timeout, reported if exceeded) inside the `serve` block's `finally`, before the runtime context closes the service and lock | launcher `TestTheReconcilerIsStoppedAndJoined` (pass in flight completes, nothing after join, source order parsed) |
 
-FINAL_RESULTS_PLACEHOLDER
+Verification on the corrected candidate **`65623792f69645c671b83cbf9a8040f2e1ae9c57`** (clean tree, `runs-6562379/`): R1 focused **1014 passed** (all M086 suites incl. the state-lock and reconciler tests + every M085 unit suite) · R2 **517 passed** (13 M085 PostgreSQL suites unchanged + 6 M086 PostgreSQL tests incl. the real second-launcher subprocess) · R3 full non-PostgreSQL suite **4315 passed, 0 failed, 1260 opt-in skips, coverage 80.99 %** · R5 static/frozen/security/build **green**. No M085 production file changed; the mutation campaign was not rerun (no M085 target changed).
 
 ## 3. External effects
 
