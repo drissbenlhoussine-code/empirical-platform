@@ -1,5 +1,6 @@
 M	.gitattributes
 A	.github/workflows/m085-temporal.yml
+A	.github/workflows/m086-console.yml
 M	.gitignore
 M	PROJECT_CHECKPOINT.md
 A	docs/operations/operator-console.md
