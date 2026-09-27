@@ -1,6 +1,8 @@
 # MILESTONE-086 — Operator Console, daily decision UI and safe simulation
 
-Status: **M086_SIMULATION_CANDIDATE_FOR_INDEPENDENT_REVIEW.** Published on its own branch
+Status: **M086_READY_FOR_FINAL_PUBLICATION (local candidate `113a92b`, not yet pushed).** The
+final independent review accepted the open-position fix and the state-directory lock and left one
+finding — the reconciler shutdown contract — which `113a92b` corrects (verification §2b). Branch
 `feature/m086-operator-console-simulation` (base: the M085 head `54ae23c7f22c4544b3dc3b06761adc3a25f5ced4`);
 not merged, not frozen. NOT M086 COMPLETE, NOT DAILY TRADING READY, NOT PAPER READY, NOT LIVE READY. **No Alpaca call of any kind, no Paper order, no live trading.** The only
 execution capability the console can be composed for is SIMULATION; Paper is displayed as
@@ -158,7 +160,7 @@ lists the recent execution attempts, keeps only those in a non-terminal state
 | It cannot submit a new order | Demonstrated: after every refresh the simulated broker's order count is unchanged (unit and PostgreSQL tests); the reconcile handler has no send path |
 | It only reconciles already-authorized, existing executions | Demonstrated: the selection is by existing attempt rows and their states |
 | Restart does not duplicate it or execute stale work | Demonstrated for state: every pass re-reads durable rows; reconciliation rounds are durable and completed exactly once (M085 round journal). One thread per process is started in the launcher; not separately tested |
-| Stopping the console stops the worker safely | Demonstrated: `_Reconciler.stop()` signals AND JOINS the thread and is called in the `serve` block's `finally`, before the runtime's PostgreSQL service and state lock close (`TestTheReconcilerIsStoppedAndJoined`: a pass in flight completes before `stop()` returns, nothing runs after the join, and the source order runtime → serve → stop is parsed from the launcher) |
+| Stopping the console stops the worker safely | Demonstrated: `_Reconciler.stop()` signals AND JOINS the thread **until it has terminated** — there is no timeout that permits teardown (a 30 s interval only reports a slow pass; a second Ctrl+C does not cut the wait) — and is called in the `serve` block's `finally` and again in an outer `finally`, so neither the server nor the runtime's PostgreSQL service and state lock can close while the thread is alive (`TestTheReconcilerIsStoppedAndJoined`: a pass in flight completes before `stop()` returns; a **blocked** refresh holds `stop()` and every teardown step until it is released; the real `main()` with fakes records refresh start → refresh end → server closed → runtime closed; nothing runs after the join; the source order is parsed and "closing anyway" is absent) |
 | Multiple console processes cannot cause unsafe duplicated actions | Demonstrated: one console per simulation state directory is enforced by an exclusive operating-system file lock (`SimulationStateLock`, `msvcrt.locking` on Windows / `fcntl.flock` on POSIX) taken before any database connection or store is opened and released last; a second process is refused with exit code 2 before it can read or mutate state (`test_m086_simulation_state_lock.py`: in-process, across real processes, and a killed holder leaves no stale lock; PostgreSQL `test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state` and the real two-launcher subprocess test `test_a_second_launcher_process_is_refused_with_exit_code_2`). At the M085 level concurrent reconcilers were already safe (round journal under the attempt lock) |
 
 ## 7. Known limitations (real)

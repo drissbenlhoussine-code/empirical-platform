@@ -52,9 +52,45 @@ as the candidate (the `dirty` count in each header is the number of not-yet-comm
 |---|---|---|
 | A FILLED BUY entry disappeared from Active trades | `position_is_open` (durable attempt only); open positions listed with `exit_status` "Open position — exit locked pending M087"; M085 FILLED untouched; no cancel/exit offered | service `test_confirm_approval_runs_the_whole_chain_and_the_order_fills`, `test_open_positions_stay_visible_and_closed_or_rejected_ones_do_not`; routes `test_a_filled_entry_is_shown_as_an_open_position_with_its_exit_locked`; PostgreSQL daily scenario |
 | No inter-process lock on the simulation state dir | `SimulationStateLock` (OS file lock) taken first in `simulation_console_runtime` and in `compose_operator_console`, released last; launcher exits 2 with `REFUSED` | `test_m086_simulation_state_lock.py` (in-process, cross-process, dead holder); PostgreSQL `test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state`; subprocess `test_a_second_launcher_process_is_refused_with_exit_code_2` |
-| Reconciler not joined before resources closed | `_Reconciler.stop()` signals and joins (30 s timeout, reported if exceeded) inside the `serve` block's `finally`, before the runtime context closes the service and lock | launcher `TestTheReconcilerIsStoppedAndJoined` (pass in flight completes, nothing after join, source order parsed) |
+| Reconciler not joined before resources closed | `_Reconciler.stop()` signals and joins **until the thread has terminated** (no timeout permits teardown; a 30 s interval only reports a slow pass on stderr; a second Ctrl+C does not cut the wait) inside the `serve` block's `finally` and again in an outer `finally`, so neither the server nor the runtime context (service + lock) can close while the reconciler is alive. Final-review correction: the earlier "30 s timeout, closing anyway" branch is removed. | launcher `TestTheReconcilerIsStoppedAndJoined` (pass in flight completes, nothing after join, **blocked refresh: stop() does not return and no teardown runs until the refresh is released**, **real `main()` with fakes: events are refresh start → refresh end → server closed → runtime closed**, source order parsed, no "closing anyway" in the source) |
 
 Verification on the corrected candidate **`65623792f69645c671b83cbf9a8040f2e1ae9c57`** (clean tree, `runs-6562379/`): R1 focused **1014 passed** (all M086 suites incl. the state-lock and reconciler tests + every M085 unit suite) · R2 **517 passed** (13 M085 PostgreSQL suites unchanged + 6 M086 PostgreSQL tests incl. the real second-launcher subprocess) · R3 full non-PostgreSQL suite **4315 passed, 0 failed, 1260 opt-in skips, coverage 80.99 %** · R5 static/frozen/security/build **green**. No M085 production file changed; the mutation campaign was not rerun (no M085 target changed).
+
+## 2b. Final-review correction (one finding: the reconciler shutdown contract)
+
+The final independent review of `be8b746` accepted the open-position fix and the state-directory
+lock and found one remaining defect: `_Reconciler.stop()` joined with a 30-second timeout and the
+launcher then printed "closing anyway" and left the runtime context, so PostgreSQL/runtime
+resources could close while the reconciliation thread was still using them.
+
+Corrected in **`113a92bb8cd2a6e488f3133cfe865bf0f99ce8b2`** (launcher, its tests and the runbook only;
+no other production file changed):
+
+- shutdown request → stop event set → the pass in flight finishes → the thread is joined **until it
+  has actually terminated** → only then do the server, the runtime, the PostgreSQL service and the
+  state lock close;
+- no timeout permits teardown: `report_every` (30 s) only prints a stderr line that the pass is
+  still being waited for; a KeyboardInterrupt during the wait is reported and the wait continues;
+- `stop()` is called in the `serve` block's `finally` (before the server closes) and again in an
+  outer `finally`, so a server that never started (port in use, Ctrl+C during startup) cannot leave
+  the runtime context with the reconciler alive either.
+
+| Proof | Test |
+|---|---|
+| A refresh blocked in flight holds `stop()` — and everything after it — until released; several report intervals pass, only a diagnostic is printed, no teardown runs | launcher `TestTheReconcilerIsStoppedAndJoined::test_stop_waits_for_a_blocked_refresh_however_long_it_takes` |
+| The real `main()` with a fake runtime, application and server: Ctrl+C arrives while a refresh is blocked; recorded order is refresh start → refresh end → server closed → runtime closed; neither closes while the thread is alive | `::test_the_runtime_closes_only_after_the_blocked_refresh_completes` |
+| Source contract: both stop calls present, `while self.is_alive()` join loop, no "closing anyway" | `::test_the_launcher_stops_the_reconciler_before_the_runtime_closes` |
+| Pass in flight completes before `stop()` returns; nothing runs after the join; stop before the first pass runs none | `::test_stop_joins_and_a_pass_in_flight_completes_first`, `::test_stop_before_the_first_pass_never_runs_one` |
+
+Verification at `113a92b` (`runs-113a92b/`, tree dirty only by this section and the README status line):
+
+| Stage | Scope | Result |
+|---|---|---|
+| R1 focused | all seven M086 unit/architecture suites, verbose by id (service 55, routes 16, launcher **13**, simulation broker 15, domain 14, state lock 3, architecture 9) | **125 passed** |
+| R2 PostgreSQL | `test_m086_operator_console_postgres.py` (6, incl. the real second-launcher subprocess and the restart with open positions) on the disposable database | **6 passed** |
+| R5 static | compileall, ruff format (774 files) / check, mypy (376 files), architecture + negative fixture, frozen paths (M083 27 + M084 69), `tests/architecture` 50 passed, authority renderers M082–M085 current, M084 file audit, `scripts/security.ps1` (pip-audit none; secret scan 1542 targets), build | **green** (exhaustion table `--check` reports the inventory stale until regenerated at this head, as at every head) |
+
+Not rerun: the 13 M085 PostgreSQL suites (no M085 file changed; they ran unchanged on `be8b746` in CI: 511 passed) and the full non-PostgreSQL suite (CI runs it on push). A manual Ctrl+C run against a live PostgreSQL console was not performed on Windows (no reliable way to deliver SIGINT to a child); the shutdown order is proven by the `main()` test above and the launcher subprocess is exercised by the PostgreSQL suite.
 
 ## 3. External effects
 
@@ -70,4 +106,4 @@ Owner decision carried forward: the M085 exhaustion table's row 30 ("No M086 pat
 
 Open finding carried: **M086-REV-EXIT-01 — OPEN** (no exit/close path; README §6a).
 
-Publication status: **M086_SIMULATION_CANDIDATE_FOR_INDEPENDENT_REVIEW** — local commits only; not pushed; not merged; not frozen. No Paper order, no Alpaca call, no live trading. M085 Paper Acceptance remains NOT_STARTED and Paper composition in the console is a separate, Owner-gated change that this milestone does not pre-authorize.
+Publication status: **M086_READY_FOR_FINAL_PUBLICATION** for candidate `113a92b` — local commits only; not pushed (stopped before push as instructed); not merged; not frozen. No Paper order, no Alpaca call, no live trading. M085 Paper Acceptance remains NOT_STARTED and Paper composition in the console is a separate, Owner-gated change that this milestone does not pre-authorize.
