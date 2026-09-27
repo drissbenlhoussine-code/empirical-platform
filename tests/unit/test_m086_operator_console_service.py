@@ -111,7 +111,14 @@ def test_confirm_approval_runs_the_whole_chain_and_the_order_fills(world: World)
         "Filled",
     ]
     assert all(s.reached for s in filled.timeline)
-    assert world.service.active_trades() == ()
+    # A FILLED BUY entry is an OPEN POSITION: it stays in Active trades with its exit locked
+    # (M086-REV-EXIT-01); the M085 state is still FILLED and nothing can be cancelled or sent.
+    (open_position,) = world.service.active_trades()
+    assert open_position.intent_id == intent.intent_governance_id
+    assert open_position.position_open and open_position.is_terminal
+    assert open_position.state is HumanState.FILLED and not open_position.can_cancel
+    assert "exit locked pending M087" in open_position.exit_status
+    assert open_position.raw_state == "FILLED"
     history = world.service.history()
     assert history[0].final_state is HumanState.FILLED
     assert history[0].execution_kind == "Simulation execution"
@@ -495,3 +502,25 @@ def test_the_simulation_day_can_be_opened_at_any_hour(tmp_path: Path, hour: int)
     assert again.proposed == () and set(again.already_present) == {"AAPL", "XOM"}
     versions = {k[1] for k in late.repositories.configurations.rows}  # type: ignore[attr-defined]
     assert versions in ({1}, {1, 2})
+
+
+def test_open_positions_stay_visible_and_closed_or_rejected_ones_do_not(world: World) -> None:
+    world.load_day(("AAPL", "MSFT", "AMZN", "V"))
+    for symbol in ("AAPL", "MSFT", "AMZN", "V"):
+        _approve(world, symbol)
+    world.service.cancel_execution(f"INT-{world.proposal_id('V')}")
+    for _ in range(2):
+        world.clock.advance(5)
+        world.service.refresh_executions()
+    active = {row.symbol: row for row in world.service.active_trades()}
+    assert set(active) == {"AAPL", "MSFT"}  # filled and partially filled are open positions
+    assert active["AAPL"].position_open and active["AAPL"].state is HumanState.FILLED
+    assert active["MSFT"].position_open and active["MSFT"].state is HumanState.PARTIALLY_FILLED
+    assert active["MSFT"].can_cancel and not active["AAPL"].can_cancel
+    # AMZN was rejected by the broker and V was cancelled: nothing is held, nothing is listed.
+    assert _card(world, "AMZN").state is HumanState.REJECTED  # type: ignore[attr-defined]
+    assert _card(world, "V").state is HumanState.CANCELLED  # type: ignore[attr-defined]
+    assert world.service.today().active_positions_count == 2
+    # The M085 record is untouched by the console's reading of it.
+    attempt = world.repositories.attempts.for_intent(f"INT-{world.proposal_id('AAPL')}")
+    assert attempt is not None and attempt.state.value == "FILLED" and attempt.is_terminal

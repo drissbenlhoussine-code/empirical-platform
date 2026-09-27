@@ -46,6 +46,16 @@ as the candidate (the `dirty` count in each header is the number of not-yet-comm
 | Owner rejects | service `test_rejection_needs_one_confirmation_and_sends_nothing`; routes rejection test |
 | Real browser run | `screens/01…09` — approval confirmed in Chrome, background reconciler moved the order to Filled, History and the execution timeline captured |
 
+## 2a. Final correction (three independent-review findings)
+
+| Finding | Fix | Tests |
+|---|---|---|
+| A FILLED BUY entry disappeared from Active trades | `position_is_open` (durable attempt only); open positions listed with `exit_status` "Open position — exit locked pending M087"; M085 FILLED untouched; no cancel/exit offered | service `test_confirm_approval_runs_the_whole_chain_and_the_order_fills`, `test_open_positions_stay_visible_and_closed_or_rejected_ones_do_not`; routes `test_a_filled_entry_is_shown_as_an_open_position_with_its_exit_locked`; PostgreSQL daily scenario |
+| No inter-process lock on the simulation state dir | `SimulationStateLock` (OS file lock) taken first in `simulation_console_runtime` and in `compose_operator_console`, released last; launcher exits 2 with `REFUSED` | `test_m086_simulation_state_lock.py` (in-process, cross-process, dead holder); PostgreSQL `test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state`; subprocess `test_a_second_launcher_process_is_refused_with_exit_code_2` |
+| Reconciler not joined before resources closed | `_Reconciler.stop()` signals and joins (30 s timeout, reported if exceeded) inside the `serve` block's `finally`, before the runtime context closes the service and lock | launcher `TestTheReconcilerIsStoppedAndJoined` (pass in flight completes, nothing after join, source order parsed) |
+
+FINAL_RESULTS_PLACEHOLDER
+
 ## 3. External effects
 
 Zero. The console composes `SimulatedPaperBroker` and `SimulatedMarketData` only; the

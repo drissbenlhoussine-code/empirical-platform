@@ -139,8 +139,10 @@ but NOT the complete intended intraday lifecycle: filled → controlled exit →
 final round-trip result. A simulator marking an entry order filled is not a closed trade. The
 console counts a filled simulated order as a held position and History shows "Not available" for
 the result. M086 is not commercially or daily-operation complete while this is open. Recorded
-for the independent review to decide the narrow implementation scope; no code was changed for
-it in the publication mission.
+for the independent review to decide the narrow implementation scope; no exit path was added.
+Since the final correction, a FILLED (or partially filled) BUY entry stays visible in **Active
+trades as an OPEN POSITION** with its exit shown as **locked pending M087**; the M085 `FILLED`
+state is not changed and no cancel or exit action is offered for it.
 
 ## 6b. The background reconciler, exactly
 
@@ -156,8 +158,8 @@ lists the recent execution attempts, keeps only those in a non-terminal state
 | It cannot submit a new order | Demonstrated: after every refresh the simulated broker's order count is unchanged (unit and PostgreSQL tests); the reconcile handler has no send path |
 | It only reconciles already-authorized, existing executions | Demonstrated: the selection is by existing attempt rows and their states |
 | Restart does not duplicate it or execute stale work | Demonstrated for state: every pass re-reads durable rows; reconciliation rounds are durable and completed exactly once (M085 round journal). One thread per process is started in the launcher; not separately tested |
-| Stopping the console stops the worker safely | By construction: the thread is a daemon stopped through an event in the launcher's `finally`; a pass in flight completes its current M085 handler call (which is itself crash-safe per M085). **For review — not covered by an automated test** |
-| Multiple console processes cannot cause unsafe duplicated actions | Partly demonstrated at the M085 level: concurrent reconcilers obtain distinct durable round sequences under the attempt lock and finalisation re-validates fresh evidence (M085 PostgreSQL suites); two console processes at once were **not** run in this milestone. **For review** |
+| Stopping the console stops the worker safely | Demonstrated: `_Reconciler.stop()` signals AND JOINS the thread and is called in the `serve` block's `finally`, before the runtime's PostgreSQL service and state lock close (`TestTheReconcilerIsStoppedAndJoined`: a pass in flight completes before `stop()` returns, nothing runs after the join, and the source order runtime → serve → stop is parsed from the launcher) |
+| Multiple console processes cannot cause unsafe duplicated actions | Demonstrated: one console per simulation state directory is enforced by an exclusive operating-system file lock (`SimulationStateLock`, `msvcrt.locking` on Windows / `fcntl.flock` on POSIX) taken before any database connection or store is opened and released last; a second process is refused with exit code 2 before it can read or mutate state (`test_m086_simulation_state_lock.py`: in-process, across real processes, and a killed holder leaves no stale lock; PostgreSQL `test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state` and the real two-launcher subprocess test `test_a_second_launcher_process_is_refused_with_exit_code_2`). At the M085 level concurrent reconcilers were already safe (round journal under the attempt lock) |
 
 ## 7. Known limitations (real)
 
@@ -175,6 +177,6 @@ lists the recent execution attempts, keeps only those in a non-terminal state
   nothing reconciles until it is started again or "Check with broker now" is pressed.
 - The confirmation flash message is held in process memory; a restart drops it (the durable
   state is still shown).
-- Positions are counted from filled attempts; there is no exit path in M085.
+- Positions are counted from filled attempts and shown as open positions with the exit locked; there is no exit path in M085 (M086-REV-EXIT-01).
 - `--load-day` with an existing configuration whose watchlist lacks a symbol will have that
   symbol refused by the engine (reported, not forced).

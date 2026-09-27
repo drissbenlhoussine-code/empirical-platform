@@ -23,6 +23,7 @@ from empirical_platform.entrypoints._operator_console_composition import (
     compose_operator_console,
 )
 from empirical_platform.shared.brokerage.paper_time import PaperTimeReading
+from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.usecases.operator_console import (
     CapabilityRefusedError,
@@ -132,7 +133,8 @@ def test_the_daily_scenario_end_to_end_on_postgres(world: dict[str, Any]) -> Non
     a.service.refresh_executions()
     execution = a.service.execution(f"INT-{proposal_id}")
     assert execution.state is HumanState.FILLED and execution.is_terminal
-    assert a.service.active_trades() == ()
+    (held,) = a.service.active_trades()  # the filled entry is an open position, exit locked
+    assert held.position_open and "M087" in held.exit_status
     history = a.service.history(symbol="AAPL")
     assert (
         history[0].final_state is HumanState.FILLED
@@ -157,6 +159,7 @@ def test_restart_after_an_ambiguous_execution_reconstructs_and_resolves(
     view = a.service.prepare_approval(_proposal_id(world["clock"], "NVDA"))  # page left open
     a.service.set_kill_switch(engaged=True, reason="before restart")
     orders_before = len(a.store.orders())
+    a.close()  # the first process ends and releases the state-directory lock
 
     b = world["process"]("b")  # restarted process: new service, new secret, same database and store
     assert b.service.opportunity(ko).state is HumanState.NEEDS_ATTENTION
@@ -208,3 +211,88 @@ def test_the_absence_policy_and_the_kill_switch_hold_on_postgres(world: dict[str
             text("SELECT count(*) FROM public.paper_execution_attempt")
         ).scalar_one()
     assert count == 1  # XOM only; the blocked approval wrote no attempt
+
+
+def test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state(
+    world: dict[str, Any],
+) -> None:
+    a = world["process"]("a")
+    a.load_day()
+    store_bytes = a.store.path.read_bytes()
+    service = PostgresPersistenceService(config("m086-console-second"))
+    service.initialize()
+    try:
+        with pytest.raises(SimulationStateLockedError):
+            compose_operator_console(
+                ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"]
+            )
+        assert a.store.path.read_bytes() == store_bytes  # nothing was read into a second store
+        assert a.state_lock is not None and a.state_lock.held
+        a.close()  # the first console stops: the lock is released ...
+        second = compose_operator_console(
+            ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"]
+        )
+        try:
+            assert second.service.today().needs_action_count == 12  # ... and the state is intact
+        finally:
+            second.close()
+    finally:
+        service.close()
+
+
+def test_a_second_launcher_process_is_refused_with_exit_code_2(world: dict[str, Any]) -> None:
+    """Real subprocesses: the first launcher holds the state directory; a second is refused."""
+    import os
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    environment = dict(os.environ)
+    environment["PYTHONUNBUFFERED"] = "1"
+    state_dir = Path(world["state_dir"]) / "launcher"
+    argv = [
+        sys.executable,
+        "-m",
+        "empirical_platform.entrypoints.operator_console",
+        "--no-browser",
+        "--state-dir",
+        str(state_dir),
+        "--reconcile-every",
+        "0",
+    ]
+    first = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+        [*argv, "--port", "8099"],
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline and not (state_dir / "console.lock").exists():
+            if first.poll() is not None:
+                output = first.stdout.read() if first.stdout else ""
+                raise AssertionError(f"first console exited early: {output}")
+            time.sleep(0.2)
+        assert (state_dir / "console.lock").exists()
+        time.sleep(1.0)
+        second = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            [*argv, "--port", "8098"],
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        assert second.returncode == 2, second.stderr
+        assert "REFUSED" in second.stderr
+        assert "already owns the simulation state directory" in second.stderr
+        assert "OPERATOR CONSOLE" not in second.stdout  # it never got as far as serving
+        assert first.poll() is None  # the first one is unaffected
+    finally:
+        first.terminate()
+        try:
+            first.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            first.kill()

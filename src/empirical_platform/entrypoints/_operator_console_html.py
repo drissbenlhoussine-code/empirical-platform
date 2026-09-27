@@ -386,6 +386,12 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
             + _e(summary.pending_reason or "")
             + "</p>"
         )
+    if summary.position_open:
+        pending += (
+            '<p class="note note-info"><strong>Open position.</strong> '
+            + _e(summary.exit_status)
+            + " No exit path exists in this milestone; nothing is sent.</p>"
+        )
     actions = ""
     if with_actions and summary.can_cancel:
         actions = (
@@ -410,6 +416,7 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
             ("Average fill price", summary.filled_avg_price),
             ("Reconciliation", summary.reconciliation),
             ("Execution kind", summary.execution_kind),
+            ("Position", summary.exit_status),
         ]
     )
     return (
@@ -449,7 +456,7 @@ def active_page(
             + "</section>"
         )
     else:
-        cards = '<section class="empty"><h2>No active trades</h2><p>Every execution has reached a final state.</p></section>'
+        cards = '<section class="empty"><h2>No active trades or open positions</h2><p>Every execution has reached a final state and no filled position is held.</p></section>'
     body = f'<div class="title-row"><h1>Active trades</h1>{refresh}</div>{cards}'
     return _layout(
         title="Active trades",

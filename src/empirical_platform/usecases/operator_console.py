@@ -122,6 +122,7 @@ __all__ = [
     "ExecutionSummary",
     "HistoryEntry",
     "HumanState",
+    "OPEN_POSITION_EXIT_STATUS",
     "OperatorConsoleService",
     "OpportunityCard",
     "RuleRow",
@@ -132,6 +133,7 @@ __all__ = [
     "TodayView",
     "describe_failure",
     "human_state_for_attempt",
+    "position_is_open",
     "refuse_requested_environment",
 ]
 
@@ -271,6 +273,22 @@ _ATTEMPT_STATES: Mapping[PaperExecutionState, HumanState] = {
     PaperExecutionState.EXPIRED: HumanState.EXPIRED,
     PaperExecutionState.SUBMISSION_UNKNOWN: HumanState.NEEDS_ATTENTION,
 }
+
+
+OPEN_POSITION_EXIT_STATUS = "Open position — exit locked pending M087."
+
+
+def position_is_open(attempt: ExecutionAttempt) -> bool:
+    """A filled or partially filled BUY whose shares are held: an open position.
+
+    Derived from the durable attempt only. FILLED stays FILLED in M085; this is the
+    console's reading of it until an exit path exists (M086-REV-EXIT-01).
+    """
+    return (
+        attempt.state in {PaperExecutionState.FILLED, PaperExecutionState.PARTIALLY_FILLED}
+        and attempt.filled_quantity is not None
+        and attempt.filled_quantity > 0
+    )
 
 
 def human_state_for_attempt(attempt: ExecutionAttempt) -> HumanState:
@@ -421,6 +439,11 @@ class ExecutionSummary:
     outcome_known: bool
     can_cancel: bool
     execution_kind: str
+    #: A FILLED (or partially filled) BUY entry is an OPEN POSITION until an exit path
+    #: exists. M085 has none (M086-REV-EXIT-01), so the position stays visible in Active
+    #: trades with its exit shown as locked. The M085 state itself is not changed.
+    position_open: bool
+    exit_status: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -1191,7 +1214,7 @@ class OperatorConsoleService:
             decision, intent, attempt = self._execution_for(proposal)
             if intent is None:
                 continue
-            if attempt is not None and attempt.is_terminal:
+            if attempt is not None and attempt.is_terminal and not position_is_open(attempt):
                 continue
             rows.append(self._summary(proposal, decision, intent, attempt))
         rows.sort(key=lambda s: s.claimed_at or s.decided_at or datetime.min.replace(tzinfo=UTC))
@@ -1217,6 +1240,7 @@ class OperatorConsoleService:
     ) -> ExecutionSummary:
         events = self._r.events.for_intent(intent.intent_governance_id)
         authorization = self._r.authorizations.latest_for_intent(intent.intent_governance_id)
+        position_open = attempt is not None and position_is_open(attempt)
         state = human_state_for_attempt(attempt) if attempt is not None else HumanState.APPROVED
         warnings: list[str] = []
         pending: str | None = None
@@ -1247,7 +1271,12 @@ class OperatorConsoleService:
             }:
                 pending = "Waiting for the broker to fill the order."
             elif attempt.state is PaperExecutionState.PARTIALLY_FILLED:
-                pending = "Partially filled; the rest is still working."
+                pending = (
+                    "Partially filled; the rest is still working. The filled part is an "
+                    "open position."
+                )
+            elif attempt.state is PaperExecutionState.FILLED and position_open:
+                pending = OPEN_POSITION_EXIT_STATUS + " Nothing is sent."
             elif attempt.state is PaperExecutionState.CANCEL_REQUESTED:
                 pending = "Cancel requested; a request is not yet a cancellation."
             if attempt.failure_code and attempt.state is not PaperExecutionState.REJECTED:
@@ -1307,6 +1336,8 @@ class OperatorConsoleService:
                 PaperExecutionState.PARTIALLY_FILLED,
             },
             execution_kind=f"{self._capability.label} execution",
+            position_open=position_open,
+            exit_status=OPEN_POSITION_EXIT_STATUS if position_open else NOT_AVAILABLE,
         )
 
     def _timeline(

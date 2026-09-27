@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import threading
 from collections.abc import Callable
@@ -59,6 +60,8 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
 
 __all__ = [
     "SIMULATION_ACCOUNT_ID",
+    "SimulationStateLock",
+    "SimulationStateLockedError",
     "SIMULATION_MARKET_DATA_HOST",
     "SIMULATION_QUOTE_SOURCE",
     "SimulatedMarketData",
@@ -423,6 +426,80 @@ class SimulationStore:
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+class SimulationStateLockedError(RuntimeError):
+    """Another Operator Console process already owns this simulation state directory."""
+
+
+class SimulationStateLock:
+    """One console per state directory, enforced by an operating-system file lock.
+
+    The lock is taken BEFORE any database connection or store is opened and held for the
+    process's whole life; a second process on the same directory is refused before it can
+    read or mutate simulation state. Exclusive, non-blocking, released on `release()` or
+    when the process dies (the OS drops it), so a crash never leaves a stale lock behind.
+    Windows uses `msvcrt.locking`; POSIX uses `fcntl.flock`.
+    """
+
+    FILE_NAME = "console.lock"
+
+    def __init__(self, state_dir: Path) -> None:
+        self._path = Path(state_dir) / self.FILE_NAME
+        self._handle: Any = None
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    @property
+    def held(self) -> bool:
+        return self._handle is not None
+
+    def acquire(self) -> None:
+        if self._handle is not None:
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(self._path, "a+b")  # noqa: SIM115
+        try:
+            handle.seek(0, os.SEEK_END)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            if sys.platform == "win32":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            handle.close()
+            raise SimulationStateLockedError(
+                f"another Operator Console already owns the simulation state directory "
+                f"{self._path.parent} (lock file {self._path.name}); refusing to start a second "
+                "one. Stop it first, or use a different --state-dir."
+            ) from error
+        self._handle = handle
+
+    def release(self) -> None:
+        handle, self._handle = self._handle, None
+        if handle is None:
+            return
+        try:
+            handle.seek(0)
+            if sys.platform == "win32":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 class SimulatedPaperBroker:

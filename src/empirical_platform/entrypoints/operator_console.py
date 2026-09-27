@@ -9,6 +9,13 @@ no Alpaca credential is read and no order can reach any venue. It binds to the l
 address and refuses any other host. One process serves the pages and, in the background,
 asks the simulated broker about every open execution through the MILESTONE-085 reconciler,
 so Active trades moves from Submitted to Accepted to Filled without shell interaction.
+
+ONE CONSOLE PER STATE DIRECTORY. The simulation state directory is locked with an
+operating-system file lock before anything else is opened; a second console started on the
+same directory is refused with exit code 2 before it can read or mutate simulation state.
+
+SHUTDOWN ORDER. On Ctrl+C the server stops accepting requests, the background reconciler is
+signalled AND joined, and only then are the PostgreSQL service and the state lock released.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ import ipaddress
 import sys
 import threading
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 
 from empirical_platform.entrypoints._operator_console_composition import (
@@ -25,12 +33,14 @@ from empirical_platform.entrypoints._operator_console_composition import (
 )
 from empirical_platform.entrypoints._operator_console_web import SecuritySession, serve
 from empirical_platform.entrypoints.operator_console_app import build_application
+from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
 
 __all__ = ["main"]
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8086
 DEFAULT_STATE_DIR = Path.home() / ".empirical-platform" / "operator-console"
+RECONCILER_JOIN_TIMEOUT_SECONDS = 30.0
 
 
 def _loopback(host: str) -> str:
@@ -49,26 +59,38 @@ def _loopback(host: str) -> str:
 
 
 class _Reconciler(threading.Thread):
-    """Ask the broker about open executions every few seconds, until stopped."""
+    """Ask the broker about open executions every few seconds, until stopped and joined."""
 
-    def __init__(self, refresh: object, interval: float) -> None:
+    def __init__(self, refresh: Callable[[], object], interval: float) -> None:
         super().__init__(name="operator-console-reconciler", daemon=True)
         self._refresh = refresh
         self._interval = interval
         self._stop = threading.Event()
+        self.passes = 0
 
     def run(self) -> None:
         while not self._stop.wait(self._interval):
             try:
-                self._refresh()  # type: ignore[operator]
+                self._refresh()
             except Exception as error:  # noqa: BLE001 - keep reconciling; the handler recorded it
                 print(
                     f"operator-console: reconciliation pass failed: {type(error).__name__}",
                     file=sys.stderr,
                 )
+            finally:
+                self.passes += 1
 
-    def stop(self) -> None:
+    def stop(self, *, timeout: float = RECONCILER_JOIN_TIMEOUT_SECONDS) -> bool:
+        """Signal the loop and JOIN it. Returns whether the thread finished in time.
+
+        Called before the runtime (and its PostgreSQL service) is closed, so a pass in flight
+        completes its M085 handler call against an open service and no pass can start against
+        a closed one.
+        """
         self._stop.set()
+        if self.is_alive():
+            self.join(timeout=timeout)
+        return not self.is_alive()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -90,7 +112,9 @@ def main(argv: list[str] | None = None) -> int:
         "--load-day", action="store_true", help="stage the deterministic simulation day at start"
     )
     parser.add_argument(
-        "--reset-simulation", action="store_true", help="forget the simulated broker's orders first"
+        "--reset-simulation",
+        action="store_true",
+        help="forget the simulated broker's orders first",
     )
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser")
     parser.add_argument(
@@ -102,37 +126,50 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     host = _loopback(arguments.host)
 
-    with simulation_console_runtime(state_dir=arguments.state_dir) as runtime:
-        if arguments.reset_simulation:
-            runtime.store.reset()
-        if arguments.load_day:
-            report = runtime.load_day()
-            print(
-                f"simulation day {report.day}: proposed {', '.join(report.proposed) or 'nothing'}; "
-                f"already present {', '.join(report.already_present) or 'nothing'}"
-            )
-        application = build_application(runtime, security=SecuritySession())
-        reconciler = None
-        if arguments.reconcile_every > 0:
-            reconciler = _Reconciler(runtime.service.refresh_executions, arguments.reconcile_every)
-            reconciler.start()
-        with serve(application, host=host, port=arguments.port) as server:
-            url = f"http://{host}:{server.server_port}/today"
-            print("=" * 72)
-            print("  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.")
-            print(f"  Open {url}")
-            print("  Paper execution locked -- acceptance pending. Live -- not authorized.")
-            print("  Press Ctrl+C to stop.")
-            print("=" * 72, flush=True)
-            if not arguments.no_browser:
-                webbrowser.open(url)
-            try:
-                server.serve_forever(poll_interval=0.5)
-            except KeyboardInterrupt:
-                print("\noperator-console: stopping")
-            finally:
-                if reconciler is not None:
-                    reconciler.stop()
+    try:
+        with simulation_console_runtime(state_dir=arguments.state_dir) as runtime:
+            if arguments.reset_simulation:
+                runtime.store.reset()
+            if arguments.load_day:
+                report = runtime.load_day()
+                print(
+                    f"simulation day {report.day}: proposed "
+                    f"{', '.join(report.proposed) or 'nothing'}; already present "
+                    f"{', '.join(report.already_present) or 'nothing'}"
+                )
+            application = build_application(runtime, security=SecuritySession())
+            reconciler: _Reconciler | None = None
+            if arguments.reconcile_every > 0:
+                reconciler = _Reconciler(
+                    runtime.service.refresh_executions, arguments.reconcile_every
+                )
+                reconciler.start()
+            with serve(application, host=host, port=arguments.port) as server:
+                url = f"http://{host}:{server.server_port}/today"
+                print("=" * 72)
+                print("  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.")
+                print(f"  Open {url}")
+                print("  Paper execution locked -- acceptance pending. Live -- not authorized.")
+                print("  Press Ctrl+C to stop.")
+                print("=" * 72, flush=True)
+                if not arguments.no_browser:
+                    webbrowser.open(url)
+                try:
+                    server.serve_forever(poll_interval=0.5)
+                except KeyboardInterrupt:
+                    print("\noperator-console: stopping")
+                finally:
+                    # Order matters: no new requests, then the reconciler is stopped AND joined,
+                    # and only after this block do the runtime's service and lock close.
+                    if reconciler is not None and not reconciler.stop():
+                        print(
+                            "operator-console: the reconciler did not finish within "
+                            f"{RECONCILER_JOIN_TIMEOUT_SECONDS:.0f}s; closing anyway",
+                            file=sys.stderr,
+                        )
+    except SimulationStateLockedError as refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        return 2
     return 0
 
 

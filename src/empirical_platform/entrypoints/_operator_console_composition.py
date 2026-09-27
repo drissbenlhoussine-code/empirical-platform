@@ -25,6 +25,7 @@ from empirical_platform.shared.brokerage.paper_time import PaperTimeSource, Syst
 from empirical_platform.shared.brokerage.simulation_paper import (
     SimulatedMarketData,
     SimulatedPaperBroker,
+    SimulationStateLock,
     SimulationStore,
     default_scenario_table,
 )
@@ -78,6 +79,13 @@ class ConsoleRuntime:
     clock: Callable[[], datetime]
     watermarks: EvaluationEvidenceWatermarkRepository
     configuration_id: str = SIMULATION_CONFIGURATION_ID
+    #: The exclusive lock on the state directory; released by `close()`.
+    state_lock: SimulationStateLock | None = None
+
+    def close(self) -> None:
+        """Release the state-directory lock. The persistence service is closed by its owner."""
+        if self.state_lock is not None:
+            self.state_lock.release()
 
     def load_day(self) -> SimulationDayReport:
         """Stage the deterministic day: broker behaviours, quotes, and the real M084 proposals."""
@@ -100,14 +108,24 @@ def compose_operator_console(
     state_dir: Path,
     clock: Callable[[], datetime] = _utc_now,
     time_source: PaperTimeSource | None = None,
+    state_lock: SimulationStateLock | None = None,
 ) -> ConsoleRuntime:
-    """Build the console over an initialized persistence service. SIMULATION only."""
+    """Build the console over an initialized persistence service. SIMULATION only.
+
+    Takes the state-directory lock (unless the caller already holds one and passes it)
+    BEFORE the simulation store is opened, so a second console on the same directory is
+    refused before it can read or mutate simulation state.
+    """
     if capability is not ExecutionCapability.SIMULATION:
         raise CapabilityRefusedError(
             f"the Operator Console cannot be composed for {capability.value}: PAPER is locked "
             "pending M085 Paper Acceptance and LIVE is not authorized. Nothing was built."
         )
     require_exact_m085_schema_head(service)
+    lock = state_lock
+    if lock is None:
+        lock = SimulationStateLock(Path(state_dir))
+        lock.acquire()
     m084 = PostgresRepositoryRuntime(service)
     paper = PostgresPaperExecutionRuntime(service)
     store = SimulationStore(Path(state_dir) / SIMULATION_STORE_FILE)
@@ -149,6 +167,7 @@ def compose_operator_console(
         time_source=source,
         clock=clock,
         watermarks=m084.evaluation_evidence_watermarks,
+        state_lock=lock,
     )
 
 
@@ -160,17 +179,27 @@ def simulation_console_runtime(
     clock: Callable[[], datetime] = _utc_now,
     time_source: PaperTimeSource | None = None,
 ) -> Iterator[ConsoleRuntime]:
-    """Own the persistence service for the console's lifetime; SIMULATION capability only."""
-    resolved = config if config is not None else resolve_foundation_config().postgresql
-    service = PostgresPersistenceService(resolved)
+    """Own the state lock and the persistence service for the console's lifetime.
+
+    The lock is taken FIRST -- before any database connection -- so a second process is
+    refused before it touches anything; it is released LAST, after the service is closed.
+    """
+    lock = SimulationStateLock(Path(state_dir))
+    lock.acquire()
     try:
-        service.initialize()
-        yield compose_operator_console(
-            ExecutionCapability.SIMULATION,
-            service=service,
-            state_dir=state_dir,
-            clock=clock,
-            time_source=time_source,
-        )
+        resolved = config if config is not None else resolve_foundation_config().postgresql
+        service = PostgresPersistenceService(resolved)
+        try:
+            service.initialize()
+            yield compose_operator_console(
+                ExecutionCapability.SIMULATION,
+                service=service,
+                state_dir=state_dir,
+                clock=clock,
+                time_source=time_source,
+                state_lock=lock,
+            )
+        finally:
+            service.close()
     finally:
-        service.close()
+        lock.release()

@@ -37,9 +37,18 @@ Useful options:
 
 ## Stop
 
-Press `Ctrl+C` in the terminal that started it. Nothing needs to be flushed: every decision,
-authorization and execution is already in PostgreSQL, and the simulated broker's memory is
-already on disk.
+Press `Ctrl+C` in the terminal that started it. The console stops taking requests, waits for the
+background broker check to finish its current pass, and only then closes the database and releases
+the state directory. Nothing needs to be flushed: every decision, authorization and execution is
+already in PostgreSQL, and the simulated broker's memory is already on disk.
+
+## One console at a time
+
+Only one console may run on a state directory. A second start on the same `--state-dir` is
+refused immediately with `REFUSED: another Operator Console already owns the simulation state
+directory ...` (exit code 2) before it touches anything. Stop the first one, or use another
+`--state-dir`. If a console crashes, the lock is released by the operating system; nothing needs
+to be cleaned up.
 
 ## Restart and recovery
 
@@ -93,8 +102,10 @@ Staged behaviours, by symbol (shown under each card's *Details*):
 - **Blocked** — nothing was sent (kill switch, a refused check, or a failure before the send).
 - **Needs attention** — outcome unknown, do not retry. The console keeps checking the same
   order and never sends it again.
-- **Approved / Submitted / Accepted / Partially filled / Filled / Cancel requested / Cancelled /
-  Rejected / Expired** — the engine's own state, in plain words. Anything the engine does not
+- **Filled / Partially filled** — an **open position**. It stays on Active trades with its exit
+  shown as *locked pending M087*: this milestone has no exit path, so nothing can be sent for it.
+- **Approved / Submitted / Accepted / Cancel requested / Cancelled / Rejected / Expired** — the
+  engine's own state, in plain words. Anything the engine does not
   know shows as **Not available**, never as a guess.
 
 ## Safety page

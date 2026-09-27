@@ -430,3 +430,22 @@ def test_an_unknown_outcome_is_shown_as_needs_attention_never_filled(
     assert "Filled" not in page.body.split("<h1>")[1].split("<details")[0]
     active = client.get("/active")
     assert "Needs attention" in active.body and "do not retry" in active.body
+
+
+def test_a_filled_entry_is_shown_as_an_open_position_with_its_exit_locked(
+    client: Client, world: World
+) -> None:
+    world.load_day(("AAPL",))
+    proposal = world.proposal_id("AAPL")
+    ticket = _ticket(client.get(f"/confirm?action=APPROVE&proposal={proposal}").body)
+    client.post(
+        "/confirm-approval", {"csrf_token": client.csrf(), "proposal": proposal, "ticket": ticket}
+    )
+    for _ in range(2):
+        world.clock.advance(5)
+        client.post("/active/refresh", {"csrf_token": client.csrf()})
+    active = client.get("/active")
+    assert "No active trades" not in active.body
+    assert "Open position." in active.body and "exit locked pending M087" in active.body
+    assert "Filled" in active.body and "Request cancel" not in active.body
+    assert "<dt>Position</dt>" in active.body
