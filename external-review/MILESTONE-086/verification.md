@@ -58,4 +58,6 @@ M086 works end to end in SIMULATION: the day loads through the real M084 handler
 
 Owner decision carried forward: the M085 exhaustion table's row 30 ("No M086 path exists") now derives a blocker (30/31) because M086 paths exist — see README §7; the M085 renderer was not modified.
 
-Recommendation: **M086_SIMULATION_READY_FOR_OWNER_REVIEW** — local commits only; not pushed; not merged; not frozen. No Paper order, no Alpaca call, no live trading. M085 Paper Acceptance remains NOT_STARTED and Paper composition in the console is a separate, Owner-gated change that this milestone does not pre-authorize.
+Open finding carried: **M086-REV-EXIT-01 — OPEN** (no exit/close path; README §6a).
+
+Publication status: **M086_SIMULATION_CANDIDATE_FOR_INDEPENDENT_REVIEW** — local commits only; not pushed; not merged; not frozen. No Paper order, no Alpaca call, no live trading. M085 Paper Acceptance remains NOT_STARTED and Paper composition in the console is a separate, Owner-gated change that this milestone does not pre-authorize.

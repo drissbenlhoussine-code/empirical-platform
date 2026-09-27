@@ -1,7 +1,8 @@
 # MILESTONE-086 — Operator Console, daily decision UI and safe simulation
 
-Status: **M086 SIMULATION CANDIDATE — OWNER REVIEW REQUIRED.** Local commits only; not pushed,
-not merged, not frozen. **No Alpaca call of any kind, no Paper order, no live trading.** The only
+Status: **M086_SIMULATION_CANDIDATE_FOR_INDEPENDENT_REVIEW.** Published on its own branch
+`feature/m086-operator-console-simulation` (base: the M085 head `54ae23c7f22c4544b3dc3b06761adc3a25f5ced4`);
+not merged, not frozen. NOT M086 COMPLETE, NOT DAILY TRADING READY, NOT PAPER READY, NOT LIVE READY. **No Alpaca call of any kind, no Paper order, no live trading.** The only
 execution capability the console can be composed for is SIMULATION; Paper is displayed as
 "Locked pending M085 Paper Acceptance" and Live as "Not authorized". M085 Paper Acceptance
 remains NOT_STARTED and is deferred until the US market is open. M085 is consumed, not changed:
@@ -130,17 +131,45 @@ day (`LIQUIDATION_DEADLINE_UNREACHABLE`) — fixed by the operator-day placement
 weakening the rule; (2) filled quantities rendered as `8.00000000` — whole shares now read as
 whole numbers; (3) the launcher initially contained an unreachable shutdown expression — removed.
 
+## 6a. Open finding — M086-REV-EXIT-01 (OPEN)
+
+MILESTONE-085 has no trade exit or close path for a filled position. M086 therefore demonstrates
+proposal → Owner approval → simulated submit → accepted → filled → durable tracking and history,
+but NOT the complete intended intraday lifecycle: filled → controlled exit → position closed →
+final round-trip result. A simulator marking an entry order filled is not a closed trade. The
+console counts a filled simulated order as a held position and History shows "Not available" for
+the result. M086 is not commercially or daily-operation complete while this is open. Recorded
+for the independent review to decide the narrow implementation scope; no code was changed for
+it in the publication mission.
+
+## 6b. The background reconciler, exactly
+
+`operator_console.py` starts one daemon thread (`_Reconciler`) that, every `--reconcile-every`
+seconds (default 5; 0 disables), calls `OperatorConsoleService.refresh_executions()`. That method
+lists the recent execution attempts, keeps only those in a non-terminal state
+(`SUBMISSION_IN_PROGRESS`, `PAPER_SUBMITTED`, `PAPER_ACCEPTED`, `PARTIALLY_FILLED`,
+`CANCEL_REQUESTED`, `SUBMISSION_UNKNOWN`) and runs the M085 `ReconcilePaperOrderHandler` on each.
+
+| Claim | Status |
+|---|---|
+| It cannot create an Owner authorization | Demonstrated: the code path calls only the reconcile handler (routes/services grep; `test_restart_reconstructs_state_from_durable_records_and_creates_nothing` and the PostgreSQL restart test assert no new authorization or attempt after refreshes) |
+| It cannot submit a new order | Demonstrated: after every refresh the simulated broker's order count is unchanged (unit and PostgreSQL tests); the reconcile handler has no send path |
+| It only reconciles already-authorized, existing executions | Demonstrated: the selection is by existing attempt rows and their states |
+| Restart does not duplicate it or execute stale work | Demonstrated for state: every pass re-reads durable rows; reconciliation rounds are durable and completed exactly once (M085 round journal). One thread per process is started in the launcher; not separately tested |
+| Stopping the console stops the worker safely | By construction: the thread is a daemon stopped through an event in the launcher's `finally`; a pass in flight completes its current M085 handler call (which is itself crash-safe per M085). **For review — not covered by an automated test** |
+| Multiple console processes cannot cause unsafe duplicated actions | Partly demonstrated at the M085 level: concurrent reconcilers obtain distinct durable round sequences under the attempt lock and finalisation re-validates fresh evidence (M085 PostgreSQL suites); two console processes at once were **not** run in this milestone. **For review** |
+
 ## 7. Known limitations (real)
 
-- **The M085 exhaustion table now derives 30/31.** Its row 30, "No M086 path exists", is
-  MILESTONE-085's own scope guard (any tracked path matching `m086|MILESTONE-086`, in
-  `tools/render_m085_exhaustion_table.py`). The Owner's M086 mission proceeds while M085 Paper
-  Acceptance is deferred, so that row now reports a blocker by design and the table is rendered
-  honestly as **30 of 31, 1 blocker** (commit `9af6577`; the message of that commit predicted
-  "31/31" and is superseded by this note). The M085 renderer was deliberately not modified —
-  it is M085 content and a gate. Resolving row 30 is an Owner decision: ratify a scoped
-  exception for the M086 paths in the M085 table, or keep the blocker visible until M085 Paper
-  Acceptance closes.
+- **The inherited M085 scope guard says M086 is outside M085 — a scope boundary, not a defect.**
+  The M085 exhaustion table's row 30, "No M086 path exists" (`tools/render_m085_exhaustion_table.py`,
+  any tracked path matching `m086|MILESTONE-086`), is correct for M085 and reports a blocker on
+  this branch, so the table renders as **30 of 31, 1 blocker** here (commit `9af6577`, whose
+  message predicted "31/31" and is superseded by this note). Nothing was done to accommodate M086
+  inside M085: the renderer, its expectations and PR #15 (the M085-only review surface, still at
+  `54ae23c`) are untouched, and no M086 exception is ratified into M085. The two inventory
+  commits on this branch (`aba9be8`, `9af6577`) regenerate the M085 inventory for THIS branch's
+  head only, so that the table's row 28 stays exact on the branch where the M086 paths exist.
 - Phone-width screenshots are absent (tooling), see above.
 - The background reconciler is a thread in the console process; if the console is not running,
   nothing reconciles until it is started again or "Check with broker now" is pressed.
