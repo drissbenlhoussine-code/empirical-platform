@@ -15,7 +15,9 @@ operating-system file lock before anything else is opened; a second console star
 same directory is refused with exit code 2 before it can read or mutate simulation state.
 
 SHUTDOWN ORDER. On Ctrl+C the server stops accepting requests, the background reconciler is
-signalled AND joined, and only then are the PostgreSQL service and the state lock released.
+signalled AND joined -- for as long as its pass in flight takes; there is no "close anyway" --
+and only then are the server, the PostgreSQL service and the state lock released. No
+repository or service is closed while the reconciler thread is alive.
 """
 
 from __future__ import annotations
@@ -40,7 +42,7 @@ __all__ = ["main"]
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8086
 DEFAULT_STATE_DIR = Path.home() / ".empirical-platform" / "operator-console"
-RECONCILER_JOIN_TIMEOUT_SECONDS = 30.0
+RECONCILER_JOIN_REPORT_INTERVAL_SECONDS = 30.0  # diagnostics only; never permits teardown
 
 
 def _loopback(host: str) -> str:
@@ -80,17 +82,33 @@ class _Reconciler(threading.Thread):
             finally:
                 self.passes += 1
 
-    def stop(self, *, timeout: float = RECONCILER_JOIN_TIMEOUT_SECONDS) -> bool:
-        """Signal the loop and JOIN it. Returns whether the thread finished in time.
+    def stop(self, *, report_every: float = RECONCILER_JOIN_REPORT_INTERVAL_SECONDS) -> None:
+        """Signal the loop and JOIN it until the thread has actually terminated.
 
-        Called before the runtime (and its PostgreSQL service) is closed, so a pass in flight
-        completes its M085 handler call against an open service and no pass can start against
-        a closed one.
+        Called before the server, the runtime and its PostgreSQL service are closed, so a pass
+        in flight completes its M085 handler call against an open service and no pass can start
+        against a closed one. There is no timeout that permits teardown: `report_every` only
+        governs how often a still-running pass is reported on stderr while we keep waiting. A
+        KeyboardInterrupt during the wait is reported and the wait continues -- the database must
+        not be closed under a running reconciliation.
         """
         self._stop.set()
-        if self.is_alive():
-            self.join(timeout=timeout)
-        return not self.is_alive()
+        while self.is_alive():
+            try:
+                self.join(timeout=report_every)
+            except KeyboardInterrupt:
+                print(
+                    "operator-console: still waiting for the reconciliation pass in flight; "
+                    "the database is not closed while it runs",
+                    file=sys.stderr,
+                )
+                continue
+            if self.is_alive():
+                print(
+                    "operator-console: waiting for the reconciliation pass in flight "
+                    f"({report_every:.0f}s and counting); nothing is closed until it finishes",
+                    file=sys.stderr,
+                )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -139,34 +157,37 @@ def main(argv: list[str] | None = None) -> int:
                 )
             application = build_application(runtime, security=SecuritySession())
             reconciler: _Reconciler | None = None
-            if arguments.reconcile_every > 0:
-                reconciler = _Reconciler(
-                    runtime.service.refresh_executions, arguments.reconcile_every
-                )
-                reconciler.start()
-            with serve(application, host=host, port=arguments.port) as server:
-                url = f"http://{host}:{server.server_port}/today"
-                print("=" * 72)
-                print("  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.")
-                print(f"  Open {url}")
-                print("  Paper execution locked -- acceptance pending. Live -- not authorized.")
-                print("  Press Ctrl+C to stop.")
-                print("=" * 72, flush=True)
-                if not arguments.no_browser:
-                    webbrowser.open(url)
-                try:
-                    server.serve_forever(poll_interval=0.5)
-                except KeyboardInterrupt:
-                    print("\noperator-console: stopping")
-                finally:
-                    # Order matters: no new requests, then the reconciler is stopped AND joined,
-                    # and only after this block do the runtime's service and lock close.
-                    if reconciler is not None and not reconciler.stop():
-                        print(
-                            "operator-console: the reconciler did not finish within "
-                            f"{RECONCILER_JOIN_TIMEOUT_SECONDS:.0f}s; closing anyway",
-                            file=sys.stderr,
-                        )
+            try:
+                if arguments.reconcile_every > 0:
+                    reconciler = _Reconciler(
+                        runtime.service.refresh_executions, arguments.reconcile_every
+                    )
+                    reconciler.start()
+                with serve(application, host=host, port=arguments.port) as server:
+                    url = f"http://{host}:{server.server_port}/today"
+                    print("=" * 72)
+                    print("  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.")
+                    print(f"  Open {url}")
+                    print("  Paper execution locked -- acceptance pending. Live -- not authorized.")
+                    print("  Press Ctrl+C to stop.")
+                    print("=" * 72, flush=True)
+                    if not arguments.no_browser:
+                        webbrowser.open(url)
+                    try:
+                        server.serve_forever(poll_interval=0.5)
+                    except KeyboardInterrupt:
+                        print("\noperator-console: stopping")
+                    finally:
+                        # Order matters: no new requests, then the reconciler is stopped AND
+                        # joined until it has terminated, and only after that does the server
+                        # close and the runtime's service and lock release.
+                        if reconciler is not None:
+                            reconciler.stop()
+            finally:
+                # Also holds if the server never started (port in use, Ctrl+C during startup):
+                # the runtime context below cannot exit while the reconciler is alive.
+                if reconciler is not None:
+                    reconciler.stop()
     except SimulationStateLockedError as refused:
         print(f"REFUSED: {refused}", file=sys.stderr)
         return 2

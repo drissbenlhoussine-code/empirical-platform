@@ -79,7 +79,7 @@ class TestTheReconcilerIsStoppedAndJoined:
         while "start" not in events and time.monotonic() < deadline:
             time.sleep(0.01)
         assert "start" in events
-        assert reconciler.stop(timeout=5) is True  # returns only once the thread has ended
+        reconciler.stop()  # returns only once the thread has ended
         assert not reconciler.is_alive()
         assert events[-1] == "end"  # the pass in flight finished before stop() returned
         passes_after_stop = reconciler.passes
@@ -92,12 +92,121 @@ class TestTheReconcilerIsStoppedAndJoined:
         calls: list[int] = []
         reconciler = _Reconciler(lambda: calls.append(1), 10.0)
         reconciler.start()
-        assert reconciler.stop(timeout=5) is True
+        reconciler.stop()
+        assert not reconciler.is_alive()
         assert calls == [] and reconciler.passes == 0
 
+    def test_stop_waits_for_a_blocked_refresh_however_long_it_takes(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A refresh blocked in flight: stop() does not return -- and so nothing after it can
+        run -- until the refresh is released; the report interval only prints, it never permits
+        the join to give up."""
+        import time
+
+        from empirical_platform.entrypoints.operator_console import _Reconciler
+
+        started = threading.Event()
+        release = threading.Event()
+        events: list[str] = []
+
+        def blocked_refresh() -> None:
+            started.set()
+            release.wait()
+            events.append("refresh finished")
+
+        reconciler = _Reconciler(blocked_refresh, 0.01)
+        reconciler.start()
+        assert started.wait(5)
+
+        def stop_then_tear_down() -> None:
+            reconciler.stop(report_every=0.05)
+            events.append("teardown")
+
+        stopper = threading.Thread(target=stop_then_tear_down, daemon=True)
+        stopper.start()
+        time.sleep(0.5)  # far longer than several report intervals
+        assert stopper.is_alive() and reconciler.is_alive()
+        assert events == []  # no teardown while the refresh is blocked
+        assert "nothing is closed until it finishes" in capsys.readouterr().err
+        release.set()
+        stopper.join(timeout=5)
+        assert not stopper.is_alive() and not reconciler.is_alive()
+        assert events == ["refresh finished", "teardown"]
+
+    def test_the_runtime_closes_only_after_the_blocked_refresh_completes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The launcher's real `main()` with a fake runtime, application and server: a refresh
+        is blocked in flight when Ctrl+C arrives; the runtime (service + state lock) is closed
+        only after that refresh has finished and the thread has terminated."""
+        import contextlib
+        import time
+        from collections.abc import Iterator
+        from pathlib import Path
+
+        from empirical_platform.entrypoints import operator_console as launcher
+
+        started = threading.Event()
+        release = threading.Event()
+        events: list[str] = []
+
+        class FakeService:
+            def refresh_executions(self) -> None:
+                events.append("refresh start")
+                started.set()
+                release.wait()
+                events.append("refresh end")
+
+        class FakeRuntime:
+            service = FakeService()
+
+        @contextlib.contextmanager
+        def fake_runtime(*, state_dir: Path) -> Iterator[FakeRuntime]:
+            try:
+                yield FakeRuntime()
+            finally:
+                events.append("runtime closed")
+
+        class FakeServer:
+            server_port = 0
+
+            def serve_forever(self, poll_interval: float) -> None:
+                assert started.wait(5)  # the pass is in flight when the operator presses Ctrl+C
+                raise KeyboardInterrupt
+
+        @contextlib.contextmanager
+        def fake_serve(application: object, *, host: str, port: int) -> Iterator[FakeServer]:
+            try:
+                yield FakeServer()
+            finally:
+                events.append("server closed")
+
+        monkeypatch.setattr(launcher, "simulation_console_runtime", fake_runtime)
+        monkeypatch.setattr(launcher, "build_application", lambda runtime, security: object())
+        monkeypatch.setattr(launcher, "serve", fake_serve)
+
+        outcome: list[int] = []
+        main_thread = threading.Thread(
+            target=lambda: outcome.append(
+                launcher.main(["--no-browser", "--reconcile-every", "0.01"])
+            ),
+            daemon=True,
+        )
+        main_thread.start()
+        assert started.wait(5)
+        time.sleep(0.5)
+        assert main_thread.is_alive()
+        assert events == ["refresh start"]  # neither the server nor the runtime has closed
+        release.set()
+        main_thread.join(timeout=10)
+        assert not main_thread.is_alive() and outcome == [0]
+        assert events == ["refresh start", "refresh end", "server closed", "runtime closed"]
+
     def test_the_launcher_stops_the_reconciler_before_the_runtime_closes(self) -> None:
-        """Source order, parsed: `reconciler.stop()` sits inside the `serve` block's `finally`,
-        which runs before the `simulation_console_runtime` context (service + lock) exits."""
+        """Source order, parsed: `reconciler.stop()` sits inside the `serve` block's `finally`
+        (before the server closes) and again in an outer `finally` that runs before the
+        `simulation_console_runtime` context (service + lock) exits; no branch closes anyway."""
         import ast
         from pathlib import Path
 
@@ -111,3 +220,9 @@ class TestTheReconcilerIsStoppedAndJoined:
         assert runtime_with < serve_with < stop_call
         # The stop is in a `finally` of a try nested in the serve block, i.e. before both exits.
         assert "finally:" in text[serve_with:stop_call]
+        assert text.count("reconciler.stop()") == 2  # ... and once more in the outer finally
+        assert "closing anyway" not in source
+        stop = next(
+            n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "stop"
+        )
+        assert "while self.is_alive()" in ast.unparse(stop)  # join until terminated

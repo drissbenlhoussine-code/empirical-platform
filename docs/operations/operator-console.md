@@ -38,8 +38,10 @@ Useful options:
 ## Stop
 
 Press `Ctrl+C` in the terminal that started it. The console stops taking requests, waits for the
-background broker check to finish its current pass, and only then closes the database and releases
-the state directory. Nothing needs to be flushed: every decision, authorization and execution is
+background broker check to finish its current pass — however long that takes; there is no "close
+anyway" — and only then closes the server, the database and the state directory. If the pass is
+slow, a line every 30 seconds says it is still being waited for; a second `Ctrl+C` does not cut
+the wait short. Nothing needs to be flushed: every decision, authorization and execution is
 already in PostgreSQL, and the simulated broker's memory is already on disk.
 
 ## One console at a time
