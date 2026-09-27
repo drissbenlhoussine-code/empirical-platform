@@ -1,0 +1,176 @@
+"""MILESTONE-086 -- the Operator Console composition root.
+
+THE ONLY PLACE THE CONSOLE'S BROKER IS CHOSEN, AND IT CAN ONLY CHOOSE THE SIMULATION.
+`compose_operator_console` takes an `ExecutionCapability` and refuses -- before any database
+connection, before any adapter is built -- everything except SIMULATION. There is no branch
+here that imports or constructs `AlpacaPaperClient`; the module does not import it. PAPER
+stays "locked pending M085 Paper Acceptance" and LIVE "not authorized": enabling either is a
+separate, Owner-gated change to THIS file, not a setting, a flag or a request parameter.
+
+Like `_paper_composition.py`, this owns one `PostgresPersistenceService` for the whole
+console process, requires the exact M085 schema head, and hands the presentation layer a
+service object -- never a repository or a connection.
+"""
+
+from __future__ import annotations
+
+import secrets
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+
+from empirical_platform.shared.brokerage.paper_time import PaperTimeSource, SystemPaperTimeSource
+from empirical_platform.shared.brokerage.simulation_paper import (
+    SimulatedMarketData,
+    SimulatedPaperBroker,
+    SimulationStore,
+    default_scenario_table,
+)
+from empirical_platform.shared.config.settings import (
+    PostgreSQLConfigSnapshot,
+    resolve_foundation_config,
+)
+from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    PostgresPaperExecutionRuntime,
+    require_exact_m085_schema_head,
+)
+from empirical_platform.shared.persistence.postgres_repositories.runtime import (
+    PostgresRepositoryRuntime,
+)
+from empirical_platform.usecases.operator_console import (
+    CAPABILITIES,
+    CapabilityRefusedError,
+    ConsoleRepositories,
+    ExecutionCapability,
+    HmacSigner,
+    OperatorConsoleService,
+)
+from empirical_platform.usecases.operator_console_fixtures import (
+    SIMULATION_CONFIGURATION_ID,
+    SIMULATION_QUOTES,
+    EvaluationEvidenceWatermarkRepository,
+    SimulationDayReport,
+    load_simulation_day,
+)
+
+__all__ = ["ConsoleRuntime", "compose_operator_console", "simulation_console_runtime"]
+
+SIMULATION_STORE_FILE = "simulation-broker.json"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+@dataclass(frozen=True, slots=True)
+class ConsoleRuntime:
+    """What the routes and the launcher receive. Nothing here reaches a network."""
+
+    service: OperatorConsoleService
+    repositories: ConsoleRepositories
+    store: SimulationStore
+    broker: SimulatedPaperBroker
+    market_data: SimulatedMarketData
+    time_source: PaperTimeSource
+    clock: Callable[[], datetime]
+    watermarks: EvaluationEvidenceWatermarkRepository
+    configuration_id: str = SIMULATION_CONFIGURATION_ID
+
+    def load_day(self) -> SimulationDayReport:
+        """Stage the deterministic day: broker behaviours, quotes, and the real M084 proposals."""
+        scenarios = default_scenario_table()
+        self.store.stage(scenarios=scenarios, quotes=dict(SIMULATION_QUOTES))
+        return load_simulation_day(
+            repositories=self.repositories,
+            watermarks=self.watermarks,
+            broker=self.broker,
+            time_source=self.time_source,
+            clock=self.clock,
+            symbols=tuple(scenarios),
+        )
+
+
+def compose_operator_console(
+    capability: ExecutionCapability,
+    *,
+    service: PostgresPersistenceService,
+    state_dir: Path,
+    clock: Callable[[], datetime] = _utc_now,
+    time_source: PaperTimeSource | None = None,
+) -> ConsoleRuntime:
+    """Build the console over an initialized persistence service. SIMULATION only."""
+    if capability is not ExecutionCapability.SIMULATION:
+        raise CapabilityRefusedError(
+            f"the Operator Console cannot be composed for {capability.value}: PAPER is locked "
+            "pending M085 Paper Acceptance and LIVE is not authorized. Nothing was built."
+        )
+    require_exact_m085_schema_head(service)
+    m084 = PostgresRepositoryRuntime(service)
+    paper = PostgresPaperExecutionRuntime(service)
+    store = SimulationStore(Path(state_dir) / SIMULATION_STORE_FILE)
+    broker = SimulatedPaperBroker(store, clock=clock)
+    market_data = SimulatedMarketData(store, clock=clock)
+    source: PaperTimeSource = time_source or SystemPaperTimeSource()
+    repositories = ConsoleRepositories(
+        configurations=m084.operator_trading_configurations,
+        contexts=m084.evaluation_contexts,
+        proposals=m084.trade_proposals,
+        decisions=m084.approval_decisions,
+        intents=m084.approved_order_intents,
+        time_bases=paper.time_bases,
+        snapshots=paper.paper_account_snapshots,
+        previews=paper.submission_previews,
+        authorizations=paper.execution_authorizations,
+        attempts=paper.execution_attempts,
+        acknowledgements=paper.broker_acknowledgements,
+        events=paper.paper_execution_events,
+        rounds=paper.reconciliation_rounds,
+        kill_switch=paper.execution_kill_switch,
+    )
+    console = OperatorConsoleService(
+        repositories=repositories,
+        broker=broker,
+        market_data=market_data,
+        signer=HmacSigner(secrets.token_bytes(32)),
+        capability=CAPABILITIES[0],
+        time_source=source,
+        clock=clock,
+        staged_scenarios=lambda: {s: v.value for s, v in store.scenarios().items()},
+    )
+    return ConsoleRuntime(
+        service=console,
+        repositories=repositories,
+        store=store,
+        broker=broker,
+        market_data=market_data,
+        time_source=source,
+        clock=clock,
+        watermarks=m084.evaluation_evidence_watermarks,
+    )
+
+
+@contextmanager
+def simulation_console_runtime(
+    config: PostgreSQLConfigSnapshot | None = None,
+    *,
+    state_dir: Path,
+    clock: Callable[[], datetime] = _utc_now,
+    time_source: PaperTimeSource | None = None,
+) -> Iterator[ConsoleRuntime]:
+    """Own the persistence service for the console's lifetime; SIMULATION capability only."""
+    resolved = config if config is not None else resolve_foundation_config().postgresql
+    service = PostgresPersistenceService(resolved)
+    try:
+        service.initialize()
+        yield compose_operator_console(
+            ExecutionCapability.SIMULATION,
+            service=service,
+            state_dir=state_dir,
+            clock=clock,
+            time_source=time_source,
+        )
+    finally:
+        service.close()

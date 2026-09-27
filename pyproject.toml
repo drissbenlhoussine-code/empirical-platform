@@ -82,6 +82,7 @@ empirical-platform-list-paper-executions = "empirical_platform.entrypoints.list_
 empirical-platform-paper-execution-status = "empirical_platform.entrypoints.paper_execution_status:main"
 empirical-platform-activate-execution-kill-switch = "empirical_platform.entrypoints.activate_execution_kill_switch:main"
 empirical-platform-deactivate-execution-kill-switch = "empirical_platform.entrypoints.deactivate_execution_kill_switch:main"
+empirical-platform-operator-console = "empirical_platform.entrypoints.operator_console:main"
 empirical-platform-version = "empirical_platform.entrypoints.version:main"
 empirical-platform-get-campaign = "empirical_platform.entrypoints.get_campaign:main"
 empirical-platform-cancel-campaign = "empirical_platform.entrypoints.cancel_campaign:main"
@@ -183,6 +184,12 @@ select = ["E", "F", "I", "B", "UP", "S", "N", "ANN"]
 ignore = [
   "S101",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# MILESTONE-086: this module is HTML markup and one CSS stylesheet written as Python
+# strings; wrapping markup at 100 columns would only fragment the tags. Every other
+# rule still applies to it.
+"src/empirical_platform/entrypoints/_operator_console_html.py" = ["E501"]
 
 [tool.ruff.format]
 quote-style = "double"
