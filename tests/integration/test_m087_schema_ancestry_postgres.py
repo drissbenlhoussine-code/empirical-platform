@@ -192,7 +192,7 @@ def _non_m085_tables(engine: Engine) -> set[str]:
 
 
 def _read_manifest(path: Path) -> dict[str, str]:
-    """sha256sum format (`<digest> *<path>`) after comment lines: the repository's manifest style."""
+    """sha256sum format (`<digest> *<path>`) after comment lines, as the repository's manifests."""
     recorded: dict[str, str] = {}
     header: list[str] = []
     for line in path.read_text(encoding="utf-8").splitlines():
