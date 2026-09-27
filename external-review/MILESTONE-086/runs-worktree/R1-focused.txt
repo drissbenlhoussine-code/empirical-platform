@@ -1,0 +1,6 @@
+HEAD=54ae23c7f22c4544b3dc3b06761adc3a25f5ced4 dirty=18 start=2026-09-27T05:17:35Z (solo run)
+cmd: pytest --no-cov tests/unit/test_m086_*.py tests/architecture/test_m086_console_boundaries.py tests/integration/test_m086_operator_console_postgres.py tests/unit/test_m085_*.py
+........................................................................ [ 93%]
+....................................................................     [100%]
+1004 passed in 26.99s
+pytest exit=0 end=2026-09-27T05:18:04Z

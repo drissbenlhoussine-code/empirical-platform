@@ -1,0 +1,6 @@
+HEAD=54ae23c7f22c4544b3dc3b06761adc3a25f5ced4 dirty=18 start=2026-09-27T05:24:20Z RUN_POSTGRES_TESTS=unset PSYCOPG_IMPL=python
+pytest exit=0
+TOTAL                                                                                                               22252   3679   5146    834    81%
+Required test coverage of 79.0% reached. Total coverage: 80.98%
+4307 passed, 1258 skipped in 259.25s (0:04:19)
+end=2026-09-27T05:28:44Z
