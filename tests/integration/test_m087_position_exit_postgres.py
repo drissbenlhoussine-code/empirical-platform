@@ -26,12 +26,19 @@ from empirical_platform.entrypoints._operator_console_composition import (
     ConsoleRuntime,
     compose_operator_console,
 )
+from empirical_platform.entrypoints._position_exit_composition import (
+    compose_operator_console_with_exits,
+)
 from empirical_platform.shared.brokerage.paper_time import PaperTimeReading
 from empirical_platform.shared.brokerage.simulation_paper import (
     SimulationStateLockedError,
     SimulationStore,
 )
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    PaperSchemaHeadError,
+    require_exact_m085_schema_head,
+)
 from empirical_platform.shared.persistence.postgres_repositories.position_exit_repositories import (  # noqa: E501
     M087_SCHEMA_HEAD,
     ExitSchemaHeadError,
@@ -103,13 +110,14 @@ def world(engine: Engine, tmp_path: Path) -> Iterator[dict[str, Any]]:
         service = PostgresPersistenceService(config(f"m087-console-{name}"))
         service.initialize()
         services.append(service)
-        runtime = compose_operator_console(
+        runtime = compose_operator_console_with_exits(
             ExecutionCapability.SIMULATION,
             service=service,
             state_dir=tmp_path,
             clock=clock,
             time_source=clock,
         )
+        assert runtime.verified_schema_head == M087_SCHEMA_HEAD and runtime.exits is not None
         runtimes.append(runtime)
         return runtime
 
@@ -192,10 +200,20 @@ def test_the_migration_upgrades_downgrades_and_re_upgrades_with_an_exact_head(
         assert "paper_execution_attempt" in present and "paper_reconciliation_round" in present
         with pytest.raises(ExitSchemaHeadError, match=M087_SCHEMA_HEAD):
             require_exact_m087_schema_head(service)
+        # At the M085 head: the M087 composition refuses; the M086 composition ACCEPTS, with no
+        # exit path composed (M086 semantics: schema = M085 head).
         with pytest.raises(ExitSchemaHeadError):
-            compose_operator_console(
+            compose_operator_console_with_exits(
                 ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"] / "x"
             )
+        m086 = compose_operator_console(
+            ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"] / "m086"
+        )
+        try:
+            assert m086.verified_schema_head == M085_HEAD and m086.exits is None
+            assert m086.service.exits is None
+        finally:
+            m086.close()
         alembic_command.upgrade(alembic_config(), "head")
         with engine.begin() as connection:
             present = {
@@ -206,6 +224,14 @@ def test_the_migration_upgrades_downgrades_and_re_upgrades_with_an_exact_head(
             }
         assert set(M087_TABLES) <= present
         assert require_exact_m087_schema_head(service) == M087_SCHEMA_HEAD
+        # At the M087 head: the M086 public composition still refuses (it requires the exact
+        # M085 head and does not silently accept a descendant); the M087 composition accepts.
+        with pytest.raises(PaperSchemaHeadError, match=M085_HEAD):
+            compose_operator_console(
+                ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"] / "y"
+            )
+        with pytest.raises(PaperSchemaHeadError):
+            require_exact_m085_schema_head(service)
     finally:
         service.close()
 
@@ -563,7 +589,7 @@ def test_the_one_console_per_state_dir_lock_is_intact(world: dict[str, Any]) -> 
     service.initialize()
     try:
         with pytest.raises(SimulationStateLockedError):
-            compose_operator_console(
+            compose_operator_console_with_exits(
                 ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"]
             )
     finally:

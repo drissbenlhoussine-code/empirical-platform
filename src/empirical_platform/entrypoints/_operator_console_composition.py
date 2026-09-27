@@ -7,9 +7,17 @@ here that imports or constructs `AlpacaPaperClient`; the module does not import 
 stays "locked pending M085 Paper Acceptance" and LIVE "not authorized": enabling either is a
 separate, Owner-gated change to THIS file, not a setting, a flag or a request parameter.
 
+SCHEMA AUTHORITY BELONGS TO THE COMPOSITION ROOT. The public M086 composition requires the
+EXACT M085 schema head (`require_exact_m085_schema_head`) and then builds the console through
+`_compose_verified_console`, a private helper that assumes the schema was already verified by
+its caller. MILESTONE-087's composition (`_position_exit_composition.py`) verifies ITS exact
+head and calls the same private helper with the exit runtime. Neither guard can be replaced by
+a caller-supplied function: there is no parameter for one, and the helper is not exported.
+M086 semantics stay "schema = M085 head"; M087 semantics are "schema = M087 head".
+
 Like `_paper_composition.py`, this owns one `PostgresPersistenceService` for the whole
-console process, requires the exact M085 schema head, and hands the presentation layer a
-service object -- never a repository or a connection.
+console process and hands the presentation layer a service object -- never a repository or a
+connection.
 """
 
 from __future__ import annotations
@@ -37,10 +45,7 @@ from empirical_platform.shared.config.settings import (
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
-)
-from empirical_platform.shared.persistence.postgres_repositories.position_exit_repositories import (  # noqa: E501
-    PostgresPositionExitRuntime,
-    require_exact_m087_schema_head,
+    require_exact_m085_schema_head,
 )
 from empirical_platform.shared.persistence.postgres_repositories.runtime import (
     PostgresRepositoryRuntime,
@@ -89,8 +94,11 @@ class ConsoleRuntime:
     configuration_id: str = SIMULATION_CONFIGURATION_ID
     #: The exclusive lock on the state directory; released by `close()`.
     state_lock: SimulationStateLock | None = None
-    #: MILESTONE-087: the exit repositories, for tests that inspect them. Routes never do.
+    #: MILESTONE-087: the exit repositories when the M087 composition built this runtime; None
+    #: for the M086 composition. Tests inspect them; routes never do.
     exits: ExitRepositories | None = None
+    #: The schema revision the composition root verified before building this runtime.
+    verified_schema_head: str = ""
 
     def close(self) -> None:
         """Release the state-directory lock. The persistence service is closed by its owner."""
@@ -115,6 +123,14 @@ class ConsoleRuntime:
         )
 
 
+def _refuse_unless_simulation(capability: ExecutionCapability) -> None:
+    if capability is not ExecutionCapability.SIMULATION:
+        raise CapabilityRefusedError(
+            f"the Operator Console cannot be composed for {capability.value}: PAPER is locked "
+            "pending M085 Paper Acceptance and LIVE is not authorized. Nothing was built."
+        )
+
+
 def compose_operator_console(
     capability: ExecutionCapability,
     *,
@@ -124,38 +140,52 @@ def compose_operator_console(
     time_source: PaperTimeSource | None = None,
     state_lock: SimulationStateLock | None = None,
 ) -> ConsoleRuntime:
-    """Build the console over an initialized persistence service. SIMULATION only.
+    """Build the MILESTONE-086 console over an initialized persistence service. SIMULATION only.
 
-    Takes the state-directory lock (unless the caller already holds one and passes it)
-    BEFORE the simulation store is opened, so a second console on the same directory is
-    refused before it can read or mutate simulation state.
+    Requires the EXACT M085 schema head: this is the M086 console, and a database at any
+    other revision -- including a later milestone's -- is refused before anything is built.
+    Takes the state-directory lock (unless the caller already holds one and passes it) BEFORE
+    the simulation store is opened, so a second console on the same directory is refused
+    before it can read or mutate simulation state.
     """
-    if capability is not ExecutionCapability.SIMULATION:
-        raise CapabilityRefusedError(
-            f"the Operator Console cannot be composed for {capability.value}: PAPER is locked "
-            "pending M085 Paper Acceptance and LIVE is not authorized. Nothing was built."
-        )
-    # MILESTONE-087: the exact stacked head (M085 objects unchanged + the additive M087 schema).
-    require_exact_m087_schema_head(service)
+    _refuse_unless_simulation(capability)
+    verified = require_exact_m085_schema_head(service)
+    return _compose_verified_console(
+        service=service,
+        state_dir=state_dir,
+        clock=clock,
+        time_source=time_source,
+        state_lock=state_lock,
+        exits=None,
+        verified_schema_head=verified,
+    )
+
+
+def _compose_verified_console(
+    *,
+    service: PostgresPersistenceService,
+    state_dir: Path,
+    clock: Callable[[], datetime],
+    time_source: PaperTimeSource | None,
+    state_lock: SimulationStateLock | None,
+    exits: ExitRepositories | None,
+    verified_schema_head: str,
+) -> ConsoleRuntime:
+    """Build the console over a service whose schema THE CALLER ALREADY VERIFIED.
+
+    Private on purpose: every public composition function verifies its own exact schema head
+    and then calls this. It takes no verifier, so no entrypoint or request can substitute one.
+    """
     lock = state_lock
     if lock is None:
         lock = SimulationStateLock(Path(state_dir))
         lock.acquire()
     m084 = PostgresRepositoryRuntime(service)
     paper = PostgresPaperExecutionRuntime(service)
-    exit_runtime = PostgresPositionExitRuntime(service)
     store = SimulationStore(Path(state_dir) / SIMULATION_STORE_FILE)
     broker = SimulatedPaperBroker(store, clock=clock)
     market_data = SimulatedMarketData(store, clock=clock)
     source: PaperTimeSource = time_source or SystemPaperTimeSource()
-    exits = ExitRepositories(
-        previews=exit_runtime.previews,
-        authorizations=exit_runtime.authorizations,
-        attempts=exit_runtime.attempts,
-        acknowledgements=exit_runtime.acknowledgements,
-        rounds=exit_runtime.rounds,
-        events=exit_runtime.events,
-    )
     signer = HmacSigner(secrets.token_bytes(32))
     repositories = ConsoleRepositories(
         configurations=m084.operator_trading_configurations,
@@ -173,17 +203,21 @@ def compose_operator_console(
         rounds=paper.reconciliation_rounds,
         kill_switch=paper.execution_kill_switch,
     )
-    exit_console = PositionExitConsole(
-        exits=exits,
-        intents=repositories.intents,
-        entry_attempts=repositories.attempts,
-        kill_switch=repositories.kill_switch,
-        broker=broker,
-        market_data=market_data,
-        signer=signer,
-        time_source=source,
-        clock=clock,
-        environment=ExecutionCapability.SIMULATION.value,
+    exit_console = (
+        None
+        if exits is None
+        else PositionExitConsole(
+            exits=exits,
+            intents=repositories.intents,
+            entry_attempts=repositories.attempts,
+            kill_switch=repositories.kill_switch,
+            broker=broker,
+            market_data=market_data,
+            signer=signer,
+            time_source=source,
+            clock=clock,
+            environment=ExecutionCapability.SIMULATION.value,
+        )
     )
     console = OperatorConsoleService(
         repositories=repositories,
@@ -207,6 +241,7 @@ def compose_operator_console(
         watermarks=m084.evaluation_evidence_watermarks,
         state_lock=lock,
         exits=exits,
+        verified_schema_head=verified_schema_head,
     )
 
 
@@ -218,7 +253,7 @@ def simulation_console_runtime(
     clock: Callable[[], datetime] = _utc_now,
     time_source: PaperTimeSource | None = None,
 ) -> Iterator[ConsoleRuntime]:
-    """Own the state lock and the persistence service for the console's lifetime.
+    """Own the state lock and the persistence service for the M086 console's lifetime.
 
     The lock is taken FIRST -- before any database connection -- so a second process is
     refused before it touches anything; it is released LAST, after the service is closed.

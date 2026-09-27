@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from alembic import command as alembic_command
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from tests.integration._m085_support import build_engine, config, truncate_all
+from tests.integration._m085_support import alembic_config, build_engine, config, truncate_all
 
 from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
 from empirical_platform.entrypoints._operator_console_composition import (
@@ -25,6 +26,9 @@ from empirical_platform.entrypoints._operator_console_composition import (
 from empirical_platform.shared.brokerage.paper_time import PaperTimeReading
 from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    M085_SCHEMA_HEAD,
+)
 from empirical_platform.usecases.operator_console import (
     CapabilityRefusedError,
     ConsoleRefusalError,
@@ -53,7 +57,10 @@ class Clock:
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    yield from build_engine()
+    # STACKED-MILESTONE TEST EVOLUTION (M087). The M086 console's public composition requires
+    # the exact M085 schema head, so this suite migrates explicitly to `M085_SCHEMA_HEAD` rather
+    # than to the repository-global head (the M087 revision). M086 semantics: schema = M085 head.
+    yield from build_engine(M085_SCHEMA_HEAD)
 
 
 @pytest.fixture
@@ -134,7 +141,7 @@ def test_the_daily_scenario_end_to_end_on_postgres(world: dict[str, Any]) -> Non
     execution = a.service.execution(f"INT-{proposal_id}")
     assert execution.state is HumanState.FILLED and execution.is_terminal
     (held,) = a.service.active_trades()  # the filled entry is an open position, exit locked
-    assert held.position_open and "review the exit" in held.exit_status  # M087: reviewable
+    assert held.position_open and "M087" in held.exit_status
     history = a.service.history(symbol="AAPL")
     assert (
         history[0].final_state is HumanState.FILLED
@@ -180,7 +187,7 @@ def test_restart_after_an_ambiguous_execution_reconstructs_and_resolves(
     held = {row.symbol: row for row in b.service.active_trades()}
     assert held["KO"].position_open and held["KO"].state is HumanState.FILLED
     assert held["MSFT"].position_open and held["MSFT"].state is HumanState.PARTIALLY_FILLED
-    assert "review the exit" in held["KO"].exit_status and not held["KO"].can_cancel
+    assert "M087" in held["KO"].exit_status and not held["KO"].can_cancel
     b.close()  # the lock is exclusive: the second restart can only begin once b has stopped
     c = world["process"]("c")  # and again after a second restart, without any refresh
     assert {row.symbol for row in c.service.active_trades() if row.position_open} == {"KO", "MSFT"}
@@ -260,6 +267,11 @@ def test_a_second_launcher_process_is_refused_with_exit_code_2(world: dict[str, 
     environment = dict(os.environ)
     environment["PYTHONUNBUFFERED"] = "1"
     state_dir = Path(world["state_dir"]) / "launcher"
+    # STACKED-MILESTONE TEST EVOLUTION (M087). The launcher composes the console at the
+    # repository head (the M087 runtime), so this process-level lock test migrates the database
+    # to that head for its duration and returns it to the M085 head afterwards. The subject --
+    # the operating-system lock refusing a second launcher -- is unchanged.
+    alembic_command.upgrade(alembic_config(), "head")
     argv = [
         sys.executable,
         "-m",
@@ -305,3 +317,4 @@ def test_a_second_launcher_process_is_refused_with_exit_code_2(world: dict[str, 
             first.wait(timeout=30)
         except subprocess.TimeoutExpired:
             first.kill()
+        alembic_command.downgrade(alembic_config(), M085_SCHEMA_HEAD)

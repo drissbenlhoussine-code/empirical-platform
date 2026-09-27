@@ -80,6 +80,9 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
     ALLOWED_PAPER_PORTS,
     MAXIMUM_DIAGNOSTIC_BODY_BYTES,
 )
+from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    M085_SCHEMA_HEAD,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -193,7 +196,9 @@ def chain_sql() -> str:
     assert first is not None
     buffer = io.StringIO()
     config.output_buffer = buffer
-    alembic_command.upgrade(config, f"{first.down_revision}:head", sql=True)
+    # STACKED-MILESTONE TEST EVOLUTION (M087): the M085 contract reads the SQL of the M085
+    # chain, rendered to the M085 revision -- not to a later milestone's repository head.
+    alembic_command.upgrade(config, f"{first.down_revision}:{M085_SCHEMA_HEAD}", sql=True)
     return buffer.getvalue()
 
 
@@ -341,17 +346,39 @@ _PROVENANCE_TABLES: tuple[tuple[str, str, tuple[str, ...], str], ...] = (
 
 
 class TestTheContractReadsTheSqlInstalledAtHead:
-    def test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head(self) -> None:
+    def test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_the_m085_head(
+        self,
+    ) -> None:
+        """STACKED-MILESTONE TEST EVOLUTION (M087).
+
+        Until M087 this asserted that the repository-global Alembic head IS the last M085
+        revision. A later additive milestone makes that a false universal; the M085 head is
+        not redefined to be that milestone. The invariant is stated directly: the M085 chain
+        from its first revision to `M085_SCHEMA_HEAD` is exactly the reviewed six revisions
+        (nothing inserted, nothing replaced), the M085 branch still ends at the M085 revision,
+        and whatever sits above it descends from it in one line.
+        """
         script = ScriptDirectory.from_config(_alembic())
-        assert script.get_current_head() == _M085_REVISIONS[-1]
+        assert _M085_REVISIONS[-1] == M085_SCHEMA_HEAD
         first = script.get_revision(_M085_REVISIONS[0])
         assert first is not None
         chain = [
             revision.revision
-            for revision in script.iterate_revisions("head", first.down_revision)
+            for revision in script.iterate_revisions(M085_SCHEMA_HEAD, first.down_revision)
             if revision is not None
         ]
         assert tuple(reversed(chain)) == _M085_REVISIONS
+        (head,) = script.get_heads()
+        above = [
+            revision.revision
+            for revision in script.iterate_revisions(head, M085_SCHEMA_HEAD)
+            if revision is not None and revision.revision != M085_SCHEMA_HEAD
+        ]
+        for revision_id in above:
+            revision = script.get_revision(revision_id)
+            assert revision is not None
+            assert revision.down_revision in {*above, M085_SCHEMA_HEAD}
+            assert revision.revision not in _M085_REVISIONS
 
     def test_every_function_definition_in_the_chain_was_parsed(
         self, chain_sql: str, installed: InstalledSchema

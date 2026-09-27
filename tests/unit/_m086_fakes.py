@@ -256,7 +256,15 @@ class World:
         broker = SimulatedPaperBroker(store, clock=self.clock)
         market = SimulatedMarketData(store, clock=self.clock)
         signer = HmacSigner(b"another-process-secret") if new_secret else self.signer
-        service = _service(self.repositories, self.exits, broker, market, signer, self.clock, store)
+        service = _service(
+            self.repositories,
+            self.exits if self.service.exits is not None else None,
+            broker,
+            market,
+            signer,
+            self.clock,
+            store,
+        )
         return World(
             clock=self.clock,
             repositories=self.repositories,
@@ -273,24 +281,28 @@ class World:
 
 def _service(
     repositories: ConsoleRepositories,
-    exits: ExitRepositories,
+    exits: ExitRepositories | None,
     broker: SimulatedPaperBroker,
     market: SimulatedMarketData,
     signer: HmacSigner,
     clock: TestClock,
     store: SimulationStore,
 ) -> OperatorConsoleService:
-    exit_console = PositionExitConsole(
-        exits=exits,
-        intents=repositories.intents,
-        entry_attempts=repositories.attempts,
-        kill_switch=repositories.kill_switch,
-        broker=broker,
-        market_data=market,
-        signer=signer,
-        time_source=clock,
-        clock=clock,
-        environment=ExecutionCapability.SIMULATION.value,
+    exit_console = (
+        None
+        if exits is None
+        else PositionExitConsole(
+            exits=exits,
+            intents=repositories.intents,
+            entry_attempts=repositories.attempts,
+            kill_switch=repositories.kill_switch,
+            broker=broker,
+            market_data=market,
+            signer=signer,
+            time_source=clock,
+            clock=clock,
+            environment=ExecutionCapability.SIMULATION.value,
+        )
     )
     return OperatorConsoleService(
         repositories=repositories,
@@ -305,7 +317,10 @@ def _service(
     )
 
 
-def simulation_world(tmp_path: Path, *, start: datetime = START) -> World:
+def simulation_world(tmp_path: Path, *, start: datetime = START, exits: bool = False) -> World:
+    """The M086 world. `exits=False` is the M086 console exactly (open positions shown with their
+    exit locked); `exits=True` composes the MILESTONE-087 exit console over the same records."""
+    exits_enabled = exits
     clock = TestClock(start)
     attempts = FakeAttempts()
     acknowledgements = FakeAcknowledgements()
@@ -343,7 +358,9 @@ def simulation_world(tmp_path: Path, *, start: datetime = START) -> World:
     broker = SimulatedPaperBroker(store, clock=clock)
     market = SimulatedMarketData(store, clock=clock)
     signer = HmacSigner(b"test-process-secret")
-    service = _service(repositories, exits, broker, market, signer, clock, store)
+    service = _service(
+        repositories, exits if exits_enabled else None, broker, market, signer, clock, store
+    )
     return World(
         clock=clock,
         repositories=repositories,

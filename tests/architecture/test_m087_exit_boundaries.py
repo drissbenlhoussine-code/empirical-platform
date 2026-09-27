@@ -116,12 +116,32 @@ def test_the_exit_usecases_and_console_import_no_persistence() -> None:
         assert not any(n.startswith(("sqlalchemy", "psycopg")) for n in names), path
 
 
-def test_the_composition_root_verifies_the_stacked_schema_head_and_stays_simulation_only() -> None:
-    source = (ROOT / "entrypoints" / "_operator_console_composition.py").read_text(encoding="utf-8")
-    assert "require_exact_m087_schema_head(service)" in source
-    assert "if capability is not ExecutionCapability.SIMULATION:" in source
-    assert "ExecutionCapability.PAPER" not in source and "ExecutionCapability.LIVE" not in source
-    assert "environment=ExecutionCapability.SIMULATION.value" in source
+def test_each_milestone_composition_verifies_its_own_exact_schema_head() -> None:
+    """Schema authority belongs to the composition roots, one exact head each, no bypass."""
+    m086 = (ROOT / "entrypoints" / "_operator_console_composition.py").read_text(encoding="utf-8")
+    m087 = (ROOT / "entrypoints" / "_position_exit_composition.py").read_text(encoding="utf-8")
+    # M086 public composition: the exact M085 head, and it never names the M087 guard.
+    assert "require_exact_m085_schema_head(service)" in m086
+    assert "require_exact_m087_schema_head" not in m086
+    # M087 composition: the exact M087 head, and it never names the M085 guard.
+    assert "require_exact_m087_schema_head(service)" in m087
+    assert "require_exact_m085_schema_head" not in m087
+    # Both build through the private already-verified helper, which is not exported and takes
+    # no verifier: nothing a caller passes can replace either guard.
+    assert "def _compose_verified_console(" in m086
+    assert '"_compose_verified_console"' not in m086  # not in __all__
+    for source in (m086, m087):
+        assert "verifier:" not in source and "verify:" not in source  # no such parameter exists
+    for source in (m086, m087):
+        assert (
+            "ExecutionCapability.PAPER" not in source and "ExecutionCapability.LIVE" not in source
+        )
+    assert "if capability is not ExecutionCapability.SIMULATION:" in m086
+    assert "_refuse_unless_simulation(capability)" in m087
+    assert "environment=ExecutionCapability.SIMULATION.value" in m086
+    # The launcher composes the M087 runtime (schema = M087 head).
+    launcher = (ROOT / "entrypoints" / "operator_console.py").read_text(encoding="utf-8")
+    assert "simulation_exit_console_runtime(" in launcher
 
 
 def test_the_m087_migration_is_additive_and_stacks_on_the_m085_head() -> None:

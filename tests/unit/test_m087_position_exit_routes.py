@@ -17,7 +17,7 @@ from empirical_platform.shared.brokerage.simulation_paper import SimulationExitS
 
 @pytest.fixture
 def world(tmp_path: Path) -> World:
-    return simulation_world(tmp_path)
+    return simulation_world(tmp_path, exits=True)
 
 
 @pytest.fixture

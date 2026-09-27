@@ -164,12 +164,18 @@ def alembic_config() -> Config:
     return cfg
 
 
-def build_engine() -> Iterator[Engine]:
-    """A database at M085 head, rebuilt from the complete migration history.
+def build_engine(revision: str = "head") -> Iterator[Engine]:
+    """A database at `revision`, rebuilt from the complete migration history.
 
     Dropping and recreating `public` rather than truncating means every run
     installs the whole history, so a migration that only works on top of an
     existing schema fails here rather than in production.
+
+    STACKED MILESTONES. `revision` defaults to the repository head. A suite that tests a
+    milestone's EXACT-HEAD guard in isolation passes that milestone's own revision (for M085,
+    `M085_SCHEMA_HEAD`) so that a later additive milestone at the repository head does not
+    change what the guard is asked about; a suite that proves a milestone's behaviour survives
+    later additive revisions keeps the default.
     """
     if not postgres_enabled():
         pytest.skip("PostgreSQL integration tests require explicit opt-in")
@@ -177,7 +183,7 @@ def build_engine() -> Iterator[Engine]:
     with engine.begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))
         connection.execute(text("CREATE SCHEMA public"))
-    alembic_command.upgrade(alembic_config(), "head")
+    alembic_command.upgrade(alembic_config(), revision)
     try:
         yield engine
     finally:

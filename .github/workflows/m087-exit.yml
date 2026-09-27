@@ -58,12 +58,21 @@ jobs:
       - name: M087 suites, file by file (domain, simulation exits, console, routes, architecture, PostgreSQL)
         run: >-
           python -m pytest --no-cov -v --no-header -p no:cacheprovider
+          tests/unit/test_m087_schema_head.py
           tests/unit/test_m087_position_exit_domain.py
           tests/unit/test_m087_simulation_exit_broker.py
           tests/unit/test_m087_position_exit_service.py
           tests/unit/test_m087_position_exit_routes.py
           tests/architecture/test_m087_exit_boundaries.py
           tests/integration/test_m087_position_exit_postgres.py
+          tests/integration/test_m087_schema_ancestry_postgres.py
+      - name: M085 exact-head guard suites at the explicit M085 revision (stacked-branch evolution)
+        run: >-
+          python -m pytest --no-cov -q -p no:cacheprovider
+          tests/unit/test_m085_paper_composition.py
+          tests/integration/test_m085_corrective_pass_postgres.py
+          tests/integration/test_m085_reconciliation_rounds_postgres.py
+          tests/integration/test_m085_authority_contract.py
       - name: M086 console suites, still green with the exit path composed
         run: >-
           python -m pytest --no-cov -v --no-header -p no:cacheprovider

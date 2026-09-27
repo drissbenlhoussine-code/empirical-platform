@@ -60,7 +60,10 @@ _M084_HEAD = "".join(("a3f7c2", "1d9b04"))
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    yield from build_engine()
+    # STACKED-MILESTONE TEST EVOLUTION (M087). This suite tests the M085 EXACT-HEAD guard, so its
+    # database is migrated explicitly to the M085 revision, not to the repository-global head
+    # (which is a later additive milestone's). `M085_SCHEMA_HEAD` itself is unchanged.
+    yield from build_engine(M085_SCHEMA_HEAD)
 
 
 @pytest.fixture
@@ -646,7 +649,7 @@ def test_the_corrective_migration_goes_down_and_up_again(clean: Engine) -> None:
         assert "preview_binding_fingerprint" not in str(below["authorization_guard"])
         assert "basis_broker_latest_at" in str(below["authorization_guard"])
     finally:
-        alembic_command.upgrade(alembic_config(), "head")
+        alembic_command.upgrade(alembic_config(), M085_SCHEMA_HEAD)
     assert _catalog(clean) == at_head
 
 
@@ -657,11 +660,11 @@ def test_the_upgrade_refuses_to_invent_a_binding_for_rows_that_exist(
     alembic_command.downgrade(alembic_config(), _BELOW_THE_CORRECTIVE_REVISION)
     try:
         with pytest.raises(sa.exc.DatabaseError) as raised:
-            alembic_command.upgrade(alembic_config(), "head")
+            alembic_command.upgrade(alembic_config(), M085_SCHEMA_HEAD)
         assert "refuses to invent them" in str(raised.value)
     finally:
         truncate_all(clean)
-        alembic_command.upgrade(alembic_config(), "head")
+        alembic_command.upgrade(alembic_config(), M085_SCHEMA_HEAD)
     with clean.begin() as connection:
         revision = connection.execute(
             text("SELECT version_num FROM public.alembic_version")

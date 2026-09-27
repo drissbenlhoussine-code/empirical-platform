@@ -446,7 +446,6 @@ def test_a_filled_entry_is_shown_as_an_open_position_with_its_exit_locked(
         client.post("/active/refresh", {"csrf_token": client.csrf()})
     active = client.get("/active")
     assert "No active trades" not in active.body
-    # MILESTONE-087 composed an exit path: the position offers "Review exit" instead of a lock.
-    assert "Open position." in active.body and "Review exit" in active.body
+    assert "Open position." in active.body and "exit locked pending M087" in active.body
     assert "Filled" in active.body and "Request cancel" not in active.body
     assert "<dt>Position</dt>" in active.body

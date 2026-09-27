@@ -29,7 +29,7 @@ from empirical_platform.usecases.operator_console_exits import (
 
 @pytest.fixture
 def world(tmp_path: Path) -> World:
-    return simulation_world(tmp_path)
+    return simulation_world(tmp_path, exits=True)
 
 
 def _intent(world: World, symbol: str) -> str:
