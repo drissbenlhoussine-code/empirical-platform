@@ -1,8 +1,9 @@
 # MILESTONE-087 — Human-approved position exit (SIMULATION only)
 
 Status: **M087_SCHEMA_BOUNDARY_CLOSED_READY_FOR_INDEPENDENT_REVIEW** (verification.md §6; the
-exact-SHA PostgreSQL and static re-runs at `58a7eaf` were interrupted by the host and are owed).
-Branch
+owed exact-SHA PostgreSQL and static rounds were completed sequentially at the exact code; final
+code SHA `10a0aee59d26f06769448e57c0ec62c9c197c4f0`, which adds only the manifest form fix and a
+docstring wrap above `58a7eaf`). Branch
 `feature/m087-human-approved-position-exit`, started from the M086 head
 `33f1eb33d8328f68785539d15bcdd9ec73c53708`; first code candidate `909d402…`, schema-boundary
 correction `58a7eaf6e84765c5abe0dfa804b79aac41ced2fc` on top (verification.md §5–§6); not

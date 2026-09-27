@@ -1,0 +1,18 @@
+HEAD=<sha 10a0aee..c4f0> dirty=0 start=2026-09-27T18:20:31Z scope=files changed since 58a7eaf: the ancestry test + manifest form
+== ruff format --check
+771 files already formatted
+== ruff check
+All checks passed!
+== mypy
+Success: no issues found in 382 source files
+== ancestry + schema head
+tests/unit/test_m087_schema_head.py::test_the_m087_revision_descends_directly_from_the_m085_revision_and_is_the_only_head PASSED [100%]
+
+============================= 16 passed in 3.18s ==============================
+== security.ps1
+No known vulnerabilities found
+Secret scan target count: 1580
+security.ps1 exit=0
+== build
+Successfully built empirical_platform-0.0.0.tar.gz and empirical_platform-0.0.0-py3-none-any.whl
+end=2026-09-27T18:21:36Z

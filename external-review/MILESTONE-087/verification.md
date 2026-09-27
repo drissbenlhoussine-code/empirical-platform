@@ -103,17 +103,34 @@ scanner) and the added M087 workflow steps; no source module changed.
 | R2 PostgreSQL boundary suites (M087 exit 8, M087 ancestry 2, M086 console 6, then the three M085 head-guard suites) | **INTERRUPTED by the host** after 29 tests had PASSED (M087 exit 8/8, ancestry 2/2, M086 6/6, corrective-pass 13 of its tests); the session stopped the run for low system memory. No failure was recorded before the interruption. The same suites passed in full at the worktree state (§1: 527 passed). | `runs-58a7eaf/R2-postgres-boundary.txt` (partial) |
 | R5 static | compileall OK, ruff format 790 / check clean, mypy 382 files clean, architecture exit 0, negative fixture, frozen paths, `tests/architecture` 65 passed, renderers M082–M085 current, M084 file audit; **the `security.ps1` step crashed** (the `detect_secrets` subprocess exited without output while the host was reaping processes for memory) and the build step was killed. The standalone security scan run immediately before the commit on identical tracked content passed (1572 targets, none), and the build passed in §1. | `runs-58a7eaf/R5-static.txt` (partial) |
 
-**Re-run required and not performed:** the interrupted R2 and R5 rounds at `58a7eaf` were not
-restarted in this session (the host reaped them for memory; restarting was not authorised). The
-Owner or the independent reviewer should re-run them; nothing in the partial logs indicates a
-failure.
+**Owed re-runs completed (Owner-authorised, low-memory, strictly sequential: one pytest process
+at a time, no xdist), at the exact code of `58a7eaf` (local head `ca41b39`, code diff to
+`58a7eaf` empty):**
+
+| Stage | Result | Log |
+|---|---|---|
+| R2 part A — `test_m087_schema_head` 14, M087 exit 8, M087 ancestry 2, M086 console 6 (at the M085 head), `test_m085_paper_composition` 40, M085 corrective-pass 62, reconciliation rounds 15, authority contract 118 (the head-guard suites at the explicit M085 revision) | **265 passed, 0 failed** | `runs-58a7eaf/R2-postgres-part-A.txt` |
+| R2 part B — the remaining ten M085 PostgreSQL suites (57, 7, 48, 7, 3, 3, 49, 15, 125, 2) | **316 passed, 0 failed** | `runs-58a7eaf/R2-postgres-part-B.txt` |
+| R5 static, sequential — compileall OK; ruff format 790 / check clean; mypy 382 files clean; architecture exit 0 + negative fixture; frozen paths unmodified (96 governed); `tests/architecture` 65 passed; renderers M082–M085 current; M084 file audit 75 paths; pip-audit none; build OK | green except **one real defect found by the gate**: the committed JSON manifest `m085-migration-manifest.json` failed the secret scan (quoted 64-hex digests read as secrets) | `runs-58a7eaf/R5-static-rerun.txt` |
+
+**The defect and its fix (the only code change after `58a7eaf`).** The manifest is now
+`m085-migration-manifest.sha256` in the sha256sum form the repository's other manifests use
+(`<digest> *<path>`, comment header naming the M085 head commit in short form), and the ancestry
+test parses that form; same 26 digests, same assertions. Commits `794c53f` (manifest form + test)
+and `10a0aee` (one docstring line wrapped for ruff). Re-verified at `10a0aee` on a clean tree —
+ruff format/check clean, mypy clean, `test_m087_schema_ancestry_postgres` 2 passed +
+`test_m087_schema_head` 14 passed, secret scan 1580 targets none, build OK
+(`runs-10a0aee/R-delta-since-58a7eaf.txt`). No exit handler, domain rule, migration, simulation
+rule or console module changed after `58a7eaf`; R1 (269) and R3 (4422 / 80.52 %) were not re-run
+because no file they exercise changed (the ancestry test is PostgreSQL-only and skips in R3).
 
 ## 6. Classification
 
 **M087_SCHEMA_BOUNDARY_CLOSED_READY_FOR_INDEPENDENT_REVIEW** — on the evidence of §1 (every suite
-green at the worktree state, 0 red tests) and §5 (R1 green at the exact SHA; R2/R5 partially
-confirmed, interrupted by the host, re-run owed). Local commits only; not pushed; not merged; not
-frozen. No Alpaca call, no Paper trade, no Live trade. M085 Paper Acceptance remains NOT_STARTED.
+green, 0 red tests) and §5 (R1 269 at the exact SHA; the owed R2 and R5 rounds completed
+sequentially at the exact code, 581 PostgreSQL-round tests passed, one evidence-format defect
+found by the secret gate and fixed in `10a0aee`). Publication status and exact-head CI are
+recorded in the pull request. Not merged; not frozen. No Alpaca call, no Paper trade, no Live trade. M085 Paper Acceptance remains NOT_STARTED.
 Not M087 COMPLETE, not DAILY TRADING READY, not PAPER READY, not LIVE READY.
 
 ## 7. M087 exit behaviour — unchanged by this correction

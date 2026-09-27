@@ -1,0 +1,27 @@
+HEAD=<sha ca41b39..c8fa> code=58a7eaf dirty=0 part=A start=2026-09-27T18:00:52Z db=m085_pgon_b24c471 (disposable) mode=sequential-one-process-at-a-time
+== tests/unit/test_m087_schema_head.py
+..............                                                           [100%]
+14 passed in 1.12s
+== tests/integration/test_m087_position_exit_postgres.py
+........                                                                 [100%]
+8 passed in 10.85s
+== tests/integration/test_m087_schema_ancestry_postgres.py
+..                                                                       [100%]
+2 passed in 3.08s
+== tests/integration/test_m086_operator_console_postgres.py
+......                                                                   [100%]
+6 passed in 11.22s
+== tests/unit/test_m085_paper_composition.py
+........................................                                 [100%]
+40 passed in 1.31s
+== tests/integration/test_m085_corrective_pass_postgres.py
+..............................................................           [100%]
+62 passed in 53.98s
+== tests/integration/test_m085_reconciliation_rounds_postgres.py
+...............                                                          [100%]
+15 passed in 30.92s
+== tests/integration/test_m085_authority_contract.py
+........................................................................ [ 61%]
+..............................................                           [100%]
+118 passed in 7.26s
+end=2026-09-27T18:03:02Z
