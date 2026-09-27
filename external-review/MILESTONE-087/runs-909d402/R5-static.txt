@@ -1,4 +1,4 @@
-HEAD=909d402afe3201ad1b1acf48278ff853a3f52cbd dirty=0 start=2026-09-27T15:27:02Z
+HEAD=<sha 909d402..2cbd> dirty=0 start=2026-09-27T15:27:02Z
 == compileall
 OK
 == ruff format --check
@@ -12,7 +12,7 @@ exit=0
 == architecture negative fixture (must fail)
 reported a violation as required (exit 1)
 == frozen paths
-frozen paths unmodified (M083 27 since 707161a1e8ed, M084 69 since 1127134623b2; 96 governed, verified by blob id and by git diff)
+frozen paths unmodified (M083 27 since <rev 707161..e8ed>, M084 69 since <rev 112713..23b2>; 96 governed, verified by blob id and by git diff)
 == architecture + frozen + base-pin tests
 65 passed in 26.37s
 == authority renderers (--check)

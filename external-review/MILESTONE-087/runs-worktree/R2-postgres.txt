@@ -1,4 +1,4 @@
-HEAD=33f1eb33d8328f68785539d15bcdd9ec73c53708 start=2026-09-27T15:15:10Z db=m085_pgon_b24c471 (disposable)
+HEAD=<sha 33f1eb3..3708> start=2026-09-27T15:15:10Z db=m085_pgon_b24c471 (disposable)
 ........................................................................ [ 13%]
 ..................................................F..................... [ 27%]
 ........................................................................ [ 41%]
@@ -15,10 +15,10 @@ self = <test_m085_authority_contract.TestTheContractReadsTheSqlInstalledAtHead o
     def test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head(self) -> None:
         script = ScriptDirectory.from_config(_alembic())
 >       assert script.get_current_head() == _M085_REVISIONS[-1]
-E       AssertionError: assert 'e7c1a9d3b5f2' == 'a7d3c9e14f26'
+E       AssertionError: assert '<rev e7c1a9..b5f2>' == '<rev a7d3c9..4f26>'
 E         
-E         - a7d3c9e14f26
-E         + e7c1a9d3b5f2
+E         - <rev a7d3c9..4f26>
+E         + <rev e7c1a9..b5f2>
 
 tests\integration\test_m085_authority_contract.py:346: AssertionError
 ___________ test_the_round_journal_migration_goes_down_and_up_again ___________
@@ -66,10 +66,10 @@ world = {'engine': Engine(postgresql+psycopg://empirical_m085:***@127.0.0.1:5432
     
         at_head = catalog()
 >       assert at_head["table"] and at_head["head"] == M085_SCHEMA_HEAD
-E       AssertionError: assert (True and 'e7c1a9d3b5f2' == 'a7d3c9e14f26'
+E       AssertionError: assert (True and '<rev e7c1a9..b5f2>' == '<rev a7d3c9..4f26>'
 E         
-E         - a7d3c9e14f26
-E         + e7c1a9d3b5f2)
+E         - <rev a7d3c9..4f26>
+E         + <rev e7c1a9..b5f2>)
 
 tests\integration\test_m085_reconciliation_rounds_postgres.py:757: AssertionError
 ___ TestTheExactSchemaHeadIsRequired.test_the_migrated_database_is_accepted ___
@@ -103,7 +103,7 @@ service = <empirical_platform.shared.persistence.postgres.PostgresPersistenceSer
                 f"{M085_SCHEMA_HEAD}; refusing to run paper execution against a schema whose "
                 "guards this code was not written for"
             )
-E           empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories.PaperSchemaHeadError: the database is at schema revision(s) ['e7c1a9d3b5f2'], not exactly a7d3c9e14f26; refusing to run paper execution against a schema whose guards this code was not written for
+E           empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories.PaperSchemaHeadError: the database is at schema revision(s) ['<rev e7c1a9..b5f2>'], not exactly <rev a7d3c9..4f26>; refusing to run paper execution against a schema whose guards this code was not written for
 
 src\empirical_platform\shared\persistence\postgres_repositories\paper_execution_repositories.py:121: PaperSchemaHeadError
 ____________ test_the_corrective_migration_goes_down_and_up_again _____________
@@ -448,13 +448,13 @@ E           (Background on this error at: https://sqlalche.me/e/20/f405)
 ---------------------------- Captured stderr call -----------------------------
 INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
 INFO  [alembic.runtime.migration] Will assume transactional DDL.
-INFO  [alembic.runtime.migration] Running downgrade a7d3c9e14f26 -> 9c4b2e7d5a18, MILESTONE-085 durable reconciliation rounds (Q-2 / Q-4).
-INFO  [alembic.runtime.migration] Running downgrade 9c4b2e7d5a18 -> e61b3f9a4c27, MILESTONE-085 corrective pass: send-time policy binding and immutable terminal attempts.
+INFO  [alembic.runtime.migration] Running downgrade <rev a7d3c9..4f26> -> <rev 9c4b2e..5a18>, MILESTONE-085 durable reconciliation rounds (Q-2 / Q-4).
+INFO  [alembic.runtime.migration] Running downgrade <rev 9c4b2e..5a18> -> <rev e61b3f..4c27>, MILESTONE-085 corrective pass: send-time policy binding and immutable terminal attempts.
 INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
 INFO  [alembic.runtime.migration] Will assume transactional DDL.
-INFO  [alembic.runtime.migration] Running upgrade e61b3f9a4c27 -> 9c4b2e7d5a18, MILESTONE-085 corrective pass: send-time policy binding and immutable terminal attempts.
-INFO  [alembic.runtime.migration] Running upgrade 9c4b2e7d5a18 -> a7d3c9e14f26, MILESTONE-085 durable reconciliation rounds (Q-2 / Q-4).
-INFO  [alembic.runtime.migration] Running upgrade a7d3c9e14f26 -> e7c1a9d3b5f2, MILESTONE-087 human-approved position exit schema.
+INFO  [alembic.runtime.migration] Running upgrade <rev e61b3f..4c27> -> <rev 9c4b2e..5a18>, MILESTONE-085 corrective pass: send-time policy binding and immutable terminal attempts.
+INFO  [alembic.runtime.migration] Running upgrade <rev 9c4b2e..5a18> -> <rev a7d3c9..4f26>, MILESTONE-085 durable reconciliation rounds (Q-2 / Q-4).
+INFO  [alembic.runtime.migration] Running upgrade <rev a7d3c9..4f26> -> <rev e7c1a9..b5f2>, MILESTONE-087 human-approved position exit schema.
 ______ test_the_upgrade_refuses_to_invent_a_binding_for_rows_that_exist _______
 
 self = <sqlalchemy.engine.base.Connection object at 0x0000025E77AC8590>
@@ -681,7 +681,7 @@ E           sqlalchemy.exc.ProgrammingError: (psycopg.errors.UndefinedColumn) co
 E           LINE 1: ...change, asset_fractionable, refusals, created_at, configurat...
 E                                                                        ^
 E           [SQL: INSERT INTO public.paper_submission_preview (preview_id, intent_governance_id, preview_version, account_snapshot_id, account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, extended_hours, client_order_id, request_fingerprint, approved_fingerprint, market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint) VALUES (%(preview_id)s, %(intent_governance_id)s, %(preview_version)s, %(account_snapshot_id)s, %(account_reference)s, %(symbol)s, %(side)s, %(quantity)s, %(order_type)s, %(limit_price)s, %(time_in_force)s, %(extended_hours)s, %(client_order_id)s, %(request_fingerprint)s, %(approved_fingerprint)s, %(market_is_open)s, %(market_next_open)s, %(market_next_close)s, %(quote_bid)s, %(quote_ask)s, %(quote_captured_at)s, %(quote_source)s, %(asset_tradable)s, %(asset_status)s, %(asset_class)s, %(asset_exchange)s, %(asset_fractionable)s, %(refusals)s, %(created_at)s, %(configuration_governance_id)s, %(configuration_version)s, %(policy_fingerprint)s, %(maximum_notional)s, %(quote_maximum_age_seconds)s, %(maximum_spread_percent)s, %(policy_watchlist)s, %(policy_prohibited_instruments)s, %(earliest_entry_time)s, %(latest_entry_time)s, %(operator_timezone)s, %(intent_expires_at)s, %(binding_fingerprint)s) RETURNING preview_id, intent_governance_id, preview_version, account_snapshot_id, account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, extended_hours, client_order_id, request_fingerprint, approved_fingerprint, market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint]
-E           [parameters: {'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', 'account_reference': 'ref:0123456789abcdef', 'symbol': 'AAPL', 'side': 'BUY', 'quantity': 9, 'order_type': 'LIMIT', 'limit_price': Decimal('200.10000000'), 'time_in_force': 'DAY', 'extended_hours': False, 'client_order_id': 'm085-c6d470046065271ecb5e7e53558eb5a004882f4b', 'request_fingerprint': 'c207e32241e327a9e3a97c0acd7f6ae9302bf147e55a1d0383a3c73dfd97ea0f', 'approved_fingerprint': 'de2978c64ef27de1cfcf696d5e7a9dcce703112e1cb24e5253c26da8da7dbf41', 'market_is_open': True, 'market_next_open': None, 'market_next_close': datetime.datetime(2026, 6, 10, 15, 0, tzinfo=datetime.timezone.utc), 'quote_bid': Decimal('199.95'), 'quote_ask': Decimal('200.10'), 'quote_captured_at': datetime.datetime(2026, 6, 10, 11, 59, 55, tzinfo=datetime.timezone.utc), 'quote_source': 'alpaca-iex', 'asset_tradable': True, 'asset_status': 'active', 'asset_class': 'us_equity', 'asset_exchange': 'NASDAQ', 'asset_fractionable': True, 'refusals': '[]', 'created_at': datetime.datetime(2026, 6, 10, 12, 0, 25, tzinfo=datetime.timezone.utc), 'configuration_governance_id': 'CFG-085-0001', 'configuration_version': 1, 'policy_fingerprint': 'a1b2f6fd98c4e84aa44e492f128681d0af73ceb599dd741cc1d75783539752d6', 'maximum_notional': Decimal('2000'), 'quote_maximum_age_seconds': 60, 'maximum_spread_percent': Decimal('1'), 'policy_watchlist': ['AAPL', 'MSFT'], 'policy_prohibited_instruments': ['PENNY'], 'earliest_entry_time': datetime.time(10, 0), 'latest_entry_time': datetime.time(15, 30), 'operator_timezone': 'Europe/Helsinki', 'intent_expires_at': datetime.datetime(2026, 6, 10, 15, 5, tzinfo=zoneinfo.ZoneInfo(key='Europe/Kiev')), 'binding_fingerprint': '4d70bed5fb879c9e06da0b697530c10e56019f06c6fec4b1faf3568245c2ff91'}]
+E           [parameters: {'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', 'account_reference': 'ref:0123456789abcdef', 'symbol': 'AAPL', 'side': 'BUY', 'quantity': 9, 'order_type': 'LIMIT', 'limit_price': Decimal('200.10000000'), 'time_in_force': 'DAY', 'extended_hours': False, 'client_order_id': 'm085-<sha c6d4700..2f4b>', 'request_fingerprint': 'c207e32241e327a9e3a97c0acd7f6ae9302bf147e55a1d0383a3c73dfd97ea0f', 'approved_fingerprint': 'de2978c64ef27de1cfcf696d5e7a9dcce703112e1cb24e5253c26da8da7dbf41', 'market_is_open': True, 'market_next_open': None, 'market_next_close': datetime.datetime(2026, 6, 10, 15, 0, tzinfo=datetime.timezone.utc), 'quote_bid': Decimal('199.95'), 'quote_ask': Decimal('200.10'), 'quote_captured_at': datetime.datetime(2026, 6, 10, 11, 59, 55, tzinfo=datetime.timezone.utc), 'quote_source': 'alpaca-iex', 'asset_tradable': True, 'asset_status': 'active', 'asset_class': 'us_equity', 'asset_exchange': 'NASDAQ', 'asset_fractionable': True, 'refusals': '[]', 'created_at': datetime.datetime(2026, 6, 10, 12, 0, 25, tzinfo=datetime.timezone.utc), 'configuration_governance_id': 'CFG-085-0001', 'configuration_version': 1, 'policy_fingerprint': 'a1b2f6fd98c4e84aa44e492f128681d0af73ceb599dd741cc1d75783539752d6', 'maximum_notional': Decimal('2000'), 'quote_maximum_age_seconds': 60, 'maximum_spread_percent': Decimal('1'), 'policy_watchlist': ['AAPL', 'MSFT'], 'policy_prohibited_instruments': ['PENNY'], 'earliest_entry_time': datetime.time(10, 0), 'latest_entry_time': datetime.time(15, 30), 'operator_timezone': 'Europe/Helsinki', 'intent_expires_at': datetime.datetime(2026, 6, 10, 15, 5, tzinfo=zoneinfo.ZoneInfo(key='Europe/Kiev')), 'binding_fingerprint': '4d70bed5fb879c9e06da0b697530c10e56019f06c6fec4b1faf3568245c2ff91'}]
 E           (Background on this error at: https://sqlalche.me/e/20/f405)
 
 .venv\Lib\site-packages\psycopg\cursor.py:117: ProgrammingError

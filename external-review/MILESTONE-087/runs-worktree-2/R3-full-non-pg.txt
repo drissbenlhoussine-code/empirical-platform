@@ -1,4 +1,4 @@
-HEAD=<sha 33f1eb3..3708> dirty=23 start=2026-09-27T15:15:12Z
+HEAD=<sha f08592d..03d8> dirty=19 start=2026-09-27T16:10:00Z
 ........................................................................ [  1%]
 ........................................................................ [  2%]
 .................................................................sssssss [  3%]
@@ -13,22 +13,22 @@ ssssssssssssss.sssssssssss.sssssssssssssssssssssssssssssssssssssssssssss [ 13%]
 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 15%]
 sssssssssssssssssssssssssssssssssssssssss............................... [ 16%]
 ............................ssssssssssssssssssssssssssssssssssssssssssss [ 17%]
-sssssss................................sssssssssssssssssssssssssssssssss [ 19%]
+sssssss................................sssssssssssssssssssssssssssssssss [ 18%]
 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 20%]
 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 21%]
 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 22%]
 ssssssssssssssssssss.......................ssss.sssssssssssssss......... [ 24%]
-......F................................................................. [ 25%]
+........................................................................ [ 25%]
 ....................................................ssssssssssssssssssss [ 26%]
 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 27%]
 sssssssssssssssssss..................................................... [ 29%]
 ........................................................................ [ 30%]
 ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 31%]
 ssssssssss..ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 32%]
-ssssssssssssssssss...................................................... [ 34%]
+ssssssssss.sssssssss.................................................... [ 34%]
 ........................................................................ [ 35%]
 ........................................................................ [ 36%]
-........................................................................ [ 38%]
+........................................................................ [ 37%]
 ........................................................................ [ 39%]
 ........................................................................ [ 40%]
 ........................................................................ [ 41%]
@@ -39,73 +39,46 @@ ssssssssssssssssss...................................................... [ 34%]
 ........................................................................ [ 48%]
 ........................................................................ [ 49%]
 ........................................................................ [ 50%]
-........................................................................ [ 52%]
+........................................................................ [ 51%]
 ........................................................................ [ 53%]
 ........................................................................ [ 54%]
 ........................................................................ [ 55%]
-........................................................................ [ 57%]
+........................................................................ [ 56%]
 ........................................................................ [ 58%]
 ........................................................................ [ 59%]
 ........................................................................ [ 60%]
-........................................................................ [ 62%]
+........................................................................ [ 61%]
 ........................................................................ [ 63%]
 ........................................................................ [ 64%]
 ........................................................................ [ 65%]
 ........................................................................ [ 67%]
 ........................................................................ [ 68%]
 ........................................................................ [ 69%]
-........................................................................ [ 71%]
+........................................................................ [ 70%]
 ........................................................................ [ 72%]
 ........................................................................ [ 73%]
 ........................................................................ [ 74%]
-........................................................................ [ 76%]
+........................................................................ [ 75%]
 ........................................................................ [ 77%]
 ........................................................................ [ 78%]
 ........................................................................ [ 79%]
-........................................................................ [ 81%]
-.......................................................................F [ 82%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
 ........................................................................ [ 83%]
-........................................................................ [ 85%]
+........................................................................ [ 84%]
 ........................................................................ [ 86%]
 ........................................................................ [ 87%]
 ........................................................................ [ 88%]
-........................................................................ [ 90%]
+........................................................................ [ 89%]
 ........................................................................ [ 91%]
 ........................................................................ [ 92%]
 ........................................................................ [ 93%]
-........................................................................ [ 95%]
+........................................................................ [ 94%]
 ........................................................................ [ 96%]
 ........................................................................ [ 97%]
 ........................................................................ [ 98%]
-...........................................................              [100%]
-================================== FAILURES ===================================
-_ TestTheContractReadsTheSqlInstalledAtHead.test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head _
-
-self = <test_m085_authority_contract.TestTheContractReadsTheSqlInstalledAtHead object at 0x000001881781D6D0>
-
-    def test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head(self) -> None:
-        script = ScriptDirectory.from_config(_alembic())
->       assert script.get_current_head() == _M085_REVISIONS[-1]
-E       AssertionError: assert '<rev e7c1a9..b5f2>' == '<rev a7d3c9..4f26>'
-E         
-E         - <rev a7d3c9..4f26>
-E         + <rev e7c1a9..b5f2>
-
-tests\integration\test_m085_authority_contract.py:346: AssertionError
-_ TestTheSchemaHeadIsExact.test_the_pinned_head_is_the_repository_migration_head _
-
-self = <test_m085_paper_composition.TestTheSchemaHeadIsExact object at 0x000001881A22A990>
-
-    def test_the_pinned_head_is_the_repository_migration_head(self) -> None:
-        config = Config(str(_REPO_ROOT / "alembic.ini"))
-        config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
->       assert ScriptDirectory.from_config(config).get_current_head() == M085_SCHEMA_HEAD
-E       AssertionError: assert '<rev e7c1a9..b5f2>' == '<rev a7d3c9..4f26>'
-E         
-E         - <rev a7d3c9..4f26>
-E         + <rev e7c1a9..b5f2>
-
-tests\unit\test_m085_paper_composition.py:392: AssertionError
+........................................................................ [ 99%]
+...                                                                      [100%]
 =============================== tests coverage ================================
 ______________ coverage: platform win32, python 3.13.14-final-0 _______________
 
@@ -147,9 +120,10 @@ src\empirical_platform\decision_candidate\trade_plan.py                         
 src\empirical_platform\decision_candidate\trade_proposal.py                                                           293     35    106     34    83%   184, 186, 188, 190, 192, 246, 248, 252, 254, 261, 263, 267, 269, 271, 277, 279, 291, 293, 295, 301, 306, 308, 310, 313, 318, 320, 326, 329, 336, 461, 465, 496, 498, 500, 502
 src\empirical_platform\decision_candidate\universe_authority.py                                                        11      3      4      0    53%   26-28
 src\empirical_platform\decision_candidate\validation_study.py                                                         255     20     90     20    88%   141, 163, 165, 169, 171, 187, 206, 241, 326, 328, 349, 351, 353, 355, 357, 364, 378, 386, 394, 402
-src\empirical_platform\entrypoints\_operator_console_composition.py                                                    74     36      6      0    48%   74, 97-98, 102-108, 133-199, 226-244
-src\empirical_platform\entrypoints\_operator_console_html.py                                                          175      2     46      3    98%   402->404, 585, 729
+src\empirical_platform\entrypoints\_operator_console_composition.py                                                    76     36      6      0    49%   79, 105-106, 110-116, 127-128, 151-153, 179-233, 261-279
+src\empirical_platform\entrypoints\_operator_console_html.py                                                          175      2     46      2    98%   585, 729
 src\empirical_platform\entrypoints\_operator_console_web.py                                                           143      8     20      1    94%   81, 180, 220-221, 234-235, 261-262
+src\empirical_platform\entrypoints\_position_exit_composition.py                                                       34     16      0      0    53%   44, 61-72, 96-114
 src\empirical_platform\entrypoints\acquire_market_data_snapshot.py                                                     25     25      4      0     0%   19-103
 src\empirical_platform\entrypoints\activate_campaign.py                                                                29      7      4      1    76%   39-54, 86
 src\empirical_platform\entrypoints\activate_execution_kill_switch.py                                                   32      4     10      1    88%   43-45, 78
@@ -217,7 +191,7 @@ src\empirical_platform\entrypoints\list_daily_research_sessions.py              
 src\empirical_platform\entrypoints\list_paper_executions.py                                                            36      4     14      1    90%   34-36, 68
 src\empirical_platform\entrypoints\list_trade_proposals.py                                                             37      8     10      3    72%   39-41, 63, 67-69, 79
 src\empirical_platform\entrypoints\open_evaluation_context.py                                                          29     10      6      2    60%   43-50, 60-66, 73
-src\empirical_platform\entrypoints\operator_console.py                                                                 97     13     22      7    83%   77-78, 99-105, 150, 152-153, 161->166, 175, 184->189, 189->194, 191-193, 198
+src\empirical_platform\entrypoints\operator_console.py                                                                 97     13     22      7    83%   77-78, 99-105, 152, 154-155, 163->168, 177, 186->191, 191->196, 193-195, 200
 src\empirical_platform\entrypoints\operator_console_app.py                                                            203      8     12      3    95%   96-97, 126-130, 235, 264, 301
 src\empirical_platform\entrypoints\paper_execution_status.py                                                           25      4      6      1    84%   32-39, 64
 src\empirical_platform\entrypoints\prepare_campaign_for_authorization.py                                               29      7      4      1    76%   39-54, 86
@@ -289,7 +263,7 @@ src\empirical_platform\shared\persistence\postgres_repositories\operator_positio
 src\empirical_platform\shared\persistence\postgres_repositories\paper_execution_repositories.py                       446    262     76      0    36%   130, 143-146, 150-155, 159-166, 170-173, 177-180, 184-189, 193-196, 200-202, 212-216, 229-232, 236-239, 243, 261-268, 294, 303-307, 310, 313, 321-339, 369, 395, 398-420, 423-425, 503-517, 521-524, 528, 571, 574-622, 625-627, 630-632, 635-637, 710, 749, 752-787, 790-794, 797-801, 881, 907-908, 912, 916, 919, 928, 948-1015, 1018, 1021, 1024, 1027-1029, 1051-1088, 1091-1097, 1129, 1150, 1153-1170, 1173-1177, 1180-1182, 1204, 1220, 1223-1235, 1238-1242, 1272, 1331, 1341, 1357, 1384, 1387-1400, 1405-1412, 1415-1428, 1431-1435, 1438-1454, 1457-1459, 1518-1523, 1527-1528, 1552, 1557-1576, 1589-1613, 1616-1620, 1639-1683, 1702, 1706, 1710, 1714, 1718, 1722, 1726, 1730, 1734
 src\empirical_platform\shared\persistence\postgres_repositories\portfolio_dependence_repository.py                     49     27      8      0    39%   48-69, 72-211, 215, 227, 245-259
 src\empirical_platform\shared\persistence\postgres_repositories\portfolio_study_repository.py                          55     32     10      0    35%   48-74, 77-288, 292-293, 313, 325, 344-352
-src\empirical_platform\shared\persistence\postgres_repositories\position_exit_repositories.py                         355    217     64      0    33%   71-86, 95, 108-111, 115-120, 124-127, 131-136, 140-143, 147-150, 154-159, 163-166, 170, 174-178, 188-195, 199, 261-306, 313, 316-354, 357-359, 362-364, 367-369, 413, 440, 443-467, 470-472, 475-477, 543, 570-571, 575, 579, 593, 606-666, 669-671, 674, 677-681, 684, 687, 702-730, 735-746, 749-753, 784, 803, 806-824, 827-829, 832-834, 891-892, 911, 925, 930-949, 962-982, 985-987, 998-1038, 1045, 1048-1060, 1063-1067, 1076, 1080, 1084, 1088, 1092, 1096, 1100
+src\empirical_platform\shared\persistence\postgres_repositories\position_exit_repositories.py                         355    208     64      0    36%   95, 108-111, 115-120, 124-127, 131-136, 140-143, 147-150, 154-159, 163-166, 170, 174-178, 188-195, 199, 261-306, 313, 316-354, 357-359, 362-364, 367-369, 413, 440, 443-467, 470-472, 475-477, 543, 570-571, 575, 579, 593, 606-666, 669-671, 674, 677-681, 684, 687, 702-730, 735-746, 749-753, 784, 803, 806-824, 827-829, 832-834, 891-892, 911, 925, 930-949, 962-982, 985-987, 998-1038, 1045, 1048-1060, 1063-1067, 1076, 1080, 1084, 1088, 1092, 1096, 1100
 src\empirical_platform\shared\persistence\postgres_repositories\position_plan_repository.py                            48     26      8      0    39%   31-45, 72-84, 88-96, 99-153
 src\empirical_platform\shared\persistence\postgres_repositories\research_session_repository.py                         76     50     12      0    30%   46-67, 70-199, 204-217, 226-256, 260-261, 277, 291, 307-308
 src\empirical_platform\shared\persistence\postgres_repositories\review_repository.py                                  103     75     26      0    22%   52-58, 74-75, 95, 104, 126-190, 194-254, 263-368
@@ -332,8 +306,8 @@ src\empirical_platform\usecases\get_trading_opportunity_scan.py                 
 src\empirical_platform\usecases\historical_backtest_io.py                                                             126      1      4      1    98%   143
 src\empirical_platform\usecases\historical_import_io.py                                                                78      4      6      1    94%   79, 175-177
 src\empirical_platform\usecases\import_historical_dataset_snapshot.py                                                  62      0      6      1    99%   130->166
-src\empirical_platform\usecases\operator_console.py                                                                   665     45    206     28    90%   358, 365, 415-417, 617-618, 665, 777-778, 880, 890-896, 899-907, 929, 960, 972, 981, 984, 1032, 1045, 1072-1076, 1081->1101, 1102->1169, 1131, 1150->1152, 1271, 1334-1338, 1347->1381, 1537->1567, 1543, 1545-1547, 1568, 1693, 1725-1726, 1728->1730, 1735, 1760-1777
-src\empirical_platform\usecases\operator_console_exits.py                                                             298     26    104     14    89%   171-172, 305, 315-317, 331->333, 350, 362, 372, 387, 474, 543, 553, 565->590, 588-589, 652, 676, 684-685, 716-717, 732, 756-759
+src\empirical_platform\usecases\operator_console.py                                                                   665     46    206     25    90%   358, 365, 415-417, 617-618, 665, 777-778, 880, 890-896, 899-907, 929, 960, 972, 981, 984, 1032, 1045, 1072-1076, 1081->1101, 1102->1169, 1131, 1150->1152, 1271, 1334-1338, 1542-1543, 1545-1547, 1568, 1693, 1725-1726, 1735, 1760-1777
+src\empirical_platform\usecases\operator_console_exits.py                                                             298     27    104     15    88%   171-172, 305, 307, 315-317, 331->333, 350, 362, 372, 387, 474, 543, 553, 565->590, 588-589, 652, 676, 684-685, 716-717, 732, 756-759
 src\empirical_platform\usecases\operator_console_fixtures.py                                                           72      5     16      2    92%   228-229, 284-285, 299
 src\empirical_platform\usecases\operator_evidence_snapshot_io.py                                                       25     20     10      0    14%   20, 59-98
 src\empirical_platform\usecases\operator_position_ledger_io.py                                                         25     19     10      0    17%   22, 36, 50-80
@@ -358,12 +332,9 @@ src\empirical_platform\usecases\statistical_evidence_io.py                      
 src\empirical_platform\usecases\survivorship_study_io.py                                                              153     14      2      1    90%   84, 216-217, 221-222, 239-240, 281-292, 315-317
 src\empirical_platform\usecases\validation_study_io.py                                                                 95      8      6      2    90%   112, 118, 156-158, 195-197
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
-TOTAL                                                                                                               24196   4084   5744    975    81%
+TOTAL                                                                                                               24232   4093   5744    972    81%
 
 131 files skipped due to complete coverage.
 Required test coverage of 79.0% reached. Total coverage: 80.52%
-=========================== short test summary info ===========================
-FAILED tests/integration/test_m085_authority_contract.py::TestTheContractReadsTheSqlInstalledAtHead::test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head
-FAILED tests/unit/test_m085_paper_composition.py::TestTheSchemaHeadIsExact::test_the_pinned_head_is_the_repository_migration_head
-2 failed, 4405 passed, 1268 skipped in 263.01s (0:04:23)
-end=2026-09-27T15:19:42Z
+4422 passed, 1269 skipped in 233.74s (0:03:53)
+end=2026-09-27T16:13:58Z

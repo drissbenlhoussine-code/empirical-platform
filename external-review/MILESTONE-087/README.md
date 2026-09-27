@@ -1,9 +1,12 @@
 # MILESTONE-087 — Human-approved position exit (SIMULATION only)
 
-Status: **M087_SIMULATION_READY_FOR_INDEPENDENT_REVIEW — with one BLOCKED item for the Owner
-(§8: the M085 exact-head pin).** Code candidate `909d402afe3201ad1b1acf48278ff853a3f52cbd` on
-branch `feature/m087-human-approved-position-exit`, started from the M086 head
-`33f1eb33d8328f68785539d15bcdd9ec73c53708`; not pushed, not merged, not frozen. NOT M087
+Status: **M087_SCHEMA_BOUNDARY_CLOSED_READY_FOR_INDEPENDENT_REVIEW** (verification.md §6; the
+exact-SHA PostgreSQL and static re-runs at `58a7eaf` were interrupted by the host and are owed).
+Branch
+`feature/m087-human-approved-position-exit`, started from the M086 head
+`33f1eb33d8328f68785539d15bcdd9ec73c53708`; first code candidate `909d402…`, schema-boundary
+correction `58a7eaf6e84765c5abe0dfa804b79aac41ced2fc` on top (verification.md §5–§6); not
+pushed, not merged, not frozen. NOT M087
 COMPLETE, NOT DAILY TRADING READY, NOT PAPER READY, NOT LIVE READY. **No Alpaca order or cancel
 call of any kind, no Paper trade, no Live trade.** M085 Paper Acceptance remains NOT_STARTED.
 
@@ -25,14 +28,29 @@ open position → Owner reviews the exact exit → **CONFIRM EXIT** → SELL-TO-
 | Usecases | `usecases/position_exit.py` | Assess, Preview, Authorize, Submit (claim → send boundary → kill switch last → send), Reconcile (rounds, same identity, position-zero verification), Cancel |
 | Console | `usecases/operator_console_exits.py`; `usecases/operator_console.py` (extended) | Review (ticket bound to preview version + fingerprint), Confirm (re-read everything; derived ids `XPV-/XAU-/XAT-<intent>-<version>`), categories (Working entry order / Open position / Exit in progress / Needs attention / Position closed), deadline truth, exit timeline, History result |
 | Presentation | `entrypoints/_operator_console_html.py`, `operator_console_app.py` | `/exit/review`, POST `/exit/confirm`, `/exit/cancel`, POST `/exit/confirm-cancel`; grouped Active trades; SIMULATION badge; CSRF; 303 after POST |
-| Persistence | `migrations/versions/e7c1a9d3b5f2_…`, `shared/persistence/postgres_repositories/position_exit_repositories.py` | Six `position_exit_*` tables with CHECKs, guards and append-only triggers; `require_exact_m087_schema_head` |
+| Persistence | `migrations/versions/e7c1a9d3b5f2_…`, `shared/persistence/postgres_repositories/position_exit_repositories.py` | Six `position_exit_*` tables with CHECKs, guards and append-only triggers; `M087_SCHEMA_HEAD` + `require_exact_m087_schema_head` (M087's own schema authority) |
+| Composition | `entrypoints/_operator_console_composition.py` (M086, unchanged meaning), `entrypoints/_position_exit_composition.py` (M087) | Two public compositions, two exact-head guards: M086 `compose_operator_console` → `require_exact_m085_schema_head` → private `_compose_verified_console`; M087 `compose_operator_console_with_exits` → `require_exact_m087_schema_head` → the same private helper + exit runtime. No verifier parameter exists; the launcher composes the M087 runtime |
 | Simulation | `shared/brokerage/simulation_paper.py` (extended) | `submit_close_order` (refuses no position / over-position, definitive 403), `reduce_position` (never below zero), ten exit scenarios, side-aware progression |
 
 **M085 is consumed, not rewritten.** `PaperOrderRequest` still refuses any side but BUY (asserted
 by `tests/architecture/test_m087_exit_boundaries.py`). No M085 handler, repository, migration,
-trigger, state machine or authority file is modified. The one M085 production edit this branch
-NEEDS — moving the exact schema-head pin `M085_SCHEMA_HEAD` to the stacked head — could not be
-applied in this session (see §7, BLOCKED) and is reported for the Owner's decision.
+trigger, state machine, authority file or constant is modified: `M085_SCHEMA_HEAD` remains the
+M085 revision `a7d3c9e14f26`, permanently. **Schema authority (two heads, kept apart):**
+
+| Milestone | Pin | Guard | Accepts | Refuses |
+|---|---|---|---|---|
+| M085 | `M085_SCHEMA_HEAD = a7d3c9e14f26` (unchanged) | `require_exact_m085_schema_head` | exactly the M085 revision | the M087 revision, older revisions, unknown newer, multiple heads, missing version |
+| M087 | `M087_SCHEMA_HEAD = e7c1a9d3b5f2` | `require_exact_m087_schema_head` | exactly the M087 revision | the M085 head, older revisions, unknown newer, multiple heads, missing version |
+
+**Migration ancestry, machine-checkable** (`tests/unit/test_m087_schema_head.py`,
+`tests/integration/test_m087_schema_ancestry_postgres.py`, `m085-migration-manifest.json`):
+`e7c1a9d3b5f2.down_revision == a7d3c9e14f26`; it is the only head and the only revision above
+M085; the 26 migration files at the published M085 head `54ae23c` are byte-identical on this
+branch (sha256 manifest) and exactly one file was added. **M085 catalog preservation:** every
+M085-owned table, column, constraint, index, trigger and trigger-function definition (including
+the closed transition table) is byte-identical at the M085 head, after upgrading to M087 and after
+downgrading back; M087 adds six tables and eight functions and holds no foreign key into an M085
+table (its link to the entry is a BEFORE INSERT guard that reads `paper_execution_attempt`).
 
 ## 3. The non-negotiable invariants, and where each one lives
 
@@ -111,20 +129,21 @@ covered indirectly; **CLAIMED** = stated, not executed here; **BLOCKED** = could
 | Missed liquidation deadline recorded and shown, nothing sent | PROVEN | service `test_a_missed_liquidation_deadline_is_recorded_and_shown_and_nothing_is_sent` |
 | Real mobile-browser rendering | CLAIMED | CSS media query only (as in M086) |
 | Manual browser walkthrough with screenshots | CLAIMED | not performed in this session; the routes suite renders every page |
-| M085 exact-head pin moved to the stacked head | **BLOCKED** | see §8 |
+| M086 public composition refuses the M087 schema; M087 composition refuses the M085 schema; each accepts its own | PROVEN | PG `test_the_migration_upgrades_downgrades_and_re_upgrades_with_an_exact_head`; unit `test_m087_schema_head.py` (guard matrix, both guards) |
+| M087 is an additive descendant; M085 catalog byte-identical before/after/down; migration files byte-identical to the M085 head | PROVEN | PG `test_m087_schema_ancestry_postgres.py`; `m085-migration-manifest.json` |
+| A caller-supplied verifier can bypass a schema guard | PROVEN impossible | architecture `test_each_milestone_composition_verifies_its_own_exact_schema_head` (no such parameter; private helper not exported) |
 
 ## 8. Known limitations and the blocked item
 
-- **BLOCKED — `M085_SCHEMA_HEAD` still pins `a7d3c9e14f26`.** The M087 migration is the new
-  repository head, so M085's own exact-head check (`require_exact_m085_schema_head`, used by the
-  M085 paper CLI composition) and the M085 tests that pin it fail on this branch:
-  `tests/unit/test_m085_paper_composition.py::TestTheSchemaHeadIsExact::test_the_pinned_head_is_the_repository_migration_head`
-  and the M085 PostgreSQL suites that assert the head (see verification.md). The fix is a one-line
-  constant change in `shared/persistence/postgres_repositories/paper_execution_repositories.py`
-  (with a comment that the M087 head is additive and leaves every M085 object unchanged). The
-  edit was refused by this session's permission policy as a modification of M085 production code;
-  it is left for the Owner to apply or authorize. The console does not depend on it: it verifies
-  `M087_SCHEMA_HEAD` itself.
+- **Stacked-milestone test evolution (M085 tests, each named).** `M085_SCHEMA_HEAD` was NOT
+  moved. Instead the M085 tests whose purpose is the M085 exact-head guard migrate their disposable
+  database explicitly to `M085_SCHEMA_HEAD` (`_m085_support.build_engine(revision)`), and the two
+  assertions that said "the repository-global head IS the M085 head" were evolved into the
+  invariant they protected (pin unchanged; head descends from it in one line; nothing inserted or
+  replaced; the M085 branch still ends at M085). Full list in verification.md §3. The M085 paper
+  CLI composition (`_paper_composition.py`) is unchanged and therefore refuses a database at the
+  M087 head, exactly as it refuses any non-M085 revision: on this branch the M085 CLI is not
+  runnable against the console's database, by design, and that is disclosed rather than hidden.
 - Exit orders are LIMIT at the current bid; MARKET exits are not offered.
 - A partial exit fill followed by a cancel leaves a smaller position; the next exit is a full
   close of the remainder (a new preview, a new identity).

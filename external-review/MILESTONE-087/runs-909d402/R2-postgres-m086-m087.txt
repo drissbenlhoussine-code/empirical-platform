@@ -1,4 +1,4 @@
-HEAD=909d402afe3201ad1b1acf48278ff853a3f52cbd start=2026-09-27T15:27:13Z db=m085_pgon_b24c471 (disposable)
+HEAD=<sha 909d402..2cbd> start=2026-09-27T15:27:13Z db=m085_pgon_b24c471 (disposable)
 ============================= test session starts =============================
 collecting ... collected 14 items
 
