@@ -25,6 +25,14 @@ from tests.unit._m085_fakes import (
     FakeSnapshots,
     FakeTimeBases,
 )
+from tests.unit._m087_fakes import (
+    FakeExitAcknowledgements,
+    FakeExitAttempts,
+    FakeExitAuthorizations,
+    FakeExitEvents,
+    FakeExitPreviews,
+    FakeExitRounds,
+)
 
 from empirical_platform.decision_candidate.evaluation_context import EvaluationContext
 from empirical_platform.decision_candidate.evaluation_evidence_watermark import (
@@ -42,14 +50,21 @@ from empirical_platform.shared.brokerage.paper_time import PaperTimeReading
 from empirical_platform.shared.brokerage.simulation_paper import (
     SimulatedMarketData,
     SimulatedPaperBroker,
+    SimulationExitScenario,
     SimulationStore,
+    default_exit_scenario_table,
     default_scenario_table,
 )
 from empirical_platform.usecases.operator_console import (
     CAPABILITIES,
     ConsoleRepositories,
+    ExecutionCapability,
     HmacSigner,
     OperatorConsoleService,
+)
+from empirical_platform.usecases.operator_console_exits import (
+    ExitRepositories,
+    PositionExitConsole,
 )
 from empirical_platform.usecases.operator_console_fixtures import (
     SIMULATION_QUOTES,
@@ -206,13 +221,22 @@ class World:
     signer: HmacSigner
     service: OperatorConsoleService
     kill_switch: FakeKillSwitch
+    exits: ExitRepositories
 
-    def load_day(self, symbols: tuple[str, ...] | None = None) -> SimulationDayReport:
+    def load_day(
+        self,
+        symbols: tuple[str, ...] | None = None,
+        *,
+        exit_scenarios: dict[str, SimulationExitScenario] | None = None,
+    ) -> SimulationDayReport:
         scenarios = default_scenario_table()
         chosen = symbols or tuple(scenarios)
+        exits = default_exit_scenario_table()
+        exits.update(exit_scenarios or {})
         self.store.stage(
             scenarios={s: scenarios[s] for s in chosen},
             quotes={s: SIMULATION_QUOTES[s] for s in chosen},
+            exit_scenarios={s: exits[s] for s in chosen},
         )
         return load_simulation_day(
             repositories=self.repositories,
@@ -232,16 +256,7 @@ class World:
         broker = SimulatedPaperBroker(store, clock=self.clock)
         market = SimulatedMarketData(store, clock=self.clock)
         signer = HmacSigner(b"another-process-secret") if new_secret else self.signer
-        service = OperatorConsoleService(
-            repositories=self.repositories,
-            broker=broker,
-            market_data=market,
-            signer=signer,
-            capability=CAPABILITIES[0],
-            time_source=self.clock,
-            clock=self.clock,
-            staged_scenarios=lambda: {s: v.value for s, v in store.scenarios().items()},
-        )
+        service = _service(self.repositories, self.exits, broker, market, signer, self.clock, store)
         return World(
             clock=self.clock,
             repositories=self.repositories,
@@ -252,7 +267,42 @@ class World:
             signer=signer,
             service=service,
             kill_switch=self.kill_switch,
+            exits=self.exits,
         )
+
+
+def _service(
+    repositories: ConsoleRepositories,
+    exits: ExitRepositories,
+    broker: SimulatedPaperBroker,
+    market: SimulatedMarketData,
+    signer: HmacSigner,
+    clock: TestClock,
+    store: SimulationStore,
+) -> OperatorConsoleService:
+    exit_console = PositionExitConsole(
+        exits=exits,
+        intents=repositories.intents,
+        entry_attempts=repositories.attempts,
+        kill_switch=repositories.kill_switch,
+        broker=broker,
+        market_data=market,
+        signer=signer,
+        time_source=clock,
+        clock=clock,
+        environment=ExecutionCapability.SIMULATION.value,
+    )
+    return OperatorConsoleService(
+        repositories=repositories,
+        broker=broker,
+        market_data=market,
+        signer=signer,
+        capability=CAPABILITIES[0],
+        time_source=clock,
+        clock=clock,
+        staged_scenarios=lambda: {s: v.value for s, v in store.scenarios().items()},
+        exits=exit_console,
+    )
 
 
 def simulation_world(tmp_path: Path, *, start: datetime = START) -> World:
@@ -277,20 +327,23 @@ def simulation_world(tmp_path: Path, *, start: datetime = START) -> World:
         rounds=FakeReconciliationRounds(attempts, acknowledgements, events),
         kill_switch=kill_switch,
     )
+    exit_authorizations = FakeExitAuthorizations()
+    exit_attempts = FakeExitAttempts(exit_authorizations)
+    exit_acknowledgements = FakeExitAcknowledgements()
+    exit_events = FakeExitEvents()
+    exits = ExitRepositories(
+        previews=FakeExitPreviews(),
+        authorizations=exit_authorizations,
+        attempts=exit_attempts,
+        acknowledgements=exit_acknowledgements,
+        rounds=FakeExitRounds(exit_attempts, exit_acknowledgements, exit_events),
+        events=exit_events,
+    )
     store = SimulationStore(tmp_path / "simulation-broker.json")
     broker = SimulatedPaperBroker(store, clock=clock)
     market = SimulatedMarketData(store, clock=clock)
     signer = HmacSigner(b"test-process-secret")
-    service = OperatorConsoleService(
-        repositories=repositories,
-        broker=broker,
-        market_data=market,
-        signer=signer,
-        capability=CAPABILITIES[0],
-        time_source=clock,
-        clock=clock,
-        staged_scenarios=lambda: {s: v.value for s, v in store.scenarios().items()},
-    )
+    service = _service(repositories, exits, broker, market, signer, clock, store)
     return World(
         clock=clock,
         repositories=repositories,
@@ -301,4 +354,5 @@ def simulation_world(tmp_path: Path, *, start: datetime = START) -> World:
         signer=signer,
         service=service,
         kill_switch=kill_switch,
+        exits=exits,
     )

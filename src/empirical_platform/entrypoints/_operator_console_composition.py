@@ -27,6 +27,7 @@ from empirical_platform.shared.brokerage.simulation_paper import (
     SimulatedPaperBroker,
     SimulationStateLock,
     SimulationStore,
+    default_exit_scenario_table,
     default_scenario_table,
 )
 from empirical_platform.shared.config.settings import (
@@ -36,7 +37,10 @@ from empirical_platform.shared.config.settings import (
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
-    require_exact_m085_schema_head,
+)
+from empirical_platform.shared.persistence.postgres_repositories.position_exit_repositories import (  # noqa: E501
+    PostgresPositionExitRuntime,
+    require_exact_m087_schema_head,
 )
 from empirical_platform.shared.persistence.postgres_repositories.runtime import (
     PostgresRepositoryRuntime,
@@ -48,6 +52,10 @@ from empirical_platform.usecases.operator_console import (
     ExecutionCapability,
     HmacSigner,
     OperatorConsoleService,
+)
+from empirical_platform.usecases.operator_console_exits import (
+    ExitRepositories,
+    PositionExitConsole,
 )
 from empirical_platform.usecases.operator_console_fixtures import (
     SIMULATION_CONFIGURATION_ID,
@@ -81,6 +89,8 @@ class ConsoleRuntime:
     configuration_id: str = SIMULATION_CONFIGURATION_ID
     #: The exclusive lock on the state directory; released by `close()`.
     state_lock: SimulationStateLock | None = None
+    #: MILESTONE-087: the exit repositories, for tests that inspect them. Routes never do.
+    exits: ExitRepositories | None = None
 
     def close(self) -> None:
         """Release the state-directory lock. The persistence service is closed by its owner."""
@@ -90,7 +100,11 @@ class ConsoleRuntime:
     def load_day(self) -> SimulationDayReport:
         """Stage the deterministic day: broker behaviours, quotes, and the real M084 proposals."""
         scenarios = default_scenario_table()
-        self.store.stage(scenarios=scenarios, quotes=dict(SIMULATION_QUOTES))
+        self.store.stage(
+            scenarios=scenarios,
+            quotes=dict(SIMULATION_QUOTES),
+            exit_scenarios=default_exit_scenario_table(),
+        )
         return load_simulation_day(
             repositories=self.repositories,
             watermarks=self.watermarks,
@@ -121,17 +135,28 @@ def compose_operator_console(
             f"the Operator Console cannot be composed for {capability.value}: PAPER is locked "
             "pending M085 Paper Acceptance and LIVE is not authorized. Nothing was built."
         )
-    require_exact_m085_schema_head(service)
+    # MILESTONE-087: the exact stacked head (M085 objects unchanged + the additive M087 schema).
+    require_exact_m087_schema_head(service)
     lock = state_lock
     if lock is None:
         lock = SimulationStateLock(Path(state_dir))
         lock.acquire()
     m084 = PostgresRepositoryRuntime(service)
     paper = PostgresPaperExecutionRuntime(service)
+    exit_runtime = PostgresPositionExitRuntime(service)
     store = SimulationStore(Path(state_dir) / SIMULATION_STORE_FILE)
     broker = SimulatedPaperBroker(store, clock=clock)
     market_data = SimulatedMarketData(store, clock=clock)
     source: PaperTimeSource = time_source or SystemPaperTimeSource()
+    exits = ExitRepositories(
+        previews=exit_runtime.previews,
+        authorizations=exit_runtime.authorizations,
+        attempts=exit_runtime.attempts,
+        acknowledgements=exit_runtime.acknowledgements,
+        rounds=exit_runtime.rounds,
+        events=exit_runtime.events,
+    )
+    signer = HmacSigner(secrets.token_bytes(32))
     repositories = ConsoleRepositories(
         configurations=m084.operator_trading_configurations,
         contexts=m084.evaluation_contexts,
@@ -148,15 +173,28 @@ def compose_operator_console(
         rounds=paper.reconciliation_rounds,
         kill_switch=paper.execution_kill_switch,
     )
+    exit_console = PositionExitConsole(
+        exits=exits,
+        intents=repositories.intents,
+        entry_attempts=repositories.attempts,
+        kill_switch=repositories.kill_switch,
+        broker=broker,
+        market_data=market_data,
+        signer=signer,
+        time_source=source,
+        clock=clock,
+        environment=ExecutionCapability.SIMULATION.value,
+    )
     console = OperatorConsoleService(
         repositories=repositories,
         broker=broker,
         market_data=market_data,
-        signer=HmacSigner(secrets.token_bytes(32)),
+        signer=signer,
         capability=CAPABILITIES[0],
         time_source=source,
         clock=clock,
         staged_scenarios=lambda: {s: v.value for s, v in store.scenarios().items()},
+        exits=exit_console,
     )
     return ConsoleRuntime(
         service=console,
@@ -168,6 +206,7 @@ def compose_operator_console(
         clock=clock,
         watermarks=m084.evaluation_evidence_watermarks,
         state_lock=lock,
+        exits=exits,
     )
 
 

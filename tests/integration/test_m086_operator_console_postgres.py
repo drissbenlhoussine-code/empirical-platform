@@ -134,7 +134,7 @@ def test_the_daily_scenario_end_to_end_on_postgres(world: dict[str, Any]) -> Non
     execution = a.service.execution(f"INT-{proposal_id}")
     assert execution.state is HumanState.FILLED and execution.is_terminal
     (held,) = a.service.active_trades()  # the filled entry is an open position, exit locked
-    assert held.position_open and "M087" in held.exit_status
+    assert held.position_open and "review the exit" in held.exit_status  # M087: reviewable
     history = a.service.history(symbol="AAPL")
     assert (
         history[0].final_state is HumanState.FILLED
@@ -180,7 +180,7 @@ def test_restart_after_an_ambiguous_execution_reconstructs_and_resolves(
     held = {row.symbol: row for row in b.service.active_trades()}
     assert held["KO"].position_open and held["KO"].state is HumanState.FILLED
     assert held["MSFT"].position_open and held["MSFT"].state is HumanState.PARTIALLY_FILLED
-    assert "M087" in held["KO"].exit_status and not held["KO"].can_cancel
+    assert "review the exit" in held["KO"].exit_status and not held["KO"].can_cancel
     b.close()  # the lock is exclusive: the second restart can only begin once b has stopped
     c = world["process"]("c")  # and again after a second restart, without any refresh
     assert {row.symbol for row in c.service.active_trades() if row.position_open} == {"KO", "MSFT"}

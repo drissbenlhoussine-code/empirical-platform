@@ -51,6 +51,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
     PaperOrderRequest,
 )
+from empirical_platform.decision_candidate.position_exit import PositionExitRequest
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
     BrokerIdentityExistsError,
@@ -67,8 +68,10 @@ __all__ = [
     "SimulatedMarketData",
     "SimulatedOrder",
     "SimulatedPaperBroker",
+    "SimulationExitScenario",
     "SimulationScenario",
     "SimulationStore",
+    "default_exit_scenario_table",
     "default_scenario_table",
 ]
 
@@ -109,6 +112,86 @@ _DELIVERED_BUT_AMBIGUOUS = frozenset(
         SimulationScenario.RESTART_WHILE_UNKNOWN,
     }
 )
+
+
+class SimulationExitScenario(StrEnum):
+    """What the simulated broker does with a MILESTONE-087 SELL-TO-CLOSE for a symbol. Closed.
+
+    Chosen per symbol independently of the entry scenario, so a position opened by a filled
+    entry can be closed under any exit behaviour a reviewer wants to see.
+    """
+
+    EXIT_FILLED = "EXIT_FILLED"
+    EXIT_ACCEPTED_NOT_FILLED = "EXIT_ACCEPTED_NOT_FILLED"
+    EXIT_PARTIAL_FILL = "EXIT_PARTIAL_FILL"
+    EXIT_REJECTION = "EXIT_REJECTION"
+    EXIT_FAILURE_BEFORE_SEND = "EXIT_FAILURE_BEFORE_SEND"
+    EXIT_AMBIGUOUS_AFTER_POSSIBLE_SEND = "EXIT_AMBIGUOUS_AFTER_POSSIBLE_SEND"
+    EXIT_RECONCILIATION_FINDS = "EXIT_RECONCILIATION_FINDS"
+    EXIT_RECONCILIATION_NOT_FOUND = "EXIT_RECONCILIATION_NOT_FOUND"
+    EXIT_CANCEL_FILL_RACE = "EXIT_CANCEL_FILL_RACE"
+    EXIT_RESTART_WHILE_UNKNOWN = "EXIT_RESTART_WHILE_UNKNOWN"
+
+
+_EXIT_DELIVERED_BUT_AMBIGUOUS = frozenset(
+    {
+        SimulationExitScenario.EXIT_AMBIGUOUS_AFTER_POSSIBLE_SEND,
+        SimulationExitScenario.EXIT_RECONCILIATION_FINDS,
+        SimulationExitScenario.EXIT_RESTART_WHILE_UNKNOWN,
+    }
+)
+
+#: How an accepted order progresses on its second lookup, by scenario (entry and exit).
+#: "fill": fills whole; "partial": fills half then rests; "rest": stays accepted;
+#: "race": stays accepted, but a cancel request loses to a fill.
+_PROGRESSION: dict[str, str] = {
+    SimulationScenario.ACCEPTED_THEN_FILLED.value: "fill",
+    SimulationScenario.ACCEPTED_NOT_FILLED.value: "rest",
+    SimulationScenario.PARTIAL_FILL.value: "partial",
+    SimulationScenario.BROKER_REJECTION.value: "fill",
+    SimulationScenario.AMBIGUOUS_SUBMISSION.value: "fill",
+    SimulationScenario.NETWORK_FAILURE_BEFORE_SEND.value: "fill",
+    SimulationScenario.NETWORK_FAILURE_AFTER_POSSIBLE_SEND.value: "fill",
+    SimulationScenario.CANCEL_SUCCESS.value: "rest",
+    SimulationScenario.CANCEL_FILL_RACE.value: "race",
+    SimulationScenario.RECONCILIATION_FINDS_ORDER.value: "fill",
+    SimulationScenario.RECONCILIATION_NOT_FOUND.value: "fill",
+    SimulationScenario.RESTART_WHILE_UNKNOWN.value: "fill",
+    SimulationExitScenario.EXIT_FILLED.value: "fill",
+    SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED.value: "rest",
+    SimulationExitScenario.EXIT_PARTIAL_FILL.value: "partial",
+    SimulationExitScenario.EXIT_REJECTION.value: "fill",
+    SimulationExitScenario.EXIT_FAILURE_BEFORE_SEND.value: "fill",
+    SimulationExitScenario.EXIT_AMBIGUOUS_AFTER_POSSIBLE_SEND.value: "fill",
+    SimulationExitScenario.EXIT_RECONCILIATION_FINDS.value: "fill",
+    SimulationExitScenario.EXIT_RECONCILIATION_NOT_FOUND.value: "fill",
+    SimulationExitScenario.EXIT_CANCEL_FILL_RACE.value: "race",
+    SimulationExitScenario.EXIT_RESTART_WHILE_UNKNOWN.value: "fill",
+}
+
+
+def default_exit_scenario_table() -> dict[str, SimulationExitScenario]:
+    """The staged exit behaviours. Symbols whose ENTRY fills (or is found filled) get one.
+
+    AAPL closes cleanly; GOOGL fills half; JPM is refused; PG is accepted and rests; KO's
+    answer is lost across a restart; JNJ's exit is lost and never found; V (after its entry
+    is cancelled) fails before the send; MSFT (after its remainder is cancelled) races a
+    cancel and fills; NVDA and AMZN never hold a position, so their behaviour is moot.
+    """
+    return {
+        "AAPL": SimulationExitScenario.EXIT_FILLED,
+        "MSFT": SimulationExitScenario.EXIT_CANCEL_FILL_RACE,
+        "NVDA": SimulationExitScenario.EXIT_FILLED,
+        "AMZN": SimulationExitScenario.EXIT_FILLED,
+        "GOOGL": SimulationExitScenario.EXIT_PARTIAL_FILL,
+        "META": SimulationExitScenario.EXIT_FILLED,
+        "JPM": SimulationExitScenario.EXIT_REJECTION,
+        "V": SimulationExitScenario.EXIT_FAILURE_BEFORE_SEND,
+        "JNJ": SimulationExitScenario.EXIT_RECONCILIATION_NOT_FOUND,
+        "PG": SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED,
+        "XOM": SimulationExitScenario.EXIT_RECONCILIATION_FINDS,
+        "KO": SimulationExitScenario.EXIT_RESTART_WHILE_UNKNOWN,
+    }
 
 
 def default_scenario_table() -> dict[str, SimulationScenario]:
@@ -268,6 +351,7 @@ class _State:
     version: int = 1
     orders: dict[str, dict[str, Any]] = field(default_factory=dict)
     scenarios: dict[str, str] = field(default_factory=dict)
+    exit_scenarios: dict[str, str] = field(default_factory=dict)
     quotes: dict[str, dict[str, str]] = field(default_factory=dict)
     positions: dict[str, int] = field(default_factory=dict)
     cash: str = "100000"
@@ -297,7 +381,7 @@ class SimulationStore:
             return _State()
         raw = json.loads(self._path.read_text(encoding="utf-8"))
         state = _State()
-        for name in ("orders", "scenarios", "quotes", "positions"):
+        for name in ("orders", "scenarios", "exit_scenarios", "quotes", "positions"):
             value = raw.get(name)
             if isinstance(value, dict):
                 setattr(state, name, value)
@@ -342,12 +426,17 @@ class SimulationStore:
         quotes: dict[str, tuple[str, str]],
         cash: str = "100000",
         market_is_open: bool = True,
+        exit_scenarios: dict[str, SimulationExitScenario] | None = None,
     ) -> None:
-        """Fix the day's behaviour. Orders already received are kept."""
+        """Fix the day's behaviour. Orders already received and positions held are kept."""
         with self._lock:
             self._state.scenarios = {
                 symbol: scenario.value for symbol, scenario in scenarios.items()
             }
+            if exit_scenarios is not None:
+                self._state.exit_scenarios = {
+                    symbol: scenario.value for symbol, scenario in exit_scenarios.items()
+                }
             self._state.quotes = {
                 symbol: {"bid": bid, "ask": ask} for symbol, (bid, ask) in quotes.items()
             }
@@ -370,6 +459,15 @@ class SimulationStore:
     def scenarios(self) -> dict[str, SimulationScenario]:
         with self._lock:
             return {s: SimulationScenario(v) for s, v in self._state.scenarios.items()}
+
+    def exit_scenario_for(self, symbol: str) -> SimulationExitScenario:
+        with self._lock:
+            raw = self._state.exit_scenarios.get(symbol.upper())
+        return SimulationExitScenario(raw) if raw else SimulationExitScenario.EXIT_FILLED
+
+    def exit_scenarios(self) -> dict[str, SimulationExitScenario]:
+        with self._lock:
+            return {s: SimulationExitScenario(v) for s, v in self._state.exit_scenarios.items()}
 
     def quote_for(self, symbol: str) -> tuple[str, str] | None:
         with self._lock:
@@ -418,10 +516,36 @@ class SimulationStore:
         return order
 
     def add_position(self, symbol: str, quantity: int) -> None:
+        if quantity < 0:
+            raise ValueError("add_position only adds; a sale goes through reduce_position")
         with self._lock:
             current = int(self._state.positions.get(symbol.upper(), 0))
             self._state.positions[symbol.upper()] = current + quantity
             self._save()
+
+    def reduce_position(self, symbol: str, quantity: int) -> int:
+        """Sell `quantity` shares out of the long held. The position can NEVER go below zero.
+
+        Refuses -- and changes nothing -- when the sale would exceed the position. This is
+        the simulator's own invariant (MILESTONE-087 rule 7), enforced under the same lock
+        that reads the position, so two concurrent fills cannot cross zero together.
+        """
+        if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity <= 0:
+            raise ValueError("a sale reduces the position by a positive whole quantity")
+        with self._lock:
+            current = int(self._state.positions.get(symbol.upper(), 0))
+            if quantity > current:
+                raise ValueError(
+                    f"simulated position in {symbol.upper()} is {current}; a sale of {quantity} "
+                    "would make it negative and is refused"
+                )
+            remaining = current - quantity
+            if remaining == 0:
+                self._state.positions.pop(symbol.upper(), None)
+            else:
+                self._state.positions[symbol.upper()] = remaining
+            self._save()
+            return remaining
 
 
 def _now() -> datetime:
@@ -640,6 +764,121 @@ class SimulatedPaperBroker:
             )
         return 200, received.view(), received.payload()
 
+    def submit_close_order(
+        self, request: PositionExitRequest, *, before_send: Callable[[], None] | None = None
+    ) -> tuple[int, SimulatedOrderView | None, str]:
+        """MILESTONE-087: the one SELL-TO-CLOSE a human authorized, for an existing long only.
+
+        Reduces an existing long position and nothing else: a request with no position, or
+        for more than the position, is DEFINITIVELY refused (HTTP 403, the documented refusal
+        code) before anything is recorded. The position moves only when the order fills, and
+        `SimulationStore.reduce_position` refuses to cross zero. Every other behaviour
+        (duplicate identity, not-sent, ambiguous, lost) mirrors `submit_order`.
+        """
+        if not isinstance(request, PositionExitRequest):
+            raise TypeError("submit_close_order takes a PositionExitRequest")
+        if before_send is not None:
+            try:
+                before_send()
+            except (BrokerNotSentError, BrokerIdentityExistsError, BrokerIdentityUnresolvedError):
+                raise
+            except Exception as error:  # noqa: BLE001 - mirrors the transport boundary
+                raise BrokerNotSentError(
+                    f"pre-send validation failed: {type(error).__name__}"
+                ) from error
+
+        scenario = self._store.exit_scenario_for(request.symbol)
+        if scenario is SimulationExitScenario.EXIT_FAILURE_BEFORE_SEND:
+            raise BrokerNotSentError(
+                "simulated network failure before any byte of the exit request was sent"
+            )
+
+        existing = self._store.order(request.client_order_id)
+        if existing is not None:
+            raise BrokerIdentityExistsError(
+                "simulated broker: an order already exists under this client_order_id",
+                http_status=422,
+                sanitized_body=json.dumps(
+                    {
+                        "code": _DUPLICATE_IDENTITY_CODE,
+                        "message": "client_order_id must be unique",
+                        "simulation": True,
+                    }
+                ),
+                request_sent=True,
+            )
+
+        held = self._store.position(request.symbol)
+        if held <= 0:
+            return (
+                403,
+                None,
+                json.dumps(
+                    {
+                        "code": _DEFINITIVE_REFUSAL_CODE,
+                        "message": "simulated: no long position to close",
+                        "simulation": True,
+                    }
+                ),
+            )
+        if request.quantity > held:
+            return (
+                403,
+                None,
+                json.dumps(
+                    {
+                        "code": _DEFINITIVE_REFUSAL_CODE,
+                        "message": (
+                            f"simulated: insufficient qty ({held} held, "
+                            f"{request.quantity} requested)"
+                        ),
+                        "simulation": True,
+                    }
+                ),
+            )
+        if scenario is SimulationExitScenario.EXIT_REJECTION:
+            return (
+                403,
+                None,
+                json.dumps(
+                    {
+                        "code": _DEFINITIVE_REFUSAL_CODE,
+                        "message": "simulated: exit refused by the venue",
+                        "simulation": True,
+                    }
+                ),
+            )
+        if scenario is SimulationExitScenario.EXIT_RECONCILIATION_NOT_FOUND:
+            raise BrokerAmbiguousDispatchError(
+                "simulated: the exit request timed out and the broker never received it"
+            )
+
+        received = self._store.put(
+            SimulatedOrder(
+                broker_order_id=self._store.next_broker_order_id(),
+                client_order_id=request.client_order_id,
+                symbol=request.symbol,
+                side=request.broker_side,
+                quantity=str(request.quantity),
+                order_type=request.order_type.value.lower(),
+                limit_price=None if request.limit_price is None else str(request.limit_price),
+                time_in_force=request.time_in_force.lower(),
+                extended_hours=request.extended_hours,
+                status="accepted",
+                filled_quantity="0",
+                filled_avg_price=None,
+                scenario=scenario.value,
+                lookups=0,
+                cancel_requested=False,
+                received_at=self._clock().isoformat(),
+            )
+        )
+        if scenario in _EXIT_DELIVERED_BUT_AMBIGUOUS:
+            raise BrokerAmbiguousDispatchError(
+                "simulated: the exit request was delivered but the answer was lost"
+            )
+        return 200, received.view(), received.payload()
+
     def fetch_order_by_client_order_id(
         self, client_order_id: str
     ) -> tuple[int, SimulatedOrderView | None, str]:
@@ -680,20 +919,24 @@ class SimulatedPaperBroker:
         never change again.
         """
         lookups = order.lookups + 1
-        scenario = SimulationScenario(order.scenario)
+        behaviour = _PROGRESSION.get(order.scenario, "fill")
         if order.status in {"filled", "canceled", "rejected"}:
             return replace(order, lookups=lookups)
         if order.cancel_requested:
-            if scenario is SimulationScenario.CANCEL_FILL_RACE:
+            if behaviour == "race":
                 return self._filled(order, lookups)
             return replace(order, lookups=lookups, status="canceled")
         if lookups < 2:
             return replace(order, lookups=lookups, status="accepted")
-        if scenario is SimulationScenario.PARTIAL_FILL:
+        if behaviour == "partial":
+            if order.status == "partially_filled":
+                return replace(order, lookups=lookups)  # the rest keeps working
             quantity = int(order.quantity)
             part = quantity // 2
             if part < 1:
                 return replace(order, lookups=lookups, status="accepted")
+            # The filled part moves the position NOW: a buy adds it, a sell reduces it.
+            self._move_position(order, part)
             return replace(
                 order,
                 lookups=lookups,
@@ -701,17 +944,16 @@ class SimulatedPaperBroker:
                 filled_quantity=str(part),
                 filled_avg_price=self._fill_price(order),
             )
-        if scenario in {
-            SimulationScenario.ACCEPTED_NOT_FILLED,
-            SimulationScenario.CANCEL_SUCCESS,
-            SimulationScenario.CANCEL_FILL_RACE,
-        }:
+        if behaviour in {"rest", "race"}:
             return replace(order, lookups=lookups, status="accepted")
         return self._filled(order, lookups)
 
     def _filled(self, order: SimulatedOrder, lookups: int) -> SimulatedOrder:
         if order.status != "filled":
-            self._store.add_position(order.symbol, int(order.quantity))
+            # Only the part not yet filled moves the position; a partial fill already did.
+            remaining = int(order.quantity) - int(Decimal(order.filled_quantity))
+            if remaining > 0:
+                self._move_position(order, remaining)
         return replace(
             order,
             lookups=lookups,
@@ -719,6 +961,13 @@ class SimulatedPaperBroker:
             filled_quantity=order.quantity,
             filled_avg_price=self._fill_price(order),
         )
+
+    def _move_position(self, order: SimulatedOrder, quantity: int) -> None:
+        """A buy adds to the long; a sell reduces it and can never cross zero."""
+        if order.side == "sell":
+            self._store.reduce_position(order.symbol, quantity)
+        else:
+            self._store.add_position(order.symbol, quantity)
 
     def _fill_price(self, order: SimulatedOrder) -> str:
         if order.limit_price is not None:

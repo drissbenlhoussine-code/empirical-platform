@@ -23,6 +23,7 @@ from empirical_platform.usecases.operator_console import (
     SafetyView,
     TodayView,
 )
+from empirical_platform.usecases.operator_console_exits import ExitReviewView, ExitSummary
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
 
 __all__ = [
@@ -30,6 +31,8 @@ __all__ = [
     "active_page",
     "confirmation_page",
     "execution_page",
+    "exit_cancel_confirmation_page",
+    "exit_review_page",
     "history_page",
     "kill_switch_confirmation_page",
     "loaded_day_page",
@@ -390,15 +393,25 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
         pending += (
             '<p class="note note-info"><strong>Open position.</strong> '
             + _e(summary.exit_status)
-            + " No exit path exists in this milestone; nothing is sent.</p>"
+            + (
+                "</p>"
+                if summary.can_review_exit or summary.exit is not None
+                else " No exit path exists in this milestone; nothing is sent.</p>"
+            )
         )
+    if summary.deadline_note:
+        pending += f'<p class="note note-{_e(summary.deadline_tone)}"><strong>Liquidation deadline.</strong> {_e(summary.deadline_note)}</p>'
     actions = ""
+    buttons = ""
     if with_actions and summary.can_cancel:
-        actions = (
-            '<div class="actions">'
-            f'<a class="btn btn-secondary" href="/execution/cancel?intent={_e(summary.intent_id)}">Request cancel</a>'
-            "</div>"
-        )
+        buttons += f'<a class="btn btn-secondary" href="/execution/cancel?intent={_e(summary.intent_id)}">Request cancel</a>'
+    if with_actions and summary.can_review_exit:
+        buttons += f'<a class="btn btn-primary" href="/exit/review?intent={_e(summary.intent_id)}">Review exit</a>'
+    if with_actions and summary.exit is not None and summary.exit.can_cancel:
+        buttons += f'<a class="btn btn-secondary" href="/exit/cancel?attempt={_e(summary.exit.attempt_id)}">Request exit cancel</a>'
+    if buttons:
+        actions = f'<div class="actions">{buttons}</div>'
+    exit_block = _exit_block(summary.exit) if summary.exit is not None else ""
     facts = _kv(
         [
             ("Decision", f"Approved by {summary.decision_by}"),
@@ -422,8 +435,8 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
     return (
         f'<article class="card exec" aria-label="{_e(summary.symbol)} execution">'
         f'<div class="card-head"><span class="ticker">{_e(summary.symbol)}</span>'
-        f'<span class="side">{_e(t.side)}</span>{_chip(summary.state)}</div>'
-        f"{pending}{warnings}{_timeline(summary)}{facts}{actions}"
+        f'<span class="side">{_e(t.side)}</span><span class="category">{_e(summary.category)}</span>{_chip(summary.state)}</div>'
+        f"{pending}{warnings}{_timeline(summary)}{facts}{exit_block}{actions}"
         + _details(
             "Details",
             _kv(
@@ -438,6 +451,49 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
     )
 
 
+def _exit_block(x: ExitSummary) -> str:
+    """The exit's own timeline and facts: Open position → ... → Position closed."""
+    steps = "".join(
+        f'<li class="{"step done" if s.reached else "step"}"><span class="step-label">{_e(s.label)}</span>'
+        f'<span class="step-when">{_when(s.at) if s.at else ("" if not s.reached else "recorded")}</span>'
+        f"{f'<span class="step-note">{_e(s.note)}</span>' if s.note else ''}</li>"
+        for s in x.timeline
+    )
+    notes = ""
+    if x.pending_reason:
+        tone = "danger" if not x.outcome_known else "info"
+        notes += f'<p class="note note-{tone}">{_e(x.pending_reason)}</p>'
+    notes += "".join(f'<p class="note note-warn">{_e(w)}</p>' for w in x.warnings)
+    facts = _kv(
+        [
+            ("Exit", f"SELL TO CLOSE {x.quantity} @ {x.limit_price}"),
+            ("Exit state", x.state.value),
+            ("Exit broker order", x.broker_order_id),
+            ("Exit submitted", _when(x.submitted_at)),
+            ("Exit final", _when(x.terminal_at) if x.terminal_at else "Not yet"),
+            ("Exit filled quantity", x.filled_quantity),
+            ("Exit average fill price", x.filled_avg_price),
+            (
+                "Position closed",
+                f"Yes — verified {_when(x.closed_verified_at)}" if x.position_closed else "No",
+            ),
+            ("Result", x.result_text),
+        ]
+    )
+    return (
+        f'<section class="exit" aria-label="exit"><h3>Exit {_chip(x.state)}</h3>{notes}'
+        f'<ol class="timeline">{steps}</ol>{facts}'
+        + _details(
+            "Exit details",
+            _kv([("Exit attempt", x.attempt_id), ("Exit engine state", x.raw_state)]),
+        )
+        + "</section>"
+    )
+
+
+_GROUPS = ("Needs attention", "Exit in progress", "Open position", "Working entry order")
+
+
 def active_page(
     rows: tuple[ExecutionSummary, ...],
     csrf: str,
@@ -450,13 +506,20 @@ def active_page(
         '<button class="btn btn-secondary" type="submit">Check with broker now</button></form>'
     )
     if rows:
-        cards = (
-            '<section class="cards">'
-            + "".join(_execution_block(r, csrf) for r in rows)
-            + "</section>"
-        )
+        sections = []
+        for group in _GROUPS:
+            members = [r for r in rows if r.category == group]
+            if not members:
+                continue
+            sections.append(
+                f'<h2 class="group">{_e(group)} <span class="muted">({len(members)})</span></h2>'
+                '<section class="cards">'
+                + "".join(_execution_block(r, csrf) for r in members)
+                + "</section>"
+            )
+        cards = "".join(sections)
     else:
-        cards = '<section class="empty"><h2>No active trades or open positions</h2><p>Every execution has reached a final state and no filled position is held.</p></section>'
+        cards = '<section class="empty"><h2>No active trades or open positions</h2><p>Every execution has reached a final state and no filled position is held. Closed positions are in History.</p></section>'
     body = f'<div class="title-row"><h1>Active trades</h1>{refresh}</div>{cards}'
     return _layout(
         title="Active trades",
@@ -515,6 +578,92 @@ def cancel_confirmation_page(
     )
 
 
+def exit_review_page(view: ExitReviewView, csrf: str) -> str:
+    """The exit review: exact immutable terms, SIMULATION badge, one CONFIRM EXIT button."""
+    warning = ""
+    if view.kill_switch_engaged:
+        warning = (
+            '<div class="banner banner-danger">The kill switch is engaged. This exit cannot be '
+            "submitted until it is released on the Safety page. Nothing will be sent.</div>"
+        )
+    terms = _kv(
+        [
+            ("Symbol", view.symbol),
+            ("Current verified holding", f"{view.current_holding} shares"),
+            ("Exit quantity", f"{view.exit_quantity} shares (full close)"),
+            ("Side", view.side),
+            ("Order type", view.order_type),
+            ("Limit price", view.limit_price),
+            ("Time in force", "DAY"),
+            ("Extended hours", "No"),
+            ("Environment", view.environment),
+            ("Account", view.account),
+            ("Entry average fill price", view.entry_avg_fill_price),
+            ("Current bid / ask", f"{view.current_bid} / {view.current_ask}"),
+            ("Price evidence captured", _when(view.quote_captured_at)),
+            ("Exit reference", view.fingerprint_short),
+            ("Mandatory liquidation deadline", _when(view.liquidation_deadline)),
+            ("Authorization expires", _when(view.authorization_expires_at)),
+        ]
+    )
+    body = (
+        f'<a class="back" href="/execution?intent={_e(view.intent_id)}">← Execution</a>'
+        f'<section class="confirm"><div class="env-badge env-badge-large">{_e(view.environment)}</div>'
+        "<h1>Review exit</h1>"
+        '<p class="lead">You are about to authorize exactly these terms: one SELL TO CLOSE of the '
+        "whole verified position. Nothing has been sent. The engine re-reads the position, the "
+        "entry, the kill switch and these terms when you confirm and refuses if anything changed.</p>"
+        f'<p class="note note-{_e(view.deadline_tone)}"><strong>Liquidation deadline.</strong> {_e(view.deadline_note)}</p>'
+        f"{warning}"
+        f'<div class="terms">{terms}</div>'
+        f'<form method="post" action="/exit/confirm" class="confirm-form">{_csrf(csrf)}'
+        f'<input type="hidden" name="intent" value="{_e(view.intent_id)}">'
+        f'<input type="hidden" name="ticket" value="{_e(view.ticket)}">'
+        '<button class="btn btn-danger btn-big" type="submit">CONFIRM EXIT</button>'
+        f'<a class="btn btn-secondary btn-big" href="/execution?intent={_e(view.intent_id)}">Cancel</a></form></section>'
+    )
+    return _layout(
+        title="Review exit",
+        active="/active",
+        body=body,
+        capability_label="Simulation",
+        kill_switch_engaged=view.kill_switch_engaged,
+    )
+
+
+def exit_cancel_confirmation_page(
+    summary: ExecutionSummary, csrf: str, capability_label: str, kill_switch_engaged: bool
+) -> str:
+    x = summary.exit
+    assert x is not None
+    body = (
+        f'<a class="back" href="/execution?intent={_e(summary.intent_id)}">← Execution</a>'
+        '<section class="confirm"><h1>Request exit cancellation</h1><p class="lead">A cancel request is '
+        "sent to the simulated broker for this exact exit order. A request is not a cancellation: the "
+        "exit may still fill before it is cancelled. The position stays open until an exit fills and "
+        "is verified.</p>"
+        + _kv(
+            [
+                ("Symbol", summary.symbol),
+                ("Exit broker order", x.broker_order_id),
+                ("Exit state", x.state.value),
+            ]
+        )
+        + f'<form method="post" action="/exit/confirm-cancel" class="confirm-form">{_csrf(csrf)}'
+        f'<input type="hidden" name="attempt" value="{_e(x.attempt_id)}">'
+        f'<input type="hidden" name="intent" value="{_e(summary.intent_id)}">'
+        '<button class="btn btn-danger btn-big" type="submit">CONFIRM EXIT CANCEL REQUEST</button>'
+        f'<a class="btn btn-secondary btn-big" href="/execution?intent={_e(summary.intent_id)}">Back</a></form></section>'
+    )
+    return _layout(
+        title="Request exit cancellation",
+        active="/active",
+        body=body,
+        capability_label=capability_label,
+        kill_switch_engaged=kill_switch_engaged,
+    )
+
+
 # ---------------------------------------------------------------------------
 # History
 # ---------------------------------------------------------------------------
@@ -563,7 +712,7 @@ def history_page(
             f'<td><span class="ticker small">{_e(r.symbol)}</span></td>'
             f"<td>{_e(r.proposal_state)}</td>"
             f'<td>{_e(r.decision)}<span class="muted block">{_e(r.decided_by)}</span></td>'
-            f"<td>{_e(r.execution_kind)}</td>"
+            f'<td>{_e(r.execution_kind)}<span class="muted block">{_e(r.execution_outcome)}</span></td>'
             f"<td>{_chip(r.final_state)}</td>"
             f"<td>{_e(r.quantity)} @ {_e(r.price)}</td>"
             f"<td>{_e(r.result)}</td>"
@@ -720,6 +869,10 @@ h1{font-size:28px;margin:8px 0 16px;letter-spacing:-.3px}h2{font-size:20px;margi
 .card-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .ticker{font-size:22px;font-weight:800;letter-spacing:.02em}.ticker.small{font-size:15px}
 .side{font-weight:700;color:var(--good);background:var(--good-bg);padding:2px 8px;border-radius:6px;font-size:13px}
+.category{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.group{margin:20px 0 10px;font-size:18px}
+.exit{border-top:2px solid var(--line);padding-top:10px;display:flex;flex-direction:column;gap:10px}
+.exit h3{margin:0;font-size:16px;display:flex;align-items:center;gap:10px}
 .chip{margin-left:auto;font-size:13px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
 .chip-action{background:var(--info-bg);color:var(--info);outline:2px solid var(--info)}
 .chip-info{background:var(--info-bg);color:var(--info)}.chip-good{background:var(--good-bg);color:var(--good)}
