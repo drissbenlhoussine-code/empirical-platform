@@ -206,9 +206,13 @@ A	external-review/MILESTONE-086/screens/08-execution-facts.jpg
 A	external-review/MILESTONE-086/screens/09-today-after-fill.jpg
 A	external-review/MILESTONE-086/verification.md
 A	external-review/MILESTONE-087/README.md
-A	external-review/MILESTONE-087/m085-migration-manifest.json
+A	external-review/MILESTONE-087/m085-migration-manifest.sha256
+A	external-review/MILESTONE-087/runs-10a0aee/R-delta-since-58a7eaf.txt
 A	external-review/MILESTONE-087/runs-58a7eaf/R1-focused.txt
 A	external-review/MILESTONE-087/runs-58a7eaf/R2-postgres-boundary.txt
+A	external-review/MILESTONE-087/runs-58a7eaf/R2-postgres-part-A.txt
+A	external-review/MILESTONE-087/runs-58a7eaf/R2-postgres-part-B.txt
+A	external-review/MILESTONE-087/runs-58a7eaf/R5-static-rerun.txt
 A	external-review/MILESTONE-087/runs-58a7eaf/R5-static.txt
 A	external-review/MILESTONE-087/runs-909d402/R1-focused.txt
 A	external-review/MILESTONE-087/runs-909d402/R2-postgres-m086-m087.txt
