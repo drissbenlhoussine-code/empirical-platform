@@ -176,6 +176,15 @@ def test_restart_after_an_ambiguous_execution_reconstructs_and_resolves(
     assert b.service.opportunity(ko).state is HumanState.FILLED
     assert b.service.opportunity(msft).state is HumanState.PARTIALLY_FILLED
     assert len(b.store.orders()) == orders_before
+    # The restarted process shows both as OPEN POSITIONS (exit locked), from durable rows only.
+    held = {row.symbol: row for row in b.service.active_trades()}
+    assert held["KO"].position_open and held["KO"].state is HumanState.FILLED
+    assert held["MSFT"].position_open and held["MSFT"].state is HumanState.PARTIALLY_FILLED
+    assert "M087" in held["KO"].exit_status and not held["KO"].can_cancel
+    b.close()  # the lock is exclusive: the second restart can only begin once b has stopped
+    c = world["process"]("c")  # and again after a second restart, without any refresh
+    assert {row.symbol for row in c.service.active_trades() if row.position_open} == {"KO", "MSFT"}
+    c.close()
     with world["engine"].begin() as connection:
         rows = connection.execute(
             text(
