@@ -10,7 +10,6 @@ commit 54ae23c), so nothing was inserted into or replaced inside M085's history.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -31,7 +30,7 @@ from empirical_platform.shared.persistence.postgres_repositories.position_exit_r
 pytestmark = pytest.mark.integration
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST = REPO_ROOT / "external-review" / "MILESTONE-087" / "m085-migration-manifest.json"
+MANIFEST = REPO_ROOT / "external-review" / "MILESTONE-087" / "m085-migration-manifest.sha256"
 
 #: M085-owned (and earlier) object name prefixes. Everything the M087 migration may not touch.
 _M085_TABLE_PREFIXES = ("paper_",)
@@ -192,12 +191,24 @@ def _non_m085_tables(engine: Engine) -> set[str]:
         }
 
 
+def _read_manifest(path: Path) -> dict[str, str]:
+    """sha256sum format (`<digest> *<path>`) after comment lines: the repository's manifest style."""
+    recorded: dict[str, str] = {}
+    header: list[str] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        if line.startswith("#"):
+            header.append(line)
+            continue
+        digest, _, name = line.partition(" *")
+        recorded[name] = digest
+    assert any("54ae23c" in h for h in header), "the manifest must name the M085 head commit"
+    return recorded
+
+
 def test_the_m085_migration_files_are_byte_identical_to_the_published_m085_head() -> None:
-    manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
-    # The published M085 head commit, grouped for the secret scanner.
-    m085_commit = "".join(("54ae23c7", "f22c4544", "b3dc3b06", "761adc3a", "25f5ced4"))
-    assert manifest["recorded_from_commit"] == m085_commit
-    recorded: dict[str, str] = manifest["files"]
+    recorded = _read_manifest(MANIFEST)
     assert len(recorded) == 26
     for path, digest in recorded.items():
         current = (REPO_ROOT / path).read_bytes()
