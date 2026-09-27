@@ -56,4 +56,6 @@ simulation module opens no socket. The browser run used `http://127.0.0.1:8086` 
 
 M086 works end to end in SIMULATION: the day loads through the real M084 handler, the Owner's two-stage confirmation runs the real M085 chain, the background reconciler moves executions to their honest final state, and every safety attack in README §6 is refused by a test. External effects: none. M085 unchanged (13 PostgreSQL suites and every unit suite pass; frozen paths untouched).
 
+Owner decision carried forward: the M085 exhaustion table's row 30 ("No M086 path exists") now derives a blocker (30/31) because M086 paths exist — see README §7; the M085 renderer was not modified.
+
 Recommendation: **M086_SIMULATION_READY_FOR_OWNER_REVIEW** — local commits only; not pushed; not merged; not frozen. No Paper order, no Alpaca call, no live trading. M085 Paper Acceptance remains NOT_STARTED and Paper composition in the console is a separate, Owner-gated change that this milestone does not pre-authorize.

@@ -132,6 +132,15 @@ whole numbers; (3) the launcher initially contained an unreachable shutdown expr
 
 ## 7. Known limitations (real)
 
+- **The M085 exhaustion table now derives 30/31.** Its row 30, "No M086 path exists", is
+  MILESTONE-085's own scope guard (any tracked path matching `m086|MILESTONE-086`, in
+  `tools/render_m085_exhaustion_table.py`). The Owner's M086 mission proceeds while M085 Paper
+  Acceptance is deferred, so that row now reports a blocker by design and the table is rendered
+  honestly as **30 of 31, 1 blocker** (commit `9af6577`; the message of that commit predicted
+  "31/31" and is superseded by this note). The M085 renderer was deliberately not modified —
+  it is M085 content and a gate. Resolving row 30 is an Owner decision: ratify a scoped
+  exception for the M086 paths in the M085 table, or keep the blocker visible until M085 Paper
+  Acceptance closes.
 - Phone-width screenshots are absent (tooling), see above.
 - The background reconciler is a thread in the console process; if the console is not running,
   nothing reconciles until it is started again or "Check with broker now" is pressed.
