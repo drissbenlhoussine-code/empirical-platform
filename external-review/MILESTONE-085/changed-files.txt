@@ -206,9 +206,17 @@ A	external-review/MILESTONE-086/screens/08-execution-facts.jpg
 A	external-review/MILESTONE-086/screens/09-today-after-fill.jpg
 A	external-review/MILESTONE-086/verification.md
 A	external-review/MILESTONE-087/README.md
+A	external-review/MILESTONE-087/m085-migration-manifest.json
+A	external-review/MILESTONE-087/runs-58a7eaf/R1-focused.txt
+A	external-review/MILESTONE-087/runs-58a7eaf/R2-postgres-boundary.txt
+A	external-review/MILESTONE-087/runs-58a7eaf/R5-static.txt
 A	external-review/MILESTONE-087/runs-909d402/R1-focused.txt
 A	external-review/MILESTONE-087/runs-909d402/R2-postgres-m086-m087.txt
 A	external-review/MILESTONE-087/runs-909d402/R5-static.txt
+A	external-review/MILESTONE-087/runs-worktree-2/R1-focused.txt
+A	external-review/MILESTONE-087/runs-worktree-2/R2-postgres.txt
+A	external-review/MILESTONE-087/runs-worktree-2/R3-full-non-pg.txt
+A	external-review/MILESTONE-087/runs-worktree-2/R5-static.txt
 A	external-review/MILESTONE-087/runs-worktree/R1-focused.txt
 A	external-review/MILESTONE-087/runs-worktree/R2-postgres.txt
 A	external-review/MILESTONE-087/runs-worktree/R2b-corrective-isolated.txt
@@ -230,6 +238,7 @@ A	src/empirical_platform/entrypoints/_operator_console_composition.py
 A	src/empirical_platform/entrypoints/_operator_console_html.py
 A	src/empirical_platform/entrypoints/_operator_console_web.py
 A	src/empirical_platform/entrypoints/_paper_composition.py
+A	src/empirical_platform/entrypoints/_position_exit_composition.py
 A	src/empirical_platform/entrypoints/activate_execution_kill_switch.py
 A	src/empirical_platform/entrypoints/authorize_paper_submission.py
 A	src/empirical_platform/entrypoints/cancel_paper_order.py
@@ -279,6 +288,7 @@ A	tests/integration/test_m085_temporal_postgres.py
 A	tests/integration/test_m085_time_basis_postgres.py
 A	tests/integration/test_m086_operator_console_postgres.py
 A	tests/integration/test_m087_position_exit_postgres.py
+A	tests/integration/test_m087_schema_ancestry_postgres.py
 A	tests/unit/_m085_fakes.py
 A	tests/unit/_m086_fakes.py
 A	tests/unit/_m087_fakes.py
@@ -309,6 +319,7 @@ A	tests/unit/test_m086_simulation_state_lock.py
 A	tests/unit/test_m087_position_exit_domain.py
 A	tests/unit/test_m087_position_exit_routes.py
 A	tests/unit/test_m087_position_exit_service.py
+A	tests/unit/test_m087_schema_head.py
 A	tests/unit/test_m087_simulation_exit_broker.py
 A	tools/m085_mutation_campaign.py
 A	tools/m085_operator_walkthrough.py
