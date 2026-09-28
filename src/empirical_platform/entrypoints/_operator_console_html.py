@@ -178,7 +178,7 @@ def today_page(view: TodayView, csrf: str, flash: ActionOutcome | None = None) -
         f'<div class="stat"><span class="stat-label">Market</span><span class="stat-value small">{_e(view.market_status)}</span></div>'
         f'<div class="stat"><span class="stat-label">Kill switch</span><span class="stat-value small">'
         f"{'Engaged' if view.kill_switch_engaged else 'Released'}</span></div>"
-        f'<div class="stat"><span class="stat-label">Opportunities</span><span class="stat-value">{len(view.opportunities)}</span></div>'
+        f'<div class="stat"><span class="stat-label">Open opportunities</span><span class="stat-value">{view.open_opportunities_count}</span></div>'
         f'<div class="stat stat-accent"><span class="stat-label">Need your decision</span><span class="stat-value">{view.needs_action_count}</span></div>'
         f'<div class="stat"><span class="stat-label">Active executions</span><span class="stat-value">{view.active_executions_count}</span></div>'
         f'<div class="stat"><span class="stat-label">Positions</span><span class="stat-value">{view.active_positions_count}</span></div>'
@@ -261,6 +261,23 @@ def _card(card: OpportunityCard, csrf: str) -> str:
             f'<a class="btn btn-secondary" href="/execution?intent={_e(card.execution.intent_id)}">View execution</a>'
             "</div>"
         )
+    # MILESTONE-088. A settled card (its decision is final -- rejected, expired, blocked,
+    # or an execution that reached a terminal state) is evidence, not a current opportunity.
+    # `card.reason` and the risk-check count are real historical facts and are not altered
+    # or hidden here; this banner only makes the card's CURRENT status unambiguous so it
+    # cannot be read as an active recommendation.
+    historical = ""
+    if card.state_is_settled():
+        filled = (
+            ""
+            if card.execution is None
+            else f" Filled quantity: {_e(card.execution.filled_quantity)}."
+        )
+        historical = (
+            '<p class="note note-info"><strong>Historical record — not actionable.</strong> '
+            f"This decision is final ({_e(card.state.value).lower()}).{filled} Shown for "
+            "evidence, not as a current opportunity.</p>"
+        )
     evidence = "".join(f"<li>{_e(line)}</li>" for line in card.evidence) or "<li>Not available</li>"
     details = _details(
         "Details",
@@ -283,6 +300,7 @@ def _card(card: OpportunityCard, csrf: str) -> str:
         f'<article class="card" aria-label="{_e(card.symbol)}">'
         f'<div class="card-head"><span class="ticker">{_e(card.symbol)}</span>'
         f'<span class="side">{_e(t.side)}</span>{_chip(card.state)}</div>'
+        f"{historical}"
         f'<p class="reason">{_e(card.reason)}</p>{numbers}{notes}'
         f'<p class="muted">Proposed {_when(card.created_at)} · expires {_when(card.expires_at)}</p>'
         f"{actions}{details}</article>"

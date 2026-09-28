@@ -479,6 +479,12 @@ class TodayView:
     needs_action_count: int
     active_positions_count: int
     active_executions_count: int
+    #: MILESTONE-088. How many of `opportunities` are still open (not settled): the
+    #: genuinely current/actionable count. `len(opportunities)` also counts settled,
+    #: historical cards shown today for evidence -- e.g. a completed, canceled Paper
+    #: acceptance run -- which is not an opportunity awaiting anything. Never wider than
+    #: `len(opportunities)` and never counts a settled card.
+    open_opportunities_count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -808,6 +814,7 @@ class OperatorConsoleService:
             needs_action_count=sum(1 for c in todays if c.state is HumanState.NEEDS_DECISION),
             active_positions_count=positions,
             active_executions_count=len(active),
+            open_opportunities_count=sum(1 for c in todays if not c.state_is_settled()),
         )
 
     def opportunity(self, proposal_id: str) -> OpportunityCard:

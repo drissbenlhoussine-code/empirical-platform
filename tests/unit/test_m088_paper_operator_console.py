@@ -347,6 +347,28 @@ class TestOwnerGateAndExactlyOnce:
             service.confirm_approval(proposal.proposal_governance_id, "not-a-real-ticket")
         assert len(repositories.attempts.rows) == 0
 
+    def test_a_settled_card_still_shows_today_but_does_not_count_as_open(self) -> None:
+        """A rejected (settled) proposal remains visible today (evidence is not hidden),
+        but Today's open-opportunities count must not include it -- the fix this test
+        exists for: the stat used to be len(opportunities), which counts historical,
+        non-actionable cards too."""
+        repositories = _paper_repositories()
+        broker, market_data = _open_broker(), FakeMarketData(quote=_FreshQuote())
+        proposal = self._prepared(repositories, broker, market_data)
+        service = _paper_service(repositories, broker=broker, market_data=market_data)
+
+        before = service.today()
+        assert len(before.opportunities) == 1
+        assert before.open_opportunities_count == 1  # PREPARED, awaiting a decision
+
+        rejection = service.prepare_rejection(proposal.proposal_governance_id)
+        service.confirm_rejection(proposal.proposal_governance_id, rejection.ticket)
+
+        after = service.today()
+        assert len(after.opportunities) == 1  # still shown -- evidence is not hidden
+        assert after.open_opportunities_count == 0  # but no longer counted as open
+        assert after.opportunities[0].state_is_settled() is True
+
 
 # ---------------------------------------------------------------------------
 # E. UI: explicit text, no credential leakage
@@ -354,6 +376,36 @@ class TestOwnerGateAndExactlyOnce:
 
 
 class TestUiIsExplicitAndLeaksNoCredential:
+    def test_a_settled_card_is_labelled_historical_and_an_open_one_is_not(self) -> None:
+        from empirical_platform.entrypoints._operator_console_html import today_page
+
+        repositories = _paper_repositories()
+        broker, market_data = _open_broker(), FakeMarketData(quote=_FreshQuote())
+        proposal = prepare_paper_candidate(
+            configurations=repositories.configurations,
+            contexts=repositories.contexts,
+            proposals=repositories.proposals,
+            watermarks=MemoryWatermarks(),
+            time_bases=repositories.time_bases,
+            broker=broker,
+            market_data=market_data,
+            time_source=SystemPaperTimeSource(),
+            now=_now(),
+        )
+        service = _paper_service(repositories, broker=broker, market_data=market_data)
+
+        open_html = today_page(service.today(), csrf="x")
+        assert "Historical record" not in open_html
+        assert "Not actionable" not in open_html
+
+        rejection = service.prepare_rejection(proposal.proposal_governance_id)
+        service.confirm_rejection(proposal.proposal_governance_id, rejection.ticket)
+        settled_html = today_page(service.today(), csrf="x")
+        assert "Historical record — not actionable." in settled_html
+        assert "This decision is final (rejected)." in settled_html
+        # And the real historical fact is still there, unaltered:
+        assert "risk checks passed" in settled_html
+
     def test_the_footer_names_paper_explicitly_not_simulation(self) -> None:
         from empirical_platform.entrypoints._operator_console_html import _FOOTER_NOTE
 
