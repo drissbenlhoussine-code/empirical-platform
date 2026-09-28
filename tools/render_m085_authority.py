@@ -400,12 +400,15 @@ _LIMITATIONS: dict[str, str] = {
         "basis is fabricated and no round history is invented for them, so resolving such "
         "an attempt requires two new completed rounds with justified broker time."
     ),
-    "the_external_paper_submission_was_measured_blocked_by_quote_staleness": (
-        "The bounded external paper submission was MEASURED BLOCKED, not completed. The "
-        "market was closed, the only available IEX quote was over three hours old, and "
-        "the freshness tolerance was not widened to get past it. Every local, database "
-        "and hostile-adapter validation is unaffected; see "
-        "`paper-acceptance-results.md` for the measured numbers."
+    "the_external_paper_submission_completed_once_unfilled_and_canceled": (
+        "The bounded external paper submission was MEASURED COMPLETED, not blocked: the "
+        "order was dispatched, acknowledged by the broker (`pending_new`), cancellation "
+        "was requested immediately, and reconciliation observed a terminal broker state "
+        "of CANCELED with a filled quantity of zero. This is a single occurrence and is "
+        "not a proof of fillability, repeatability, or of any latency, queueing or "
+        "execution-quality property; see `paper-acceptance-results.md` for the measured "
+        "numbers. The earlier 2026-09-10 MEASURED BLOCKED run remains recorded in git "
+        "history and is not restated here."
     ),
     "the_account_reference_is_a_digest_so_two_accounts_are_only_distinguishable_not_identifiable": (
         "The paper account is stored as a stable digest, not an account number. Two "

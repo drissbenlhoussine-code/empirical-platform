@@ -24,7 +24,7 @@
     },
     "rendered_meaning_digest": {
       "type": "integer",
-      "const": 4864319168061979829721062024490150901234943423146037573433541079945133988008
+      "const": 102870209558253175739368545048809800976056476506601775310989067181697482165838
     },
     "title": {
       "const": "Alpaca Paper Execution with Exact Human Approval"
@@ -215,7 +215,7 @@
           "the_bounded_not_found_reconciliation_policy_is_a_stated_choice_not_a_proof",
           "the_waiting_interval_assumes_a_monotone_broker_clock_not_evidence_of_processing",
           "legacy_acknowledgements_without_rounds_are_operator_evidence_and_never_count",
-          "the_external_paper_submission_was_measured_blocked_by_quote_staleness",
+          "the_external_paper_submission_completed_once_unfilled_and_canceled",
           "the_account_reference_is_a_digest_so_two_accounts_are_only_distinguishable_not_identifiable",
           "an_m084_only_proposal_approval_or_intent_has_no_time_basis_and_is_never_dispatchable",
           "a_writer_with_insert_privilege_can_store_correctly_shaped_evidence_nobody_measured"

@@ -819,30 +819,45 @@ class TestTheMechanicalClaimsMatchTheCode:
         assert reference == _account_reference("real-account-identifier-1234")
 
 
-class TestTheBlockedSubmissionIsDeclaredNotHidden:
-    def test_the_limitation_list_states_the_blocked_external_submission(
+class TestTheExternalSubmissionOutcomeIsDeclaredNotHidden:
+    """AUTH-2. The bounded external paper submission completed on 2026-09-28: dispatched,
+    acknowledged, cancelled immediately, reconciled CANCELED with a filled quantity of zero.
+    The earlier 2026-09-10 MEASURED BLOCKED run (quote staleness) is not restated in the
+    current authority framing; it remains recorded in git history and is not rewritten."""
+
+    def test_the_limitation_list_states_the_completed_external_submission(
         self, contract: dict[str, Any]
     ) -> None:
         assert (
-            "the_external_paper_submission_was_measured_blocked_by_quote_staleness"
+            "the_external_paper_submission_completed_once_unfilled_and_canceled"
             in contract["structural_limitations"]
         )
+        # The identifier this replaces is retired, not widened (new guarantees get new
+        # identifiers): it must not linger in the currently-declared authority.
+        assert (
+            "the_external_paper_submission_was_measured_blocked_by_quote_staleness"
+            not in contract["structural_limitations"]
+        )
 
-    def test_the_acceptance_evidence_exists_and_records_the_blocker(self) -> None:
+    def test_the_acceptance_evidence_exists_and_records_the_completed_run(self) -> None:
         evidence = (
             _REPO_ROOT / "external-review" / "MILESTONE-085" / "paper-acceptance-results.md"
         ).read_text(encoding="utf-8")
-        assert "MEASURED BLOCKED" in evidence
-        assert "freshness tolerance" in evidence
-        # And it says what was NOT relaxed, so a reader can see the alternative
-        # that was available and declined.
-        assert "was not widened" in evidence
+        assert "RESULT: EXTERNAL PAPER SUBMISSION COMPLETED" in evidence
+        assert "**final state**: `CANCELED`" in evidence
+        assert "**filled quantity**: `0E-8`" in evidence
+        # Never claimed FILLED, and the stale BLOCKED framing is gone from the current
+        # evidence file (it remains in git history, not restated here).
+        assert "`FILLED`" not in evidence
+        assert "MEASURED BLOCKED" not in evidence
 
     def test_no_positive_claim_asserts_a_completed_external_submission(
         self, contract: dict[str, Any]
     ) -> None:
         # The positive claims are about the mechanism, not about a broker having
-        # accepted an order. Checked as a set membership, not by reading prose.
+        # accepted an order. Checked as a set membership, not by reading prose. A single
+        # completed run is recorded as a LIMITATION (one occurrence, not a proof of
+        # fillability or repeatability), never promoted to a "proves" claim.
         assert "a_paper_order_was_accepted_by_the_broker" not in contract["proves"]
         assert "the_external_paper_submission_completed" not in contract["proves"]
 
@@ -1012,7 +1027,19 @@ class TestAuthorityVersionTwoNamesTheRoundGuarantees:
             validate(narrowed, schema)
 
     def test_no_v1_identifier_was_dropped(self, contract: dict[str, Any]) -> None:
-        """Historical claims survive the bump; version 2 only adds."""
+        """Historical STRUCTURAL claims survive the bump; version 2 only adds.
+
+        AUTH-2 retired exactly one v1 identifier --
+        `the_external_paper_submission_was_measured_blocked_by_quote_staleness` -- because it
+        stated the outcome of one external event (the 2026-09-10 run), and that outcome
+        changed when the real acceptance run completed on 2026-09-28. It names no structural
+        guarantee this milestone's code enforces, so its retirement drops no guarantee; the
+        replacement identifier `the_external_paper_submission_completed_once_unfilled_and_canceled`
+        carries the current fact (see `TestTheExternalSubmissionOutcomeIsDeclaredNotHidden`),
+        and the retired wording is preserved in git history and the AUTH-2 closure evidence,
+        not restated here. The two remaining checks below ARE structural guarantees and must
+        still survive every future contract change.
+        """
         v1_proves = 14
         v1_does_not_prove = 19
         v1_enforcement = 18
@@ -1024,7 +1051,6 @@ class TestAuthorityVersionTwoNamesTheRoundGuarantees:
         for identifier in (
             "protection_against_a_database_owner_ddl_a_disabled_trigger_or_a_superuser",
             "row_level_refusals_do_not_cover_truncate_drop_a_disabled_trigger_or_a_superuser",
-            "the_external_paper_submission_was_measured_blocked_by_quote_staleness",
         ):
             assert identifier in contract["does_not_prove"] + contract["structural_limitations"]
 

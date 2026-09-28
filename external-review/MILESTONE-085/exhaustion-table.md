@@ -1,6 +1,6 @@
 # MILESTONE-085 — Exhaustion Table
 
-**31 of 31 EXECUTED_PASS. 0 blocker(s).**
+**30 of 31 EXECUTED_PASS. 1 blocker(s).**
 
 Two statuses exist and no others. Every row is DERIVED -- this tool re-reads the
 artefact the item produced or re-runs the gate, so a row cannot be edited into
@@ -28,7 +28,7 @@ M084 blob-id manifest) by git blob id, and report any other content.
 | 9 | Deterministic client_order_id enforced | **EXECUTED_PASS** | mutation detected (`mutation-matrix.md`) |
 | 10 | An ambiguous outcome cannot duplicate an order | **EXECUTED_PASS** | mutation detected (`mutation-matrix.md`) |
 | 11 | Database transitions enforced | **EXECUTED_PASS** | mutation detected (`mutation-matrix.md`) |
-| 12 | Bounded paper submission completed or honestly blocked | **EXECUTED_PASS** | BLOCKED and the refused alternatives are recorded — the preview refuses authorization: the captured quote is dated after this preview |
+| 12 | Bounded paper submission completed or honestly blocked | **EXECUTED_PASS** | the bounded submission completed |
 | 13 | Three clean concurrency repetitions on rebuilt schemas | **EXECUTED_PASS** | recorded (`concurrency-results.md`) |
 | 14 | Hostile HTTP campaign passed | **EXECUTED_PASS** | recorded (`hostile-http-results.md`) |
 | 15 | All mutation families detected | **EXECUTED_PASS** | 121 of 121 families detected |
@@ -47,4 +47,4 @@ M084 blob-id manifest) by git blob id, and report any other content.
 | 28 | The changed-files list is exact | **EXECUTED_PASS** | 262 paths, identical to `git diff --name-status` |
 | 29 | PROJECT_CHECKPOINT.md untouched beyond the ratified §119 record | **EXECUTED_PASS** | PROJECT_CHECKPOINT.md holds exactly the Owner-ratified §119 record (blob ba9f84393943) |
 | 30 | No M086 path exists | **EXECUTED_PASS** | tracked M086 paths: none |
-| 31 | Working tree clean | **EXECUTED_PASS** | working tree: clean |
+| 31 | Working tree clean | **EXECUTED_FAIL_BLOCKER** | working tree: ['M external-review/MILESTONE-085/current-authority.json', ' M external-review/MILESTONE-085/current-authority.md', ' M external-review/MILESTONE-085/current-authority.schema.json'] |
