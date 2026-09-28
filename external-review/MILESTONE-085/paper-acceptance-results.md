@@ -1,9 +1,6 @@
 # MILESTONE-085 -- Bounded Alpaca Paper Acceptance Run
 
-> **Superseded by the corrective pass:** see [corrective-pass.md](corrective-pass.md).
-> Historical run of 2026-09-10 through the replaced tool; `--dry-run` is now refused and the tool was not run by the corrective pass.
-
-Run at `2026-09-10T13:35:55.226896+00:00` (UTC).
+Run at `2026-09-28T16:05:00.753613+00:00` (UTC).
 
 Every number below was measured against the real Alpaca **paper** endpoint.
 Balances are simulated. A paper acknowledgement is not a real-market execution.
@@ -34,22 +31,24 @@ Balances are simulated. A paper acknowledgement is not a real-market execution.
 *Expected:* measured, and reported whatever it says
 
 - **market is_open**: `True`
-- **next_open**: `2026-09-11T09:30:00-04:00`
+- **next_open**: `2026-09-29T09:30:00-04:00`
 - **asset tradable / status**: `True / active`
 - **existing position**: `0`
-- **real quote bid / ask**: `315.04 / 320`
-- **real quote captured_at**: `2026-09-10T13:35:58.839102+00:00`
-- **real quote age**: `-1s`
+- **real quote bid / ask**: `340.69 / 340.74`
+- **real quote captured_at**: `2026-09-28T16:05:02.307080+00:00`
+- **real quote age**: `1s`
 - **quote source**: `alpaca-iex`
-- **limit / bid**: `0.0127`
+- **limit / bid**: `0.0117`
 
 ### Step 3 -- MILESTONE-084 chain
 
 *Expected:* a real approved intent, derived not fabricated
 
+- **proposal-time basis host reading**: `2026-09-28 19:05:03.919504+03:00`
 - **M084 derived quantity**: `1`
 - **M084 derived limit price**: `4.00000000`
-- **M084 proposal fingerprint**: `fa5db6c743f0a98d9326aa4c1a6951ebfb82a8b60cbd0def27ae734768f58309`
+- **M084 proposal fingerprint**: `e326975afae0d3a28ff1b35823ef135248323cf07706c980bce744d706414b57`
+- **intent-time basis host reading**: `2026-09-28T19:05:04.830488+03:00`
 - **M084 intent**: `INT-085-ACCEPT`
 - **M084 submission_state**: `NOT_SUBMITTED`
 
@@ -73,36 +72,76 @@ THE EXACT ORDER THAT WOULD BE SENT:
   limit price       : 4.00
   time in force     : DAY
   extended hours    : False
-  client order id   : m085-524e58d5d797656019277f4176290c19c3fb9646
+  client order id   : m085-113dd0e32c4d03438f7619afb3eac3d96e651ef8
   cost ceiling      : 4.00
 
 MARKET AND ASSET EVIDENCE:
   market open       : True
-  quote bid/ask     : 319.83 / 320.17
+  quote bid/ask     : 340.66 / 340.74
   quote source      : alpaca-iex (IEX only, NOT the consolidated tape)
-  quote captured at : 2026-09-10T16:36:02.362000+03:00
+  quote captured at : 2026-09-28T19:05:06.953430+03:00
   asset tradable    : True (active, us_equity, NASDAQ)
 
-REQUEST FINGERPRINT : 233f9ba081fa0edeaa4a50a7277cb6be8b6234e74628dfdc365b06dcbd3b41ab
+SEND-TIME LIMITS (from the configuration; no command can change them):
+  configuration     : CFG-085-ACCEPT v1
+  notional cap      : 5.00
+  quote max age     : 60s
+  max spread        : 5.00%
+  watchlist         : AAPL
+  entry window      : 00:01:00-23:58:00 (UTC)
+  policy fingerprint: 82714781cfc5094cf1c8a5bf2510d30acb26f024a177c415347510027c3277dd
+  intent expires at : 2026-09-28T20:05:03.919504+03:00
 
-REFUSED -- this preview CANNOT be authorized:
-  - the captured quote is dated after this preview
+REQUEST FINGERPRINT : e1cfe51e0aeefa94a84dcd6a382d3ab3100344828e547f0f07b4177d4064cd69
+
+AUTHORIZABLE. To authorize, pass the fingerprint above back explicitly.
+An authorization is single-use, expires, and covers this order only.
 
 This is the ALPACA PAPER environment. An acknowledgement here is not a
 real-market execution, does not predict a live fill, and says nothing
 about profitability or execution quality.
 
 ```
-- **authorizable**: `False`
+- **authorizable**: `True`
 - **cost ceiling**: `4.00000000`
-- **client_order_id**: `m085-524e58d5d797656019277f4176290c19c3fb9646`
-- **request fingerprint**: `233f9ba081fa0edeaa4a50a7277cb6be8b6234e74628dfdc365b06dcbd3b41ab`
+- **client_order_id**: `m085-113dd0e32c4d03438f7619afb3eac3d96e651ef8`
+- **request fingerprint**: `e1cfe51e0aeefa94a84dcd6a382d3ab3100344828e547f0f07b4177d4064cd69`
 
-## RESULT: EXTERNAL PAPER SUBMISSION -- MEASURED BLOCKED
+### Step 5 -- Human authorization
 
-**Reason:** the preview refuses authorization: the captured quote is dated after this preview
+*Expected:* single-use, expiring, bound to this fingerprint
 
-No safety control was relaxed to get past this. The notional ceiling was not raised, the order type was not changed to market, the freshness tolerance was not widened, and no cheaper asset was substituted. All local, database and hostile-adapter validation is unaffected and is reported separately.
+- **authorization**: `AUT-085-ACCEPT`
+- **expires at**: `2026-09-28T19:10:07.344262+03:00`
+
+### Step 6 -- Dispatch
+
+*Expected:* exactly one order, one client_order_id
+
+- **dispatched**: `True`
+- **http status**: `200`
+- **broker status**: `pending_new`
+- **state**: `PAPER_ACCEPTED`
+- **broker order id**: `9e9a3a5d-cfd6-44f3-a6fd-88475c4cee08`
+- **note**: `the paper broker acknowledged the order`
+
+### Step 7 -- Cancellation
+
+*Expected:* requested immediately; a request is not a cancellation
+
+- **state after cancel request**: `CANCEL_REQUESTED`
+
+### Step 8 -- Reconciliation
+
+*Expected:* the broker decides the terminal state, not us
+
+- **final state**: `CANCELED`
+- **final broker status**: `canceled`
+- **filled quantity**: `0E-8`
+
+## RESULT: EXTERNAL PAPER SUBMISSION COMPLETED
+
+One bounded paper order was dispatched through the real human-approval flow, cancelled, and reconciled to an honestly observed terminal state.
 
 ## What this run does NOT establish
 

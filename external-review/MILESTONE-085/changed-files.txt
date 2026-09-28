@@ -4,6 +4,13 @@ A	.github/workflows/m087-exit.yml
 A	docs/operations/operator-console.md
 A	external-review/MILESTONE-085/README.md
 A	external-review/MILESTONE-085/alpaca-contract-evidence.md
+A	external-review/MILESTONE-085/authority-contract-closure-auth2/README.md
+A	external-review/MILESTONE-085/authority-contract-closure-auth2/runs-5c5dbb5/R1-unit-885.txt
+A	external-review/MILESTONE-085/authority-contract-closure-auth2/runs-5c5dbb5/R2-postgres-511.txt
+A	external-review/MILESTONE-085/authority-contract-closure-auth2/runs-5c5dbb5/R3-authority-contract-118.txt
+A	external-review/MILESTONE-085/authority-contract-closure-auth2/runs-5c5dbb5/R4-ruff.txt
+A	external-review/MILESTONE-085/authority-contract-closure-auth2/runs-5c5dbb5/R5-mypy.txt
+A	external-review/MILESTONE-085/authority-contract-closure-auth2/verification.md
 A	external-review/MILESTONE-085/authority-contract-closure/README.md
 A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R1-focused.txt
 A	external-review/MILESTONE-085/authority-contract-closure/runs-88ea0ed/R2-postgres.txt

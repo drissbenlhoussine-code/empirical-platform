@@ -9,7 +9,7 @@ without changing the schema, and a claim removed from it fails the item counts.
 
 Authority version `2`.
 
-Rendered-meaning digest `4864319168061979829721062024490150901234943423146037573433541079945133988008`: the SHA-256, as an integer, of the renderer's identifier-to-sentence tables. The contract declares it and the schema pins it, so the meaning of an identifier cannot change without a visible change to the canonical contract.
+Rendered-meaning digest `102870209558253175739368545048809800976056476506601775310989067181697482165838`: the SHA-256, as an integer, of the renderer's identifier-to-sentence tables. The contract declares it and the schema pins it, so the meaning of an identifier cannot change without a visible change to the canonical contract.
 
 ## What it proves
 
@@ -102,7 +102,7 @@ One authorization, one dispatch, and the records they leave establish:
 - The bounded not-found reconciliation policy -- repeated observations plus elapsed time before an unknown outcome is resolved -- is a stated, reviewable CHOICE. It is not a proof that the order never existed.
 - The waiting interval ASSUMES that the broker's clock advances monotonically between rounds (a reading that contradicts this yields no interval), and it treats a broker clock sample as ordering evidence only: a sample says nothing about whether the broker finished processing any order. The database checks the interval's shape and pairing, not that the clock was actually read.
 - Attempts reconciled before the round journal existed carry acknowledgements but no rounds. Those acknowledgements are operator evidence and never rounds: no time basis is fabricated and no round history is invented for them, so resolving such an attempt requires two new completed rounds with justified broker time.
-- The bounded external paper submission was MEASURED BLOCKED, not completed. The market was closed, the only available IEX quote was over three hours old, and the freshness tolerance was not widened to get past it. Every local, database and hostile-adapter validation is unaffected; see `paper-acceptance-results.md` for the measured numbers.
+- The bounded external paper submission was MEASURED COMPLETED, not blocked: the order was dispatched, acknowledged by the broker (`pending_new`), cancellation was requested immediately, and reconciliation observed a terminal broker state of CANCELED with a filled quantity of zero. This is a single occurrence and is not a proof of fillability, repeatability, or of any latency, queueing or execution-quality property; see `paper-acceptance-results.md` for the measured numbers. The earlier 2026-09-10 MEASURED BLOCKED run remains recorded in git history and is not restated here.
 - The paper account is stored as a stable digest, not an account number. Two accounts are distinguishable from each other but no account is identifiable from the stored value -- which is the intent, and also a limit on what an auditor can do with it alone.
 - A proposal, approval or intent created through MILESTONE-084 alone has no broker time basis, because none can be measured for an instant that has passed. It is refused for Paper at approval, issuance, preview and dispatch, and it is never backfilled.
 - The database checks that time-basis evidence describes the exact record and the instant of its act. It cannot check that the broker clock was actually read: a writer with INSERT privilege can store correctly shaped evidence that nobody measured.
