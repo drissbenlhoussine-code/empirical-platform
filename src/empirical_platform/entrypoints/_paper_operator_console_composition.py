@@ -40,15 +40,15 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from empirical_platform.decision_candidate.evaluation_evidence_watermark_repository import (
-    EvaluationEvidenceWatermarkRepository,
-)
-from empirical_platform.decision_candidate.paper_execution_repositories import (
-    PaperBrokerPort,
-    PaperMarketDataPort,
-)
 from empirical_platform.entrypoints._paper_composition import paper_execution_runtime
+from empirical_platform.shared.brokerage.alpaca_paper import (
+    AlpacaPaperClient,
+    AlpacaPaperMarketDataClient,
+)
 from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
+from empirical_platform.shared.persistence.postgres_repositories.evaluation_evidence_watermark_repository import (  # noqa: E501
+    PostgresEvaluationEvidenceWatermarkRepository,
+)
 from empirical_platform.usecases.operator_console import (
     CapabilityStatus,
     ConsoleRefusalError,
@@ -120,9 +120,9 @@ class PaperConsoleBackend:
     # declare. Private, set once by the composition function below; never read by the
     # shared routes, which only ever call `service`, `configuration_id` and `load_day()`.
     _repositories: ConsoleRepositories
-    _watermarks: EvaluationEvidenceWatermarkRepository
-    _broker: PaperBrokerPort
-    _market_data: PaperMarketDataPort
+    _watermarks: PostgresEvaluationEvidenceWatermarkRepository
+    _broker: AlpacaPaperClient
+    _market_data: AlpacaPaperMarketDataClient
     _time_source: PaperTimeSource
 
 
