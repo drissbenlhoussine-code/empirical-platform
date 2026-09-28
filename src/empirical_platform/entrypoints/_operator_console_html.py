@@ -850,9 +850,7 @@ def paper_health_page(view: PaperHealthView, *, capability_label: str) -> str:
         warnings.append("This account is BLOCKED.")
     if view.trade_suspended_by_user:
         warnings.append("Trading is suspended by the account owner.")
-    banner = (
-        f'<div class="banner banner-danger">{_e(" ".join(warnings))}</div>' if warnings else ""
-    )
+    banner = f'<div class="banner banner-danger">{_e(" ".join(warnings))}</div>' if warnings else ""
     facts = _kv(
         [
             ("Trading endpoint", view.trading_endpoint),

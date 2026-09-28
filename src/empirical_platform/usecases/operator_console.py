@@ -1221,8 +1221,7 @@ class OperatorConsoleService:
             return ActionOutcome(
                 False,
                 "Outcome unknown — do not retry",
-                prefix
-                + f"The order may have reached the {broker} and no answer proves what "
+                prefix + f"The order may have reached the {broker} and no answer proves what "
                 "happened. The console keeps checking the same order; it will never be sent again.",
                 "unknown",
                 attempt.intent_governance_id,

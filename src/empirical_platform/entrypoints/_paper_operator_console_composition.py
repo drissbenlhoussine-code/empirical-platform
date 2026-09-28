@@ -64,6 +64,7 @@ from empirical_platform.usecases.paper_operator_console import prepare_paper_can
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
+
 __all__ = ["PAPER_CAPABILITY", "PaperConsoleBackend", "paper_operator_console_runtime"]
 
 #: MILESTONE-088. The real PAPER capability, declared here and ONLY here, after Store B's
