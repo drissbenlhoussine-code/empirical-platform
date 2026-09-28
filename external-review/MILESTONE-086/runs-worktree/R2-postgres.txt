@@ -1,0 +1,6 @@
+HEAD=54ae23c7f22c4544b3dc3b06761adc3a25f5ced4 dirty=18 start=2026-09-27T05:18:04Z (solo run; no other database client active)
+cmd: pytest --no-cov <all 13 tests/integration/test_m085_*.py> tests/integration/test_m086_operator_console_postgres.py
+........................................................................ [ 97%]
+...........                                                              [100%]
+515 passed in 373.87s (0:06:13)
+pytest exit=0 end=2026-09-27T05:24:19Z

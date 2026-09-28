@@ -1,0 +1,90 @@
+name: M086 operator console
+
+# MILESTONE-086 -- the Operator Console suites, including the PostgreSQL restart/recovery
+# suite, on a real PostgreSQL 16 service. SIMULATION only: no broker credential exists in this
+# workflow and no external endpoint is contacted. The 13 MILESTONE-085 PostgreSQL suites run
+# here as well, to show that M086 consumes M085 without changing it.
+
+on:
+  push:
+    branches: [feature/m086-operator-console-simulation]
+  pull_request:
+    paths:
+      - '.github/workflows/m086-console.yml'
+      - 'src/empirical_platform/**/operator_console*.py'
+      - 'src/empirical_platform/**/_operator_console*.py'
+      - 'src/empirical_platform/shared/brokerage/simulation_paper.py'
+      - 'tests/**/test_m086*.py'
+      - 'tests/unit/_m086_fakes.py'
+
+permissions:
+  contents: read
+
+jobs:
+  console-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: empirical
+          POSTGRES_DB: empirical_platform
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U empirical -d empirical_platform"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
+      EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform
+      EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[persistence,object-storage,test]'
+      - name: Set isolated database placeholder
+        run: echo "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
+      - name: M086 suites, file by file (unit, architecture, PostgreSQL restart/recovery)
+        run: >-
+          python -m pytest --no-cov -v --no-header -p no:cacheprovider
+          tests/unit/test_m086_operator_console_service.py
+          tests/unit/test_m086_operator_console_routes.py
+          tests/unit/test_m086_operator_console_launcher.py
+          tests/unit/test_m086_simulation_broker.py
+          tests/unit/test_m086_operator_console_domain.py
+          tests/architecture/test_m086_console_boundaries.py
+          tests/integration/test_m086_operator_console_postgres.py
+      - name: MILESTONE-085 PostgreSQL suites, unchanged
+        run: >-
+          python -m pytest --no-cov -q -p no:cacheprovider
+          tests/integration/test_m085_paper_execution_postgres.py
+          tests/integration/test_m085_temporal_postgres.py
+          tests/integration/test_m085_time_basis_postgres.py
+          tests/integration/test_m085_identity_collision_postgres.py
+          tests/integration/test_m085_pre_send_crash_postgres.py
+          tests/integration/test_m085_authority_contract.py
+          tests/integration/test_m085_reconciliation_rounds_postgres.py
+          tests/integration/test_m085_absence_policy_postgres.py
+          tests/integration/test_m085_corrective_pass_postgres.py
+          tests/integration/test_m085_concurrency.py
+          tests/integration/test_m085_acknowledgement_terms_http.py
+          tests/integration/test_m085_hostile_http.py
+          tests/integration/test_m085_send_boundary_transport.py
+      - name: The console starts, serves Today and stops (loopback, no browser)
+        run: |
+          python -m alembic -c alembic.ini upgrade head
+          python -m empirical_platform.entrypoints.operator_console --load-day --no-browser --port 8086 --state-dir "$RUNNER_TEMP/console-state" --reconcile-every 2 > console.log 2>&1 &
+          CONSOLE_PID=$!
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8086/today && break; sleep 1; done
+          curl -s -D headers.txt -o today.html http://127.0.0.1:8086/today
+          grep -c 'class="card"' today.html
+          grep -i "content-security-policy" headers.txt
+          grep -q 'env-badge">SIMULATION</span>' today.html
+          kill "$CONSOLE_PID"
+          cat console.log

@@ -1,0 +1,5 @@
+HEAD=513d4ea55c007349633664d4a5c587059890ff1d dirty=0 (only documentation under external-review is uncommitted) start=2026-09-27T05:31:44Z (solo run)
+cmd: pytest --no-cov tests/unit/test_m086_*.py tests/architecture/test_m086_console_boundaries.py tests/integration/test_m086_operator_console_postgres.py tests/unit/test_m085_*.py
+....................................................................     [100%]
+1004 passed in 18.20s
+pytest exit=0 end=2026-09-27T05:32:04Z

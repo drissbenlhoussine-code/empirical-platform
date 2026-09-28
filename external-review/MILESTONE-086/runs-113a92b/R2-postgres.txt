@@ -1,0 +1,13 @@
+HEAD=113a92bb8cd2a6e488f3133cfe865bf0f99ce8b2 start=2026-09-27T11:34:45Z db=m085_pgon_b24c471 (disposable)
+============================= test session starts =============================
+collecting ... collected 6 items
+
+tests/integration/test_m086_operator_console_postgres.py::test_paper_and_live_cannot_be_composed PASSED [ 16%]
+tests/integration/test_m086_operator_console_postgres.py::test_the_daily_scenario_end_to_end_on_postgres PASSED [ 33%]
+tests/integration/test_m086_operator_console_postgres.py::test_restart_after_an_ambiguous_execution_reconstructs_and_resolves PASSED [ 50%]
+tests/integration/test_m086_operator_console_postgres.py::test_the_absence_policy_and_the_kill_switch_hold_on_postgres PASSED [ 66%]
+tests/integration/test_m086_operator_console_postgres.py::test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state PASSED [ 83%]
+tests/integration/test_m086_operator_console_postgres.py::test_a_second_launcher_process_is_refused_with_exit_code_2 PASSED [100%]
+
+============================= 6 passed in 10.62s ==============================
+end=2026-09-27T11:34:57Z
