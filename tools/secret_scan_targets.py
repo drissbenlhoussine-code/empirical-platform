@@ -46,6 +46,17 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
 #: `_is_a_recorded_blob_id`.
 _BLOB_ID_MANIFEST = "external-review/MILESTONE-084/frozen-path-digests.json"
 
+#: Every generated blob-id manifest the frozen-path guard writes: one per frozen
+#: milestone (`tools/check_frozen_paths.py`, `DIGEST_FILES`). The M084 manifest lives
+#: under MILESTONE-085, the milestone that froze M084, because it governs M084's own
+#: package. Each is cleared line by line against git's index and in no other way.
+_BLOB_ID_MANIFESTS = frozenset(
+    {
+        _BLOB_ID_MANIFEST,
+        "external-review/MILESTONE-085/m084-frozen-path-digests.json",
+    }
+)
+
 #: The manifest's exact schema: one repository path mapped to one git blob id,
 #: with nothing else on the line.
 _BLOB_ID_MANIFEST_ENTRY = re.compile(r'^\s*"(?P<path>[^"]+)": "(?P<blob>[0-9a-f]{40})",?$')
@@ -243,7 +254,7 @@ def _is_known_benign_secret_finding(
         return False
     if any(pattern.search(line) for pattern in _BENIGN_HIGH_ENTROPY_LINE_PATTERNS):
         return True
-    if relative_path.replace("\\", "/") != _BLOB_ID_MANIFEST:
+    if relative_path.replace("\\", "/") not in _BLOB_ID_MANIFESTS:
         return False
     return _is_a_recorded_blob_id(line, tracked())
 

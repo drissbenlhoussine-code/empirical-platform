@@ -1,0 +1,2796 @@
+"""MILESTONE-085 commands and queries for paper execution.
+
+EVERY HANDLER IS ONE STEP. There is no handler that previews, authorizes and
+submits in one call, because a human decision sits between the first and the
+second and a convenience method spanning it would be an authorization nobody
+gave. `SubmitAuthorizedPaperOrderHandler` will not create an authorization, and
+`AuthorizePaperSubmissionHandler` will not send anything.
+
+THE EVIDENCE IS REFRESHED AT DISPATCH, NOT REUSED FROM THE PREVIEW. Submission
+re-reads the account, the asset, the clock, the quote, the existing position and
+the kill switch, then RECOMPUTES the request fingerprint and requires the
+authorization to still match it. If anything material changed after the human
+looked, the fingerprint differs and the dispatch is refused. Reusing the
+preview's own numbers would make the freshness checks decorative.
+
+THE ORDER OF THE LAST THREE STEPS IS THE DESIGN. Check the kill switch, claim the
+dispatch in the database, and only then touch the network. Claiming after the
+network call would mean an order could exist at the broker with nothing
+persisted to prove it; checking the kill switch before the refresh would leave a
+window where it was engaged and the dispatch proceeded anyway.
+
+AN UNMAPPED BROKER STATUS IS NOT A KNOWN ONE. `_BROKER_STATUS_TO_STATE` is
+closed. A status Alpaca returns that is not in it does NOT become the nearest
+guess: the acknowledgement is recorded, the raw status is stored, and the state
+does not move. An operator then sees a real status they must decide about, which
+is better than the product silently deciding that `calculated` means `filled`.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from types import MappingProxyType
+
+from empirical_platform.decision_candidate.paper_execution import (
+    BOUND_ORDER_STATES,
+    MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
+    MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
+    PAPER_ENDPOINT_HOST,
+    RECONCILE_LOOKUP_FAILED_EVENT_TYPE,
+    SEND_BOUNDARY_EVENT_TYPE,
+    BrokerAcknowledgement,
+    DecisionTimeBasis,
+    ExecutionAttempt,
+    ExecutionAuthorization,
+    ExecutionPolicy,
+    IntentTimeBasis,
+    M084TimeProvenance,
+    PaperAccountSnapshot,
+    PaperEnvironment,
+    PaperExecutionEvent,
+    PaperExecutionState,
+    ProposalTimeBasis,
+    ReconciliationRoundOutcome,
+    SubmissionPreview,
+    absence_evaluation,
+    act_chronology_refusal,
+    attempt_may_have_transmitted,
+    attempt_positively_observed,
+    authorization_binding_refusal,
+    authorize_submission,
+    bind_decision_time_basis,
+    bind_intent_time_basis,
+    bind_proposal_time_basis,
+    build_submission_preview,
+    decision_time_basis_refusal,
+    execution_policy_from_configuration,
+    final_send_refusal,
+    is_client_order_id_collision,
+    is_definitive_broker_refusal,
+    m084_deadline_refusal_on_broker_time,
+    m084_provenance_refusal,
+    order_terms_mismatches,
+    proposal_time_basis_refusal,
+    request_fingerprint,
+    send_boundary_binding,
+)
+from empirical_platform.decision_candidate.paper_execution_repositories import (
+    BrokerAcknowledgementRepository,
+    BrokerOrderView,
+    ExecutionAttemptRepository,
+    ExecutionAuthorizationRepository,
+    ExecutionKillSwitchRepository,
+    PaperAccountSnapshotRepository,
+    PaperBrokerPort,
+    PaperExecutionEventRepository,
+    PaperMarketDataPort,
+    ReconciliationRoundRepository,
+    SubmissionPreviewRepository,
+    TimeBasisRepository,
+)
+from empirical_platform.decision_candidate.product_market_inputs import (
+    AccountSnapshot,
+    InstrumentMetadata,
+    LiquiditySnapshot,
+    OpenOrderSnapshot,
+    PositionSnapshot,
+    QuoteSnapshot,
+    SessionSnapshot,
+    TradingCostEstimate,
+)
+from empirical_platform.decision_candidate.product_repositories import (
+    ApprovalDecisionRepository,
+    ApprovedOrderIntentRepository,
+    EvaluationContextRepository,
+    OperatorTradingConfigurationRepository,
+    TradeProposalRepository,
+)
+from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
+from empirical_platform.shared.brokerage.alpaca_paper import (
+    BrokerAmbiguousDispatchError,
+    BrokerIdentityExistsError,
+    BrokerIdentityUnresolvedError,
+    BrokerNotSentError,
+    BrokerResponseInvalidError,
+)
+from empirical_platform.shared.brokerage.paper_time import (
+    BoundedInstant,
+    PaperTimeSource,
+    PaperTimeUncertainError,
+    PaperTimeWindow,
+    SystemPaperTimeSource,
+)
+from empirical_platform.usecases.decision_to_approval import (
+    DecideTradeProposalCommand,
+    DecideTradeProposalHandler,
+    DecisionOutcome,
+    IssueApprovedOrderIntentCommand,
+    IssueApprovedOrderIntentHandler,
+    NotFoundError,
+    OperatorAction,
+    PrepareTradeProposalCommand,
+    PrepareTradeProposalHandler,
+    TradeProposalOutcome,
+)
+
+#: Re-exported for `entrypoints`, which may import `usecases` but not
+#: `decision_candidate` (see the MILESTONE-083 REV-005 note in
+#: `tools/check_architecture.py`). The types travel through here so the
+#: architecture allowlist stays exactly as it was.
+__all__ = [
+    "AuthorizePaperSubmissionCommand",
+    "AuthorizePaperSubmissionHandler",
+    "CancelPaperOrderCommand",
+    "CancelPaperOrderHandler",
+    "InspectPaperAccountCommand",
+    "InspectPaperAccountHandler",
+    "DecidePaperBoundTradeProposalCommand",
+    "DecidePaperBoundTradeProposalHandler",
+    "DecisionTimeBasis",
+    "IntentTimeBasis",
+    "IssuePaperBoundOrderIntentCommand",
+    "IssuePaperBoundOrderIntentHandler",
+    "ListPaperExecutionsHandler",
+    "ListPaperExecutionsQuery",
+    "ExecutionAttempt",
+    "ExecutionAuthorization",
+    "ExecutionPolicy",
+    "PaperAccountSnapshot",
+    "M084TimeProvenance",
+    "PaperBoundDecision",
+    "PaperBoundIntent",
+    "PaperBoundProposal",
+    "PreparePaperBoundTradeProposalCommand",
+    "PreparePaperBoundTradeProposalHandler",
+    "ProposalTimeBasis",
+    "PaperExecutionState",
+    "SubmissionPreview",
+    "PaperEvidence",
+    "PaperExecutionRefusedError",
+    "PaperExecutionStatus",
+    "PaperExecutionStatusHandler",
+    "PaperExecutionStatusQuery",
+    "PaperSubmissionResult",
+    "PreviewPaperSubmissionCommand",
+    "PreviewPaperSubmissionHandler",
+    "ReconcilePaperOrderCommand",
+    "ReconcilePaperOrderHandler",
+    "SetExecutionKillSwitchCommand",
+    "SetExecutionKillSwitchHandler",
+    "ShowPaperExecutionHandler",
+    "ShowPaperExecutionQuery",
+    "SubmitAuthorizedPaperOrderCommand",
+    "SubmitAuthorizedPaperOrderHandler",
+    "VerifyPaperEnvironmentHandler",
+    "VerifyPaperEnvironmentQuery",
+    "VerifyPaperEnvironmentResult",
+]
+
+
+class PaperExecutionRefusedError(ValueError):
+    """An operator request this product will not perform, with the reason.
+
+    Subclasses `ValueError` so that `entrypoints._operator_cli.operator_command`
+    renders it as a refusal rather than a traceback -- the same shape M084 uses,
+    reused rather than reinvented.
+    """
+
+
+#: Alpaca order status -> M085 state. CLOSED on purpose: see the module
+#: docstring. Statuses absent here are real Alpaca statuses that this milestone
+#: deliberately does not map, because none of them has an obviously correct
+#: destination and guessing would be worse than reporting.
+_BROKER_STATUS_TO_STATE = MappingProxyType(
+    {
+        "new": PaperExecutionState.PAPER_ACCEPTED,
+        "accepted": PaperExecutionState.PAPER_ACCEPTED,
+        "pending_new": PaperExecutionState.PAPER_ACCEPTED,
+        "accepted_for_bidding": PaperExecutionState.PAPER_ACCEPTED,
+        "held": PaperExecutionState.PAPER_ACCEPTED,
+        "partially_filled": PaperExecutionState.PARTIALLY_FILLED,
+        "filled": PaperExecutionState.FILLED,
+        "canceled": PaperExecutionState.CANCELED,
+        "expired": PaperExecutionState.EXPIRED,
+        "rejected": PaperExecutionState.REJECTED,
+        "suspended": PaperExecutionState.REJECTED,
+        "pending_cancel": PaperExecutionState.CANCEL_REQUESTED,
+    }
+)
+
+
+def _decimal_or_none(value: str | None) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        return Decimal(value)
+    except InvalidOperation:
+        return None
+
+
+def _account_reference(account_id: str) -> str:
+    """A stable, non-reversible reference to the broker's account identifier.
+
+    The product must prove that an authorization and a dispatch concern the same
+    account. It does not need to store a real account number to do that, and
+    storing one would put a customer identifier into every audit row.
+    """
+    import hashlib
+
+    return "ref:" + hashlib.sha256(f"m085/{account_id}".encode()).hexdigest()[:32]
+
+
+@dataclass(frozen=True, slots=True)
+class PaperEvidence:
+    """Everything read from the broker in one gathering pass."""
+
+    account: PaperAccountSnapshot
+    market_is_open: bool
+    market_next_open: datetime | None
+    market_next_close: datetime | None
+    quote_bid: Decimal | None
+    quote_ask: Decimal | None
+    quote_captured_at: datetime | None
+    quote_source: str
+    asset_tradable: bool
+    asset_status: str
+    asset_class: str
+    asset_exchange: str
+    asset_fractionable: bool
+    existing_position_quantity: int
+    kill_switch_engaged: bool
+
+
+def _policy_for(
+    intent: ApprovedOrderIntent, configurations: OperatorTradingConfigurationRepository
+) -> ExecutionPolicy:
+    """The send-time policy of the EXACT configuration version the intent names.
+
+    Read from the append-only configuration store every time it is needed, never
+    from a caller. A missing version is a refusal: without it there are no limits,
+    and no limits is not the same thing as no refusals.
+    """
+    configuration = configurations.get(
+        intent.configuration_governance_id, intent.configuration_version
+    )
+    if configuration is None:
+        raise PaperExecutionRefusedError(
+            f"configuration {intent.configuration_governance_id!r} version "
+            f"{intent.configuration_version} named by the intent does not exist; there are "
+            "no send-time limits to judge this order under"
+        )
+    return execution_policy_from_configuration(configuration)
+
+
+def _read_account_snapshot(
+    *, broker: PaperBrokerPort, snapshot_id: str, captured_at: datetime
+) -> PaperAccountSnapshot:
+    """Read the account and reduce it to what this product stores.
+
+    Only the fields below are kept. The rest of Alpaca's account payload -- and it
+    is large -- is deliberately dropped rather than persisted, because none of it
+    is needed to decide whether this order may be sent, and unnecessary personal
+    or financial detail should not be sitting in an audit table.
+    """
+    status, payload = broker.fetch_account()
+    if status != 200:
+        raise PaperExecutionRefusedError(f"the paper account could not be read (HTTP {status})")
+
+    def text(field: str) -> str:
+        value = payload.get(field)
+        if not isinstance(value, str) or not value:
+            raise BrokerResponseInvalidError(f"the account field {field!r} is missing or empty")
+        return value
+
+    def flag(field: str) -> bool:
+        value = payload.get(field)
+        if not isinstance(value, bool):
+            raise BrokerResponseInvalidError(f"the account field {field!r} is not a boolean")
+        return value
+
+    def money(field: str) -> Decimal:
+        value = payload.get(field)
+        if not isinstance(value, str):
+            raise BrokerResponseInvalidError(f"the account field {field!r} is not a decimal string")
+        try:
+            return Decimal(value)
+        except InvalidOperation as error:
+            raise BrokerResponseInvalidError(
+                f"the account field {field!r} is not a valid decimal"
+            ) from error
+
+    return PaperAccountSnapshot(
+        snapshot_id=snapshot_id,
+        environment=PaperEnvironment.PAPER,
+        endpoint_host=broker.endpoint_host,
+        account_reference=_account_reference(text("id")),
+        account_status=text("status"),
+        currency=text("currency"),
+        buying_power=money("buying_power"),
+        cash=money("cash"),
+        equity=money("equity"),
+        multiplier=text("multiplier"),
+        shorting_enabled=flag("shorting_enabled"),
+        trading_blocked=flag("trading_blocked"),
+        transfers_blocked=flag("transfers_blocked"),
+        account_blocked=flag("account_blocked"),
+        trade_suspended_by_user=flag("trade_suspended_by_user"),
+        captured_at=captured_at,
+    )
+
+
+def _gather(
+    *,
+    broker: PaperBrokerPort,
+    market_data: PaperMarketDataPort,
+    kill_switch: ExecutionKillSwitchRepository,
+    symbol: str,
+    snapshot_id: str,
+    at: datetime,
+    timing: PaperTimeWindow,
+) -> PaperEvidence:
+    """One pass over every external fact a dispatch decision depends on.
+
+    Shared by preview and submission so that the two cannot disagree about what
+    "the evidence" means. The kill switch is read LAST, closest to the decision.
+    """
+    account = _read_account_snapshot(broker=broker, snapshot_id=snapshot_id, captured_at=at)
+    account = replace(account, captured_at=timing.now())
+    # The round trip is measured on the monotonic clock alone, so a wrong or
+    # stepping wall clock cannot widen or narrow the bound derived from it.
+    sent_monotonic = timing.read_monotonic()
+    clock = broker.fetch_clock()
+    received_monotonic = timing.read_monotonic()
+    timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
+    asset = broker.fetch_asset(symbol)
+    position = broker.fetch_position(symbol)
+    quote = market_data.fetch_quote(symbol)
+    return PaperEvidence(
+        account=account,
+        market_is_open=clock.is_open,
+        market_next_open=clock.next_open,
+        market_next_close=clock.next_close,
+        quote_bid=_decimal_or_none(None if quote is None else quote.bid),
+        quote_ask=_decimal_or_none(None if quote is None else quote.ask),
+        quote_captured_at=None if quote is None else quote.captured_at,
+        quote_source="absent" if quote is None else quote.source,
+        asset_tradable=asset.tradable,
+        asset_status=asset.status,
+        asset_class=asset.asset_class,
+        asset_exchange=asset.exchange,
+        asset_fractionable=asset.fractionable,
+        existing_position_quantity=0 if position is None else position.quantity,
+        kill_switch_engaged=kill_switch.is_engaged(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Verify the environment
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyPaperEnvironmentQuery:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class VerifyPaperEnvironmentResult:
+    endpoint_host: str
+    is_the_pinned_paper_host: bool
+    account_reachable: bool
+    account_status: str
+    account_reference: str
+    market_data_host: str
+
+
+class VerifyPaperEnvironmentHandler:
+    """Read-only: is this really the paper environment, and does it answer?"""
+
+    __slots__ = ("_broker", "_market_data")
+
+    def __init__(self, *, broker: PaperBrokerPort, market_data: PaperMarketDataPort) -> None:
+        self._broker = broker
+        self._market_data = market_data
+
+    def handle(self, query: VerifyPaperEnvironmentQuery) -> VerifyPaperEnvironmentResult:
+        del query
+        status, payload = self._broker.fetch_account()
+        account_id = payload.get("id")
+        account_status = payload.get("status")
+        return VerifyPaperEnvironmentResult(
+            endpoint_host=self._broker.endpoint_host,
+            is_the_pinned_paper_host=self._broker.endpoint_host == PAPER_ENDPOINT_HOST,
+            account_reachable=status == 200,
+            account_status=account_status if isinstance(account_status, str) else "unknown",
+            account_reference=(
+                _account_reference(account_id) if isinstance(account_id, str) else "unknown"
+            ),
+            market_data_host=self._market_data.endpoint_host,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Inspect and store an account snapshot
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class InspectPaperAccountCommand:
+    snapshot_id: str
+    captured_at: datetime
+
+
+class InspectPaperAccountHandler:
+    __slots__ = ("_broker", "_snapshots")
+
+    def __init__(
+        self, *, broker: PaperBrokerPort, snapshots: PaperAccountSnapshotRepository
+    ) -> None:
+        self._broker = broker
+        self._snapshots = snapshots
+
+    def handle(self, command: InspectPaperAccountCommand) -> PaperAccountSnapshot:
+        snapshot = _read_account_snapshot(
+            broker=self._broker,
+            snapshot_id=command.snapshot_id,
+            captured_at=command.captured_at,
+        )
+        return self._snapshots.save(snapshot)
+
+
+# ---------------------------------------------------------------------------
+# Preview
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PreviewPaperSubmissionCommand:
+    """What to preview. Deliberately NO notional, freshness or watchlist argument.
+
+    CORRECTIVE PASS (D1). Those limits come only from the configuration version the
+    intent names; a command field for them would be a way to state looser ones.
+    """
+
+    intent_governance_id: str
+    preview_id: str
+    account_snapshot_id: str
+    created_at: datetime
+
+
+class PreviewPaperSubmissionHandler:
+    """Freeze exactly what a human will be shown, refusals included."""
+
+    __slots__ = (
+        "_intents",
+        "_configurations",
+        "_time_bases",
+        "_snapshots",
+        "_previews",
+        "_events",
+        "_broker",
+        "_market_data",
+        "_kill_switch",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        intents: ApprovedOrderIntentRepository,
+        configurations: OperatorTradingConfigurationRepository,
+        time_bases: TimeBasisRepository,
+        snapshots: PaperAccountSnapshotRepository,
+        previews: SubmissionPreviewRepository,
+        events: PaperExecutionEventRepository,
+        broker: PaperBrokerPort,
+        market_data: PaperMarketDataPort,
+        kill_switch: ExecutionKillSwitchRepository,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._intents = intents
+        self._configurations = configurations
+        self._time_bases = time_bases
+        self._snapshots = snapshots
+        self._previews = previews
+        self._events = events
+        self._broker = broker
+        self._market_data = market_data
+        self._kill_switch = kill_switch
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: PreviewPaperSubmissionCommand) -> SubmissionPreview:
+        intent = self._intents.get(command.intent_governance_id)
+        if intent is None:
+            raise NotFoundError(f"no approved order intent {command.intent_governance_id!r} exists")
+        policy = _policy_for(intent, self._configurations)
+
+        timing = PaperTimeWindow(self._time_source)
+        evidence = _gather(
+            broker=self._broker,
+            market_data=self._market_data,
+            kill_switch=self._kill_switch,
+            symbol=intent.symbol,
+            snapshot_id=command.account_snapshot_id,
+            at=command.created_at,
+            timing=timing,
+        )
+        self._snapshots.save(evidence.account)
+
+        version = self._previews.next_version_for_intent(intent.intent_governance_id)
+        # Refuse broker time too uncertain to decide the tightest margin it feeds.
+        # The margin is the configuration's freshness ceiling, not a new constant.
+        timing.require_broker_certainty_within(policy.quote_maximum_age_seconds)
+        evaluated_at = timing.now()
+        broker_instant = timing.broker_now()
+        preview = build_submission_preview(
+            preview_id=command.preview_id,
+            intent=intent,
+            account=evidence.account,
+            preview_version=version,
+            market_is_open=evidence.market_is_open,
+            market_next_open=evidence.market_next_open,
+            market_next_close=evidence.market_next_close,
+            quote_bid=evidence.quote_bid,
+            quote_ask=evidence.quote_ask,
+            quote_captured_at=evidence.quote_captured_at,
+            quote_source=evidence.quote_source,
+            asset_tradable=evidence.asset_tradable,
+            asset_status=evidence.asset_status,
+            asset_class=evidence.asset_class,
+            asset_exchange=evidence.asset_exchange,
+            asset_fractionable=evidence.asset_fractionable,
+            policy=policy,
+            existing_position_quantity=evidence.existing_position_quantity,
+            execution_kill_switch_engaged=evidence.kill_switch_engaged,
+            created_at=evaluated_at,
+            broker_now=broker_instant,
+            m084_provenance=_provenance_for(intent, self._time_bases),
+        )
+        stored = self._previews.save(preview)
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{stored.preview_id}-PREVIEW",
+                intent_governance_id=stored.intent_governance_id,
+                attempt_id=None,
+                event_type="PREVIEW_CREATED",
+                occurred_at=evaluated_at,
+                detail=(
+                    f"v{stored.preview_version} authorizable={stored.is_authorizable} "
+                    f"refusals={len(stored.refusals)}"
+                )[:500],
+            )
+        )
+        return stored
+
+
+# ---------------------------------------------------------------------------
+# Authorize
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizePaperSubmissionCommand:
+    authorization_id: str
+    preview_id: str
+    #: The fingerprint the OPERATOR read off the preview and typed back. Required
+    #: so that authorizing is an act about one exact order rather than about
+    #: whatever the latest preview happens to be.
+    expected_request_fingerprint: str
+    authorized_by: str
+    authorized_at: datetime
+    validity_seconds: int
+
+
+class AuthorizePaperSubmissionHandler:
+    """One human act becomes one narrow, expiring, single-use permission."""
+
+    __slots__ = ("_previews", "_authorizations", "_events", "_broker", "_time_source")
+
+    def __init__(
+        self,
+        *,
+        previews: SubmissionPreviewRepository,
+        authorizations: ExecutionAuthorizationRepository,
+        events: PaperExecutionEventRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._previews = previews
+        self._authorizations = authorizations
+        self._events = events
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: AuthorizePaperSubmissionCommand) -> ExecutionAuthorization:
+        preview = self._previews.get(command.preview_id)
+        if preview is None:
+            raise NotFoundError(f"no submission preview {command.preview_id!r} exists")
+        if preview.request_fingerprint != command.expected_request_fingerprint:
+            # The operator is authorizing something other than what they read.
+            raise PaperExecutionRefusedError(
+                "the fingerprint given does not match this preview's request fingerprint; "
+                "re-read the preview and authorize the order it actually describes"
+            )
+        if not preview.is_authorizable:
+            raise PaperExecutionRefusedError(
+                "this preview cannot be authorized: " + "; ".join(preview.refusals)
+            )
+
+        # THE ONE BROKER CALL THIS COMMAND MAKES, AND IT SENDS NO ORDER.
+        # `GET /v2/clock` is read-only. It is here because the permission about to
+        # be written needs a time basis that survives this process exiting, and
+        # the only clock that does is the broker's. Without it a host clock that
+        # later steps backward silently extends the permission.
+        #
+        # The basis is an INTERVAL around that one call. It is NOT paired with
+        # `command.authorized_at`, which the entrypoint stamped before this handler
+        # ran: pairing a pre-fetch host reading with the broker's reply put the
+        # whole fetch latency into the mapping and extended every mapped expiry.
+        timing = PaperTimeWindow(self._time_source)
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+
+        try:
+            authorization = authorize_submission(
+                authorization_id=command.authorization_id,
+                preview=preview,
+                authorized_by=command.authorized_by,
+                authorized_at=command.authorized_at,
+                validity_seconds=command.validity_seconds,
+                time_basis=time_basis,
+            )
+        except ValueError as error:
+            raise PaperExecutionRefusedError(str(error)) from error
+        stored = self._authorizations.save(authorization)
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{stored.authorization_id}-AUTH",
+                intent_governance_id=stored.intent_governance_id,
+                attempt_id=None,
+                event_type="AUTHORIZATION_GRANTED",
+                occurred_at=command.authorized_at,
+                detail=f"by={stored.authorized_by} expires_at={stored.expires_at.isoformat()}"[
+                    :500
+                ],
+            )
+        )
+        return stored
+
+
+def _provenance_for(
+    intent: ApprovedOrderIntent, time_bases: TimeBasisRepository
+) -> M084TimeProvenance:
+    """The three recorded bases behind one intent, each found by the act it belongs to."""
+    return M084TimeProvenance(
+        proposal=time_bases.proposal(intent.proposal_governance_id, intent.proposal_version),
+        decision=time_bases.decision(intent.decision_governance_id),
+        intent=time_bases.intent(intent.intent_governance_id),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Paper-bound proposal evaluation and approval
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class PreparePaperBoundTradeProposalCommand:
+    """Evaluate one instrument through M084 AND record the basis of that evaluation.
+
+    The inputs of M084's `PrepareTradeProposalCommand`, except `evaluated_at`: the
+    evaluation instant IS the conservative host reading taken after the broker clock
+    response, so a basis cannot describe an instant it was not measured at.
+    """
+
+    proposal_governance_id: str
+    evaluation_context_id: str
+    symbol: str
+    quote: QuoteSnapshot
+    account: AccountSnapshot
+    session: SessionSnapshot
+    instrument: InstrumentMetadata
+    liquidity: LiquiditySnapshot
+    cost_estimate: TradingCostEstimate | None
+    positions: tuple[PositionSnapshot, ...]
+    open_orders: tuple[OpenOrderSnapshot, ...]
+    evidence_age_seconds: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class PaperBoundProposal:
+    """M084's evaluation outcome and, when it produced a proposal, the basis recorded."""
+
+    outcome: TradeProposalOutcome
+    #: None exactly when M084 answered NO_TRADE: nothing was written, so nothing is timed.
+    time_basis: ProposalTimeBasis | None
+
+
+class PreparePaperBoundTradeProposalHandler:
+    """MILESTONE-084's own evaluation, unchanged, composed with a proposal-time basis.
+
+    WHY THIS EXISTS. The proposal's `expires_at` and `mandatory_liquidation_at` are
+    WRITTEN here, on this host's clock, and become the intent's deadlines unchanged.
+    Only a basis measured in this act may translate them. A basis measured later --
+    at issuance, as `d4f18a6c2e97` did -- maps them by whatever the host clock did in
+    between: reproduced at `73a2f96`, where an hour of drift let an expired proposal
+    and approval reach the broker.
+
+    WHAT IT DOES NOT CHANGE. `PrepareTradeProposalHandler` and every M084 file are
+    used as they are; only `evaluated_at` is supplied, as the measured host reading.
+    A NO_TRADE records nothing. The one broker call is `GET /v2/clock`, read-only.
+    """
+
+    __slots__ = (
+        "_configurations",
+        "_contexts",
+        "_proposals",
+        "_time_bases",
+        "_broker",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        configurations: OperatorTradingConfigurationRepository,
+        contexts: EvaluationContextRepository,
+        proposals: TradeProposalRepository,
+        time_bases: TimeBasisRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._configurations = configurations
+        self._contexts = contexts
+        self._proposals = proposals
+        self._time_bases = time_bases
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: PreparePaperBoundTradeProposalCommand) -> PaperBoundProposal:
+        if self._proposals.get(command.proposal_governance_id) is not None:
+            raise PaperExecutionRefusedError(
+                f"proposal {command.proposal_governance_id!r} already exists; a "
+                "proposal-time basis is measured only in the act of evaluating a proposal "
+                "and is never attached to one afterwards"
+            )
+        timing = PaperTimeWindow(self._time_source)
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        outcome = PrepareTradeProposalHandler(
+            configuration_repository=self._configurations,
+            evaluation_context_repository=self._contexts,
+            trade_proposal_repository=self._proposals,
+        ).handle(
+            PrepareTradeProposalCommand(
+                proposal_governance_id=command.proposal_governance_id,
+                evaluation_context_id=command.evaluation_context_id,
+                symbol=command.symbol,
+                evaluated_at=time_basis.host_at,
+                quote=command.quote,
+                account=command.account,
+                session=command.session,
+                instrument=command.instrument,
+                liquidity=command.liquidity,
+                cost_estimate=command.cost_estimate,
+                positions=command.positions,
+                open_orders=command.open_orders,
+                evidence_age_seconds=command.evidence_age_seconds,
+            )
+        )
+        if outcome.proposal is None:
+            return PaperBoundProposal(outcome=outcome, time_basis=None)
+        evidence = bind_proposal_time_basis(
+            proposal=outcome.proposal,
+            time_basis=time_basis,
+            broker_endpoint_host=self._broker.endpoint_host,
+        )
+        return PaperBoundProposal(
+            outcome=outcome, time_basis=self._time_bases.record_proposal(evidence)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DecidePaperBoundTradeProposalCommand:
+    """One human decision through M084, with the basis of that decision recorded.
+
+    No `decided_at`: the decision instant IS the measured host reading.
+    """
+
+    proposal_governance_id: str
+    decision_governance_id: str
+    action: OperatorAction
+    operator_identity: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperBoundDecision:
+    """M084's decision outcome and, for an approval, the basis recorded."""
+
+    outcome: DecisionOutcome
+    #: None for a rejection or cancellation, which carries no expiry to translate.
+    time_basis: DecisionTimeBasis | None
+
+
+class DecidePaperBoundTradeProposalHandler:
+    """MILESTONE-084's own decision, unchanged, composed with a decision-time basis.
+
+    WHY THIS EXISTS. The approval's `expires_at` is WRITTEN here, on this host's
+    clock, and M084 checks it again at issuance on the host clock. Only a basis
+    measured in this act may translate it. The approval expiry does not bound host
+    drift between evaluation and issuance: it is written on that same host timeline.
+
+    AN APPROVAL REQUIRES ITS PROPOSAL'S OWN BASIS, and is refused when the proposal
+    might already have expired on the broker's clock at this decision. M084 checks
+    the same on the host clock, which a backward host step defeats. A rejection or
+    cancellation is passed to M084 unchanged and records no basis.
+    """
+
+    __slots__ = (
+        "_configurations",
+        "_decisions",
+        "_proposals",
+        "_time_bases",
+        "_broker",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        configurations: OperatorTradingConfigurationRepository,
+        decisions: ApprovalDecisionRepository,
+        proposals: TradeProposalRepository,
+        time_bases: TimeBasisRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._configurations = configurations
+        self._decisions = decisions
+        self._proposals = proposals
+        self._time_bases = time_bases
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: DecidePaperBoundTradeProposalCommand) -> PaperBoundDecision:
+        proposal = self._proposals.get(command.proposal_governance_id)
+        if proposal is None:
+            raise NotFoundError(f"no trade proposal {command.proposal_governance_id!r}")
+        approving = command.action is OperatorAction.APPROVE
+        proposal_basis = self._time_bases.proposal(
+            proposal.proposal_governance_id, proposal.proposal_version
+        )
+        if approving:
+            refusal = proposal_time_basis_refusal(
+                proposal_governance_id=proposal.proposal_governance_id,
+                proposal_version=proposal.proposal_version,
+                fingerprint=proposal.content_fingerprint,
+                expires_at=proposal.expires_at,
+                mandatory_liquidation_at=proposal.mandatory_liquidation_at,
+                evidence=proposal_basis,
+            )
+            if refusal is not None:
+                raise PaperExecutionRefusedError(refusal)
+
+        timing = PaperTimeWindow(self._time_source)
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        if approving and proposal_basis is not None:
+            deciding = BoundedInstant(
+                earliest=time_basis.broker_earliest_at, latest=time_basis.broker_latest_at
+            )
+            if deciding.possibly_at_or_after(
+                proposal_basis.time_basis.on_broker_timeline(proposal.expires_at)
+            ):
+                raise PaperExecutionRefusedError(
+                    "the proposal has expired on the broker's clock and cannot be approved"
+                )
+
+        outcome = DecideTradeProposalHandler(
+            configuration_repository=self._configurations,
+            approval_decision_repository=self._decisions,
+            trade_proposal_repository=self._proposals,
+        ).handle(
+            DecideTradeProposalCommand(
+                proposal_governance_id=command.proposal_governance_id,
+                decision_governance_id=command.decision_governance_id,
+                action=command.action,
+                operator_identity=command.operator_identity,
+                decided_at=time_basis.host_at,
+            )
+        )
+        if not approving:
+            return PaperBoundDecision(outcome=outcome, time_basis=None)
+        evidence = bind_decision_time_basis(
+            decision=outcome.decision,
+            time_basis=time_basis,
+            broker_endpoint_host=self._broker.endpoint_host,
+        )
+        return PaperBoundDecision(
+            outcome=outcome, time_basis=self._time_bases.record_decision(evidence)
+        )
+
+
+# ---------------------------------------------------------------------------
+# Paper-bound intent issuance
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class IssuePaperBoundOrderIntentCommand:
+    """Issue one M084 intent AND record the broker time basis of that issuance.
+
+    No `created_at`, deliberately. The issuance instant IS the conservative host
+    reading taken after the broker clock response; a caller-supplied instant would
+    let a basis describe a moment it was not measured at.
+    """
+
+    intent_governance_id: str
+    proposal_governance_id: str
+    idempotency_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperBoundIntent:
+    """An issued M084 intent together with the basis measured when it was issued."""
+
+    intent: ApprovedOrderIntent
+    time_basis: IntentTimeBasis
+
+
+class IssuePaperBoundOrderIntentHandler:
+    """MILESTONE-084's own issuance, unchanged, composed with an intent-time basis.
+
+    WHY THIS EXISTS. It records WHEN the intent was issued, on the broker's clock, so
+    the issuance can be shown to precede the proposal, liquidation and approval
+    deadlines -- each through the basis of the act that wrote it.
+
+    SUPERSEDED. This docstring used to say the intent's deadlines are written at
+    issuance and that only an issuance basis can translate them. They are written
+    when the proposal is evaluated and approved; translating them through the
+    issuance basis let an hour of host drift pass an expired proposal and approval
+    to the broker (reproduced at `73a2f96`). This basis translates no deadline, and
+    issuance now REQUIRES the proposal-time and decision-time bases.
+
+    WHAT IT DOES NOT CHANGE. `IssueApprovedOrderIntentHandler` and every M084 file
+    are used exactly as they are. The only thing supplied differently is
+    `created_at`, which is the measured host reading instead of an unmeasured one;
+    M084 already accepts any aware instant there and checks the proposal and
+    approval against it -- against an upper bound, so conservatively.
+
+    ORDER, AND WHAT A CRASH LEAVES. Measure the basis, issue the intent with that
+    reading as `created_at`, record the evidence. A crash between the last two
+    leaves an intent WITHOUT evidence, which is refused at dispatch and never
+    repaired: the basis cannot be measured again for an instant that has passed.
+
+    THE ONE BROKER CALL IS `GET /v2/clock`, READ-ONLY. Nothing here can place an order.
+    """
+
+    __slots__ = (
+        "_approval_decisions",
+        "_intents",
+        "_proposals",
+        "_time_bases",
+        "_broker",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        approval_decisions: ApprovalDecisionRepository,
+        intents: ApprovedOrderIntentRepository,
+        proposals: TradeProposalRepository,
+        time_bases: TimeBasisRepository,
+        broker: PaperBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._approval_decisions = approval_decisions
+        self._intents = intents
+        self._proposals = proposals
+        self._time_bases = time_bases
+        self._broker = broker
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: IssuePaperBoundOrderIntentCommand) -> PaperBoundIntent:
+        if self._intents.get(command.intent_governance_id) is not None:
+            raise PaperExecutionRefusedError(
+                f"intent {command.intent_governance_id!r} already exists; an intent-time "
+                "basis is measured only in the act of issuing an intent and is never "
+                "attached to one afterwards"
+            )
+
+        proposal = self._proposals.get(command.proposal_governance_id)
+        if proposal is None:
+            raise NotFoundError(f"no trade proposal {command.proposal_governance_id!r}")
+        decision = self._approval_decisions.for_proposal(command.proposal_governance_id)
+        if decision is None:
+            raise NotFoundError(
+                f"proposal {command.proposal_governance_id!r} has no recorded decision"
+            )
+        # THE BASES OF THE ACTS THAT WROTE THE DEADLINES, before anything is measured
+        # or written. A proposal or approval created through M084 alone has none.
+        proposal_basis = self._time_bases.proposal(
+            proposal.proposal_governance_id, proposal.proposal_version
+        )
+        decision_basis = self._time_bases.decision(decision.decision_governance_id)
+        for refusal in (
+            proposal_time_basis_refusal(
+                proposal_governance_id=proposal.proposal_governance_id,
+                proposal_version=proposal.proposal_version,
+                fingerprint=proposal.content_fingerprint,
+                expires_at=proposal.expires_at,
+                mandatory_liquidation_at=proposal.mandatory_liquidation_at,
+                evidence=proposal_basis,
+            ),
+            decision_time_basis_refusal(
+                decision_governance_id=decision.decision_governance_id,
+                proposal_governance_id=decision.proposal_governance_id,
+                proposal_version=decision.proposal_version,
+                approved_fingerprint=decision.approved_fingerprint,
+                evidence=decision_basis,
+            ),
+        ):
+            if refusal is not None:
+                raise PaperExecutionRefusedError(refusal)
+        if decision_basis is not None and (
+            decision_basis.decided_at != decision.decided_at
+            or decision_basis.decision_expires_at != decision.expires_at
+        ):
+            raise PaperExecutionRefusedError(
+                "the decision-time broker basis does not describe this exact approval"
+            )
+
+        timing = PaperTimeWindow(self._time_source)
+        time_basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        # M084 is about to check the proposal and approval against `created_at` on the
+        # HOST clock. The same questions are asked here on the BROKER's clock, each
+        # deadline through the basis of the act that wrote it -- before M084 writes.
+        if proposal_basis is not None and decision_basis is not None:
+            chronology = act_chronology_refusal(
+                proposal=proposal_basis, decision=decision_basis, issued=time_basis
+            )
+            if chronology is not None:
+                raise PaperExecutionRefusedError(chronology)
+        intent = IssueApprovedOrderIntentHandler(
+            approval_decision_repository=self._approval_decisions,
+            approved_order_intent_repository=self._intents,
+            trade_proposal_repository=self._proposals,
+        ).handle(
+            IssueApprovedOrderIntentCommand(
+                intent_governance_id=command.intent_governance_id,
+                proposal_governance_id=command.proposal_governance_id,
+                idempotency_key=command.idempotency_key,
+                created_at=time_basis.host_at,
+            )
+        )
+        evidence = bind_intent_time_basis(
+            intent=intent,
+            time_basis=time_basis,
+            broker_endpoint_host=self._broker.endpoint_host,
+        )
+        return PaperBoundIntent(intent=intent, time_basis=self._time_bases.record_intent(evidence))
+
+
+# ---------------------------------------------------------------------------
+# Submit
+# ---------------------------------------------------------------------------
+
+
+def _refuse_m084_deadlines_on_their_own_bases(
+    *,
+    intent: ApprovedOrderIntent,
+    provenance: M084TimeProvenance,
+    broker_now: BoundedInstant,
+) -> None:
+    """Enforce M084's deadlines on the broker's clock as well as this host's.
+
+    MILESTONE-084 writes `expires_at` and `mandatory_liquidation_at` with the host
+    clock of the process that evaluated and issued the intent, and those stored
+    values are frozen: they are not rewritten, reinterpreted or relaxed here, and
+    the host-timeline checks on them still run unchanged. This is a SECOND
+    enforcement of the same two deadlines, on the broker timeline, through the
+    basis measured when THE PROPOSAL THAT WROTE THEM WAS EVALUATED. SUPERSEDED
+    AGAIN: until `e61b3f9a4c27` this used the basis measured at intent issuance,
+    which is later than the act that wrote them.
+
+    SUPERSEDED. This used to map them through the authorization's basis. That basis
+    was measured later, in a different act; a host clock that moved between intent
+    issuance and authorization shifted both deadlines by exactly that movement,
+    and a dispatch after the real M084 deadline was permitted. Reproduced before
+    this change. An intent with no basis of its own, or a basis describing a
+    different intent, is refused here rather than mapped with a borrowed one.
+    """
+    refusal = m084_deadline_refusal_on_broker_time(
+        intent=intent, provenance=provenance, broker_now=broker_now
+    )
+    if refusal is not None:
+        raise PaperExecutionRefusedError(refusal)
+
+
+@dataclass(frozen=True, slots=True)
+class SubmitAuthorizedPaperOrderCommand:
+    """What to dispatch. There is NO field that could state a limit.
+
+    CORRECTIVE PASS (D1). The notional cap, quote freshness limit, watchlist, spread
+    limit and entry window used to be arguments here, unbound to the authorization,
+    so a submit could state looser limits than the human authorized. They are now
+    read from the intent's configuration version and must equal the authorized
+    policy; a caller has nothing to pass.
+    """
+
+    intent_governance_id: str
+    attempt_id: str
+    account_snapshot_id: str
+    at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PaperSubmissionResult:
+    attempt: ExecutionAttempt
+    #: False when this call found a dispatch already claimed and made NO network
+    #: request. The persisted winner is returned in `attempt`.
+    dispatched: bool
+    http_status: int | None
+    broker_status: str | None
+    note: str
+
+
+class SubmitAuthorizedPaperOrderHandler:
+    """Send the one authorized order, once, and record whatever happened."""
+
+    __slots__ = (
+        "_intents",
+        "_configurations",
+        "_time_bases",
+        "_previews",
+        "_authorizations",
+        "_attempts",
+        "_acknowledgements",
+        "_events",
+        "_snapshots",
+        "_broker",
+        "_market_data",
+        "_kill_switch",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        intents: ApprovedOrderIntentRepository,
+        configurations: OperatorTradingConfigurationRepository,
+        time_bases: TimeBasisRepository,
+        previews: SubmissionPreviewRepository,
+        authorizations: ExecutionAuthorizationRepository,
+        attempts: ExecutionAttemptRepository,
+        acknowledgements: BrokerAcknowledgementRepository,
+        events: PaperExecutionEventRepository,
+        snapshots: PaperAccountSnapshotRepository,
+        broker: PaperBrokerPort,
+        market_data: PaperMarketDataPort,
+        kill_switch: ExecutionKillSwitchRepository,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._intents = intents
+        self._configurations = configurations
+        self._time_bases = time_bases
+        self._previews = previews
+        self._authorizations = authorizations
+        self._attempts = attempts
+        self._acknowledgements = acknowledgements
+        self._events = events
+        self._snapshots = snapshots
+        self._broker = broker
+        self._market_data = market_data
+        self._kill_switch = kill_switch
+        self._time_source = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: SubmitAuthorizedPaperOrderCommand) -> PaperSubmissionResult:
+        intent = self._intents.get(command.intent_governance_id)
+        if intent is None:
+            raise NotFoundError(f"no approved order intent {command.intent_governance_id!r} exists")
+
+        existing = self._attempts.for_intent(command.intent_governance_id)
+        if existing is not None:
+            # A dispatch already happened. No network request, no second order.
+            return PaperSubmissionResult(
+                attempt=existing,
+                dispatched=False,
+                http_status=None,
+                broker_status=existing.broker_status,
+                note=(
+                    "this intent has already been dispatched; reconcile the existing "
+                    f"attempt {existing.attempt_id} instead of sending again"
+                ),
+            )
+
+        authorization = self._authorizations.latest_for_intent(command.intent_governance_id)
+        if authorization is None:
+            raise PaperExecutionRefusedError(
+                "no human authorization exists for this intent; nothing may be dispatched"
+            )
+
+        # THE AUTHORIZATION IS A PERMISSION FOR ONE STORED PREVIEW, AND ITS POLICY IS
+        # THE CONFIGURATION'S. Both are checked before any broker call. Corrective
+        # pass (items 1 and 6): nothing a caller supplies enters either comparison.
+        shown = self._previews.get(authorization.preview_id)
+        if shown is None:
+            raise PaperExecutionRefusedError(
+                "the authorization names a preview that does not exist; nothing may be dispatched"
+            )
+        binding_refusal = authorization_binding_refusal(authorization=authorization, preview=shown)
+        if binding_refusal is not None:
+            raise PaperExecutionRefusedError(f"this dispatch is not authorized: {binding_refusal}")
+        policy = _policy_for(intent, self._configurations)
+        if policy.fingerprint != authorization.policy_fingerprint:
+            raise PaperExecutionRefusedError(
+                "this dispatch is not authorized: the execution policy of the intent's "
+                "configuration is not the policy the human authorized"
+            )
+
+        # THE PROVENANCE OF EVERY M084 DEADLINE, BEFORE ANY BROKER CALL. A proposal,
+        # approval or intent created without its own basis -- through M084 alone --
+        # or evidence describing another record, or a recorded chronology in which an
+        # act happened after a deadline it relied on, is refused here. No basis is
+        # borrowed or derived now. The authorization's basis is judged separately,
+        # by `refusal_against`, against its own expiry only.
+        provenance = _provenance_for(intent, self._time_bases)
+        provenance_refusal = m084_provenance_refusal(intent=intent, provenance=provenance)
+        if provenance_refusal is not None:
+            raise PaperExecutionRefusedError(provenance_refusal)
+
+        # THE KILL SWITCH IS READ FIRST, and the evidence refreshed after it, so
+        # that a switch engaged during the refresh still blocks the dispatch.
+        if self._kill_switch.is_engaged():
+            raise PaperExecutionRefusedError(
+                "the execution kill switch is engaged; no order may be dispatched"
+            )
+
+        timing = PaperTimeWindow(self._time_source)
+        evidence = _gather(
+            broker=self._broker,
+            market_data=self._market_data,
+            kill_switch=self._kill_switch,
+            symbol=intent.symbol,
+            snapshot_id=command.account_snapshot_id,
+            at=command.at,
+            timing=timing,
+        )
+        if evidence.kill_switch_engaged:
+            raise PaperExecutionRefusedError(
+                "the execution kill switch was engaged while the dispatch was being prepared"
+            )
+        self._snapshots.save(evidence.account)
+
+        # REBUILT from fresh evidence. Every refusal a preview would have raised
+        # is re-raised here against the numbers that are true NOW.
+        timing.require_broker_certainty_within(policy.quote_maximum_age_seconds)
+        evaluated_at = timing.now()
+        fresh = build_submission_preview(
+            preview_id=f"{command.attempt_id}-RECHECK",
+            intent=intent,
+            account=evidence.account,
+            preview_version=1,
+            market_is_open=evidence.market_is_open,
+            market_next_open=evidence.market_next_open,
+            market_next_close=evidence.market_next_close,
+            quote_bid=evidence.quote_bid,
+            quote_ask=evidence.quote_ask,
+            quote_captured_at=evidence.quote_captured_at,
+            quote_source=evidence.quote_source,
+            asset_tradable=evidence.asset_tradable,
+            asset_status=evidence.asset_status,
+            asset_class=evidence.asset_class,
+            asset_exchange=evidence.asset_exchange,
+            asset_fractionable=evidence.asset_fractionable,
+            policy=policy,
+            existing_position_quantity=evidence.existing_position_quantity,
+            execution_kill_switch_engaged=evidence.kill_switch_engaged,
+            created_at=evaluated_at,
+            broker_now=timing.broker_now(),
+            m084_provenance=provenance,
+        )
+        if not fresh.is_authorizable:
+            raise PaperExecutionRefusedError(
+                "conditions changed since the preview and this order is no longer "
+                "dispatchable: " + "; ".join(fresh.refusals)
+            )
+
+        fingerprint_now = request_fingerprint(
+            order=fresh.order,
+            account_reference=evidence.account.account_reference,
+            endpoint_host=self._broker.endpoint_host,
+            intent_governance_id=intent.intent_governance_id,
+            approved_fingerprint=intent.approved_fingerprint,
+            policy_fingerprint=policy.fingerprint,
+        )
+        refusal = authorization.refusal_against(
+            request_fingerprint_now=fingerprint_now,
+            account_reference_now=evidence.account.account_reference,
+            instant=timing.now(),
+            broker_now=timing.broker_now(),
+        )
+        if refusal is not None:
+            raise PaperExecutionRefusedError(f"this dispatch is not authorized: {refusal}")
+
+        # M084's deadlines, on the broker's clock, BEFORE anything is claimed, through
+        # the basis measured when the proposal that wrote them was evaluated. The
+        # host-timeline copies were already enforced by the rebuilt preview above;
+        # this is the one that survives a host clock that moved after that act.
+        _refuse_m084_deadlines_on_their_own_bases(
+            intent=intent, provenance=provenance, broker_now=timing.broker_now()
+        )
+
+        # The final send guard, once BEFORE the claim on the evidence just gathered, so a
+        # dispatch that could never pass it does not spend the authorization. It runs
+        # again, on fresh reads, inside `before_send`.
+        pre_claim_refusal = final_send_refusal(
+            intent=intent,
+            provenance=provenance,
+            authorization=authorization,
+            policy_now=policy,
+            request_fingerprint_now=fingerprint_now,
+            account_reference_now=evidence.account.account_reference,
+            host_now=timing.now(),
+            broker_now=timing.broker_now(),
+            market_is_open=evidence.market_is_open,
+            market_next_close=evidence.market_next_close,
+            quote_bid=evidence.quote_bid,
+            quote_ask=evidence.quote_ask,
+            quote_captured_at=evidence.quote_captured_at,
+            kill_switch_engaged=evidence.kill_switch_engaged,
+        )
+        if pre_claim_refusal is not None:
+            raise PaperExecutionRefusedError(f"this dispatch is not permitted: {pre_claim_refusal}")
+
+        # CLAIM BEFORE THE NETWORK. Everything above is a check; this is the
+        # commitment, and it happens while nothing has been sent.
+        claim = self._attempts.claim_dispatch(
+            attempt_id=command.attempt_id,
+            authorization=authorization,
+            request_fingerprint_now=fingerprint_now,
+            account_reference_now=evidence.account.account_reference,
+            claimed_at=timing.now(),
+            claim_clock=timing.now,
+            broker_clock=timing.broker_now,
+        )
+        if not claim.won:
+            return PaperSubmissionResult(
+                attempt=claim.attempt,
+                dispatched=False,
+                http_status=None,
+                broker_status=claim.attempt.broker_status,
+                note=(
+                    "another worker had already claimed this dispatch; no request was "
+                    "sent and the persisted attempt is returned"
+                ),
+            )
+
+        attempt = self._attempts.transition(
+            attempt_id=claim.attempt.attempt_id,
+            target=PaperExecutionState.SUBMISSION_IN_PROGRESS,
+            at=timing.last_safe_at,
+        )
+
+        def before_send() -> None:
+            # The transport invokes this AFTER connect, immediately before HTTP send.
+            #
+            # SEND-BOUNDARY CORRECTION (A6). The guarantee is a refusal at the BOUNDED
+            # APPLICATION SEND BOUNDARY: every potentially blocking read completes first
+            # (the identity at the broker, the configuration from the database, the
+            # broker clock, the quote), the kill switch is read AFTER them so an
+            # engagement during any of them is seen, host/monotonic/broker-bounded time
+            # is sampled after all of them, `final_send_refusal` re-validates every rule
+            # on that evidence, and NOTHING -- no lookup, no read -- sits between that
+            # decision and the transport's POST. It is not a claim of atomic control over
+            # the broker's receipt time or over events after the request leaves.
+            # SUPERSEDED: the identity lookup used to follow the final decision, so a slow
+            # lookup let a POST leave after the authorization expired, with the kill switch
+            # engaged, or with a stale quote.
+            try:
+                # 1. The identity, first and slowest. Found: this attempt sends nothing and
+                #    the order is observed (never attributed). Inconclusive: nothing is sent
+                #    and the uncertainty is recorded (never a terminal rejection).
+                try:
+                    lookup_status, existing_order, lookup_body = (
+                        self._broker.fetch_order_by_client_order_id(fresh.order.client_order_id)
+                    )
+                except Exception as error:  # noqa: BLE001 - inconclusive, recorded below
+                    raise BrokerIdentityUnresolvedError(
+                        "the identity lookup before the send failed "
+                        f"({type(error).__name__}); nothing was sent"
+                    ) from error
+                if existing_order is not None:
+                    raise BrokerIdentityExistsError(
+                        "the broker already holds an order under this client_order_id; "
+                        "nothing was sent",
+                        http_status=lookup_status,
+                        sanitized_body=lookup_body,
+                        request_sent=False,
+                    )
+                if lookup_status != 404:
+                    raise BrokerIdentityUnresolvedError(
+                        "the broker could not confirm that this client_order_id is unused "
+                        f"(HTTP {lookup_status}); nothing was sent",
+                        http_status=lookup_status,
+                        sanitized_body=lookup_body,
+                    )
+                # 2. The remaining reads: configuration, broker clock, quote.
+                policy_now = _policy_for(intent, self._configurations)
+                sent_monotonic = timing.read_monotonic()
+                clock = self._broker.fetch_clock()
+                received_monotonic = timing.read_monotonic()
+                timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
+                quote = self._market_data.fetch_quote(intent.symbol)
+                # 3. The send-capable boundary, DURABLY (L1). The identity is verified
+                #    absent and every preparatory read is complete: record that THIS attempt
+                #    reached the phase in which transmission is possible, bound to the
+                #    attempt, authorization, request, account and identity evidence. Only
+                #    this record lends lineage to a later reconciliation. It is a database
+                #    write that may block, so the kill switch and time are read AFTER it.
+                self._enter_send_boundary(attempt, fresh.order, evidence, lookup_status, timing)
+                # 4. The kill switch, LAST of the reads.
+                kill_switch_engaged = self._kill_switch.is_engaged()
+                # 5. Time sampled after every read and write; the decision on that evidence.
+                timing.require_broker_certainty_within(policy_now.quote_maximum_age_seconds)
+                refusal = final_send_refusal(
+                    intent=intent,
+                    provenance=provenance,
+                    authorization=authorization,
+                    policy_now=policy_now,
+                    request_fingerprint_now=fingerprint_now,
+                    account_reference_now=evidence.account.account_reference,
+                    host_now=timing.now(),
+                    broker_now=timing.broker_now(),
+                    market_is_open=clock.is_open,
+                    market_next_close=clock.next_close,
+                    quote_bid=_decimal_or_none(None if quote is None else quote.bid),
+                    quote_ask=_decimal_or_none(None if quote is None else quote.ask),
+                    quote_captured_at=None if quote is None else quote.captured_at,
+                    kill_switch_engaged=kill_switch_engaged,
+                )
+                if refusal is not None:
+                    raise PaperExecutionRefusedError(refusal)
+                # 6. Nothing else. The transport sends on return.
+            except (PaperExecutionRefusedError, PaperTimeUncertainError) as error:
+                raise BrokerNotSentError(str(error)) from error
+
+        return self._dispatch(
+            attempt=attempt,
+            order=fresh.order,
+            intent_id=intent.intent_governance_id,
+            at=timing.last_safe_at,
+            before_send=before_send,
+            timing=timing,
+        )
+
+    def _dispatch(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        order: object,
+        intent_id: str,
+        at: datetime,
+        before_send: Callable[[], None],
+        timing: PaperTimeWindow,
+    ) -> PaperSubmissionResult:
+        from empirical_platform.decision_candidate.paper_execution import PaperOrderRequest
+
+        assert isinstance(order, PaperOrderRequest)
+        try:
+            status, view, sanitized = self._broker.submit_order(order, before_send=before_send)
+        except BrokerNotSentError as error:
+            at = timing.last_safe_at
+            # DEFINITELY not sent. Safe to close without reconciliation, because
+            # there is nothing at the broker to reconcile against.
+            final = self._attempts.transition(
+                attempt_id=attempt.attempt_id,
+                target=PaperExecutionState.REJECTED,
+                at=at,
+                failure_code="NOT_SENT",
+                failure_detail=str(error)[:500],
+            )
+            self._record_event(intent_id, attempt.attempt_id, "DISPATCH_NOT_SENT", str(error), at)
+            return PaperSubmissionResult(
+                attempt=final,
+                dispatched=False,
+                http_status=None,
+                broker_status=None,
+                note="the request never reached the broker; no order exists",
+            )
+        except BrokerIdentityExistsError as error:
+            # An order exists under our identity -- found before the send, or answered
+            # as a duplicate after our POST. This attempt created nothing: observe it,
+            # never attribute it, never resend.
+            return self._identity_observed(
+                attempt=attempt,
+                order=order,
+                intent_id=intent_id,
+                timing=timing,
+                http_status=error.http_status,
+                sanitized_body=error.sanitized_body,
+                request_sent=error.request_sent,
+                acknowledged=False,
+                detail=str(error),
+            )
+        except BrokerIdentityUnresolvedError as error:
+            # The identity could not be confirmed unused and nothing was sent. "No POST by
+            # this attempt" is not proof that no order exists: recoverable uncertainty.
+            return self._identity_unresolved(
+                attempt=attempt,
+                intent_id=intent_id,
+                timing=timing,
+                http_status=error.http_status,
+                sanitized_body=error.sanitized_body,
+                detail=str(error),
+            )
+        except BrokerAmbiguousDispatchError as error:
+            at = timing.last_safe_at
+            # MAY have been delivered. This must never become a second order.
+            if error.http_status is not None and error.sanitized_body is not None:
+                # An answer arrived but proves nothing: record what was said, as said.
+                sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
+                self._acknowledgements.append(
+                    BrokerAcknowledgement(
+                        acknowledgement_id=f"ACK-{attempt.attempt_id}-{sequence}",
+                        attempt_id=attempt.attempt_id,
+                        sequence=sequence,
+                        kind="SUBMIT",
+                        observed_at=at,
+                        http_status=error.http_status,
+                        broker_order_id=None,
+                        broker_status=None,
+                        client_order_id_echo=None,
+                        payload_digest=self._digest(error.sanitized_body),
+                        sanitized_payload=error.sanitized_body[:8192],
+                    )
+                )
+            final = self._attempts.transition(
+                attempt_id=attempt.attempt_id,
+                target=PaperExecutionState.SUBMISSION_UNKNOWN,
+                at=at,
+                failure_code="AMBIGUOUS",
+                failure_detail=str(error)[:500],
+            )
+            self._record_event(
+                intent_id, attempt.attempt_id, "DISPATCH_OUTCOME_UNKNOWN", str(error), at
+            )
+            return PaperSubmissionResult(
+                attempt=final,
+                dispatched=True,
+                http_status=None,
+                broker_status=None,
+                note=(
+                    "the outcome is UNKNOWN: the request may have been delivered. Reconcile "
+                    "using the same client_order_id; do not send again"
+                ),
+            )
+        except Exception as error:  # noqa: BLE001 - see below
+            # CORRECTIVE PASS (D2/D3). Any other failure once `before_send` has passed
+            # -- an unusable answer, a redirect, a peer describing another order, or a
+            # fault in this process -- happened after the request may have left. It is
+            # therefore UNKNOWN, resolved by reconciliation, and never REJECTED.
+            return self._uncertain(
+                attempt=attempt,
+                intent_id=intent_id,
+                timing=timing,
+                failure_code="UNUSABLE_ANSWER",
+                detail=f"{type(error).__name__}: {error}",
+                http_status=None,
+            )
+
+        at = timing.last_safe_at
+        sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
+        self._acknowledgements.append(
+            BrokerAcknowledgement(
+                acknowledgement_id=f"ACK-{attempt.attempt_id}-{sequence}",
+                attempt_id=attempt.attempt_id,
+                sequence=sequence,
+                kind="SUBMIT",
+                observed_at=at,
+                http_status=status,
+                broker_order_id=None if view is None else view.broker_order_id,
+                broker_status=None if view is None else view.status,
+                client_order_id_echo=None if view is None else view.client_order_id,
+                payload_digest=self._digest(sanitized),
+                sanitized_payload=sanitized[:8192],
+            )
+        )
+
+        if view is None or status not in {200, 201}:
+            if view is None and is_client_order_id_collision(status, sanitized):
+                # IDENTITY-SAFETY CORRECTION (F1): the broker's duplicate-identity
+                # answer, when it arrives through a port that returns rather than
+                # raises. The same reconciliation path; the acknowledgement above
+                # already recorded what was said.
+                return self._identity_observed(
+                    attempt=attempt,
+                    order=order,
+                    intent_id=intent_id,
+                    timing=timing,
+                    http_status=status,
+                    sanitized_body=sanitized,
+                    request_sent=True,
+                    acknowledged=True,
+                    detail=f"HTTP {status}: the broker reports an order under this identity",
+                )
+            if view is None and is_definitive_broker_refusal(status, sanitized):
+                final = self._attempts.transition(
+                    attempt_id=attempt.attempt_id,
+                    target=PaperExecutionState.REJECTED,
+                    at=at,
+                    failure_code=f"HTTP_{status}",
+                    failure_detail=sanitized[:500],
+                )
+                self._record_event(
+                    intent_id,
+                    attempt.attempt_id,
+                    "DISPATCH_REFUSED_BY_BROKER",
+                    f"HTTP {status}",
+                    at,
+                )
+                return PaperSubmissionResult(
+                    attempt=final,
+                    dispatched=True,
+                    http_status=status,
+                    broker_status=None,
+                    note=f"the broker refused the order with HTTP {status}",
+                )
+            # Not a definitive refusal: the order may exist. SUPERSEDED: every status
+            # other than 200/201 used to be recorded as a terminal REJECTED here, so a
+            # 5xx that followed an acceptance left a live paper order untracked.
+            return self._uncertain(
+                attempt=attempt,
+                intent_id=intent_id,
+                timing=timing,
+                failure_code=f"UNCERTAIN_HTTP_{status}",
+                detail=sanitized,
+                http_status=status,
+            )
+
+        submitted = self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.PAPER_SUBMITTED,
+            at=at,
+            broker_order_id=view.broker_order_id,
+            broker_status=view.status,
+            filled_quantity=view.filled_quantity,
+            filled_avg_price=view.filled_avg_price,
+        )
+        final = self._apply_broker_status(attempt_id=submitted.attempt_id, view=view, at=at)
+        self._record_event(
+            intent_id,
+            attempt.attempt_id,
+            "PAPER_ORDER_SUBMITTED",
+            f"broker_status={view.status} broker_order_id={view.broker_order_id}",
+            at,
+        )
+        return PaperSubmissionResult(
+            attempt=final,
+            dispatched=True,
+            http_status=status,
+            broker_status=view.status,
+            note="the paper broker acknowledged the order",
+        )
+
+    def _acknowledge(
+        self,
+        attempt_id: str,
+        *,
+        kind: str,
+        at: datetime,
+        http_status: int,
+        view: BrokerOrderView | None,
+        sanitized: str,
+    ) -> None:
+        sequence = self._acknowledgements.next_sequence(attempt_id)
+        self._acknowledgements.append(
+            BrokerAcknowledgement(
+                acknowledgement_id=f"ACK-{attempt_id}-{sequence}",
+                attempt_id=attempt_id,
+                sequence=sequence,
+                kind=kind,
+                observed_at=at,
+                http_status=http_status,
+                broker_order_id=None if view is None else view.broker_order_id,
+                broker_status=None if view is None else view.status,
+                client_order_id_echo=None if view is None else view.client_order_id,
+                payload_digest=self._digest(sanitized),
+                sanitized_payload=sanitized[:8192],
+            )
+        )
+
+    def _identity_unresolved(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        intent_id: str,
+        timing: PaperTimeWindow,
+        http_status: int | None,
+        sanitized_body: str | None,
+        detail: str,
+    ) -> PaperSubmissionResult:
+        """The pre-send identity lookup was inconclusive; nothing was sent.
+
+        SEND-BOUNDARY CORRECTION. Three facts are kept apart: this attempt did NOT
+        transmit (`dispatched=False`, failure code `IDENTITY_UNRESOLVED_UNSENT`, event
+        `IDENTITY_LOOKUP_INCONCLUSIVE`); whether an order exists under the identity is
+        UNKNOWN; and nothing is attributed. The attempt stays SUBMISSION_UNKNOWN -- open,
+        operator-visible, reconcilable -- never a terminal rejection, and a later refusal
+        of a repeat dispatch cannot overwrite what is recorded here.
+        """
+        at = timing.last_safe_at
+        if http_status is not None and sanitized_body is not None:
+            self._acknowledge(
+                attempt.attempt_id,
+                kind="RECONCILE",
+                at=at,
+                http_status=http_status,
+                view=None,
+                sanitized=sanitized_body,
+            )
+        unknown = self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.SUBMISSION_UNKNOWN,
+            at=at,
+            failure_code="IDENTITY_UNRESOLVED_UNSENT",
+            failure_detail=detail[:500],
+        )
+        self._record_event(
+            intent_id, attempt.attempt_id, "IDENTITY_LOOKUP_INCONCLUSIVE", detail, at
+        )
+        return PaperSubmissionResult(
+            attempt=unknown,
+            dispatched=False,
+            http_status=http_status,
+            broker_status=None,
+            note=(
+                "nothing was sent: the broker could not confirm whether an order already "
+                "exists under this client_order_id. The outcome is UNKNOWN until "
+                "reconciliation asks again; do not send again"
+            ),
+        )
+
+    def _identity_observed(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        order: object,
+        intent_id: str,
+        timing: PaperTimeWindow,
+        http_status: int | None,
+        sanitized_body: str | None,
+        request_sent: bool,
+        acknowledged: bool,
+        detail: str,
+    ) -> PaperSubmissionResult:
+        """An order exists under this attempt's identity, and this attempt did not create it.
+
+        Found before the send: nothing was sent. Answered as a duplicate after our POST:
+        the order predates it. Either way the order is OBSERVED -- looked up, recorded with
+        its broker id and status, compared term by term with the authorized order so a
+        collision is named -- and never ATTRIBUTED to this authorization, never resent,
+        never replaced. Attribution needs lineage this attempt does not have
+        (`attempt_may_have_transmitted`). Operator-visible: SUBMISSION_UNKNOWN with an
+        identity failure code and the events below.
+        """
+        at = timing.last_safe_at
+        if not acknowledged and http_status is not None and sanitized_body is not None:
+            self._acknowledge(
+                attempt.attempt_id,
+                kind="SUBMIT" if request_sent else "RECONCILE",
+                at=at,
+                http_status=http_status,
+                view=None,
+                sanitized=sanitized_body,
+            )
+        unknown = self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.SUBMISSION_UNKNOWN,
+            at=at,
+            failure_code="IDENTITY_EXISTS_SENT" if request_sent else "IDENTITY_EXISTS_UNSENT",
+            failure_detail=detail[:500],
+        )
+        self._record_event(
+            intent_id,
+            attempt.attempt_id,
+            "CLIENT_ORDER_ID_COLLISION" if request_sent else "IDENTITY_OBSERVED_BEFORE_SEND",
+            detail,
+            at,
+        )
+        return self._observe_identity(
+            attempt=unknown,
+            order=order,
+            intent_id=intent_id,
+            timing=timing,
+            http_status=http_status,
+            request_sent=request_sent,
+        )
+
+    def _observe_identity(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        order: object,
+        intent_id: str,
+        timing: PaperTimeWindow,
+        http_status: int | None,
+        request_sent: bool,
+    ) -> PaperSubmissionResult:
+        """Look the identity up and record what the broker holds. Observation, not attribution."""
+        from empirical_platform.decision_candidate.paper_execution import PaperOrderRequest
+
+        assert isinstance(order, PaperOrderRequest)
+
+        def outcome(note: str) -> PaperSubmissionResult:
+            return PaperSubmissionResult(
+                attempt=attempt,
+                dispatched=request_sent,
+                http_status=http_status,
+                broker_status=None,
+                note=note,
+            )
+
+        try:
+            status, view, sanitized = self._broker.fetch_order_by_client_order_id(
+                order.client_order_id
+            )
+        except Exception as error:  # noqa: BLE001 - recorded, never retried
+            at = timing.last_safe_at
+            self._record_event(
+                intent_id,
+                attempt.attempt_id,
+                "IDENTITY_LOOKUP_UNRESOLVED",
+                f"{type(error).__name__}: {error}",
+                at,
+            )
+            return outcome(
+                "an order may exist under this client_order_id and the lookup failed; the "
+                "outcome is UNKNOWN, reconcile it, do not send again"
+            )
+        at = timing.last_safe_at
+        self._acknowledge(
+            attempt.attempt_id,
+            kind="RECONCILE",
+            at=at,
+            http_status=status,
+            view=view,
+            sanitized=sanitized,
+        )
+        if view is None:
+            self._record_event(
+                intent_id, attempt.attempt_id, "IDENTITY_LOOKUP_UNRESOLVED", f"HTTP {status}", at
+            )
+            return outcome(
+                "the broker reported an order under this client_order_id but the lookup "
+                f"answered HTTP {status}; the outcome is UNKNOWN, reconcile it, do not send again"
+            )
+        mismatches = order_terms_mismatches(expected=order, actual=view)
+        held = f"broker_order_id={view.broker_order_id} status={view.status}"
+        if mismatches:
+            self._record_event(
+                intent_id,
+                attempt.attempt_id,
+                "IDENTITY_COLLISION_MISMATCH",
+                "the broker's order under this client_order_id differs from the authorized "
+                f"order on: {', '.join(mismatches)} ({held})",
+                at,
+            )
+            return outcome(
+                "identity collision: the broker holds a DIFFERENT order under this "
+                f"client_order_id (mismatch: {', '.join(mismatches)}); it was NOT adopted, "
+                "nothing was sent again, and an operator must resolve it"
+            )
+        self._record_event(
+            intent_id,
+            attempt.attempt_id,
+            "IDENTITY_OBSERVED_NOT_ATTRIBUTED",
+            f"an order with the authorized terms exists under this client_order_id ({held}); "
+            "this attempt did not create it, so it is not attributed to this authorization",
+            at,
+        )
+        return outcome(
+            "an order with the authorized terms already exists under this client_order_id "
+            f"({held}). It is recorded but NOT attributed to this authorization, because this "
+            "attempt did not create it; nothing was sent again, and an operator must resolve it"
+        )
+
+    def _uncertain(
+        self,
+        *,
+        attempt: ExecutionAttempt,
+        intent_id: str,
+        timing: PaperTimeWindow,
+        failure_code: str,
+        detail: str,
+        http_status: int | None,
+    ) -> PaperSubmissionResult:
+        """Record an outcome that may have created an order: SUBMISSION_UNKNOWN, never retried."""
+        at = timing.last_safe_at
+        final = self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.SUBMISSION_UNKNOWN,
+            at=at,
+            failure_code=failure_code[:32],
+            failure_detail=detail[:500],
+        )
+        self._record_event(intent_id, attempt.attempt_id, "DISPATCH_OUTCOME_UNKNOWN", detail, at)
+        return PaperSubmissionResult(
+            attempt=final,
+            dispatched=True,
+            http_status=http_status,
+            broker_status=None,
+            note=(
+                "the outcome is UNKNOWN: the broker's answer does not prove the order was "
+                "refused. Reconcile using the same client_order_id; do not send again"
+            ),
+        )
+
+    def _apply_broker_status(
+        self, *, attempt_id: str, view: BrokerOrderView, at: datetime
+    ) -> ExecutionAttempt:
+        """Map a broker status onto a state, or leave the state alone.
+
+        An unmapped status is recorded and reported, never guessed at. See the
+        module docstring.
+        """
+        target = _BROKER_STATUS_TO_STATE.get(view.status)
+        current = self._attempts.get(attempt_id)
+        if current is None:
+            raise NotFoundError(f"no paper execution attempt {attempt_id!r} exists")
+        if target is None or target is current.state:
+            return self._attempts.transition(
+                attempt_id=attempt_id,
+                target=current.state,
+                at=at,
+                broker_order_id=view.broker_order_id,
+                broker_status=view.status,
+                filled_quantity=view.filled_quantity,
+                filled_avg_price=view.filled_avg_price,
+            )
+        return self._attempts.transition(
+            attempt_id=attempt_id,
+            target=target,
+            at=at,
+            broker_order_id=view.broker_order_id,
+            broker_status=view.status,
+            filled_quantity=view.filled_quantity,
+            filled_avg_price=view.filled_avg_price,
+        )
+
+    def _enter_send_boundary(
+        self,
+        attempt: ExecutionAttempt,
+        order: object,
+        evidence: PaperEvidence,
+        identity_lookup_status: int,
+        timing: PaperTimeWindow,
+    ) -> None:
+        """Persist that THIS attempt reached the send-capable phase (L1).
+
+        Written inside `before_send` after the identity lookup answered 404 and every other
+        preparatory read completed, and before the final kill-switch read, time sample and
+        decision. A crash before this write leaves `SUBMISSION_IN_PROGRESS` with no lineage;
+        a crash after it leaves a record that says exactly what was verified and when. A
+        database failure here raises, the transport reports a definite not-sent, and the
+        attempt closes as REJECTED / NOT_SENT with nothing at the broker. The write does not
+        claim the broker received anything: it records that the request COULD leave.
+        """
+        self._record_event(
+            attempt.intent_governance_id,
+            attempt.attempt_id,
+            SEND_BOUNDARY_EVENT_TYPE,
+            send_boundary_binding(
+                attempt_id=attempt.attempt_id,
+                authorization_id=attempt.authorization_id,
+                request_fingerprint=attempt.request_fingerprint,
+                account_reference=evidence.account.account_reference,
+                client_order_id=str(getattr(order, "client_order_id", "")),
+                identity_lookup_status=identity_lookup_status,
+            ),
+            timing.last_safe_at,
+        )
+
+    def _record_event(
+        self, intent_id: str, attempt_id: str, event_type: str, detail: str, at: datetime
+    ) -> None:
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{attempt_id}-{event_type}"[:64],
+                intent_governance_id=intent_id,
+                attempt_id=attempt_id,
+                event_type=event_type,
+                occurred_at=at,
+                detail=detail[:500],
+            )
+        )
+
+    @staticmethod
+    def _digest(text: str) -> str:
+        import hashlib
+
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# Reconcile
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcilePaperOrderCommand:
+    intent_governance_id: str
+    at: datetime
+
+
+class ReconcilePaperOrderHandler:
+    """Ask the broker about the SAME client_order_id, and record the answer."""
+
+    __slots__ = (
+        "_attempts",
+        "_acknowledgements",
+        "_events",
+        "_broker",
+        "_authorizations",
+        "_previews",
+        "_rounds",
+        "_time_source",
+    )
+
+    def __init__(
+        self,
+        *,
+        attempts: ExecutionAttemptRepository,
+        acknowledgements: BrokerAcknowledgementRepository,
+        events: PaperExecutionEventRepository,
+        broker: PaperBrokerPort,
+        authorizations: ExecutionAuthorizationRepository,
+        previews: SubmissionPreviewRepository,
+        rounds: ReconciliationRoundRepository,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._attempts = attempts
+        self._acknowledgements = acknowledgements
+        self._events = events
+        self._broker = broker
+        # DURABLE ROUNDS (Q-2 / Q-4). Every reconciliation round is written before its network
+        # work and completed against its own identity; the policy reads rounds, not clocks.
+        self._rounds = rounds
+        self._time_source = time_source or SystemPaperTimeSource()
+        # The preview the authorization names carries the exact authorized request, every
+        # term included; a found order is compared against IT before any adoption.
+        self._previews = previews
+        # IDENTITY-SAFETY CORRECTION (F1). The authorization carries the exact order a
+        # human approved; a found order is compared against it before any adoption.
+        self._authorizations = authorizations
+
+    def handle(self, command: ReconcilePaperOrderCommand) -> ExecutionAttempt:
+        attempt = self._attempts.for_intent(command.intent_governance_id)
+        if attempt is None:
+            raise NotFoundError(
+                f"no dispatch attempt exists for intent {command.intent_governance_id!r}"
+            )
+        if attempt.is_terminal:
+            return attempt
+        if attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS:
+            # A dispatcher may still be sending. An attempt this young is not even
+            # looked up. An older one is looked up, but age is NOT proof the dispatcher
+            # has stopped, so only a FOUND order may move it (see `_handle_absence`).
+            started = attempt.submitted_at or attempt.claimed_at
+            if (command.at - started).total_seconds() < MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS:
+                return attempt
+
+        authorization_for_round = self._authorizations.get(attempt.authorization_id)
+        if authorization_for_round is None:
+            # The round is bound to the authorized account; without the authorization there is
+            # nothing to bind it to, and no lookup runs under an unbound round.
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-NOT-BEGUN"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_ROUND_NOT_BEGUN",
+                    occurred_at=command.at,
+                    detail=(
+                        "the attempt's authorization is missing; no reconciliation round was "
+                        "begun and no lookup was made"
+                    ),
+                )
+            )
+            return attempt
+        # Q-2 / Q-4. The round is COMMITTED before any network work. If this raises, nothing
+        # was looked up and nothing pretends otherwise.
+        round_ = self._rounds.begin(
+            attempt=attempt,
+            account_reference=authorization_for_round.account_reference,
+            started_at=command.at,
+        )
+        window = PaperTimeWindow(self._time_source)
+        try:
+            sample = self._sample_broker_clock(window)
+            status, view, sanitized = self._broker.fetch_order_by_client_order_id(
+                attempt.client_order_id
+            )
+        except Exception as error:
+            # The round's network work raised: no answer was observed. The round is completed
+            # as FAILED against its own identity -- durably ordered by its sequence -- so the
+            # not-found rounds on either side of it are never read as consecutive (Q-2, Q-4).
+            # If even this write fails, the round stays INCOMPLETE and blocks absence-based
+            # resolution until it is resolved. The event is kept for operators; the failure is
+            # then re-raised so the caller sees it.
+            self._rounds.complete(
+                round_.round_id,
+                outcome=ReconciliationRoundOutcome.FAILED,
+                completed_at=command.at,
+                detail=f"the round's network work raised {type(error).__name__}",
+            )
+            self._record_lookup_failure(attempt, error, command.at)
+            raise
+        sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
+        self._acknowledgements.append(
+            BrokerAcknowledgement(
+                acknowledgement_id=f"ACK-{attempt.attempt_id}-{sequence}",
+                attempt_id=attempt.attempt_id,
+                sequence=sequence,
+                kind="RECONCILE",
+                observed_at=command.at,
+                http_status=status,
+                broker_order_id=None if view is None else view.broker_order_id,
+                broker_status=None if view is None else view.status,
+                client_order_id_echo=None if view is None else view.client_order_id,
+                payload_digest=SubmitAuthorizedPaperOrderHandler._digest(sanitized),
+                sanitized_payload=sanitized[:8192],
+            )
+        )
+        if view is not None:
+            outcome = ReconciliationRoundOutcome.FOUND
+        elif status == 404:
+            outcome = ReconciliationRoundOutcome.NOT_FOUND
+        else:
+            outcome = ReconciliationRoundOutcome.UNUSABLE
+        # Completed against THIS round's identity, with the acknowledgement it produced and the
+        # broker clock interval sampled in it. A completed round is immutable.
+        self._rounds.complete(
+            round_.round_id,
+            outcome=outcome,
+            completed_at=command.at,
+            acknowledgement_sequence=sequence,
+            broker_earliest_at=sample.earliest,
+            broker_latest_at=sample.latest,
+        )
+
+        if view is None:
+            return self._handle_absence(
+                attempt=attempt, status=status, at=command.at, sequence=sequence
+            )
+
+        # SEND-BOUNDARY CORRECTION: observing an order is not attributing it.
+        #
+        # The broker answered about OUR identity. The order it describes is adopted only
+        # if (a) it equals the authorized request on every term -- the preview the
+        # authorization names carries that request -- and any broker id this attempt
+        # already bound, (b) the account behind this broker client is the authorized
+        # account, and (c) THIS durable attempt may have created it (lineage). A
+        # mismatch is a recorded collision; an order without lineage is recorded as
+        # observed and not attributed. In neither case does the state move.
+        authorization = self._authorizations.get(attempt.authorization_id)
+        preview = None if authorization is None else self._previews.get(authorization.preview_id)
+        held = f"broker_order_id={view.broker_order_id} status={view.status}"
+        if authorization is None or preview is None:
+            mismatches: tuple[str, ...] = ("authorization",)
+        else:
+            mismatches = order_terms_mismatches(
+                expected=preview.order, actual=view, bound_broker_order_id=attempt.broker_order_id
+            )
+            try:
+                account = _read_account_snapshot(
+                    broker=self._broker,
+                    snapshot_id=f"RECON-{attempt.attempt_id}"[:64],
+                    captured_at=command.at,
+                )
+            except Exception:  # noqa: BLE001 - an unreadable account is not the authorized one
+                mismatches = (*mismatches, "account")
+            else:
+                if account.account_reference != authorization.account_reference:
+                    mismatches = (*mismatches, "account")
+        if mismatches:
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-MISMATCH-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="IDENTITY_COLLISION_MISMATCH",
+                    occurred_at=command.at,
+                    detail=(
+                        "the broker's order under this client_order_id differs from the "
+                        f"authorized order on: {', '.join(mismatches)} ({held})"
+                    )[:500],
+                )
+            )
+            return attempt
+
+        if attempt.state in {
+            PaperExecutionState.SUBMISSION_IN_PROGRESS,
+            PaperExecutionState.SUBMISSION_UNKNOWN,
+        }:
+            assert authorization is not None  # every mismatch, including a missing one, returned
+            if not attempt_may_have_transmitted(
+                attempt,
+                self._events.for_intent(attempt.intent_governance_id),
+                account_reference=authorization.account_reference,
+            ):
+                self._events.append(
+                    PaperExecutionEvent(
+                        event_id=f"EVT-{attempt.attempt_id}-RECON-OBSERVED-{sequence}"[:64],
+                        intent_governance_id=attempt.intent_governance_id,
+                        attempt_id=attempt.attempt_id,
+                        event_type="IDENTITY_OBSERVED_NOT_ATTRIBUTED",
+                        occurred_at=command.at,
+                        detail=(
+                            "an order with the authorized terms exists under this "
+                            f"client_order_id ({held}); this attempt did not transmit a "
+                            "request that could have created it, so it is not attributed to "
+                            "this authorization; an operator must resolve it"
+                        )[:500],
+                    )
+                )
+                return attempt
+            # THE BROKER HAS THIS client_order_id and this attempt may have created the
+            # order. Record that first -- PAPER_SUBMITTED is an allowed edge from both
+            # uncertain states -- and only then map the broker's status.
+            attempt = self._attempts.transition(
+                attempt_id=attempt.attempt_id,
+                target=PaperExecutionState.PAPER_SUBMITTED,
+                at=command.at,
+                broker_order_id=view.broker_order_id,
+                broker_status=view.status,
+                filled_quantity=view.filled_quantity,
+                filled_avg_price=view.filled_avg_price,
+            )
+
+        target = _BROKER_STATUS_TO_STATE.get(view.status)
+        if target is None or target is attempt.state:
+            return self._attempts.transition(
+                attempt_id=attempt.attempt_id,
+                target=attempt.state,
+                at=command.at,
+                broker_order_id=view.broker_order_id,
+                broker_status=view.status,
+                filled_quantity=view.filled_quantity,
+                filled_avg_price=view.filled_avg_price,
+            )
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{attempt.attempt_id}-RECON-{sequence}"[:64],
+                intent_governance_id=attempt.intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type="RECONCILED",
+                occurred_at=command.at,
+                detail=f"{attempt.state.value}->{target.value} broker_status={view.status}"[:500],
+            )
+        )
+        return self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=target,
+            at=command.at,
+            broker_order_id=view.broker_order_id,
+            broker_status=view.status,
+            filled_quantity=view.filled_quantity,
+            filled_avg_price=view.filled_avg_price,
+        )
+
+    def _sample_broker_clock(self, window: PaperTimeWindow) -> BoundedInstant:
+        """Bound the broker's clock from one round trip, inside this round.
+
+        The interval is [timestamp, timestamp + round trip] at the moment the answer was read:
+        the broker stamped it somewhere inside the trip. Only this process's monotonic clock
+        bounds the trip; no host wall clock enters, and no monotonic value crosses a process.
+        A broker clock sample says nothing about whether the broker finished processing any
+        order -- it only orders THIS round on the broker's timeline.
+        """
+        sent = window.read_monotonic()
+        clock = self._broker.fetch_clock()
+        received = window.read_monotonic()
+        return window.observe_broker_clock(clock.timestamp, sent, received)
+
+    def _record_lookup_failure(
+        self, attempt: ExecutionAttempt, error: BaseException, at: datetime
+    ) -> None:
+        failures = sum(
+            1
+            for event in self._events.for_intent(attempt.intent_governance_id)
+            if event.attempt_id == attempt.attempt_id
+            and event.event_type == RECONCILE_LOOKUP_FAILED_EVENT_TYPE
+        )
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{attempt.attempt_id}-RECON-FAIL-{failures + 1}"[:64],
+                intent_governance_id=attempt.intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type=RECONCILE_LOOKUP_FAILED_EVENT_TYPE,
+                occurred_at=at,
+                detail=(
+                    f"the reconciliation lookup raised {type(error).__name__}; no answer was "
+                    "observed and the not-found run, if any, is broken here"
+                )[:500],
+            )
+        )
+
+    def _handle_absence(
+        self, *, attempt: ExecutionAttempt, status: int, at: datetime, sequence: int
+    ) -> ExecutionAttempt:
+        """The broker does not know this order. That is not proof it never did.
+
+        A 404 immediately after an ambiguous dispatch may simply mean the request
+        is still in flight. The bounded policy in
+        `RECONCILIATION_UNKNOWN_POLICY` decides, using the number of CONSECUTIVE
+        not-found observations and the time since the dispatch -- never the first
+        answer alone.
+
+        REV-R1. The policy resolves an outcome that was NEVER observed. It does not apply to
+        an order the broker acknowledged and bound to this attempt (a later 404 is an anomaly
+        to surface, not a rejection), nor to an attempt whose identity was positively
+        observed (before the send, as a duplicate answer, or by reconciliation): both stay
+        visible and reconcilable, state unchanged. Where it applies, "consecutive" is the
+        trailing run of not-found answers -- a 500, a found order or a lookup that raised
+        breaks the run -- not a count of every historical 404.
+        """
+        if status != 404:
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-ERR"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_UNUSABLE_ANSWER",
+                    occurred_at=at,
+                    detail=f"HTTP {status}"[:500],
+                )
+            )
+            return attempt
+
+        acknowledgements = self._acknowledgements.for_attempt(attempt.attempt_id)
+        events = self._events.for_intent(attempt.intent_governance_id)
+        if attempt.state in BOUND_ORDER_STATES:
+            # A known order: the broker acknowledged it and this attempt bound its id. A 404
+            # now is an anomaly the operator must see; it revokes nothing.
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-KNOWN-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_NOT_FOUND_KNOWN_ORDER",
+                    occurred_at=at,
+                    detail=(
+                        f"the broker reported no order under this client_order_id, but "
+                        f"{attempt.state.value} with broker_order_id={attempt.broker_order_id} "
+                        "is on record; absence revokes nothing, state unchanged, an operator "
+                        "must establish what the broker holds"
+                    )[:500],
+                )
+            )
+            return attempt
+        if attempt.state is PaperExecutionState.SUBMISSION_UNKNOWN and (
+            attempt.broker_order_id is not None
+            or attempt_positively_observed(acknowledgements, events)
+        ):
+            # The identity was positively observed (before the send, as a duplicate answer,
+            # or by an earlier reconciliation). A later 404 is surfaced, never counted.
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-OBS404-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_NOT_FOUND_AFTER_OBSERVATION",
+                    occurred_at=at,
+                    detail=(
+                        "the broker reported no order under this client_order_id after an "
+                        "order was positively observed under it; absence does not revoke the "
+                        "observation, state unchanged, an operator must resolve it"
+                    )[:500],
+                )
+            )
+            return attempt
+        # Event ids are keyed on the acknowledgement SEQUENCE (unique per attempt), never on a
+        # count: a consecutive count resets when the run is broken and would repeat.
+        rounds = self._rounds.for_attempt(attempt.attempt_id)
+        evaluation = absence_evaluation(
+            state=attempt.state,
+            broker_order_id=attempt.broker_order_id,
+            acknowledgements=acknowledgements,
+            events=events,
+            rounds=rounds,
+        )
+        observations = evaluation.consecutive_not_found
+        # An attempt still SUBMISSION_IN_PROGRESS may belong to a dispatcher that has
+        # not sent yet: connect, the database reads and the clock and quote fetches in
+        # `before_send` are not bounded by the not-found window, and the reconciling
+        # host's clock is not the dispatcher's. Resolving it to REJECTED here would let
+        # that dispatcher send an order recorded as rejected. SUPERSEDED within the
+        # corrective pass, which first applied the bounded policy to this state too.
+        dispatch_may_be_live = attempt.state is PaperExecutionState.SUBMISSION_IN_PROGRESS
+        if dispatch_may_be_live:
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-404-LIVE-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_NOT_FOUND_DISPATCH_MAY_BE_LIVE",
+                    occurred_at=at,
+                    detail=(
+                        f"observations={observations}; the attempt is still "
+                        "SUBMISSION_IN_PROGRESS, so absence proves nothing and the state "
+                        "is unchanged; an operator must establish whether it was sent"
+                    )[:500],
+                )
+            )
+            return attempt
+        if not evaluation.resolvable:
+            if evaluation.found_sequences:
+                # A completed round FOUND an order under this identity, whether or not its
+                # observation reached the acknowledgement journal. Absence never overrides
+                # it; an operator must establish what the broker holds.
+                # This branch is reached only when the observation itself is NOT on the
+                # attempt's acknowledgements or events (those return above): the round says
+                # FOUND but its observation write was lost. A distinct anomaly, named as such.
+                event_type = "RECONCILE_FOUND_ROUND_WITHOUT_OBSERVATION"
+            elif evaluation.incomplete_sequences:
+                event_type = "RECONCILE_ROUND_INCOMPLETE"
+            elif (
+                observations >= MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS
+                and evaluation.waiting_lower_bound_seconds is None
+            ):
+                event_type = "RECONCILE_TIME_EVIDENCE_INSUFFICIENT"
+            else:
+                event_type = "RECONCILE_NOT_FOUND_INSUFFICIENT"
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-404-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type=event_type,
+                    occurred_at=at,
+                    detail=(
+                        f"rounds={evaluation.rounds_version[0]} "
+                        f"consecutive_not_found={observations} "
+                        f"waiting_lower_bound={evaluation.waiting_lower_bound_seconds}; "
+                        f"{evaluation.reason}; state unchanged"
+                    )[:500],
+                )
+            )
+            return attempt
+
+        # Q-4. The decision above was made on a snapshot. The terminal transition is made
+        # ONLY inside the repository, which re-reads everything under a lock, re-evaluates the
+        # same policy on the fresh rows, and requires the round set to be the one judged here.
+        # No broker call happens inside that transaction.
+        resolved = self._rounds.resolve_not_found(
+            attempt_id=attempt.attempt_id,
+            expected_version=evaluation.rounds_version,
+            at=at,
+            failure_code="NOT_FOUND_AT_BROKER",
+            failure_detail=(
+                "the broker reported no such client_order_id across "
+                f"{observations} consecutive completed reconciliation rounds; waiting lower "
+                f"bound {int(evaluation.waiting_lower_bound_seconds or 0)}s on the broker clock"
+            ),
+        )
+        if resolved is None:
+            self._events.append(
+                PaperExecutionEvent(
+                    event_id=f"EVT-{attempt.attempt_id}-RECON-STALE-{sequence}"[:64],
+                    intent_governance_id=attempt.intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="RECONCILE_RESOLUTION_REVALIDATION_FAILED",
+                    occurred_at=at,
+                    detail=(
+                        "the absence decision did not hold when re-evaluated on fresh rows "
+                        f"(judged rounds_version={evaluation.rounds_version}); state unchanged"
+                    )[:500],
+                )
+            )
+            return self._attempts.get(attempt.attempt_id) or attempt
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{attempt.attempt_id}-RECON-RESOLVED"[:64],
+                intent_governance_id=attempt.intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type="RECONCILE_RESOLVED_NOT_FOUND",
+                occurred_at=at,
+                detail=(
+                    f"rounds={evaluation.rounds_version[0]} consecutive_not_found={observations} "
+                    f"waiting_lower_bound={int(evaluation.waiting_lower_bound_seconds or 0)}s; "
+                    "bounded policy satisfied and re-validated atomically"
+                )[:500],
+            )
+        )
+        return resolved
+
+
+# ---------------------------------------------------------------------------
+# Cancel
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class CancelPaperOrderCommand:
+    intent_governance_id: str
+    at: datetime
+
+
+class CancelPaperOrderHandler:
+    __slots__ = ("_attempts", "_acknowledgements", "_events", "_broker")
+
+    def __init__(
+        self,
+        *,
+        attempts: ExecutionAttemptRepository,
+        acknowledgements: BrokerAcknowledgementRepository,
+        events: PaperExecutionEventRepository,
+        broker: PaperBrokerPort,
+    ) -> None:
+        self._attempts = attempts
+        self._acknowledgements = acknowledgements
+        self._events = events
+        self._broker = broker
+
+    def handle(self, command: CancelPaperOrderCommand) -> ExecutionAttempt:
+        attempt = self._attempts.for_intent(command.intent_governance_id)
+        if attempt is None:
+            raise NotFoundError(
+                f"no dispatch attempt exists for intent {command.intent_governance_id!r}"
+            )
+        if attempt.is_terminal:
+            raise PaperExecutionRefusedError(
+                f"the attempt is already terminal in state {attempt.state.value}"
+            )
+        if attempt.broker_order_id is None:
+            raise PaperExecutionRefusedError(
+                "this attempt has no broker order id, so there is nothing to cancel; "
+                "reconcile it first"
+            )
+
+        status, sanitized = self._broker.cancel_order(attempt.broker_order_id)
+        sequence = self._acknowledgements.next_sequence(attempt.attempt_id)
+        self._acknowledgements.append(
+            BrokerAcknowledgement(
+                acknowledgement_id=f"ACK-{attempt.attempt_id}-{sequence}",
+                attempt_id=attempt.attempt_id,
+                sequence=sequence,
+                kind="CANCEL",
+                observed_at=command.at,
+                http_status=status,
+                broker_order_id=attempt.broker_order_id,
+                broker_status=None,
+                client_order_id_echo=attempt.client_order_id,
+                payload_digest=SubmitAuthorizedPaperOrderHandler._digest(sanitized),
+                sanitized_payload=sanitized[:8192],
+            )
+        )
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=f"EVT-{attempt.attempt_id}-CANCEL-{sequence}"[:64],
+                intent_governance_id=attempt.intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type="CANCEL_REQUESTED",
+                occurred_at=command.at,
+                detail=f"HTTP {status}"[:500],
+            )
+        )
+        if status not in {200, 204}:
+            # The cancel was refused. The order is whatever it was; saying
+            # otherwise would be inventing an outcome.
+            return attempt
+        # CANCEL_REQUESTED, not CANCELED. Asking to cancel is not a cancellation:
+        # the request races the venue and can lose to a fill, so only
+        # reconciliation may declare the terminal state.
+        return self._attempts.transition(
+            attempt_id=attempt.attempt_id,
+            target=PaperExecutionState.CANCEL_REQUESTED,
+            at=command.at,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Queries
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class ShowPaperExecutionQuery:
+    intent_governance_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class PaperExecutionStatus:
+    intent_governance_id: str
+    state: PaperExecutionState
+    attempt: ExecutionAttempt | None
+    authorization: ExecutionAuthorization | None
+    preview: SubmissionPreview | None
+    acknowledgements: tuple[BrokerAcknowledgement, ...]
+    events: tuple[PaperExecutionEvent, ...]
+
+
+class ShowPaperExecutionHandler:
+    """The whole chain behind one intent, in one answer.
+
+    TAKES THE INTENT REPOSITORY ONLY TO REFUSE AN UNKNOWN ONE. Without it, an
+    intent that does not exist has no attempt, no authorization and no preview,
+    which `_overall_state` reads as NOT_DISPATCHED -- so a mistyped identifier
+    produced the reassuring answer "this has not been dispatched" about something
+    that was never there. The installed-wheel walkthrough found that: step 30
+    expected a refusal and got exit 0. An operator asking about the wrong
+    identifier must be told so.
+    """
+
+    __slots__ = (
+        "_intents",
+        "_attempts",
+        "_authorizations",
+        "_previews",
+        "_acknowledgements",
+        "_events",
+    )
+
+    def __init__(
+        self,
+        *,
+        intents: ApprovedOrderIntentRepository,
+        attempts: ExecutionAttemptRepository,
+        authorizations: ExecutionAuthorizationRepository,
+        previews: SubmissionPreviewRepository,
+        acknowledgements: BrokerAcknowledgementRepository,
+        events: PaperExecutionEventRepository,
+    ) -> None:
+        self._intents = intents
+        self._attempts = attempts
+        self._authorizations = authorizations
+        self._previews = previews
+        self._acknowledgements = acknowledgements
+        self._events = events
+
+    def handle(self, query: ShowPaperExecutionQuery) -> PaperExecutionStatus:
+        if self._intents.get(query.intent_governance_id) is None:
+            raise NotFoundError(f"no approved order intent {query.intent_governance_id!r} exists")
+        attempt = self._attempts.for_intent(query.intent_governance_id)
+        authorization = self._authorizations.latest_for_intent(query.intent_governance_id)
+        preview = self._previews.latest_for_intent(query.intent_governance_id)
+        return PaperExecutionStatus(
+            intent_governance_id=query.intent_governance_id,
+            state=_overall_state(attempt=attempt, authorization=authorization, preview=preview),
+            attempt=attempt,
+            authorization=authorization,
+            preview=preview,
+            acknowledgements=(
+                () if attempt is None else self._acknowledgements.for_attempt(attempt.attempt_id)
+            ),
+            events=self._events.for_intent(query.intent_governance_id),
+        )
+
+
+def _overall_state(
+    *,
+    attempt: ExecutionAttempt | None,
+    authorization: ExecutionAuthorization | None,
+    preview: SubmissionPreview | None,
+) -> PaperExecutionState:
+    """Where one intent stands, including the states no attempt row can hold.
+
+    NOT_DISPATCHED, AUTHORIZATION_PENDING and AUTHORIZED describe an intent that
+    has no attempt yet, so they are derived here rather than stored -- a row
+    claiming one of them would contradict its own existence.
+    """
+    if attempt is not None:
+        return attempt.state
+    if authorization is not None and not authorization.is_consumed:
+        return PaperExecutionState.AUTHORIZED
+    if preview is not None:
+        return PaperExecutionState.AUTHORIZATION_PENDING
+    return PaperExecutionState.NOT_DISPATCHED
+
+
+@dataclass(frozen=True, slots=True)
+class ListPaperExecutionsQuery:
+    limit: int
+
+
+class ListPaperExecutionsHandler:
+    __slots__ = ("_attempts",)
+
+    def __init__(self, *, attempts: ExecutionAttemptRepository) -> None:
+        self._attempts = attempts
+
+    def handle(self, query: ListPaperExecutionsQuery) -> tuple[ExecutionAttempt, ...]:
+        return self._attempts.list_recent(query.limit)
+
+
+@dataclass(frozen=True, slots=True)
+class PaperExecutionStatusQuery:
+    intent_governance_id: str
+
+
+class PaperExecutionStatusHandler:
+    """Just the state, for an operator who wants one word.
+
+    Refuses an unknown intent for the same reason as
+    `ShowPaperExecutionHandler`: NOT_DISPATCHED about a nonexistent intent is a
+    confident answer to a question nobody asked.
+    """
+
+    __slots__ = ("_intents", "_attempts", "_authorizations", "_previews")
+
+    def __init__(
+        self,
+        *,
+        intents: ApprovedOrderIntentRepository,
+        attempts: ExecutionAttemptRepository,
+        authorizations: ExecutionAuthorizationRepository,
+        previews: SubmissionPreviewRepository,
+    ) -> None:
+        self._intents = intents
+        self._attempts = attempts
+        self._authorizations = authorizations
+        self._previews = previews
+
+    def handle(self, query: PaperExecutionStatusQuery) -> PaperExecutionState:
+        if self._intents.get(query.intent_governance_id) is None:
+            raise NotFoundError(f"no approved order intent {query.intent_governance_id!r} exists")
+        return _overall_state(
+            attempt=self._attempts.for_intent(query.intent_governance_id),
+            authorization=self._authorizations.latest_for_intent(query.intent_governance_id),
+            preview=self._previews.latest_for_intent(query.intent_governance_id),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Kill switch
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SetExecutionKillSwitchCommand:
+    engaged: bool
+    changed_by: str
+    changed_at: datetime
+    reason: str
+
+
+class SetExecutionKillSwitchHandler:
+    __slots__ = ("_kill_switch",)
+
+    def __init__(self, *, kill_switch: ExecutionKillSwitchRepository) -> None:
+        self._kill_switch = kill_switch
+
+    def handle(self, command: SetExecutionKillSwitchCommand) -> bool:
+        """Returns whether this call changed anything."""
+        if command.engaged:
+            return self._kill_switch.engage(
+                changed_by=command.changed_by,
+                changed_at=command.changed_at,
+                reason=command.reason,
+            )
+        return self._kill_switch.disengage(
+            changed_by=command.changed_by,
+            changed_at=command.changed_at,
+            reason=command.reason,
+        )

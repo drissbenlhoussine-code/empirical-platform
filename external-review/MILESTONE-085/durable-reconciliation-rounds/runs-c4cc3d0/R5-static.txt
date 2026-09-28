@@ -1,0 +1,34 @@
+HEAD=c4cc3d05e36bee0c106f3cadf79a486d386558ac dirty=2 start=2026-09-26T20:34:15Z
+== compileall
+OK
+== ruff format --check
+757 files already formatted
+== ruff check
+All checks passed!
+== mypy
+Success: no issues found in 368 source files
+== architecture
+exit=0
+== architecture negative fixture (must fail)
+reported a violation as required (exit 1)
+== frozen paths
+frozen paths unmodified (M083 27 since 707161a1e8ed, M084 69 since 1127134623b2; 96 governed, verified by blob id and by git diff)
+== architecture + frozen + base-pin tests
+41 passed in 19.06s
+== authority renderers (--check)
+m082: current-authority.md matches current-authority.json
+m083: current-authority.md matches current-authority.json
+m084: current-authority.md matches current-authority.json
+m085: current-authority.md matches current-authority.json
+== M084 file audit
+file-audit matrix matches the diff (75 paths)
+== exhaustion table --check (V1 rows; inventory stale by this round's files until regenerated, expected)
+C:\Users\LuxSy\Documents\trading\external-review\MILESTONE-085\exhaustion-table.md is not the current rendering
+== security.ps1 (venv on PATH)
+No known vulnerabilities found
+Secret scan target count: 1460
+security.ps1 exit=0
+== build
+Successfully built empirical_platform-0.0.0.tar.gz and empirical_platform-0.0.0-py3-none-any.whl
+0
+end=2026-09-26T20:37:15Z

@@ -1,0 +1,6 @@
+HEAD=80d1faa9643ac0bb50fe5da618932a399f6d7cf7 dirty=0 start=2026-09-26T10:02:50Z RUN_POSTGRES_TESTS=unset
+src\empirical_platform\shared\persistence\postgres_repositories\_errors.py                                             15      2      6      2    81%   31, 33
+Required test coverage of 79.0% reached. Total coverage: 80.37%
+4034 passed, 1233 skipped in 171.82s (0:02:51)
+pytest exit=0
+end=2026-09-26T10:05:46Z

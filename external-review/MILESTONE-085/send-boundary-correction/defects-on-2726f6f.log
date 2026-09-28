@@ -1,0 +1,64 @@
+Defect-exposing tests run BEFORE any production edit (executable content identical to 2726f6f).
+HEAD=38dc069525cef0cc6cc9208ed33f704f365a474d
+date=2026-09-26T09:16:16.329499+00:00
+
+=== tests/unit/test_m085_send_boundary.py ===
+E   AssertionError: assert 'kill_switch' == 'lookup'
+E   AssertionError: POST left after expiry during lookup
+E   AssertionError: POST left with the switch engaged during lookup
+E   AssertionError: POST left with the switch engaged during configuration
+E   AssertionError: POST left with the switch engaged during clock
+E   AssertionError: POST left with the switch engaged during quote
+E   AssertionError: POST left with a stale quote after lookup
+E   ValueError: the requested validity would outlive the approved intent; choose a validity that expires no later than the intent does
+E   empirical_platform.usecases.paper_execution.PaperExecutionRefusedError: the requested validity would outlive the approved intent; choose a validity that expires no later than the intent does
+E   ValueError: the requested validity would outlive the approved intent; choose a validity that expires no later than the intent does
+E   empirical_platform.usecases.paper_execution.PaperExecutionRefusedError: the requested validity would outlive the approved intent; choose a validity that expires no later than the intent does
+E   AssertionError: assert [PaperOrderRe...c0651f8fb60')] == []
+E   AssertionError: assert [PaperOrderRe...c0651f8fb60')] == []
+E   AssertionError: assert True is False
+FAILED tests/unit/test_m085_send_boundary.py::test_the_boundary_reads_everything_before_the_kill_switch_and_samples_time_last
+FAILED tests/unit/test_m085_send_boundary.py::test_the_authorization_expiring_during_a_slow_read_stops_the_post[lookup]
+FAILED tests/unit/test_m085_send_boundary.py::test_the_kill_switch_engaged_during_a_slow_read_stops_the_post[lookup]
+FAILED tests/unit/test_m085_send_boundary.py::test_the_kill_switch_engaged_during_a_slow_read_stops_the_post[configuration]
+FAILED tests/unit/test_m085_send_boundary.py::test_the_kill_switch_engaged_during_a_slow_read_stops_the_post[clock]
+FAILED tests/unit/test_m085_send_boundary.py::test_the_kill_switch_engaged_during_a_slow_read_stops_the_post[quote]
+FAILED tests/unit/test_m085_send_boundary.py::test_the_quote_going_stale_during_a_slow_read_stops_the_post[lookup]
+FAILED tests/unit/test_m085_send_boundary.py::test_the_intent_expiring_during_the_lookup_stops_the_post
+FAILED tests/unit/test_m085_send_boundary.py::test_the_liquidation_deadline_passing_during_the_lookup_stops_the_post
+FAILED tests/unit/test_m085_send_boundary.py::test_the_market_closing_during_the_lookup_stops_the_post
+FAILED tests/unit/test_m085_send_boundary.py::test_a_quote_that_is_stale_when_read_is_refused_even_if_time_stands_still
+FAILED tests/unit/test_m085_send_boundary.py::test_a_refused_send_is_terminal_not_sent_and_a_repeat_sends_nothing
+12 failed, 7 passed in 0.77s
+
+=== tests/integration/test_m085_send_boundary_transport.py ===
+E   AssertionError: assert True is False
+FAILED tests/integration/test_m085_send_boundary_transport.py::test_the_kill_switch_engaged_during_a_slow_lookup_means_zero_posts
+1 failed, 1 passed in 1.92s
+
+=== tests/integration/test_m085_acknowledgement_terms_http.py ===
+E   AttributeError: '_OrderView' object has no attribute 'time_in_force'
+E   Failed: DID NOT RAISE BrokerAmbiguousDispatchError
+E   Failed: DID NOT RAISE BrokerAmbiguousDispatchError
+E   Failed: DID NOT RAISE BrokerAmbiguousDispatchError
+E   KeyError: 'time_in_force'
+E   KeyError: 'extended_hours'
+E   KeyError: 'limit_price'
+E   AttributeError: '_OrderView' object has no attribute 'time_in_force'
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_an_exact_acknowledgement_is_accepted
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_a_differing_acknowledgement_is_uncertain[overrides0]
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_a_differing_acknowledgement_is_uncertain[overrides1]
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_a_differing_acknowledgement_is_uncertain[overrides2]
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_a_missing_required_field_is_refused_not_substituted[time_in_force]
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_a_missing_required_field_is_refused_not_substituted[extended_hours]
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_a_missing_required_field_is_refused_not_substituted[limit_price]
+FAILED tests/integration/test_m085_acknowledgement_terms_http.py::test_a_looked_up_order_reports_every_term
+8 failed, 7 passed in 8.66s
+
+=== tests/unit/test_m085_identity_lineage.py ===
+ImportError while importing test module 'tests\unit\test_m085_identity_lineage.py'.
+E   ImportError: cannot import name 'RECOGNIZED_DEFINITIVE_REFUSAL_CODES' from 'empirical_platform.decision_candidate.paper_execution' (src\empirical_platform\decision_candidate\paper_execution.py)
+ERROR tests/unit/test_m085_identity_lineage.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1 error in 0.72s
+

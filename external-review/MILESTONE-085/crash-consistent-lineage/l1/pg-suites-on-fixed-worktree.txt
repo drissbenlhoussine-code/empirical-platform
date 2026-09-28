@@ -1,0 +1,4 @@
+PG suites on the FIXED working tree (uncommitted) 2026-09-26T13:23:55Z dirty=11
+psycopg impl python libpq 160013
+327 passed in 237.44s (0:03:57)
+end=2026-09-26T13:27:54Z

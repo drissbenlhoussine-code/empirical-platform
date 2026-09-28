@@ -1,0 +1,6 @@
+HEAD=093baf76773f3b2f6a24127e832a786371fa76a7 dirty=2 (dirty files are documentation only: README.md, reconciliation-evidence-safety/verification.md) start=2026-09-26T20:05:15Z (solo run)
+cmd: python -m pytest --no-cov -q -p no:cacheprovider tests/unit/test_m085_*.py tests/integration/test_m085_reconciliation_rounds_postgres.py tests/integration/test_m085_authority_contract.py
+........................................................................ [ 96%]
+...................................                                      [100%]
+971 passed in 25.24s
+pytest exit=0 end=2026-09-26T20:05:41Z

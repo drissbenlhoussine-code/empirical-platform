@@ -1,0 +1,7 @@
+HEAD=88ea0ed3d036a4243520e1f6b1da57ab9404333b dirty=0 start=2026-09-26T21:40:47Z (solo run; no other database client active)
+database m085_pgon_b24c471 (disposable; trust auth; no credential printed)
+cmd: python -m pytest --no-cov -q -p no:cacheprovider <all 13 tests/integration/test_m085_*.py>
+........................................................................ [ 98%]
+.......                                                                  [100%]
+511 passed in 290.90s (0:04:50)
+pytest exit=0 end=2026-09-26T21:45:39Z

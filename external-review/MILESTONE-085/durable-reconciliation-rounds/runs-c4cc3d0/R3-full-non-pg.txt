@@ -1,0 +1,14 @@
+HEAD=c4cc3d05e36bee0c106f3cadf79a486d386558ac dirty=0 start=2026-09-26T20:31:39Z RUN_POSTGRES_TESTS=unset PSYCOPG_IMPL=python
+psycopg impl python libpq 160013
+pytest exit=0
+TOTAL                                                                                                               20667   3535   4824    795    80%
+Required test coverage of 79.0% reached. Total coverage: 80.35%
+4145 passed, 1254 skipped in 152.02s (0:02:32)
+== skip reasons (grouped, top 6)
+    779 1x PostgreSQL integration tests require explicit opt-in
+     27 3x PostgreSQL integration tests require explicit opt-in
+     20 4x PostgreSQL integration tests require explicit opt-in
+      9 5x PostgreSQL integration tests require explicit opt-in
+      9 2x PostgreSQL integration tests require explicit opt-in
+      4 1x Object-storage integration tests require explicit opt-in
+end=2026-09-26T20:34:15Z

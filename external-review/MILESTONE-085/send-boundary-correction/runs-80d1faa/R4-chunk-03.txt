@@ -1,0 +1,10 @@
+HEAD=80d1faa9643ac0bb50fe5da618932a399f6d7cf7 dirty=0 start=2026-09-26T10:13:54Z chunk=03
+tree digest before: 793a800c6fdbc2e321db2f4a067b8aba00e327429f9db18a34ff6d64514cbcbe
+[9/22] definitive_refusal_statuses ... EXECUTED_FAIL_BLOCKER
+    THE MUTATION SURVIVED. The named test still passes with the rule removed, so it does not detect it.
+[10/22] definitive_refusal_requires_the_brokers_document ... EXECUTED_FAIL_BLOCKER
+    THE MUTATION SURVIVED. The named test still passes with the rule removed, so it does not detect it.
+tree digest after:  793a800c6fdbc2e321db2f4a067b8aba00e327429f9db18a34ff6d64514cbcbe
+campaign exit=1
+20
+dirty_after=0 end=2026-09-26T10:15:24Z

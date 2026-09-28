@@ -1,0 +1,6 @@
+SHA=2726f6f53f74a0f6d0c63198d0970d3bce822efe
+=============================== tests coverage ================================
+Required test coverage of 79.0% reached. Total coverage: 83.31%
+=========================== short test summary info ===========================
+3934 passed, 1232 skipped in 211.83s (0:03:31)
+exit=0

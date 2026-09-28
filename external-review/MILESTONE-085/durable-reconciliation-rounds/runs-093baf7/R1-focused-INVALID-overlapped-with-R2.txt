@@ -1,0 +1,8 @@
+INVALID RUN: executed concurrently with R2 against the same disposable database. Kept for the record; superseded by R1-focused.txt.
+HEAD=093baf76773f3b2f6a24127e832a786371fa76a7 dirty=0 start=2026-09-26T17:54:13Z
+cmd: python -m pytest --no-cov -q -p no:cacheprovider tests/unit/test_m085_*.py tests/integration/test_m085_reconciliation_rounds_postgres.py tests/integration/test_m085_authority_contract.py
+FAILED tests/integration/test_m085_reconciliation_rounds_postgres.py::test_a_round_completed_by_another_process_after_the_snapshot_is_never_finalised_from_it
+FAILED tests/integration/test_m085_reconciliation_rounds_postgres.py::test_finalisation_honours_positive_evidence_recorded_without_a_round
+ERROR tests/integration/test_m085_reconciliation_rounds_postgres.py::test_q4_a_leading_reconciler_clock_cannot_satisfy_the_waiting_interval
+10 failed, 960 passed, 1 warning, 1 error in 46.22s
+pytest exit=1 end=2026-09-26T17:55:01Z

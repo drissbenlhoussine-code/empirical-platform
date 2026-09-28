@@ -1,0 +1,19 @@
+L1 unit reproduction on reviewed code HEAD=b80ef2829867aa7684bd4dc6dc666e2b958b2f13 (executable content == 00716e4) at 2026-09-26T13:04:54Z
+E       AssertionError: IN_PROGRESS with nothing persisted after it must not count as lineage
+E       assert not True
+E        +  where True = attempt_may_have_transmitted(ExecutionAttempt(attempt_id='ATT-1', intent_governance_id='INT-1', authorization_id='AUT-1', client_order_id='m085-5b9...order_id=None, broker_status=None, filled_quantity=None, filled_avg_price=None, failure_code=None, failure_detail=None), [PaperExecutionEvent(event_id='EVT-PVW-1-PREVIEW', intent_governance_id='INT-1', attempt_id=None, event_type='PREVIEW_...me.datetime(2026, 9, 10, 14, 0, tzinfo=datetime.timezone.utc), detail='by=owner expires_at=2026-09-10T14:05:00+00:00')])
+E        +    where [PaperExecutionEvent(event_id='EVT-PVW-1-PREVIEW', intent_governance_id='INT-1', attempt_id=None, event_type='PREVIEW_...me.datetime(2026, 9, 10, 14, 0, tzinfo=datetime.timezone.utc), detail='by=owner expires_at=2026-09-10T14:05:00+00:00')] = <tests.unit._m085_fakes.FakeEvents object at 0x0000020207A28EC0>.rows
+E       AssertionError: a historical order was attributed
+E       assert 'broker-historical' is None
+E        +  where 'broker-historical' = ExecutionAttempt(attempt_id='ATT-1', intent_governance_id='INT-1', authorization_id='AUT-1', client_order_id='m085-5b9...', broker_status='filled', filled_quantity=Decimal('0'), filled_avg_price=None, failure_code=None, failure_detail=None).broker_order_id
+E       AssertionError: assert not True
+E        +  where True = attempt_may_have_transmitted(ExecutionAttempt(attempt_id='ATT-1', intent_governance_id='INT-1', authorization_id='AUT-1', client_order_id='m085-5b9...order_id=None, broker_status=None, filled_quantity=None, filled_avg_price=None, failure_code=None, failure_detail=None), [PaperExecutionEvent(event_id='EVT-PVW-1-PREVIEW', intent_governance_id='INT-1', attempt_id=None, event_type='PREVIEW_...me.datetime(2026, 9, 10, 14, 0, tzinfo=datetime.timezone.utc), detail='by=owner expires_at=2026-09-10T14:05:00+00:00')])
+E        +    where [PaperExecutionEvent(event_id='EVT-PVW-1-PREVIEW', intent_governance_id='INT-1', attempt_id=None, event_type='PREVIEW_...me.datetime(2026, 9, 10, 14, 0, tzinfo=datetime.timezone.utc), detail='by=owner expires_at=2026-09-10T14:05:00+00:00')] = <tests.unit._m085_fakes.FakeEvents object at 0x0000020207CC4F50>.rows
+E       AssertionError: assert True is False
+E        +  where True = attempt_may_have_transmitted(namespace(attempt_id='ATT-1', authorization_id='AUT-1', client_order_id='m085-0123456789abcdef', request_fingerprint='...aaaaaaaaaaaaaaaaaaaa', state=<PaperExecutionState.SUBMISSION_IN_PROGRESS: 'SUBMISSION_IN_PROGRESS'>, failure_code=None), [])
+PASSED tests/unit/test_m085_pre_send_crash.py::test_our_own_post_then_death_before_acknowledgement_is_recovered_without_resending
+FAILED tests/unit/test_m085_pre_send_crash.py::test_a_death_during_the_pre_send_lookup_leaves_no_lineage
+FAILED tests/unit/test_m085_pre_send_crash.py::test_a_death_before_the_lookup_even_started_leaves_no_lineage
+FAILED tests/unit/test_m085_pre_send_crash.py::test_a_death_after_discovery_before_persistence_leaves_no_lineage
+FAILED tests/unit/test_m085_pre_send_crash.py::test_the_lineage_predicate_is_the_rule_the_tests_above_depend_on
+4 failed, 1 passed in 1.16s

@@ -1,0 +1,14 @@
+HEAD=37a2d5573e4aac10928b7722a87aacd6158169b7 dirty=0 start=2026-09-26T11:33:03Z
+NOTE: HEAD is 37a2d55; executable content identical to 00716e4 (docs-only delta verified)
+psycopg impl python libpq 160013
+== R2b authority-contract PostgreSQL tests: tests/integration/test_m085_authority_contract.py tests/integration/test_m085_paper_execution_postgres.py tests/integration/test_m085_time_basis_postgres.py 
+........................................................................ [ 81%]
+................................                                         [100%]
+176 passed in 84.77s (0:01:24)
+pytest exit=0
+== R4b family for the changed acceptance tool
+tree digest before: b484179c2fb15454b7115b07dd79d3a3f522bef110634fcbe3b723ec86da973e
+[1/1] legacy_dry_run_refused ... EXECUTED_PASS
+tree digest after:  b484179c2fb15454b7115b07dd79d3a3f522bef110634fcbe3b723ec86da973e
+campaign exit=0
+dirty_after=0 end=2026-09-26T11:34:35Z

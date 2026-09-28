@@ -53,6 +53,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 _BASE_GROUPS = ("707161a1", "e8edeb7e", "0c95f3da", "fc7180ba", "9d782cc6")
 BASE = "".join(_BASE_GROUPS)
 
+#: MILESTONE-084's frozen state: the Owner-ratified post-freeze commit `1127134`
+#: ("fix(m084): pin the derived audit to the approved tree, and let it run anywhere",
+#: 2026-09-10), ratified on 2026-09-25 for exactly its six files and recorded in
+#: `PROJECT_CHECKPOINT.md`. Every other M084 path is byte-identical there to the
+#: M084 freeze merge, so this one commit pins the whole milestone as ratified.
+_M084_BASE_GROUPS = ("11271346", "23b25178", "b4d98236", "d5ab75f8", "f2134760")
+M084_BASE = "".join(_M084_BASE_GROUPS)
+
+#: The commit each frozen milestone is measured against.
+FROZEN_BASES: dict[str, str] = {"M083": BASE, "M084": M084_BASE}
+
 #: Frozen milestones, and the patterns that identify the files each one owns.
 #: A path is owned if any pattern matches, so a milestone's ownership survives
 #: a file being moved between the governed roots.
@@ -63,6 +74,29 @@ FROZEN: dict[str, tuple[str, ...]] = {
     "M083": (
         r"evaluation_evidence_watermark",
         r"^migrations/versions/9e4e647347ad_",
+    ),
+    # M084's production, entrypoint and negative-fixture modules that carry no
+    # milestone token. Derived from the 'A' (added) rows of
+    # `external-review/MILESTONE-084/changed-files.txt`. Deliberately ABSENT: the six
+    # 'M' (modified) rows -- pyproject.toml, postgres_repositories/runtime.py,
+    # tests/architecture/test_module_boundaries.py, tests/unit/test_secret_scan_targets.py,
+    # tools/check_architecture.py, tools/secret_scan_targets.py -- which pre-existed M084
+    # and are shared, repository-wide infrastructure that later milestones extend; and
+    # this guard together with its test, which the Owner directed be extended to cover
+    # M084 and which would otherwise freeze the freezing.
+    "M084": (
+        r"^src/empirical_platform/decision_candidate/(evaluation_context|"
+        r"operator_trading_configuration|product_market_inputs|product_repositories|"
+        r"trade_approval|trade_proposal)\.py$",
+        r"^src/empirical_platform/entrypoints/(_operator_cli|audit_history|"
+        r"decide_trade_proposal|explain_no_trade|get_order_intent|get_trade_proposal|"
+        r"invalidate_stale_proposals|issue_order_intent|kill_switch|list_trade_proposals|"
+        r"open_evaluation_context|prepare_trade_proposal|save_trading_configuration|"
+        r"show_trading_configuration|system_status|validate_trading_configuration)\.py$",
+        r"^src/empirical_platform/shared/persistence/postgres_repositories/"
+        r"decision_to_approval_repositories\.py$",
+        r"^src/empirical_platform/usecases/decision_to_approval(_io)?\.py$",
+        r"bad_broker_order_submission_import\.py$",
     ),
 }
 
@@ -129,6 +163,14 @@ def owned_paths(tracked: list[str]) -> dict[str, list[str]]:
 #: it needs only HEAD, which a shallow clone has.
 DIGESTS = REPO_ROOT / "external-review" / "MILESTONE-084" / "frozen-path-digests.json"
 
+#: One manifest per frozen milestone, each recorded from that milestone's own base.
+#: M084's manifest lives under MILESTONE-085, the milestone that froze it: writing it
+#: into MILESTONE-084's own package would edit a path the manifest governs.
+DIGEST_FILES: dict[str, Path] = {
+    "M083": DIGESTS,
+    "M084": REPO_ROOT / "external-review" / "MILESTONE-085" / "m084-frozen-path-digests.json",
+}
+
 
 def blob_id(revision: str, path: str) -> str | None:
     """The git blob id of `path` at `revision`, or None if it is absent."""
@@ -142,10 +184,14 @@ def blob_id(revision: str, path: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def base_digests() -> dict[str, str]:
-    if not DIGESTS.exists():
-        return {}
-    return json.loads(DIGESTS.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
+def base_digests(milestone: str | None = None) -> dict[str, str]:
+    """The recorded base blob ids: one milestone's manifest, or all of them merged."""
+    files = [DIGEST_FILES[milestone]] if milestone is not None else list(DIGEST_FILES.values())
+    recorded: dict[str, str] = {}
+    for manifest in files:
+        if manifest.exists():
+            recorded.update(json.loads(manifest.read_text(encoding="utf-8")))
+    return recorded
 
 
 def content_violations() -> dict[str, list[str]]:
@@ -182,10 +228,10 @@ def _git(*arguments: str) -> str:
     ).stdout
 
 
-def _base_present() -> bool:
+def _base_present(base: str = BASE) -> bool:
     return (
         subprocess.run(  # noqa: S603 - fixed argument vector, no shell
-            ["git", "cat-file", "-e", f"{BASE}^{{commit}}"],  # noqa: S607
+            ["git", "cat-file", "-e", f"{base}^{{commit}}"],  # noqa: S607
             cwd=REPO_ROOT,
             capture_output=True,
             check=False,
@@ -194,19 +240,26 @@ def _base_present() -> bool:
     )
 
 
+def _all_bases_present() -> bool:
+    return all(_base_present(base) for base in FROZEN_BASES.values())
+
+
 def violations() -> dict[str, list[str]]:
-    """Frozen paths this branch changed, per milestone.
+    """Frozen paths this branch changed, per milestone, each against ITS base commit.
 
     Measured against the base commit rather than the working tree, so a change
     that was committed and then reverted in a later commit is correctly not a
     violation -- the frozen file is what it was.
     """
-    changed = {line for line in _git("diff", "--name-only", f"{BASE}..HEAD").splitlines() if line}
     tracked = [line for line in _git("ls-files").splitlines() if line]
-    return {
-        milestone: [path for path in paths if path in changed]
-        for milestone, paths in owned_paths(tracked).items()
-    }
+    result: dict[str, list[str]] = {}
+    for milestone, paths in owned_paths(tracked).items():
+        base = FROZEN_BASES[milestone]
+        changed = {
+            line for line in _git("diff", "--name-only", f"{base}..HEAD").splitlines() if line
+        }
+        result[milestone] = [path for path in paths if path in changed]
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -223,19 +276,22 @@ def main(argv: list[str] | None = None) -> int:
     owners = owned_paths(tracked)
 
     if args.write_digests:
-        # Read from the base commit, never from the working tree: recording the
-        # working tree would bless whatever is currently there, which is the one
-        # thing this guard exists to prevent.
-        recorded = {}
-        for paths in owners.values():
+        # Read from each milestone's base commit, never from the working tree:
+        # recording the working tree would bless whatever is currently there, which
+        # is the one thing this guard exists to prevent.
+        for milestone, paths in owners.items():
+            base = FROZEN_BASES[milestone]
+            recorded = {}
             for path in paths:
-                identifier = blob_id(BASE, path)
+                identifier = blob_id(base, path)
                 if identifier is None:
-                    print(f"{path} does not exist at {BASE[:12]}", file=sys.stderr)
+                    print(f"{path} does not exist at {base[:12]}", file=sys.stderr)
                     return 1
                 recorded[path] = identifier
-        DIGESTS.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        print(f"recorded {len(recorded)} frozen-path blob ids from {BASE[:12]}")
+            DIGEST_FILES[milestone].write_text(
+                json.dumps(recorded, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+            print(f"{milestone}: recorded {len(recorded)} frozen-path blob ids from {base[:12]}")
         return 0
 
     if args.list:
@@ -256,12 +312,11 @@ def main(argv: list[str] | None = None) -> int:
     # checkout. The git comparison is an additional check that runs only where
     # the base commit is present.
     breaches = {m: p for m, p in content_violations().items() if p}
-    if not breaches and _base_present():
+    if not breaches and _all_bases_present():
         breaches = {m: p for m, p in violations().items() if p}
     if breaches:
-        print(
-            f"frozen milestone files were modified between {BASE[:12]} and HEAD:", file=sys.stderr
-        )
+        bases = ", ".join(f"{m} {b[:12]}" for m, b in FROZEN_BASES.items())
+        print(f"frozen milestone files were modified since their base ({bases}):", file=sys.stderr)
         for milestone, paths in breaches.items():
             for path in paths:
                 print(f"  {milestone}  {path}", file=sys.stderr)
@@ -274,8 +329,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     total = sum(len(paths) for paths in owners.values())
-    how = "by blob id and by git diff" if _base_present() else "by blob id (base absent)"
-    print(f"frozen paths unmodified since {BASE[:12]} ({total} governed, verified {how})")
+    how = "by blob id and by git diff" if _all_bases_present() else "by blob id (a base is absent)"
+    per_milestone = ", ".join(
+        f"{m} {len(paths)} since {FROZEN_BASES[m][:12]}" for m, paths in owners.items()
+    )
+    print(f"frozen paths unmodified ({per_milestone}; {total} governed, verified {how})")
     return 0
 
 

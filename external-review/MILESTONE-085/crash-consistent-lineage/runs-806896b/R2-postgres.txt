@@ -1,0 +1,7 @@
+HEAD=806896bc5fb2ae9c2bfe24fe26b4aebf96867651 dirty=0 start=2026-09-26T13:38:08Z
+m085_pgon_b24c471|PostgreSQL 16.13, compiled by Visual C++ build 1944, 64-bit
+3.13.14 | psycopg 3.3.4 impl python libpq 160013 | sqlalchemy 2.0.51 | alembic 1.18.5
+........................................................................ [ 88%]
+.......................................                                  [100%]
+327 passed in 235.60s (0:03:55)
+pytest exit=0 end=2026-09-26T13:42:06Z

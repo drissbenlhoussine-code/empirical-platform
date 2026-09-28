@@ -1,0 +1,6 @@
+HEAD=e010075a6e63c990c45174425b4d03e4fb0459b9 dirty=0 start=2026-09-26T15:49:31Z chunk=00
+tree digest before: cbb5318236d04147…
+tree digest after:  cbb5318236d04147…
+campaign exit=0
+23
+dirty_after=0 end=2026-09-26T15:51:47Z

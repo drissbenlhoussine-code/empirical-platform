@@ -1,0 +1,26 @@
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+E   AssertionError: POST was transmitted after the authorization expired during the lookup: state=PAPER_ACCEPTED note=the paper broker acknowledged the order
+    assert [PaperOrderRe...c0651f8fb60')] == []
+      
+      Left contains one more item: PaperOrderRequest(symbol='AAPL', side='BUY', quantity=1, order_type=<OrderType.LIMIT: 'LIMIT'>, limit_price=Decimal('4.00'), time_in_force='DAY', extended_hours=False, client_order_id='m085-5b93442752fa3eff5fe66e6d13820c0651f8fb60')
+      Use -v to get more diff
+C:\Users\LuxSy\AppData\Local\Temp\claude\C--Users-LuxSy-Documents-trading\4ea5c03d-9064-4731-82e1-b203d29d8375\scratchpad\test_slow_identity_lookup_review.py:62: AssertionError: POST was transmitted after the authorization expired during the lookup: state=PAPER_ACCEPTED note=the paper broker acknowledged the order
+E   AssertionError: POST was transmitted although the kill switch was engaged during the lookup: state=PAPER_ACCEPTED note=the paper broker acknowledged the order
+    assert [PaperOrderRe...c0651f8fb60')] == []
+      
+      Left contains one more item: PaperOrderRequest(symbol='AAPL', side='BUY', quantity=1, order_type=<OrderType.LIMIT: 'LIMIT'>, limit_price=Decimal('4.00'), time_in_force='DAY', extended_hours=False, client_order_id='m085-5b93442752fa3eff5fe66e6d13820c0651f8fb60')
+      Use -v to get more diff
+C:\Users\LuxSy\AppData\Local\Temp\claude\C--Users-LuxSy-Documents-trading\4ea5c03d-9064-4731-82e1-b203d29d8375\scratchpad\test_slow_identity_lookup_review.py:79: AssertionError: POST was transmitted although the kill switch was engaged during the lookup: state=PAPER_ACCEPTED note=the paper broker acknowledged the order
+E   AssertionError: POST was transmitted with a quote that went stale during the lookup: state=PAPER_ACCEPTED note=the paper broker acknowledged the order
+    assert [PaperOrderRe...c0651f8fb60')] == []
+      
+      Left contains one more item: PaperOrderRequest(symbol='AAPL', side='BUY', quantity=1, order_type=<OrderType.LIMIT: 'LIMIT'>, limit_price=Decimal('4.00'), time_in_force='DAY', extended_hours=False, client_order_id='m085-5b93442752fa3eff5fe66e6d13820c0651f8fb60')
+      Use -v to get more diff
+C:\Users\LuxSy\AppData\Local\Temp\claude\C--Users-LuxSy-Documents-trading\4ea5c03d-9064-4731-82e1-b203d29d8375\scratchpad\test_slow_identity_lookup_review.py:96: AssertionError: POST was transmitted with a quote that went stale during the lookup: state=PAPER_ACCEPTED note=the paper broker acknowledged the order
+=========================== short test summary info ===========================
+FAILED ..\..\AppData\Local\Temp\claude\C--Users-LuxSy-Documents-trading\4ea5c03d-9064-4731-82e1-b203d29d8375\scratchpad\test_slow_identity_lookup_review.py::test_authorization_expires_during_the_identity_lookup
+FAILED ..\..\AppData\Local\Temp\claude\C--Users-LuxSy-Documents-trading\4ea5c03d-9064-4731-82e1-b203d29d8375\scratchpad\test_slow_identity_lookup_review.py::test_kill_switch_engaged_during_the_identity_lookup
+FAILED ..\..\AppData\Local\Temp\claude\C--Users-LuxSy-Documents-trading\4ea5c03d-9064-4731-82e1-b203d29d8375\scratchpad\test_slow_identity_lookup_review.py::test_quote_goes_stale_during_the_identity_lookup
+3 failed in 0.63s
+SHA=2726f6f53f74a0f6d0c63198d0970d3bce822efe

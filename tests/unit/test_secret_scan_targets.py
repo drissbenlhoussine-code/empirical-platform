@@ -382,10 +382,13 @@ def _repository_with_manifest(root: Path, entries: dict[str, str]) -> dict[str, 
 
 
 _MANIFEST = "external-review/MILESTONE-084/frozen-path-digests.json"
+#: The M084 manifest the guard writes under MILESTONE-085 (2026-09-25 freeze extension).
+_M084_MANIFEST = "external-review/MILESTONE-085/m084-frozen-path-digests.json"
 
 
+@pytest.mark.parametrize("manifest", [_MANIFEST, _M084_MANIFEST])
 def test_a_manifest_entry_is_cleared_only_when_the_blob_id_is_the_real_one(
-    tmp_path: Path,
+    tmp_path: Path, manifest: str
 ) -> None:
     """The exemption that stayed, and the reason it is allowed to stay.
 
@@ -393,15 +396,27 @@ def test_a_manifest_entry_is_cleared_only_when_the_blob_id_is_the_real_one(
     is consumed as a JSON mapping. So it keeps a rule -- but the rule checks the
     VALUE, not its shape. The line's key must be a path git tracks here, and its
     value must be the blob id git holds for that path. Shape alone clears
-    nothing, which is exactly what the removed rules got wrong.
+    nothing, which is exactly what the removed rules got wrong. Both generated
+    manifests -- M083's and M084's -- are cleared by this one rule and no other.
     """
     frozen = "tests/integration/test_m083_evaluation_evidence_watermark_lifecycle.py"
     blob_ids = _repository_with_manifest(tmp_path, {frozen: "def test_watermark() -> None:\n"})
     line = f'  "{frozen}": "{blob_ids[frozen]}"'
-    _write(tmp_path / _MANIFEST, "{\n" + line + "\n}\n")
-    findings = {_MANIFEST: [{"type": "Hex High Entropy String", "line_number": 2}]}
+    _write(tmp_path / manifest, "{\n" + line + "\n}\n")
+    findings = {manifest: [{"type": "Hex High Entropy String", "line_number": 2}]}
 
     assert _filter_benign_secret_findings(tmp_path, findings) == {}
+
+
+def test_an_invented_blob_id_in_the_m084_manifest_is_still_a_finding(tmp_path: Path) -> None:
+    # The second manifest earns no shape-based clearance either.
+    frozen = "src/empirical_platform/usecases/decision_to_approval.py"
+    _repository_with_manifest(tmp_path, {frozen: "def decide() -> None:\n"})
+    line = f'  "{frozen}": "{"0badf00d" * 5}"'
+    _write(tmp_path / _M084_MANIFEST, "{\n" + line + "\n}\n")
+    findings = {_M084_MANIFEST: [{"type": "Hex High Entropy String", "line_number": 2}]}
+
+    assert _filter_benign_secret_findings(tmp_path, findings) == findings
 
 
 def test_an_invented_blob_id_in_the_manifest_is_still_a_finding(tmp_path: Path) -> None:
