@@ -386,10 +386,41 @@ class TestTheRuntimeLifecycle:
 class TestTheSchemaHeadIsExact:
     """Corrective pass (item 4): nothing runs against a schema this code was not written for."""
 
-    def test_the_pinned_head_is_the_repository_migration_head(self) -> None:
+    def test_the_pinned_head_is_the_m085_revision_and_the_repository_head_descends_from_it(
+        self,
+    ) -> None:
+        """STACKED-MILESTONE TEST EVOLUTION (M087).
+
+        Until M087 this asserted that the pinned M085 head IS the repository-global Alembic
+        head. Once a later additive milestone exists that can no longer be a universal
+        assertion, and it must NOT be "solved" by moving `M085_SCHEMA_HEAD`. The invariant it
+        protected is stated directly: the pin is the M085 revision, unchanged; the repository
+        head descends from it in a single unbroken line; nothing was inserted into or replaced
+        inside the M085 history; and the M085 branch itself still ends at the M085 revision.
+        """
         config = Config(str(_REPO_ROOT / "alembic.ini"))
         config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
-        assert ScriptDirectory.from_config(config).get_current_head() == M085_SCHEMA_HEAD
+        script = ScriptDirectory.from_config(config)
+        assert M085_SCHEMA_HEAD == "".join(("a7d3c9", "e14f26"))  # the pin did not move
+        (head,) = script.get_heads()  # one head, never two branches
+        # Walk from the repository head down; the M085 revision must be on that line.
+        lineage = [
+            revision.revision
+            for revision in script.iterate_revisions(head, None)
+            if revision is not None
+        ]
+        assert M085_SCHEMA_HEAD in lineage
+        above = lineage[: lineage.index(M085_SCHEMA_HEAD)]
+        # Every revision above M085 is a later milestone's, stacked directly on the pin.
+        for revision_id in above:
+            revision = script.get_revision(revision_id)
+            assert revision is not None and revision.down_revision in {*above, M085_SCHEMA_HEAD}
+        if above:
+            m085_child = script.get_revision(above[-1])
+            assert m085_child is not None and m085_child.down_revision == M085_SCHEMA_HEAD
+        # The M085 revision's own down-revision is the M085 corrective revision, as reviewed.
+        pinned = script.get_revision(M085_SCHEMA_HEAD)
+        assert pinned is not None and pinned.down_revision == "".join(("9c4b2e", "7d5a18"))
 
     def test_the_exact_head_is_accepted_and_actually_read(
         self, composition: type[FakeService], a_config: PostgreSQLConfigSnapshot

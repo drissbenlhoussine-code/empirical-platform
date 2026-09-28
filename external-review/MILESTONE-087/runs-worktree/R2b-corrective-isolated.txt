@@ -1,0 +1,11 @@
+HEAD=<sha 33f1eb3..3708> start=2026-09-27T15:24:50Z purpose=isolate the corrective-migration round trip from the head-pin cascade
+INFO  [alembic.runtime.migration] Running upgrade <rev a7d3c9..4f26> -> <rev e7c1a9..b5f2>, MILESTONE-087 human-approved position exit schema.
+=========================== short test summary info ===========================
+FAILED tests/integration/test_m085_corrective_pass_postgres.py::test_the_upgrade_refuses_to_invent_a_binding_for_rows_that_exist
+1 failed, 1 passed in 4.61s
+end=2026-09-27T15:24:56Z
+E       AssertionError: assert '<rev e7c1a9..b5f2>' == '<rev a7d3c9..4f26>'
+E         
+E         - <rev a7d3c9..4f26>
+E         + <rev e7c1a9..b5f2>
+tests\integration\test_m085_corrective_pass_postgres.py:669: AssertionError

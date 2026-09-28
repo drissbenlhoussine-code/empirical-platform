@@ -1,0 +1,97 @@
+name: M087 position exit
+
+# MILESTONE-087 -- the human-approved position exit suites, including the PostgreSQL migration
+# (fresh upgrade / downgrade / re-upgrade, exact stacked head), database guards, racing claims and
+# restart scenarios, on a real PostgreSQL 16 service. SIMULATION only: no broker credential exists
+# in this workflow and no external endpoint is contacted. The M086 console suites run as well, so
+# the exit path is shown to leave the console's existing behaviour intact.
+
+on:
+  push:
+    branches: [feature/m087-human-approved-position-exit]
+  pull_request:
+    paths:
+      - '.github/workflows/m087-exit.yml'
+      - 'migrations/versions/e7c1a9d3b5f2_create_m087_position_exit_schema.py'
+      - 'src/empirical_platform/**/position_exit*.py'
+      - 'src/empirical_platform/**/operator_console*.py'
+      - 'src/empirical_platform/**/_operator_console*.py'
+      - 'src/empirical_platform/shared/brokerage/simulation_paper.py'
+      - 'tests/**/test_m087*.py'
+      - 'tests/**/test_m086*.py'
+      - 'tests/unit/_m087_fakes.py'
+      - 'tests/unit/_m086_fakes.py'
+
+permissions:
+  contents: read
+
+jobs:
+  exit-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: empirical
+          POSTGRES_DB: empirical_platform
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U empirical -d empirical_platform"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
+      EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform
+      EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[persistence,object-storage,test]'
+      - name: Set isolated database placeholder
+        run: echo "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
+      - name: M087 suites, file by file (domain, simulation exits, console, routes, architecture, PostgreSQL)
+        run: >-
+          python -m pytest --no-cov -v --no-header -p no:cacheprovider
+          tests/unit/test_m087_schema_head.py
+          tests/unit/test_m087_position_exit_domain.py
+          tests/unit/test_m087_simulation_exit_broker.py
+          tests/unit/test_m087_position_exit_service.py
+          tests/unit/test_m087_position_exit_routes.py
+          tests/architecture/test_m087_exit_boundaries.py
+          tests/integration/test_m087_position_exit_postgres.py
+          tests/integration/test_m087_schema_ancestry_postgres.py
+      - name: M085 exact-head guard suites at the explicit M085 revision (stacked-branch evolution)
+        run: >-
+          python -m pytest --no-cov -q -p no:cacheprovider
+          tests/unit/test_m085_paper_composition.py
+          tests/integration/test_m085_corrective_pass_postgres.py
+          tests/integration/test_m085_reconciliation_rounds_postgres.py
+          tests/integration/test_m085_authority_contract.py
+      - name: M086 console suites, still green with the exit path composed
+        run: >-
+          python -m pytest --no-cov -v --no-header -p no:cacheprovider
+          tests/unit/test_m086_operator_console_service.py
+          tests/unit/test_m086_operator_console_routes.py
+          tests/unit/test_m086_operator_console_launcher.py
+          tests/unit/test_m086_simulation_broker.py
+          tests/unit/test_m086_operator_console_domain.py
+          tests/unit/test_m086_simulation_state_lock.py
+          tests/architecture/test_m086_console_boundaries.py
+          tests/integration/test_m086_operator_console_postgres.py
+      - name: The console starts at the M087 head, serves Active trades and stops
+        run: |
+          python -m alembic -c alembic.ini upgrade head
+          python -m empirical_platform.entrypoints.operator_console --load-day --no-browser --port 8086 --state-dir "$RUNNER_TEMP/console-state" --reconcile-every 2 > console.log 2>&1 &
+          CONSOLE_PID=$!
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8086/active && break; sleep 1; done
+          curl -s -D headers.txt -o active.html http://127.0.0.1:8086/active
+          grep -i "content-security-policy" headers.txt
+          grep -q 'env-badge">SIMULATION</span>' active.html
+          kill "$CONSOLE_PID"
+          cat console.log

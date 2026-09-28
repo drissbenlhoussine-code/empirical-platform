@@ -104,11 +104,46 @@ Staged behaviours, by symbol (shown under each card's *Details*):
 - **Blocked** — nothing was sent (kill switch, a refused check, or a failure before the send).
 - **Needs attention** — outcome unknown, do not retry. The console keeps checking the same
   order and never sends it again.
-- **Filled / Partially filled** — an **open position**. It stays on Active trades with its exit
-  shown as *locked pending M087*: this milestone has no exit path, so nothing can be sent for it.
+- **Filled** — an **open position**. It stays on Active trades under *Open position* with a
+  **Review exit** button (MILESTONE-087). A partially filled entry stays under *Working entry
+  order* until its remainder is cancelled: the filled part is held, but it cannot be closed while
+  the rest can still fill.
+- **Position closed** — shown only when the exit filled for the whole quantity AND a broker
+  check verified the position at zero. A submitted or filled exit alone is never "closed".
 - **Approved / Submitted / Accepted / Cancel requested / Cancelled / Rejected / Expired** — the
   engine's own state, in plain words. Anything the engine does not
   know shows as **Not available**, never as a guess.
+
+## Closing a position (MILESTONE-087, SIMULATION only)
+
+Active trades is grouped into **Needs attention**, **Exit in progress**, **Open position** and
+**Working entry order**. Every open position shows its **mandatory liquidation deadline**. Nothing
+closes by itself, ever: not at the deadline, not on a timer, not on a restart.
+
+1. On an open position press **Review exit**. The review page freezes the exact terms: symbol,
+   current verified holding, exit quantity (always the whole holding — the first version is full
+   close only), **SELL TO CLOSE**, order type and limit price (the current bid), account and
+   environment, entry average fill price, current bid/ask, the exit reference, the mandatory
+   liquidation deadline and when the authorization would expire. Nothing has been sent.
+2. Press **CONFIRM EXIT**. The engine re-reads the position, the entry, the attribution, the kill
+   switch, the preview and your ticket, refuses if anything changed, and only then sends one
+   SELL TO CLOSE to the simulated broker. A second click, a refresh, a second tab or another
+   console process gets "Already confirmed" and sends nothing.
+3. Follow the exit timeline: Open position → Exit reviewed → Owner confirmed → Exit submitted →
+   Accepted → Filled → **Position closed**. "Position closed" appears only after the background
+   check verified the broker position at zero. History then shows the round trip with the
+   actual entry and exit fill prices and the realized result, labelled *simulation*.
+
+A position that cannot be closed safely — no entry on record, an entry still partially working,
+a broker position that disagrees with the entry evidence, another lot in the same symbol, or an
+exit already in flight — shows **Position requires operator attention before it can be closed
+safely** with the reasons. Nothing is guessed and nothing is sent.
+
+If the deadline passes with the position still open, the console records and shows the truth:
+**Position remains open — Owner action was not completed.** The exit can still be reviewed and
+confirmed by you; it is never sent by itself.
+
+While the kill switch is engaged no exit can be submitted; release it on Safety first.
 
 ## Safety page
 

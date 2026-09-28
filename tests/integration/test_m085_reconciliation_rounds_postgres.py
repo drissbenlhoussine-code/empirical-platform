@@ -64,7 +64,10 @@ _DEATH = 3
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    yield from build_engine()
+    # STACKED-MILESTONE TEST EVOLUTION (M087). The round-journal migration test below asserts
+    # the M085 exact head, so this suite migrates explicitly to `M085_SCHEMA_HEAD` rather than
+    # to the repository-global head. `M085_SCHEMA_HEAD` itself is unchanged.
+    yield from build_engine(M085_SCHEMA_HEAD)
 
 
 @pytest.fixture
@@ -772,5 +775,5 @@ def test_the_round_journal_migration_goes_down_and_up_again(world: dict[str, Any
         assert not below["table"] and below["triggers"] == set() and below["functions"] == set()
         assert below["head"] == previous_revision
     finally:
-        alembic_command.upgrade(alembic_config(), "head")
+        alembic_command.upgrade(alembic_config(), M085_SCHEMA_HEAD)
     assert catalog() == at_head

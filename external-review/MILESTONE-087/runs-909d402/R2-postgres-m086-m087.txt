@@ -1,0 +1,21 @@
+HEAD=<sha 909d402..2cbd> start=2026-09-27T15:27:13Z db=m085_pgon_b24c471 (disposable)
+============================= test session starts =============================
+collecting ... collected 14 items
+
+tests/integration/test_m087_position_exit_postgres.py::test_the_migration_upgrades_downgrades_and_re_upgrades_with_an_exact_head PASSED [  7%]
+tests/integration/test_m087_position_exit_postgres.py::test_the_round_trip_closes_the_position_and_the_rows_are_consistent PASSED [ 14%]
+tests/integration/test_m087_position_exit_postgres.py::test_the_database_refuses_every_rewrite_and_every_second_identity PASSED [ 21%]
+tests/integration/test_m087_position_exit_postgres.py::test_two_service_instances_cannot_create_two_exit_attempts PASSED [ 28%]
+tests/integration/test_m087_position_exit_postgres.py::test_a_racing_claim_on_one_authorization_has_exactly_one_winner PASSED [ 35%]
+tests/integration/test_m087_position_exit_postgres.py::test_restart_before_confirmation_and_after_authorization_sends_nothing PASSED [ 42%]
+tests/integration/test_m087_position_exit_postgres.py::test_restart_after_an_ambiguous_exit_preserves_unknown_and_reconciles_the_same_identity PASSED [ 50%]
+tests/integration/test_m087_position_exit_postgres.py::test_the_one_console_per_state_dir_lock_is_intact PASSED [ 57%]
+tests/integration/test_m086_operator_console_postgres.py::test_paper_and_live_cannot_be_composed PASSED [ 64%]
+tests/integration/test_m086_operator_console_postgres.py::test_the_daily_scenario_end_to_end_on_postgres PASSED [ 71%]
+tests/integration/test_m086_operator_console_postgres.py::test_restart_after_an_ambiguous_execution_reconstructs_and_resolves PASSED [ 78%]
+tests/integration/test_m086_operator_console_postgres.py::test_the_absence_policy_and_the_kill_switch_hold_on_postgres PASSED [ 85%]
+tests/integration/test_m086_operator_console_postgres.py::test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state PASSED [ 92%]
+tests/integration/test_m086_operator_console_postgres.py::test_a_second_launcher_process_is_refused_with_exit_code_2 PASSED [100%]
+
+============================= 14 passed in 23.05s =============================
+end=2026-09-27T15:27:37Z

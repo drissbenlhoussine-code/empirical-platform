@@ -39,7 +39,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from empirical_platform.decision_candidate.operator_trading_configuration import (
     KillSwitchState,
@@ -109,6 +109,12 @@ from empirical_platform.usecases.paper_execution import (
     SubmitAuthorizedPaperOrderCommand,
     SubmitAuthorizedPaperOrderHandler,
 )
+
+if TYPE_CHECKING:  # the exit console imports this module's vocabulary; no import cycle at runtime
+    from empirical_platform.usecases.operator_console_exits import (
+        ExitSummary,
+        PositionExitConsole,
+    )
 
 __all__ = [
     "ActionOutcome",
@@ -275,7 +281,12 @@ _ATTEMPT_STATES: Mapping[PaperExecutionState, HumanState] = {
 }
 
 
+#: The exit status shown when NO exit path is composed (the M086 console without M087).
 OPEN_POSITION_EXIT_STATUS = "Open position — exit locked pending M087."
+#: The exit status shown by the M087 console for a position that can be reviewed for closing.
+OPEN_POSITION_REVIEWABLE_STATUS = (
+    "Open position — review the exit to close it. Nothing is sent without your confirmation."
+)
 
 
 def position_is_open(attempt: ExecutionAttempt) -> bool:
@@ -439,11 +450,21 @@ class ExecutionSummary:
     outcome_known: bool
     can_cancel: bool
     execution_kind: str
-    #: A FILLED (or partially filled) BUY entry is an OPEN POSITION until an exit path
-    #: exists. M085 has none (M086-REV-EXIT-01), so the position stays visible in Active
-    #: trades with its exit shown as locked. The M085 state itself is not changed.
+    #: A FILLED (or partially filled) BUY entry is an OPEN POSITION until an exit closes it.
+    #: Without the M087 exit console the exit is shown as locked (M086-REV-EXIT-01); with it,
+    #: the position can be reviewed for closing. The M085 state itself is never changed.
     position_open: bool
     exit_status: str
+    #: MILESTONE-087. Which of the four Active-trades groups this row belongs to, the exit (if
+    #: any) with its own timeline, whether "Review exit" is offered, the mandatory liquidation
+    #: deadline and its status, and whether the position is VERIFIED closed.
+    category: str = "Working entry order"
+    exit: ExitSummary | None = None
+    can_review_exit: bool = False
+    liquidation_deadline: datetime | None = None
+    deadline_tone: str = "info"
+    deadline_note: str = ""
+    position_closed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -664,6 +685,7 @@ class OperatorConsoleService:
         clock: Callable[[], datetime] = _now_utc,
         operator_identity: str = "owner",
         staged_scenarios: Callable[[], Mapping[str, str]] | None = None,
+        exits: PositionExitConsole | None = None,
     ) -> None:
         if not capability.enabled or capability.capability is not ExecutionCapability.SIMULATION:
             raise CapabilityRefusedError(
@@ -678,12 +700,22 @@ class OperatorConsoleService:
         self._clock = clock
         self._operator = operator_identity
         self._staged_scenarios = staged_scenarios or (lambda: {})
+        #: MILESTONE-087: the exit console, when the composition root wired one. None means
+        #: the M086 behaviour exactly: open positions are shown with their exit locked.
+        self._exits = exits
 
     # -- helpers -------------------------------------------------------------------
 
     @property
     def capability(self) -> CapabilityStatus:
         return self._capability
+
+    @property
+    def exits(self) -> PositionExitConsole | None:
+        return self._exits
+
+    def _position_closed(self, intent_id: str) -> bool:
+        return self._exits is not None and self._exits.position_closed(intent_id)
 
     def _configuration(self, proposal: TradeProposal) -> OperatorTradingConfiguration | None:
         return self._r.configurations.get(
@@ -749,6 +781,7 @@ class OperatorConsoleService:
             for c in cards
             if c.execution is not None
             and c.execution.state in {HumanState.FILLED, HumanState.PARTIALLY_FILLED}
+            and not c.execution.position_closed
         )
         return TodayView(
             session_date=today.isoformat(),
@@ -1215,7 +1248,16 @@ class OperatorConsoleService:
             if intent is None:
                 continue
             if attempt is not None and attempt.is_terminal and not position_is_open(attempt):
-                continue
+                # A cancelled entry that had filled shares still holds a position (M087).
+                if not (
+                    self._exits is not None
+                    and attempt.state is PaperExecutionState.CANCELED
+                    and attempt.filled_quantity is not None
+                    and attempt.filled_quantity > 0
+                ):
+                    continue
+            if self._position_closed(intent.intent_governance_id):
+                continue  # a VERIFIED closed position belongs to History, not Active trades
             rows.append(self._summary(proposal, decision, intent, attempt))
         rows.sort(key=lambda s: s.claimed_at or s.decided_at or datetime.min.replace(tzinfo=UTC))
         return tuple(rows)
@@ -1294,6 +1336,48 @@ class OperatorConsoleService:
             pending = "Authorized; the order has not been sent."
         else:
             pending = "Approved; nothing has been sent."
+
+        # MILESTONE-087: the exit, the group and the deadline.
+        exit_summary = None
+        category = "Working entry order"
+        can_review = False
+        closed = False
+        exit_status = OPEN_POSITION_EXIT_STATUS if position_open else NOT_AVAILABLE
+        tone, note = "info", ""
+        if self._exits is not None:
+            now = self._clock()
+            exit_summary = self._exits.summary(intent, attempt, now)
+            latest_exit = self._exits.latest_exit(intent.intent_governance_id)
+            category = self._exits.category(attempt, latest_exit)
+            closed = latest_exit is not None and latest_exit.position_closed
+            held = category == "Open position"
+            # "Review exit" is offered for every held position; the review page itself shows
+            # an engaged kill switch, and the confirmation refuses while it is engaged.
+            can_review = held
+            if closed:
+                exit_status = "Position closed — verified at the broker."
+                position_open = False
+            elif category == "Exit in progress":
+                exit_status = (
+                    "Exit in progress — nothing further is sent without your confirmation."
+                )
+            elif category == "Needs attention" and exit_summary is not None:
+                exit_status = "Exit outcome unknown — do not retry."
+            elif held:
+                exit_status = OPEN_POSITION_REVIEWABLE_STATUS
+                position_open = True
+            if attempt is not None and attempt.state is PaperExecutionState.FILLED and held:
+                pending = OPEN_POSITION_REVIEWABLE_STATUS
+            from empirical_platform.usecases.operator_console_exits import deadline_status
+
+            tone, note = deadline_status(
+                deadline=intent.mandatory_liquidation_at,
+                now=now,
+                position_open=held or category == "Exit in progress",
+                position_closed=closed,
+            )
+            if held and now >= intent.mandatory_liquidation_at:
+                warnings.append(note)
         return ExecutionSummary(
             intent_id=intent.intent_governance_id,
             proposal_id=proposal.proposal_governance_id,
@@ -1337,7 +1421,14 @@ class OperatorConsoleService:
             },
             execution_kind=f"{self._capability.label} execution",
             position_open=position_open,
-            exit_status=OPEN_POSITION_EXIT_STATUS if position_open else NOT_AVAILABLE,
+            exit_status=exit_status,
+            category=category,
+            exit=exit_summary,
+            can_review_exit=can_review,
+            liquidation_deadline=intent.mandatory_liquidation_at,
+            deadline_tone=tone,
+            deadline_note=note,
+            position_closed=closed,
         )
 
     def _timeline(
@@ -1438,10 +1529,18 @@ class OperatorConsoleService:
                 }[dec.action.value]
             if decision and decision_word != decision:
                 continue
+            result_text = NOT_AVAILABLE
             if attempt is not None:
                 final = human_state_for_attempt(attempt)
                 kind = f"{self._capability.label} execution"
                 exec_outcome = final.value
+                if self._exits is not None and intent is not None:
+                    exit_summary = self._exits.summary(intent, attempt, self._clock())
+                    if exit_summary is not None and exit_summary.position_closed:
+                        exec_outcome = "Position closed (simulation)"
+                        result_text = exit_summary.result_text
+                    elif exit_summary is not None:
+                        exec_outcome = f"{final.value}; exit {exit_summary.state.value.lower()}"
             elif intent is not None:
                 final = HumanState.APPROVED
                 kind = "Owner decision"
@@ -1489,7 +1588,7 @@ class OperatorConsoleService:
                         if attempt is not None and attempt.filled_avg_price is not None
                         else _money(proposal.limit_price)
                     ),
-                    result=NOT_AVAILABLE,
+                    result=result_text,
                     intent_id=None if intent is None else intent.intent_governance_id,
                     timestamp=(
                         attempt.terminal_at or attempt.acknowledged_at or attempt.claimed_at
@@ -1626,6 +1725,8 @@ class OperatorConsoleService:
             except Exception:  # noqa: BLE001, S112 - the handler recorded a FAILED round durably
                 continue
             refreshed.append(attempt.intent_governance_id)
+        if self._exits is not None:
+            refreshed.extend(self._exits.refresh())
         return tuple(refreshed)
 
     def cancel_execution(self, intent_id: str) -> ActionOutcome:

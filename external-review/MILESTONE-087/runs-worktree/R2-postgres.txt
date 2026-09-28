@@ -1,0 +1,737 @@
+HEAD=<sha 33f1eb3..3708> start=2026-09-27T15:15:10Z db=m085_pgon_b24c471 (disposable)
+........................................................................ [ 13%]
+..................................................F..................... [ 27%]
+........................................................................ [ 41%]
+......................................F................................. [ 54%]
+........................F.....FF........................................ [ 68%]
+........................................................................ [ 82%]
+........................................................................ [ 96%]
+.....................                                                    [100%]
+================================== FAILURES ===================================
+_ TestTheContractReadsTheSqlInstalledAtHead.test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head _
+
+self = <test_m085_authority_contract.TestTheContractReadsTheSqlInstalledAtHead object at 0x0000025E768E2D50>
+
+    def test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head(self) -> None:
+        script = ScriptDirectory.from_config(_alembic())
+>       assert script.get_current_head() == _M085_REVISIONS[-1]
+E       AssertionError: assert '<rev e7c1a9..b5f2>' == '<rev a7d3c9..4f26>'
+E         
+E         - <rev a7d3c9..4f26>
+E         + <rev e7c1a9..b5f2>
+
+tests\integration\test_m085_authority_contract.py:346: AssertionError
+___________ test_the_round_journal_migration_goes_down_and_up_again ___________
+
+world = {'engine': Engine(postgresql+psycopg://empirical_m085:***@127.0.0.1:5432/m085_pgon_b24c471), 'clock': <tests.integrati...on_postgres._Broker object at 0x0000025E7831D040>, 'spawn': <function world.<locals>.spawn at 0x0000025E7760B7E0>, ...}
+
+    def test_the_round_journal_migration_goes_down_and_up_again(world: dict[str, Any]) -> None:
+        engine: Engine = world["engine"]
+    
+        def catalog() -> dict[str, Any]:
+            with engine.begin() as connection:
+                tables = {
+                    r[0]
+                    for r in connection.execute(
+                        text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+                    ).all()
+                }
+                triggers = {
+                    r[0]
+                    for r in connection.execute(
+                        text(
+                            "SELECT tgname FROM pg_trigger WHERE NOT tgisinternal "
+                            "AND tgname LIKE 'paper_reconciliation_round%'"
+                        )
+                    ).all()
+                }
+                functions = {
+                    r[0]
+                    for r in connection.execute(
+                        text(
+                            "SELECT proname FROM pg_proc "
+                            "WHERE proname LIKE 'paper_reconciliation_round%'"
+                        )
+                    ).all()
+                }
+                head = connection.execute(
+                    text("SELECT version_num FROM public.alembic_version")
+                ).scalar_one()
+            return {
+                "table": "paper_reconciliation_round" in tables,
+                "triggers": triggers,
+                "functions": functions,
+                "head": head,
+            }
+    
+        at_head = catalog()
+>       assert at_head["table"] and at_head["head"] == M085_SCHEMA_HEAD
+E       AssertionError: assert (True and '<rev e7c1a9..b5f2>' == '<rev a7d3c9..4f26>'
+E         
+E         - <rev a7d3c9..4f26>
+E         + <rev e7c1a9..b5f2>)
+
+tests\integration\test_m085_reconciliation_rounds_postgres.py:757: AssertionError
+___ TestTheExactSchemaHeadIsRequired.test_the_migrated_database_is_accepted ___
+
+self = <test_m085_corrective_pass_postgres.TestTheExactSchemaHeadIsRequired object at 0x0000025E769C6990>
+service = <empirical_platform.shared.persistence.postgres.PostgresPersistenceService object at 0x0000025E73E11CC0>
+
+    def test_the_migrated_database_is_accepted(self, service: PostgresPersistenceService) -> None:
+>       assert require_exact_m085_schema_head(service) == M085_SCHEMA_HEAD
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\integration\test_m085_corrective_pass_postgres.py:533: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+service = <empirical_platform.shared.persistence.postgres.PostgresPersistenceService object at 0x0000025E73E11CC0>
+
+    def require_exact_m085_schema_head(service: PostgresPersistenceService) -> str:
+        """Refuse unless `alembic_version` holds exactly one row equal to `M085_SCHEMA_HEAD`."""
+        try:
+            with service.unit_of_work() as work:
+                rows = list(work.execute(_SCHEMA_HEAD_SELECT))
+        except Exception as error:
+            raise PaperSchemaHeadError(
+                "the database schema revision could not be read; refusing to run paper "
+                f"execution against an unverified schema ({type(error).__name__})"
+            ) from error
+        revisions = sorted(str(row.get("version_num")) for row in rows)
+        if revisions != [M085_SCHEMA_HEAD]:
+>           raise PaperSchemaHeadError(
+                f"the database is at schema revision(s) {revisions or ['<none>']}, not exactly "
+                f"{M085_SCHEMA_HEAD}; refusing to run paper execution against a schema whose "
+                "guards this code was not written for"
+            )
+E           empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories.PaperSchemaHeadError: the database is at schema revision(s) ['<rev e7c1a9..b5f2>'], not exactly <rev a7d3c9..4f26>; refusing to run paper execution against a schema whose guards this code was not written for
+
+src\empirical_platform\shared\persistence\postgres_repositories\paper_execution_repositories.py:121: PaperSchemaHeadError
+____________ test_the_corrective_migration_goes_down_and_up_again _____________
+
+self = <sqlalchemy.engine.base.Connection object at 0x0000025E772B9A90>
+dialect = <sqlalchemy.dialects.postgresql.psycopg.PGDialect_psycopg object at 0x0000025E78023750>
+context = <sqlalchemy.dialects.postgresql.psycopg.PGExecutionContext_psycopg object at 0x0000025E7704F020>
+statement = <sqlalchemy.dialects.postgresql.base.PGDDLCompiler object at 0x0000025E79386530>
+parameters = [immutabledict({})]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Cursor [closed] [IDLE] (host=127.0.0.1 user=empirical_m085 database=m085_pgon_b24c471) at 0x25e77ac9c10>
+query = "\nCREATE TABLE position_exit_preview (\n\tpreview_id VARCHAR(64) NOT NULL, \n\tentry_intent_governance_id VARCHAR(64)...^[0-9a-f]{64}$'), \n\tCONSTRAINT ck_position_exit_preview_exits_non_negative CHECK (exits_filled_quantity >= 0)\n)\n\n"
+params = immutabledict({}), prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.DuplicateTable: relation "position_exit_preview" already exists
+
+.venv\Lib\site-packages\psycopg\cursor.py:117: DuplicateTable
+
+The above exception was the direct cause of the following exception:
+
+clean = Engine(postgresql+psycopg://empirical_m085:***@127.0.0.1:5432/m085_pgon_b24c471)
+
+    def test_the_corrective_migration_goes_down_and_up_again(clean: Engine) -> None:
+        at_head = _catalog(clean)
+        assert {"binding_fingerprint", "policy_fingerprint", "intent_expires_at"} <= at_head["preview"]  # type: ignore[operator]
+        assert "preview_binding_fingerprint" in at_head["authorization"]  # type: ignore[operator]
+        assert {
+            "paper_submission_preview_guard_policy_trigger",
+            "paper_execution_authorization_guard_insert_trigger",
+        } <= at_head["triggers"]  # type: ignore[operator]
+        assert "is terminal in state % and is immutable" in str(at_head["attempt_guard"])
+        assert "preview_binding_fingerprint" in str(at_head["authorization_guard"])
+    
+        alembic_command.downgrade(alembic_config(), _BELOW_THE_CORRECTIVE_REVISION)
+        try:
+            below = _catalog(clean)
+            assert not {"binding_fingerprint", "policy_fingerprint"} & below["preview"]  # type: ignore[operator]
+            assert "preview_binding_fingerprint" not in below["authorization"]  # type: ignore[operator]
+            assert (
+                not {
+                    "paper_submission_preview_guard_policy_trigger",
+                    "paper_execution_authorization_guard_insert_trigger",
+                }
+                & below["triggers"]
+            )  # type: ignore[operator]
+            # The exact prior guards are restored.
+            assert "A same-state update refreshes" in str(below["attempt_guard"])
+            assert "preview_binding_fingerprint" not in str(below["authorization_guard"])
+            assert "basis_broker_latest_at" in str(below["authorization_guard"])
+        finally:
+>           alembic_command.upgrade(alembic_config(), "head")
+
+tests\integration\test_m085_corrective_pass_postgres.py:649: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\alembic\command.py:490: in upgrade
+    script.run_env()
+.venv\Lib\site-packages\alembic\script\base.py:556: in run_env
+    util.load_python_file(self.dir, "env.py")
+.venv\Lib\site-packages\alembic\util\pyfiles.py:116: in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\alembic\util\pyfiles.py:136: in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap_external>:1023: in exec_module
+    ???
+<frozen importlib._bootstrap>:488: in _call_with_frames_removed
+    ???
+migrations\env.py:53: in <module>
+    run_migrations_online()
+migrations\env.py:46: in run_migrations_online
+    context.run_migrations()
+<string>:8: in run_migrations
+    ???
+.venv\Lib\site-packages\alembic\runtime\environment.py:969: in run_migrations
+    self.get_context().run_migrations(**kw)
+.venv\Lib\site-packages\alembic\runtime\migration.py:626: in run_migrations
+    step.migration_fn(**kw)
+migrations\versions\e7c1a9d3b5f2_create_m087_position_exit_schema.py:788: in upgrade
+    _create_preview_table()
+migrations\versions\e7c1a9d3b5f2_create_m087_position_exit_schema.py:453: in _create_preview_table
+    op.create_table(
+<string>:8: in create_table
+    ???
+<string>:3: in create_table
+    ???
+.venv\Lib\site-packages\alembic\operations\ops.py:1331: in create_table
+    return operations.invoke(op)
+           ^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\alembic\operations\base.py:452: in invoke
+    return fn(self, operation)
+           ^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\alembic\operations\toimpl.py:140: in create_table
+    operations.impl.create_table(table, **kw)
+.venv\Lib\site-packages\alembic\ddl\impl.py:442: in create_table
+    self._exec(schema.CreateTable(table, **kw))
+.venv\Lib\site-packages\alembic\ddl\impl.py:256: in _exec
+    return conn.execute(construct, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1421: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\ddl.py:188: in _execute_on_connection
+    return connection._execute_ddl(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1532: in _execute_ddl
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1848: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Cursor [closed] [IDLE] (host=127.0.0.1 user=empirical_m085 database=m085_pgon_b24c471) at 0x25e77ac9c10>
+query = "\nCREATE TABLE position_exit_preview (\n\tpreview_id VARCHAR(64) NOT NULL, \n\tentry_intent_governance_id VARCHAR(64)...^[0-9a-f]{64}$'), \n\tCONSTRAINT ck_position_exit_preview_exits_non_negative CHECK (exits_filled_quantity >= 0)\n)\n\n"
+params = immutabledict({}), prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           sqlalchemy.exc.ProgrammingError: (psycopg.errors.DuplicateTable) relation "position_exit_preview" already exists
+E           [SQL: 
+E           CREATE TABLE position_exit_preview (
+E           	preview_id VARCHAR(64) NOT NULL, 
+E           	entry_intent_governance_id VARCHAR(64) NOT NULL, 
+E           	entry_attempt_id VARCHAR(64) NOT NULL, 
+E           	preview_version INTEGER NOT NULL, 
+E           	account_reference VARCHAR(96) NOT NULL, 
+E           	environment VARCHAR(16) NOT NULL, 
+E           	symbol VARCHAR(32) NOT NULL, 
+E           	side VARCHAR(16) NOT NULL, 
+E           	quantity BIGINT NOT NULL, 
+E           	order_type VARCHAR(16) NOT NULL, 
+E           	limit_price NUMERIC(20, 8), 
+E           	time_in_force VARCHAR(8) NOT NULL, 
+E           	extended_hours BOOLEAN NOT NULL, 
+E           	client_order_id VARCHAR(64) NOT NULL, 
+E           	request_fingerprint VARCHAR(64) NOT NULL, 
+E           	position_digest VARCHAR(64) NOT NULL, 
+E           	entry_state VARCHAR(32) NOT NULL, 
+E           	entry_filled_quantity NUMERIC(24, 8) NOT NULL, 
+E           	entry_avg_fill_price NUMERIC(20, 8), 
+E           	exits_filled_quantity NUMERIC(24, 8) NOT NULL, 
+E           	broker_position_quantity BIGINT NOT NULL, 
+E           	competing_entry_attempt_ids TEXT NOT NULL, 
+E           	position_captured_at TIMESTAMP WITH TIME ZONE NOT NULL, 
+E           	quote_bid NUMERIC(20, 8), 
+E           	quote_ask NUMERIC(20, 8), 
+E           	quote_captured_at TIMESTAMP WITH TIME ZONE, 
+E           	quote_source VARCHAR(32) NOT NULL, 
+E           	liquidation_deadline TIMESTAMP WITH TIME ZONE NOT NULL, 
+E           	created_at TIMESTAMP WITH TIME ZONE NOT NULL, 
+E           	binding_fingerprint VARCHAR(64) NOT NULL, 
+E           	PRIMARY KEY (preview_id), 
+E           	CONSTRAINT uq_position_exit_preview_version UNIQUE (entry_intent_governance_id, preview_version), 
+E           	CONSTRAINT ck_position_exit_preview_id_present CHECK (length(btrim(preview_id)) > 0), 
+E           	CONSTRAINT ck_position_exit_preview_version_positive CHECK (preview_version >= 1), 
+E           	CONSTRAINT ck_position_exit_preview_side CHECK (side = 'SELL_TO_CLOSE'), 
+E           	CONSTRAINT ck_position_exit_preview_quantity_positive CHECK (quantity > 0), 
+E           	CONSTRAINT ck_position_exit_preview_quantity_equals_broker_position CHECK (quantity = broker_position_quantity), 
+E           	CONSTRAINT ck_position_exit_preview_full_close CHECK (quantity = entry_filled_quantity - exits_filled_quantity), 
+E           	CONSTRAINT ck_position_exit_preview_environment CHECK (environment = 'SIMULATION'), 
+E           	CONSTRAINT ck_position_exit_preview_time_in_force CHECK (time_in_force = 'DAY'), 
+E           	CONSTRAINT ck_position_exit_preview_no_extended_hours CHECK (extended_hours = false), 
+E           	CONSTRAINT ck_position_exit_preview_order_type CHECK (order_type IN ('MARKET', 'LIMIT')), 
+E           	CONSTRAINT ck_position_exit_preview_limit_price_shape CHECK ((order_type = 'LIMIT' AND limit_price IS NOT NULL AND limit_price > 0) OR (order_type <> 'LIMIT' AND limit_price IS NULL)), 
+E           	CONSTRAINT ck_position_exit_preview_client_order_id_prefix CHECK (client_order_id LIKE 'm087-%%'), 
+E           	CONSTRAINT ck_position_exit_preview_request_fingerprint CHECK (request_fingerprint ~ '^[0-9a-f]{64}$'), 
+E           	CONSTRAINT ck_position_exit_preview_position_digest CHECK (position_digest ~ '^[0-9a-f]{64}$'), 
+E           	CONSTRAINT ck_position_exit_preview_binding_fingerprint CHECK (binding_fingerprint ~ '^[0-9a-f]{64}$'), 
+E           	CONSTRAINT ck_position_exit_preview_exits_non_negative CHECK (exits_filled_quantity >= 0)
+E           )
+E           
+E           ]
+E           (Background on this error at: https://sqlalche.me/e/20/f405)
+
+.venv\Lib\site-packages\psycopg\cursor.py:117: ProgrammingError
+---------------------------- Captured stderr call -----------------------------
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running downgrade <rev a7d3c9..4f26> -> <rev 9c4b2e..5a18>, MILESTONE-085 durable reconciliation rounds (Q-2 / Q-4).
+INFO  [alembic.runtime.migration] Running downgrade <rev 9c4b2e..5a18> -> <rev e61b3f..4c27>, MILESTONE-085 corrective pass: send-time policy binding and immutable terminal attempts.
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade <rev e61b3f..4c27> -> <rev 9c4b2e..5a18>, MILESTONE-085 corrective pass: send-time policy binding and immutable terminal attempts.
+INFO  [alembic.runtime.migration] Running upgrade <rev 9c4b2e..5a18> -> <rev a7d3c9..4f26>, MILESTONE-085 durable reconciliation rounds (Q-2 / Q-4).
+INFO  [alembic.runtime.migration] Running upgrade <rev a7d3c9..4f26> -> <rev e7c1a9..b5f2>, MILESTONE-087 human-approved position exit schema.
+______ test_the_upgrade_refuses_to_invent_a_binding_for_rows_that_exist _______
+
+self = <sqlalchemy.engine.base.Connection object at 0x0000025E77AC8590>
+dialect = <sqlalchemy.dialects.postgresql.psycopg.PGDialect_psycopg object at 0x0000025E77BE8B90>
+context = <sqlalchemy.dialects.postgresql.psycopg.PGExecutionContext_psycopg object at 0x0000025E7704FAC0>
+statement = <sqlalchemy.dialects.postgresql.psycopg.PGCompiler_psycopg object at 0x0000025E77BEB110>
+parameters = [{'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', ...}]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Cursor [closed] [IDLE] (host=127.0.0.1 user=empirical_m085 database=m085_pgon_b24c471) at 0x25e7782ea50>
+query = 'INSERT INTO public.paper_submission_preview (preview_id, intent_governance_id, preview_version, account_snapshot_id, ...hibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint'
+params = {'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', ...}
+prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.UndefinedColumn: column "configuration_governance_id" of relation "paper_submission_preview" does not exist
+E           LINE 1: ...change, asset_fractionable, refusals, created_at, configurat...
+E                                                                        ^
+
+.venv\Lib\site-packages\psycopg\cursor.py:117: UndefinedColumn
+
+The above exception was the direct cause of the following exception:
+
+self = PostgresUnitOfWork(_service=<empirical_platform.shared.persistence.postgres.PostgresPersistenceService object at 0x0000025E794D1DA0>, _connection=None, _transaction=None, _completed=True, _context_token=None)
+statement = 'INSERT INTO public.paper_submission_preview (preview_id, intent_governance_id, preview_version, account_snapshot_id, ...hibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint'
+parameters = {'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', ...}
+
+    def execute(
+        self, statement: str, parameters: Mapping[str, object] | None = None
+    ) -> Sequence[Mapping[str, object]]:
+        self._ensure_active("execute")
+        connection = cast(Connection, self._connection)
+        try:
+>           result = connection.execute(text(statement), dict(parameters or {}))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+src\empirical_platform\shared\persistence\postgres.py:104: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1421: in execute
+    return meth(
+.venv\Lib\site-packages\sqlalchemy\sql\elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1848: in _execute_context
+    return self._exec_single_context(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv\Lib\site-packages\sqlalchemy\engine\base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Cursor [closed] [IDLE] (host=127.0.0.1 user=empirical_m085 database=m085_pgon_b24c471) at 0x25e7782ea50>
+query = 'INSERT INTO public.paper_submission_preview (preview_id, intent_governance_id, preview_version, account_snapshot_id, ...hibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint'
+params = {'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', ...}
+prepare = None, binary = None
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool | None = None,
+    ) -> Self:
+        """
+        Execute a query or command to the database.
+        """
+        try:
+            with self._conn.lock:
+                self._conn.wait(
+                    self._execute_gen(query, params, prepare=prepare, binary=binary)
+                )
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           sqlalchemy.exc.ProgrammingError: (psycopg.errors.UndefinedColumn) column "configuration_governance_id" of relation "paper_submission_preview" does not exist
+E           LINE 1: ...change, asset_fractionable, refusals, created_at, configurat...
+E                                                                        ^
+E           [SQL: INSERT INTO public.paper_submission_preview (preview_id, intent_governance_id, preview_version, account_snapshot_id, account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, extended_hours, client_order_id, request_fingerprint, approved_fingerprint, market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint) VALUES (%(preview_id)s, %(intent_governance_id)s, %(preview_version)s, %(account_snapshot_id)s, %(account_reference)s, %(symbol)s, %(side)s, %(quantity)s, %(order_type)s, %(limit_price)s, %(time_in_force)s, %(extended_hours)s, %(client_order_id)s, %(request_fingerprint)s, %(approved_fingerprint)s, %(market_is_open)s, %(market_next_open)s, %(market_next_close)s, %(quote_bid)s, %(quote_ask)s, %(quote_captured_at)s, %(quote_source)s, %(asset_tradable)s, %(asset_status)s, %(asset_class)s, %(asset_exchange)s, %(asset_fractionable)s, %(refusals)s, %(created_at)s, %(configuration_governance_id)s, %(configuration_version)s, %(policy_fingerprint)s, %(maximum_notional)s, %(quote_maximum_age_seconds)s, %(maximum_spread_percent)s, %(policy_watchlist)s, %(policy_prohibited_instruments)s, %(earliest_entry_time)s, %(latest_entry_time)s, %(operator_timezone)s, %(intent_expires_at)s, %(binding_fingerprint)s) RETURNING preview_id, intent_governance_id, preview_version, account_snapshot_id, account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, extended_hours, client_order_id, request_fingerprint, approved_fingerprint, market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint]
+E           [parameters: {'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', 'account_reference': 'ref:0123456789abcdef', 'symbol': 'AAPL', 'side': 'BUY', 'quantity': 9, 'order_type': 'LIMIT', 'limit_price': Decimal('200.10000000'), 'time_in_force': 'DAY', 'extended_hours': False, 'client_order_id': 'm085-<sha c6d4700..2f4b>', 'request_fingerprint': 'c207e32241e327a9e3a97c0acd7f6ae9302bf147e55a1d0383a3c73dfd97ea0f', 'approved_fingerprint': 'de2978c64ef27de1cfcf696d5e7a9dcce703112e1cb24e5253c26da8da7dbf41', 'market_is_open': True, 'market_next_open': None, 'market_next_close': datetime.datetime(2026, 6, 10, 15, 0, tzinfo=datetime.timezone.utc), 'quote_bid': Decimal('199.95'), 'quote_ask': Decimal('200.10'), 'quote_captured_at': datetime.datetime(2026, 6, 10, 11, 59, 55, tzinfo=datetime.timezone.utc), 'quote_source': 'alpaca-iex', 'asset_tradable': True, 'asset_status': 'active', 'asset_class': 'us_equity', 'asset_exchange': 'NASDAQ', 'asset_fractionable': True, 'refusals': '[]', 'created_at': datetime.datetime(2026, 6, 10, 12, 0, 25, tzinfo=datetime.timezone.utc), 'configuration_governance_id': 'CFG-085-0001', 'configuration_version': 1, 'policy_fingerprint': 'a1b2f6fd98c4e84aa44e492f128681d0af73ceb599dd741cc1d75783539752d6', 'maximum_notional': Decimal('2000'), 'quote_maximum_age_seconds': 60, 'maximum_spread_percent': Decimal('1'), 'policy_watchlist': ['AAPL', 'MSFT'], 'policy_prohibited_instruments': ['PENNY'], 'earliest_entry_time': datetime.time(10, 0), 'latest_entry_time': datetime.time(15, 30), 'operator_timezone': 'Europe/Helsinki', 'intent_expires_at': datetime.datetime(2026, 6, 10, 15, 5, tzinfo=zoneinfo.ZoneInfo(key='Europe/Kiev')), 'binding_fingerprint': '4d70bed5fb879c9e06da0b697530c10e56019f06c6fec4b1faf3568245c2ff91'}]
+E           (Background on this error at: https://sqlalche.me/e/20/f405)
+
+.venv\Lib\site-packages\psycopg\cursor.py:117: ProgrammingError
+
+The above exception was the direct cause of the following exception:
+
+paper = <empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories.PostgresPaperExecutionRuntime object at 0x0000025E795BBC10>
+clean = Engine(postgresql+psycopg://empirical_m085:***@127.0.0.1:5432/m085_pgon_b24c471)
+
+    def test_the_upgrade_refuses_to_invent_a_binding_for_rows_that_exist(
+        paper: PostgresPaperExecutionRuntime, clean: Engine
+    ) -> None:
+>       a_full_chain(paper)
+
+tests\integration\test_m085_corrective_pass_postgres.py:656: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\integration\test_m085_paper_execution_postgres.py:163: in a_full_chain
+    paper.submission_previews.save(preview)
+src\empirical_platform\shared\persistence\postgres_repositories\paper_execution_repositories.py:575: in save
+    rows = work.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = PostgresUnitOfWork(_service=<empirical_platform.shared.persistence.postgres.PostgresPersistenceService object at 0x0000025E794D1DA0>, _connection=None, _transaction=None, _completed=True, _context_token=None)
+statement = 'INSERT INTO public.paper_submission_preview (preview_id, intent_governance_id, preview_version, account_snapshot_id, ...hibited_instruments, earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, binding_fingerprint'
+parameters = {'preview_id': 'PVW-085-0001', 'intent_governance_id': 'INT-085-0001', 'preview_version': 1, 'account_snapshot_id': 'SNP-085-0001', ...}
+
+    def execute(
+        self, statement: str, parameters: Mapping[str, object] | None = None
+    ) -> Sequence[Mapping[str, object]]:
+        self._ensure_active("execute")
+        connection = cast(Connection, self._connection)
+        try:
+            result = connection.execute(text(statement), dict(parameters or {}))
+            if not result.returns_rows:
+                return []
+            return [dict(row) for row in result.mappings().all()]
+        except Exception as exc:
+>           raise translate_persistence_error(
+                exc,
+                operation="execute",
+                context={"statement_kind": statement.split(maxsplit=1)[0].upper()},
+            ) from exc
+E           empirical_platform.shared.errors.foundation.FoundationError: Persistence execute failed in the database driver
+
+src\empirical_platform\shared\persistence\postgres.py:109: FoundationError
+=========================== short test summary info ===========================
+FAILED tests/integration/test_m085_authority_contract.py::TestTheContractReadsTheSqlInstalledAtHead::test_the_rendered_chain_is_exactly_the_m085_revisions_ending_at_head
+FAILED tests/integration/test_m085_reconciliation_rounds_postgres.py::test_the_round_journal_migration_goes_down_and_up_again
+FAILED tests/integration/test_m085_corrective_pass_postgres.py::TestTheExactSchemaHeadIsRequired::test_the_migrated_database_is_accepted
+FAILED tests/integration/test_m085_corrective_pass_postgres.py::test_the_corrective_migration_goes_down_and_up_again
+FAILED tests/integration/test_m085_corrective_pass_postgres.py::test_the_upgrade_refuses_to_invent_a_binding_for_rows_that_exist
+5 failed, 520 passed in 417.07s (0:06:57)
+end=2026-09-27T15:22:14Z

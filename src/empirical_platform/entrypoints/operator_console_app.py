@@ -227,6 +227,51 @@ def build_application(
         flash.put(session_of(request), outcome)
         return redirect(f"/execution?intent={intent}")
 
+    # -- MILESTONE-087: exits --------------------------------------------------------
+
+    def exits_or_refuse() -> object:
+        exits = service.exits
+        if exits is None:
+            raise ConsoleRefusalError(
+                "No exit path", "This console has no exit path composed. Nothing was done."
+            )
+        return exits
+
+    def exit_review(request: Request, csrf: str) -> Response:
+        refuse_requested_environment(request.query)
+        exits = exits_or_refuse()
+        view = exits.review(request.first("intent"))  # type: ignore[attr-defined]
+        return html_response(html.exit_review_page(view, csrf))
+
+    def exit_confirm(request: Request, csrf: str) -> Response:
+        del csrf
+        refuse_requested_environment(request.form)
+        exits = exits_or_refuse()
+        intent = request.first("intent")
+        outcome = exits.confirm(intent, request.first("ticket"))  # type: ignore[attr-defined]
+        flash.put(session_of(request), outcome)
+        return redirect(f"/execution?intent={intent}")
+
+    def exit_cancel(request: Request, csrf: str) -> Response:
+        exits_or_refuse()
+        attempt = request.first("attempt")
+        rows = [
+            r
+            for r in service.active_trades()
+            if r.exit is not None and r.exit.attempt_id == attempt
+        ]
+        if not rows:
+            raise NotFoundError(f"no exit {attempt!r} is active")
+        return html_response(html.exit_cancel_confirmation_page(rows[0], csrf, label(), engaged()))
+
+    def exit_confirm_cancel(request: Request, csrf: str) -> Response:
+        del csrf
+        refuse_requested_environment(request.form)
+        exits = exits_or_refuse()
+        outcome = exits.cancel(request.first("attempt"))  # type: ignore[attr-defined]
+        flash.put(session_of(request), outcome)
+        return redirect(f"/execution?intent={request.first('intent')}")
+
     def history(request: Request, csrf: str) -> Response:
         del csrf
         filters = {
@@ -322,6 +367,10 @@ def build_application(
     router.get("/execution", guarded(execution))
     router.get("/execution/cancel", guarded(cancel))
     router.post("/execution/confirm-cancel", guarded(confirm_cancel))
+    router.get("/exit/review", guarded(exit_review))
+    router.post("/exit/confirm", guarded(exit_confirm))
+    router.get("/exit/cancel", guarded(exit_cancel))
+    router.post("/exit/confirm-cancel", guarded(exit_confirm_cancel))
     router.get("/history", guarded(history))
     router.get("/safety", guarded(safety))
     router.get("/safety/kill-switch", guarded(kill_switch_form))

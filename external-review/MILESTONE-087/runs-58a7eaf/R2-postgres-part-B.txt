@@ -1,0 +1,33 @@
+HEAD=<sha ca41b39..c8fa> code=58a7eaf dirty=0 part=B start=2026-09-27T18:03:19Z db=m085_pgon_b24c471 (disposable) mode=sequential-one-process-at-a-time
+== tests/integration/test_m085_paper_execution_postgres.py
+.........................................................                [100%]
+57 passed in 106.44s (0:01:46)
+== tests/integration/test_m085_temporal_postgres.py
+.......                                                                  [100%]
+7 passed in 9.28s
+== tests/integration/test_m085_time_basis_postgres.py
+................................................                         [100%]
+48 passed in 40.35s
+== tests/integration/test_m085_identity_collision_postgres.py
+.......                                                                  [100%]
+7 passed in 12.86s
+== tests/integration/test_m085_pre_send_crash_postgres.py
+...                                                                      [100%]
+3 passed in 16.20s
+== tests/integration/test_m085_absence_policy_postgres.py
+...                                                                      [100%]
+3 passed in 6.34s
+== tests/integration/test_m085_concurrency.py
+.................................................                        [100%]
+49 passed in 163.50s (0:02:43)
+== tests/integration/test_m085_acknowledgement_terms_http.py
+...............                                                          [100%]
+15 passed in 9.14s
+== tests/integration/test_m085_hostile_http.py
+........................................................................ [ 57%]
+.....................................................                    [100%]
+125 passed in 59.97s
+== tests/integration/test_m085_send_boundary_transport.py
+..                                                                       [100%]
+2 passed in 2.47s
+end=2026-09-27T18:10:38Z

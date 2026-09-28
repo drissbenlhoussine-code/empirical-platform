@@ -1,0 +1,42 @@
+HEAD=<sha f08592d..03d8> dirty=19 start=2026-09-27T16:10:01Z
+== compileall
+OK
+== ruff format --check
+790 files already formatted
+== ruff check
+All checks passed!
+== mypy
+Success: no issues found in 382 source files
+== architecture
+exit=0
+== architecture negative fixture (must fail)
+reported a violation as required (exit 1)
+== frozen paths
+frozen paths unmodified (M083 27 since <rev 707161..e8ed>, M084 69 since <rev 112713..23b2>; 96 governed, verified by blob id and by git diff)
+== architecture + frozen + base-pin tests
+65 passed in 31.08s
+== authority renderers (--check)
+m082: current-authority.md matches current-authority.json
+m083: current-authority.md matches current-authority.json
+m084: current-authority.md matches current-authority.json
+m085: current-authority.md matches current-authority.json
+== M084 file audit
+file-audit matrix matches the diff (75 paths)
+== exhaustion table --check (V1 rows; inventory stale by this round's files until regenerated, expected)
+C:\Users\LuxSy\Documents\trading\external-review\MILESTONE-085\exhaustion-table.md is not the current rendering
+== security.ps1 (venv on PATH)
+No known vulnerabilities found
+Secret scan target count: 1572
+[secret-scan JSON output redacted: it named only hex revision ids in logs]
+Potential secrets detected in source targets.
+At C:\Users\LuxSy\Documents\trading\scripts\security.ps1:41 char:5
++     throw "Potential secrets detected in source targets."
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Potential secre...source targets.:String) [], RuntimeException
+    + FullyQualifiedErrorId : Potential secrets detected in source targets.
+ 
+security.ps1 exit=1
+== build
+Successfully built empirical_platform-0.0.0.tar.gz and empirical_platform-0.0.0-py3-none-any.whl
+0
+end=2026-09-27T16:12:40Z

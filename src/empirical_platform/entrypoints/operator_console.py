@@ -30,10 +30,10 @@ import webbrowser
 from collections.abc import Callable
 from pathlib import Path
 
-from empirical_platform.entrypoints._operator_console_composition import (
-    simulation_console_runtime,
-)
 from empirical_platform.entrypoints._operator_console_web import SecuritySession, serve
+from empirical_platform.entrypoints._position_exit_composition import (
+    simulation_exit_console_runtime,
+)
 from empirical_platform.entrypoints.operator_console_app import build_application
 from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
 
@@ -145,7 +145,9 @@ def main(argv: list[str] | None = None) -> int:
     host = _loopback(arguments.host)
 
     try:
-        with simulation_console_runtime(state_dir=arguments.state_dir) as runtime:
+        # MILESTONE-087: this launcher composes the console WITH the exit path, so it requires
+        # the exact M087 schema head (the M086 runtime would require the M085 head).
+        with simulation_exit_console_runtime(state_dir=arguments.state_dir) as runtime:
             if arguments.reset_simulation:
                 runtime.store.reset()
             if arguments.load_day:

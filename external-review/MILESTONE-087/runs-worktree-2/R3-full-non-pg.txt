@@ -1,0 +1,340 @@
+HEAD=<sha f08592d..03d8> dirty=19 start=2026-09-27T16:10:00Z
+........................................................................ [  1%]
+........................................................................ [  2%]
+.................................................................sssssss [  3%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  5%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  6%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  7%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [  8%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 10%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 11%]
+sssssssssssssssssssssssssssssssss....................................sss [ 12%]
+ssssssssssssss.sssssssssss.sssssssssssssssssssssssssssssssssssssssssssss [ 13%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 15%]
+sssssssssssssssssssssssssssssssssssssssss............................... [ 16%]
+............................ssssssssssssssssssssssssssssssssssssssssssss [ 17%]
+sssssss................................sssssssssssssssssssssssssssssssss [ 18%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 20%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 21%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 22%]
+ssssssssssssssssssss.......................ssss.sssssssssssssss......... [ 24%]
+........................................................................ [ 25%]
+....................................................ssssssssssssssssssss [ 26%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 27%]
+sssssssssssssssssss..................................................... [ 29%]
+........................................................................ [ 30%]
+ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 31%]
+ssssssssss..ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss [ 32%]
+ssssssssss.sssssssss.................................................... [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 51%]
+........................................................................ [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 61%]
+........................................................................ [ 63%]
+........................................................................ [ 64%]
+........................................................................ [ 65%]
+........................................................................ [ 67%]
+........................................................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 72%]
+........................................................................ [ 73%]
+........................................................................ [ 74%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+........................................................................ [ 78%]
+........................................................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 87%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 92%]
+........................................................................ [ 93%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+........................................................................ [ 98%]
+........................................................................ [ 99%]
+...                                                                      [100%]
+=============================== tests coverage ================================
+______________ coverage: platform win32, python 3.13.14-final-0 _______________
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+src\empirical_platform\campaign\_reconstruction.py                                                                     53      4     18      3    87%   43, 118, 162-163
+src\empirical_platform\datasets\manifest.py                                                                            30      1     10      1    95%   27
+src\empirical_platform\decision_candidate\candidate.py                                                                 41     11     22     11    65%   55, 57, 59, 61, 63, 65, 67, 69, 71, 73, 75
+src\empirical_platform\decision_candidate\corporate_action_stress.py                                                   44     14     10      0    56%   73-81, 109-157
+src\empirical_platform\decision_candidate\corporate_actions.py                                                        120      1     54      2    98%   120, 243->242
+src\empirical_platform\decision_candidate\daily_research_brief.py                                                     149      6     46      6    94%   209, 248, 359, 361, 365, 370
+src\empirical_platform\decision_candidate\evaluation_context.py                                                        63      7     28      7    85%   68, 79, 136, 138, 143, 145, 184
+src\empirical_platform\decision_candidate\historical_backtest.py                                                      441     52    144     52    82%   138, 140, 142, 162, 164, 166, 168, 183, 185, 188, 192, 215, 217, 219, 221, 223, 225, 227, 239, 244, 248, 251, 259, 261, 265, 267, 311, 313, 315, 317, 319, 321, 323, 326, 328, 330, 332, 335, 337, 339, 414, 416, 418, 420, 422, 432, 459, 491, 561, 636, 638, 727
+src\empirical_platform\decision_candidate\historical_import.py                                                        123      7     36      5    92%   66, 68, 70, 186-197, 238, 343
+src\empirical_platform\decision_candidate\historical_portfolio_evidence.py                                            137      9     50      5    93%   154-155, 212, 226, 243, 286-287, 339-340
+src\empirical_platform\decision_candidate\instrument_master.py                                                         60      4     22      4    90%   72, 74, 76, 80
+src\empirical_platform\decision_candidate\market_data.py                                                               79      5     36      5    91%   71, 73, 75, 85, 112
+src\empirical_platform\decision_candidate\market_data_acquisition.py                                                  129     14     34      5    88%   110, 112, 116, 206-232, 318
+src\empirical_platform\decision_candidate\membership.py                                                                95      6     52      6    92%   56, 58, 60, 65, 91, 98
+src\empirical_platform\decision_candidate\operator_asserted_round_trip.py                                             154      4     40      5    95%   238, 241, 365->364, 367, 407
+src\empirical_platform\decision_candidate\operator_asserted_round_trip_ratio.py                                       105      3     18      3    95%   176, 192, 263
+src\empirical_platform\decision_candidate\operator_evidence_availability.py                                            83      1     20      1    98%   240
+src\empirical_platform\decision_candidate\operator_position_ledger.py                                                 151      3     50      3    97%   167, 205, 336
+src\empirical_platform\decision_candidate\operator_trading_configuration.py                                           212     37    108     37    77%   109, 111, 116, 119, 121, 125, 132, 134, 136, 141, 143, 145, 151, 153, 159, 161, 235, 237, 241, 243, 246, 249, 266, 268, 279, 307, 321, 341, 343, 346, 348, 352, 358, 365, 369, 375, 383
+src\empirical_platform\decision_candidate\paper_execution.py                                                         1052     68    460     71    91%   448->450, 639, 701, 707, 710, 712, 716, 721, 796->800, 951, 1116, 1118, 1128, 1133, 1135, 1172, 1180, 1259, 1261, 1266, 1281, 1289, 1323, 1457, 1463, 1473, 1604, 1606, 1608, 1610, 1615, 1734, 1736, 1738, 1740->1742, 1743, 1745, 1757, 2009, 2028, 2030, 2086, 2088, 2128, 2134, 2179, 2184, 2202, 2223, 2225, 2406, 2433, 2483, 2525, 2527, 2529, 2532, 2551, 2608, 2610, 2612, 2636, 2668, 2769, 2771, 2774, 2832, 2877, 2897, 2899, 2901
+src\empirical_platform\decision_candidate\portfolio_dependence.py                                                     297     27    116     27    87%   116, 118, 152, 156, 158, 160, 187, 189, 195, 199, 201, 269, 271, 285, 287, 289, 291, 293, 295, 299, 447, 449, 473, 476, 522, 576, 668
+src\empirical_platform\decision_candidate\portfolio_study.py                                                          350     90    108     19    71%   106, 108, 116, 155, 157, 159, 163, 203, 205, 230, 232, 301, 303, 324, 326, 328, 335, 337, 339, 347, 383-409, 640-756
+src\empirical_platform\decision_candidate\position_exit.py                                                            509     67    206     62    82%   148, 150, 155, 160, 172, 174, 185, 329, 363, 368, 370, 509, 514, 519->521, 530, 633, 635, 639->641, 642, 644, 646, 648, 650, 654, 659, 667, 743, 748, 752, 754, 792, 794, 796, 798, 800, 805, 834, 840, 881, 884, 886, 935, 966, 969, 1011, 1014-1015, 1038, 1040, 1047, 1061, 1063, 1069-1070, 1072, 1075-1076, 1080-1082, 1085, 1088, 1096, 1145, 1147, 1149, 1151, 1153, 1157
+src\empirical_platform\decision_candidate\position_plan.py                                                            172     33     94     33    75%   67, 69, 71, 73, 157, 160, 162, 164, 166, 168, 170, 172, 174, 176, 178, 180, 219, 221, 223, 225, 227, 229, 231, 233, 236, 238, 240, 247, 249, 251, 253, 256, 260
+src\empirical_platform\decision_candidate\product_market_inputs.py                                                    219     36     68     32    76%   77, 79, 84, 86, 88, 93, 95, 100, 102, 104, 109, 111, 113, 118, 120, 167, 205, 207, 211, 213, 218, 237, 239, 259, 261, 263, 281, 295, 312, 314, 316, 318, 320, 339, 367, 371
+src\empirical_platform\decision_candidate\research_session.py                                                         266      0    136      1    99%   417->392
+src\empirical_platform\decision_candidate\robustness_study.py                                                         380     39    128     38    84%   111, 113, 117, 139, 141, 143, 145, 147, 162, 164, 166, 184, 186, 191, 194, 197, 199, 208, 211, 216, 250, 252, 254, 256, 380, 382, 408, 410, 412, 414, 417, 419, 486, 491, 498, 548->547, 551, 719-722
+src\empirical_platform\decision_candidate\same_day_capital_feasibility.py                                             114      1     28      1    99%   316
+src\empirical_platform\decision_candidate\scan.py                                                                      97      8     38      8    88%   120, 122, 124, 126, 130, 132, 134, 136
+src\empirical_platform\decision_candidate\statistical_evidence.py                                                     285     73     68      7    70%   145, 186, 188, 214->exit, 233->exit, 300-334, 379-380, 468, 497-631
+src\empirical_platform\decision_candidate\strategy.py                                                                  48      2      6      2    93%   65, 67
+src\empirical_platform\decision_candidate\survivorship_study.py                                                       311     21     74     22    89%   139, 142, 147, 320, 322, 349, 351, 353, 355, 357, 360, 362, 365, 373, 396->395, 399, 430, 435, 442, 486, 499, 655
+src\empirical_platform\decision_candidate\trade_approval.py                                                           165     28     92     28    78%   105, 111, 113, 140, 142, 144, 146, 149, 164, 167, 169, 178, 199, 201, 204, 286, 288, 292, 294, 296, 298, 300, 302, 315, 322, 339, 341, 361
+src\empirical_platform\decision_candidate\trade_plan.py                                                               131     12     56     12    87%   66, 68, 119, 123, 125, 127, 217, 219, 221, 223, 225, 235
+src\empirical_platform\decision_candidate\trade_proposal.py                                                           293     35    106     34    83%   184, 186, 188, 190, 192, 246, 248, 252, 254, 261, 263, 267, 269, 271, 277, 279, 291, 293, 295, 301, 306, 308, 310, 313, 318, 320, 326, 329, 336, 461, 465, 496, 498, 500, 502
+src\empirical_platform\decision_candidate\universe_authority.py                                                        11      3      4      0    53%   26-28
+src\empirical_platform\decision_candidate\validation_study.py                                                         255     20     90     20    88%   141, 163, 165, 169, 171, 187, 206, 241, 326, 328, 349, 351, 353, 355, 357, 364, 378, 386, 394, 402
+src\empirical_platform\entrypoints\_operator_console_composition.py                                                    76     36      6      0    49%   79, 105-106, 110-116, 127-128, 151-153, 179-233, 261-279
+src\empirical_platform\entrypoints\_operator_console_html.py                                                          175      2     46      2    98%   585, 729
+src\empirical_platform\entrypoints\_operator_console_web.py                                                           143      8     20      1    94%   81, 180, 220-221, 234-235, 261-262
+src\empirical_platform\entrypoints\_position_exit_composition.py                                                       34     16      0      0    53%   44, 61-72, 96-114
+src\empirical_platform\entrypoints\acquire_market_data_snapshot.py                                                     25     25      4      0     0%   19-103
+src\empirical_platform\entrypoints\activate_campaign.py                                                                29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\activate_execution_kill_switch.py                                                   32      4     10      1    88%   43-45, 78
+src\empirical_platform\entrypoints\add_review_finding.py                                                               28      7      4      1    75%   37-51, 80
+src\empirical_platform\entrypoints\append_run_manifest.py                                                              29      7      4      1    76%   41-58, 90
+src\empirical_platform\entrypoints\audit_history.py                                                                    26      8      6      2    62%   44-52, 62-67, 74
+src\empirical_platform\entrypoints\audit_research_decision_follow_through.py                                           45     45     12      0     0%   3-79
+src\empirical_platform\entrypoints\authorize_paper_submission.py                                                       31      4      8      1    87%   51-61, 101
+src\empirical_platform\entrypoints\authorize_run.py                                                                    29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\build_daily_research_brief.py                                                       42     12     10      1    67%   54-87, 128
+src\empirical_platform\entrypoints\build_position_plan.py                                                              28      7      4      1    75%   39-61, 117
+src\empirical_platform\entrypoints\build_trade_plan.py                                                                 28     14      4      1    47%   51-76, 81-82, 115-130, 134
+src\empirical_platform\entrypoints\cancel_campaign.py                                                                  35      1      4      1    95%   107
+src\empirical_platform\entrypoints\cancel_paper_order.py                                                               27      4      6      1    85%   37-44, 67
+src\empirical_platform\entrypoints\cancel_review.py                                                                    29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\capture_evaluation_evidence_watermark.py                                            26      5      6      1    81%   46-51, 74
+src\empirical_platform\entrypoints\compare_daily_research_sessions.py                                                  23      5      4      1    78%   39-42, 65
+src\empirical_platform\entrypoints\complete_campaign.py                                                                29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\complete_review.py                                                                  29      7      4      1    76%   41-57, 90
+src\empirical_platform\entrypoints\complete_run_execution.py                                                           29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\create_campaign.py                                                                  32      1      4      1    94%   99
+src\empirical_platform\entrypoints\create_evidence_package.py                                                          26      7      4      1    73%   38-49, 75
+src\empirical_platform\entrypoints\create_review.py                                                                    26      7      4      1    73%   36-48, 75
+src\empirical_platform\entrypoints\create_run.py                                                                       26      7      4      1    73%   34-45, 70
+src\empirical_platform\entrypoints\deactivate_execution_kill_switch.py                                                 32      4     10      1    88%   37-39, 75
+src\empirical_platform\entrypoints\decide_paper_bound_trade_proposal.py                                                35      7      6      1    80%   55-65, 71-73, 103
+src\empirical_platform\entrypoints\decide_trade_proposal.py                                                            47      9     10      3    79%   57-64, 87-88, 90, 115, 132
+src\empirical_platform\entrypoints\evaluate_trading_observation.py                                                     41     23      8      1    39%   47-64, 77-95, 100-101, 124-136, 140
+src\empirical_platform\entrypoints\explain_no_trade.py                                                                 40     20      8      2    46%   52-53, 61-67, 77-106, 113
+src\empirical_platform\entrypoints\fail_run.py                                                                         29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\get_asserted_round_trip_ratio_report.py                                             40     40     10      0     0%   3-73
+src\empirical_platform\entrypoints\get_asserted_round_trip_report.py                                                   40     40     10      0     0%   3-71
+src\empirical_platform\entrypoints\get_attested_evidence_report.py                                                     39     11     10      0    73%   63-78
+src\empirical_platform\entrypoints\get_campaign.py                                                                     31      1      4      1    94%   83
+src\empirical_platform\entrypoints\get_corporate_action_semantics_stress.py                                            23      9      4      1    56%   32-37, 48-56, 60
+src\empirical_platform\entrypoints\get_daily_research_session.py                                                       23      5      4      1    78%   33-36, 59
+src\empirical_platform\entrypoints\get_decision_candidate.py                                                           26     12      4      1    50%   32-41, 46-47, 70-78, 82
+src\empirical_platform\entrypoints\get_evaluation_evidence_watermark.py                                                26      5      6      1    81%   44-49, 70
+src\empirical_platform\entrypoints\get_evidence_package.py                                                             25      6      4      1    76%   32-39, 66
+src\empirical_platform\entrypoints\get_historical_backtest_run.py                                                      23      5      4      1    78%   28-31, 54
+src\empirical_platform\entrypoints\get_historical_dataset_snapshot.py                                                  21      9      4      1    52%   28-31, 39-47, 51
+src\empirical_platform\entrypoints\get_historical_robustness_study.py                                                  23      5      4      1    70%   42-50, 54
+src\empirical_platform\entrypoints\get_historical_validation_study.py                                                  23      9      4      1    56%   28-31, 42-50, 54
+src\empirical_platform\entrypoints\get_operator_evidence_snapshot.py                                                   40     40     10      0     0%   3-71
+src\empirical_platform\entrypoints\get_operator_position_state.py                                                      31     31      8      0     0%   3-60
+src\empirical_platform\entrypoints\get_order_intent.py                                                                 26      8      6      2    62%   38-42, 54-59, 66
+src\empirical_platform\entrypoints\get_portfolio_dependence_evidence.py                                                23      9      4      1    56%   32-37, 48-56, 60
+src\empirical_platform\entrypoints\get_portfolio_historical_evidence.py                                                23      9      4      1    56%   30-33, 44-52, 56
+src\empirical_platform\entrypoints\get_position_plan.py                                                                25      5      4      1    79%   28-31, 87
+src\empirical_platform\entrypoints\get_review.py                                                                       25      6      4      1    76%   28-35, 61
+src\empirical_platform\entrypoints\get_run.py                                                                          25      6      4      1    76%   28-35, 60
+src\empirical_platform\entrypoints\get_statistical_evidence_report.py                                                  23      9      4      1    56%   30-35, 46-53, 57
+src\empirical_platform\entrypoints\get_survivorship_aware_robustness_study.py                                          23      9      4      1    56%   30-35, 46-55, 59
+src\empirical_platform\entrypoints\get_trade_plan.py                                                                   26     12      4      1    50%   32-39, 44-45, 79-85, 89
+src\empirical_platform\entrypoints\get_trade_proposal.py                                                               26      5      6      2    78%   38-40, 55, 62
+src\empirical_platform\entrypoints\get_trading_opportunity_scan.py                                                     25     11      4      1    52%   32-41, 46, 78-86, 90
+src\empirical_platform\entrypoints\health.py                                                                           12      1      2      1    86%   24
+src\empirical_platform\entrypoints\import_historical_dataset_snapshot.py                                               28     15      4      1    44%   54-64, 85-87, 104-127, 131
+src\empirical_platform\entrypoints\inspect_paper_account.py                                                            27      4      6      1    85%   36-40, 63
+src\empirical_platform\entrypoints\invalidate_stale_proposals.py                                                       39     18     10      2    47%   55-61, 65-73, 83-93, 100
+src\empirical_platform\entrypoints\issue_order_intent.py                                                               40     19     10      2    46%   51-58, 62-70, 80-93, 100
+src\empirical_platform\entrypoints\issue_paper_bound_order_intent.py                                                   27      4      6      1    85%   52-62, 97
+src\empirical_platform\entrypoints\kill_switch.py                                                                      35     13     10      2    58%   55-69, 88-104, 115
+src\empirical_platform\entrypoints\list_daily_research_sessions.py                                                     23      5      4      1    78%   33-36, 50
+src\empirical_platform\entrypoints\list_paper_executions.py                                                            36      4     14      1    90%   34-36, 68
+src\empirical_platform\entrypoints\list_trade_proposals.py                                                             37      8     10      3    72%   39-41, 63, 67-69, 79
+src\empirical_platform\entrypoints\open_evaluation_context.py                                                          29     10      6      2    60%   43-50, 60-66, 73
+src\empirical_platform\entrypoints\operator_console.py                                                                 97     13     22      7    83%   77-78, 99-105, 152, 154-155, 163->168, 177, 186->191, 191->196, 193-195, 200
+src\empirical_platform\entrypoints\operator_console_app.py                                                            203      8     12      3    95%   96-97, 126-130, 235, 264, 301
+src\empirical_platform\entrypoints\paper_execution_status.py                                                           25      4      6      1    84%   32-39, 64
+src\empirical_platform\entrypoints\prepare_campaign_for_authorization.py                                               29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\prepare_paper_bound_trade_proposal.py                                               29      4      6      1    86%   51-61, 99
+src\empirical_platform\entrypoints\prepare_trade_proposal.py                                                           39      8      8      2    79%   57-64, 70-71, 105, 114
+src\empirical_platform\entrypoints\preview_paper_submission.py                                                         28      1      6      1    94%   93
+src\empirical_platform\entrypoints\reconcile_paper_order.py                                                            27      4      6      1    85%   41-51, 76
+src\empirical_platform\entrypoints\record_campaign_authorization.py                                                    29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\record_evidence_package_artifact_reference.py                                       28      7      4      1    75%   35-49, 77
+src\empirical_platform\entrypoints\record_evidence_package_criterion_result.py                                         29      7      4      1    76%   40-58, 90
+src\empirical_platform\entrypoints\record_operator_position_event.py                                                   45     45      8      0     0%   7-132
+src\empirical_platform\entrypoints\resume_campaign.py                                                                  29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\revise_campaign_scope_statement.py                                                  28      7      4      1    75%   35-47, 75
+src\empirical_platform\entrypoints\run_corporate_action_semantics_stress.py                                            28     13      4      1    50%   54-64, 83, 87-108, 112
+src\empirical_platform\entrypoints\run_daily_research_session.py                                                       32      9      6      1    74%   56-77, 115
+src\empirical_platform\entrypoints\run_daily_research_workflow.py                                                     120     20     32      5    84%   119-182, 231-232, 234, 236-237, 305
+src\empirical_platform\entrypoints\run_historical_backtest.py                                                          27      7      4      1    74%   48-53, 95
+src\empirical_platform\entrypoints\run_historical_robustness_study.py                                                  27      6      4      1    71%   76, 80-97, 101
+src\empirical_platform\entrypoints\run_historical_validation_study.py                                                  27     12      4      1    52%   54-62, 79, 83-103, 107
+src\empirical_platform\entrypoints\run_portfolio_dependence_evidence.py                                                25     12      4      1    48%   49-62, 75, 79-94, 98
+src\empirical_platform\entrypoints\run_portfolio_historical_evidence.py                                                26     12      4      1    50%   47-63, 75, 79-97, 101
+src\empirical_platform\entrypoints\run_statistical_evidence_analysis.py                                                26     12      4      1    50%   46-62, 74, 78-92, 96
+src\empirical_platform\entrypoints\run_survivorship_aware_robustness_study.py                                          28     14      4      1    47%   60-77, 97, 101-127, 131
+src\empirical_platform\entrypoints\run_trading_opportunity_scan.py                                                     44     25      8      1    38%   46, 70-82, 95-113, 118, 149-161, 165
+src\empirical_platform\entrypoints\save_trading_configuration.py                                                       29      5      6      1    83%   44-49, 86
+src\empirical_platform\entrypoints\seal_evidence_package.py                                                            29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\show_paper_execution.py                                                             26      4      6      1    84%   35-44, 65
+src\empirical_platform\entrypoints\show_trading_configuration.py                                                       34     10      8      1    64%   45-49, 62-64, 79-82, 89
+src\empirical_platform\entrypoints\start_evidence_package_collection.py                                                29      7      4      1    76%   39-56, 88
+src\empirical_platform\entrypoints\start_review.py                                                                     29      7      4      1    76%   36-51, 83
+src\empirical_platform\entrypoints\start_run_acquisition.py                                                            29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\start_run_normalization.py                                                          29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\start_run_validation.py                                                             29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\submit_authorized_paper_order.py                                                    28      1      6      1    94%   108
+src\empirical_platform\entrypoints\suspend_campaign.py                                                                 29      7      4      1    76%   39-54, 86
+src\empirical_platform\entrypoints\system_status.py                                                                    26      5      6      2    78%   43-48, 63, 72
+src\empirical_platform\entrypoints\validate_trading_configuration.py                                                   25      2      8      2    88%   47, 65
+src\empirical_platform\entrypoints\verify_paper_environment.py                                                         25      4      6      1    84%   35-39, 59
+src\empirical_platform\entrypoints\version.py                                                                           9      1      2      1    82%   21
+src\empirical_platform\evidence\_reconstruction.py                                                                     73      7     24      7    86%   46, 161, 167, 177, 191, 200, 207
+src\empirical_platform\review\_reconstruction.py                                                                       86     10     32     10    83%   53, 77, 142, 169, 179, 189, 201, 210, 216, 228
+src\empirical_platform\review\mapper.py                                                                                71      2      2      0    97%   209-210
+src\empirical_platform\run\_reconstruction.py                                                                          62      3     18      2    91%   45, 166-167
+src\empirical_platform\shared\bootstrap.py                                                                            161      9     30      8    90%   83->exit, 99->102, 102->105, 113-114, 129-130, 262, 468, 471, 483-484
+src\empirical_platform\shared\brokerage\alpaca_paper.py                                                               395     42    128     18    87%   224, 246, 248, 250, 252, 311, 339, 446, 455, 460, 463-464, 534, 577-578, 621, 683, 697, 720, 725, 735, 746, 756->759, 934, 958-978
+src\empirical_platform\shared\brokerage\paper_time.py                                                                 117      2     34      1    98%   230, 278
+src\empirical_platform\shared\brokerage\simulation_paper.py                                                           461     25     98     13    93%   386->384, 388->390, 390->392, 392->394, 408-413, 418-420, 469-470, 520, 534, 552, 599-601, 614, 622-624, 695, 779, 784, 952->957, 955->957, 975-976, 1004
+src\empirical_platform\shared\config\settings.py                                                                      109      0      6      1    99%   188->190
+src\empirical_platform\shared\contracts\repository.py                                                                  52      8      8      4    80%   35, 37, 49, 51, 114-119, 126-131
+src\empirical_platform\shared\domain\reconstruction.py                                                                 66      6     36      7    87%   56, 73, 100, 111, 142, 153->155, 158
+src\empirical_platform\shared\health.py                                                                                56      3     14      1    94%   50, 110-111
+src\empirical_platform\shared\identifiers.py                                                                           38      2      4      0    95%   45-46
+src\empirical_platform\shared\interfaces\clock.py                                                                      41      3      6      1    91%   41, 62, 66
+src\empirical_platform\shared\logging\configure.py                                                                     38      4      4      1    88%   49-50, 70, 81
+src\empirical_platform\shared\object_storage\fake.py                                                                  101      2     18      1    97%   85-91
+src\empirical_platform\shared\object_storage\s3.py                                                                    194     32     48     13    79%   128, 139, 143-144, 167-169, 179-185, 187-189, 203->205, 229->231, 231->233, 242-243, 258-264, 285-291, 335-336, 362, 419, 428-435
+src\empirical_platform\shared\persistence\fake.py                                                                      84      4     24      4    93%   56, 98, 135, 155
+src\empirical_platform\shared\persistence\postgres.py                                                                 223     22     52     10    88%   44, 51-53, 79-81, 137, 145->147, 277->280, 307, 318, 320, 328, 346-361, 404-411, 430->432, 441
+src\empirical_platform\shared\persistence\postgres_repositories\_errors.py                                             15      2      6      2    81%   31, 33
+src\empirical_platform\shared\persistence\postgres_repositories\campaign_repository.py                                 93     67     22      0    23%   51-57, 73-74, 106-160, 164-208, 217-302
+src\empirical_platform\shared\persistence\postgres_repositories\dataset_snapshot_repository.py                         97     59     20      0    32%   55-72, 75-142, 148-157, 192-205, 208-254, 258-269, 289-300, 303-345, 349
+src\empirical_platform\shared\persistence\postgres_repositories\decision_candidate_repository.py                       48     25      6      0    43%   41-52, 78-90, 94-102, 106-146
+src\empirical_platform\shared\persistence\postgres_repositories\decision_to_approval_repositories.py                  193      7     38      1    96%   137, 644-655
+src\empirical_platform\shared\persistence\postgres_repositories\evidence_package_repository.py                        109     81     30      0    20%   54-60, 76-77, 99, 112, 138-206, 210-275, 287-405
+src\empirical_platform\shared\persistence\postgres_repositories\historical_backtest_repository.py                      45     23      6      0    43%   36-37, 71, 156-174, 177-372
+src\empirical_platform\shared\persistence\postgres_repositories\historical_portfolio_evidence_query_repository.py      64     41     12      0    30%   71-89, 128-157, 244-301, 380, 421-440, 445-475, 478-483
+src\empirical_platform\shared\persistence\postgres_repositories\operator_event_receipt_repository.py                   60     37     14      0    31%   86, 125-199, 202-213, 226-238, 241-247, 251
+src\empirical_platform\shared\persistence\postgres_repositories\operator_position_event_repository.py                  47     24      2      0    47%   38-40, 78-97, 102-135, 138-145, 150-159
+src\empirical_platform\shared\persistence\postgres_repositories\paper_execution_repositories.py                       446    262     76      0    36%   130, 143-146, 150-155, 159-166, 170-173, 177-180, 184-189, 193-196, 200-202, 212-216, 229-232, 236-239, 243, 261-268, 294, 303-307, 310, 313, 321-339, 369, 395, 398-420, 423-425, 503-517, 521-524, 528, 571, 574-622, 625-627, 630-632, 635-637, 710, 749, 752-787, 790-794, 797-801, 881, 907-908, 912, 916, 919, 928, 948-1015, 1018, 1021, 1024, 1027-1029, 1051-1088, 1091-1097, 1129, 1150, 1153-1170, 1173-1177, 1180-1182, 1204, 1220, 1223-1235, 1238-1242, 1272, 1331, 1341, 1357, 1384, 1387-1400, 1405-1412, 1415-1428, 1431-1435, 1438-1454, 1457-1459, 1518-1523, 1527-1528, 1552, 1557-1576, 1589-1613, 1616-1620, 1639-1683, 1702, 1706, 1710, 1714, 1718, 1722, 1726, 1730, 1734
+src\empirical_platform\shared\persistence\postgres_repositories\portfolio_dependence_repository.py                     49     27      8      0    39%   48-69, 72-211, 215, 227, 245-259
+src\empirical_platform\shared\persistence\postgres_repositories\portfolio_study_repository.py                          55     32     10      0    35%   48-74, 77-288, 292-293, 313, 325, 344-352
+src\empirical_platform\shared\persistence\postgres_repositories\position_exit_repositories.py                         355    208     64      0    36%   95, 108-111, 115-120, 124-127, 131-136, 140-143, 147-150, 154-159, 163-166, 170, 174-178, 188-195, 199, 261-306, 313, 316-354, 357-359, 362-364, 367-369, 413, 440, 443-467, 470-472, 475-477, 543, 570-571, 575, 579, 593, 606-666, 669-671, 674, 677-681, 684, 687, 702-730, 735-746, 749-753, 784, 803, 806-824, 827-829, 832-834, 891-892, 911, 925, 930-949, 962-982, 985-987, 998-1038, 1045, 1048-1060, 1063-1067, 1076, 1080, 1084, 1088, 1092, 1096, 1100
+src\empirical_platform\shared\persistence\postgres_repositories\position_plan_repository.py                            48     26      8      0    39%   31-45, 72-84, 88-96, 99-153
+src\empirical_platform\shared\persistence\postgres_repositories\research_session_repository.py                         76     50     12      0    30%   46-67, 70-199, 204-217, 226-256, 260-261, 277, 291, 307-308
+src\empirical_platform\shared\persistence\postgres_repositories\review_repository.py                                  103     75     26      0    22%   52-58, 74-75, 95, 104, 126-190, 194-254, 263-368
+src\empirical_platform\shared\persistence\postgres_repositories\robustness_study_repository.py                         46     24      6      0    42%   37-48, 75, 163-180, 183-371
+src\empirical_platform\shared\persistence\postgres_repositories\run_repository.py                                     103     75     26      0    22%   52-58, 72-73, 95, 109, 134-194, 198-251, 258-356
+src\empirical_platform\shared\persistence\postgres_repositories\runtime.py                                            155     26      2      0    83%   190, 194, 198, 202, 206, 222, 226, 230, 234, 238, 242, 246, 250, 254, 258, 262, 266, 272, 276, 280, 284, 288, 294, 298, 302, 306
+src\empirical_platform\shared\persistence\postgres_repositories\statistical_evidence_repository.py                     52     30     10      0    35%   49-70, 73-232, 236, 251, 265-274
+src\empirical_platform\shared\persistence\postgres_repositories\survivorship_study_repository.py                       76     41     10      0    41%   59-77, 116-145, 236-262, 265-521, 532-543, 563-569, 579-591, 605
+src\empirical_platform\shared\persistence\postgres_repositories\trade_plan_repository.py                               49     26      8      0    40%   44-54, 88-100, 104-112, 116-170
+src\empirical_platform\shared\persistence\postgres_repositories\trading_opportunity_scan_repository.py                 44     21      6      0    46%   57-63, 83-108, 127-174
+src\empirical_platform\shared\persistence\postgres_repositories\validation_study_repository.py                         49     27      6      0    40%   36-47, 73-76, 125-144, 147-274
+src\empirical_platform\usecases\acquire_market_data_snapshot.py                                                        73      4     10      4    90%   71, 73, 75, 77
+src\empirical_platform\usecases\asserted_round_trip_io.py                                                              43      4     18      4    87%   73, 75->162, 114, 117-121
+src\empirical_platform\usecases\asserted_round_trip_ratio_io.py                                                        36      0     12      1    98%   61->59
+src\empirical_platform\usecases\attested_evidence_io.py                                                                23      0      8      1    97%   41->39
+src\empirical_platform\usecases\audit_research_decision_follow_through.py                                              37     16      4      0    51%   54-55, 66, 88-89, 94-124
+src\empirical_platform\usecases\build_daily_research_brief.py                                                         112      9     24      6    89%   101, 121, 258->264, 333->350, 375, 384-394
+src\empirical_platform\usecases\build_position_plan.py                                                                 27      6      0      0    78%   51-52, 55-63
+src\empirical_platform\usecases\build_trade_plan.py                                                                    30      8      0      0    73%   75-77, 80-92
+src\empirical_platform\usecases\daily_research_brief_io.py                                                            130     34     54     12    66%   174-227, 403, 405, 409->411, 479-514, 534, 535->566, 561, 567, 582->584, 585-619, 625
+src\empirical_platform\usecases\decision_to_approval_io.py                                                            243     29     56     17    85%   108, 120, 126, 132, 135, 142, 151, 154-155, 157, 163, 171-172, 185-186, 208, 211, 214, 346, 456, 556, 632, 881-884, 900, 910-916
+src\empirical_platform\usecases\discover_historical_portfolio_evidence.py                                              32      7      4      0    69%   77-85
+src\empirical_platform\usecases\evaluate_trading_observation.py                                                        27      5      0      0    81%   60, 65-78
+src\empirical_platform\usecases\get_asserted_round_trip_ratio_report.py                                                22      7      6      0    54%   35-40, 53, 56-67
+src\empirical_platform\usecases\get_asserted_round_trip_report.py                                                      22      7      6      0    54%   36-41, 54, 57-68
+src\empirical_platform\usecases\get_corporate_action_semantics_stress.py                                               15      2      0      0    87%   34, 39
+src\empirical_platform\usecases\get_decision_candidate.py                                                              15      2      0      0    87%   29, 38
+src\empirical_platform\usecases\get_historical_backtest_run.py                                                         15      2      0      0    87%   31, 34
+src\empirical_platform\usecases\get_historical_dataset_snapshot.py                                                     15      2      0      0    87%   32, 35
+src\empirical_platform\usecases\get_historical_validation_study.py                                                     15      2      0      0    87%   31, 34
+src\empirical_platform\usecases\get_operator_evidence_snapshot.py                                                      22      7      6      0    54%   41-46, 59, 62-71
+src\empirical_platform\usecases\get_operator_position_state.py                                                         15      2      0      0    87%   32, 35
+src\empirical_platform\usecases\get_portfolio_dependence_evidence.py                                                   15      2      0      0    87%   32, 35
+src\empirical_platform\usecases\get_portfolio_historical_evidence.py                                                   15      2      0      0    87%   32, 35
+src\empirical_platform\usecases\get_position_plan.py                                                                   15      2      0      0    87%   29, 32
+src\empirical_platform\usecases\get_statistical_evidence_report.py                                                     15      2      0      0    87%   32, 35
+src\empirical_platform\usecases\get_survivorship_aware_robustness_study.py                                             15      2      0      0    87%   34, 39
+src\empirical_platform\usecases\get_trade_plan.py                                                                      15      2      0      0    87%   29, 38
+src\empirical_platform\usecases\get_trading_opportunity_scan.py                                                        15      2      0      0    87%   34, 43
+src\empirical_platform\usecases\historical_backtest_io.py                                                             126      1      4      1    98%   143
+src\empirical_platform\usecases\historical_import_io.py                                                                78      4      6      1    94%   79, 175-177
+src\empirical_platform\usecases\import_historical_dataset_snapshot.py                                                  62      0      6      1    99%   130->166
+src\empirical_platform\usecases\operator_console.py                                                                   665     46    206     25    90%   358, 365, 415-417, 617-618, 665, 777-778, 880, 890-896, 899-907, 929, 960, 972, 981, 984, 1032, 1045, 1072-1076, 1081->1101, 1102->1169, 1131, 1150->1152, 1271, 1334-1338, 1542-1543, 1545-1547, 1568, 1693, 1725-1726, 1735, 1760-1777
+src\empirical_platform\usecases\operator_console_exits.py                                                             298     27    104     15    88%   171-172, 305, 307, 315-317, 331->333, 350, 362, 372, 387, 474, 543, 553, 565->590, 588-589, 652, 676, 684-685, 716-717, 732, 756-759
+src\empirical_platform\usecases\operator_console_fixtures.py                                                           72      5     16      2    92%   228-229, 284-285, 299
+src\empirical_platform\usecases\operator_evidence_snapshot_io.py                                                       25     20     10      0    14%   20, 59-98
+src\empirical_platform\usecases\operator_position_ledger_io.py                                                         25     19     10      0    17%   22, 36, 50-80
+src\empirical_platform\usecases\paper_execution.py                                                                    728     28    172     16    95%   229-230, 304, 316, 319-320, 664-665, 773, 878, 1024, 1027, 1059, 1068->1074, 1127, 1238, 1280, 1364, 1858-1867, 1960, 2107-2120, 2200, 2211-2212, 2704
+src\empirical_platform\usecases\paper_execution_io.py                                                                 109      8     24      4    91%   77, 87, 111, 131, 590, 592-600
+src\empirical_platform\usecases\portfolio_dependence_io.py                                                             70      5      0      0    93%   88, 100, 116-118
+src\empirical_platform\usecases\portfolio_study_io.py                                                                  99      6      0      0    94%   118, 138, 150, 164-166
+src\empirical_platform\usecases\position_exit.py                                                                      455    103    120     45    72%   162, 165-166, 173, 176, 184-185, 189, 195-196, 241, 275-285, 358, 460, 462, 467, 471, 476, 481, 486->488, 489, 596, 608, 613, 618, 623, 660, 677, 697-698, 703, 711, 732, 742-744, 777-804, 813-822, 848-858, 873-881, 896-904, 915-928, 1076, 1078, 1080-1082, 1085-1088, 1102-1116, 1147->1151, 1152-1160, 1168-1177, 1205-1213, 1227-1235, 1241-1248, 1252-1261, 1263-1270, 1303-1310, 1373, 1375, 1377, 1385-1395, 1414
+src\empirical_platform\usecases\record_operator_position_event.py                                                      29      4      0      0    86%   47, 59, 80, 105
+src\empirical_platform\usecases\research_decision_follow_through_io.py                                                 30     25     12      0    12%   21, 61-106
+src\empirical_platform\usecases\robustness_study_io.py                                                                124      2      6      2    97%   139, 145
+src\empirical_platform\usecases\run_corporate_action_semantics_stress.py                                               45     15      4      0    61%   78-80, 85-117, 136
+src\empirical_platform\usecases\run_daily_research_session.py                                                         191    132     22      0    28%   175-187, 190-783
+src\empirical_platform\usecases\run_historical_backtest.py                                                             32      5      0      0    84%   61, 64-77, 94
+src\empirical_platform\usecases\run_historical_validation_study.py                                                     43     11      2      0    71%   96-97, 100-116, 133-145
+src\empirical_platform\usecases\run_portfolio_dependence_evidence.py                                                   30      9      0      0    70%   70-71, 74-86, 99
+src\empirical_platform\usecases\run_portfolio_historical_evidence.py                                                   29      9      0      0    69%   71-73, 76-94, 106
+src\empirical_platform\usecases\run_statistical_evidence_analysis.py                                                   29      9      0      0    69%   72-74, 77-95, 107
+src\empirical_platform\usecases\run_survivorship_aware_robustness_study.py                                             66     24      4      0    60%   134-138, 143-171, 199-214
+src\empirical_platform\usecases\run_trading_opportunity_scan.py                                                        42     13      2      0    66%   105-106, 111-146
+src\empirical_platform\usecases\statistical_evidence_io.py                                                             85      4      0      0    95%   107, 126-128
+src\empirical_platform\usecases\survivorship_study_io.py                                                              153     14      2      1    90%   84, 216-217, 221-222, 239-240, 281-292, 315-317
+src\empirical_platform\usecases\validation_study_io.py                                                                 95      8      6      2    90%   112, 118, 156-158, 195-197
+---------------------------------------------------------------------------------------------------------------------------------------------------------------
+TOTAL                                                                                                               24232   4093   5744    972    81%
+
+131 files skipped due to complete coverage.
+Required test coverage of 79.0% reached. Total coverage: 80.52%
+4422 passed, 1269 skipped in 233.74s (0:03:53)
+end=2026-09-27T16:13:58Z

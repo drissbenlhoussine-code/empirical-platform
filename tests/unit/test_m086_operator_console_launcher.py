@@ -182,7 +182,8 @@ class TestTheReconcilerIsStoppedAndJoined:
             finally:
                 events.append("server closed")
 
-        monkeypatch.setattr(launcher, "simulation_console_runtime", fake_runtime)
+        # Stacked-milestone evolution (M087): the launcher composes the exit-capable runtime.
+        monkeypatch.setattr(launcher, "simulation_exit_console_runtime", fake_runtime)
         monkeypatch.setattr(launcher, "build_application", lambda runtime, security: object())
         monkeypatch.setattr(launcher, "serve", fake_serve)
 
@@ -214,7 +215,7 @@ class TestTheReconcilerIsStoppedAndJoined:
         tree = ast.parse(source)
         main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
         text = ast.unparse(main)
-        runtime_with = text.index("with simulation_console_runtime(")
+        runtime_with = text.index("with simulation_exit_console_runtime(")
         serve_with = text.index("with serve(")
         stop_call = text.index("reconciler.stop()")
         assert runtime_with < serve_with < stop_call
