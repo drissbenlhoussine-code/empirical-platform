@@ -687,9 +687,18 @@ class OperatorConsoleService:
         staged_scenarios: Callable[[], Mapping[str, str]] | None = None,
         exits: PositionExitConsole | None = None,
     ) -> None:
-        if not capability.enabled or capability.capability is not ExecutionCapability.SIMULATION:
+        # MILESTONE-088: PAPER joins SIMULATION now that M085 Paper Acceptance has completed
+        # against the real Alpaca paper endpoint. LIVE has no member here and never will from
+        # this check alone -- composing it requires a `CapabilityStatus` this module's own
+        # `CAPABILITIES` table never produces with `enabled=True` for LIVE, and no composition
+        # root in this repository builds one.
+        if not capability.enabled or capability.capability not in (
+            ExecutionCapability.SIMULATION,
+            ExecutionCapability.PAPER,
+        ):
             raise CapabilityRefusedError(
-                "the Operator Console can be composed for SIMULATION only in this milestone"
+                "the Operator Console can be composed for SIMULATION or PAPER only; LIVE is not "
+                "authorized"
             )
         self._r = repositories
         self._broker = broker
@@ -769,10 +778,15 @@ class OperatorConsoleService:
         active = self.active_trades()
         try:
             market_open = self._broker.fetch_clock().is_open
+            source = (
+                "the simulation"
+                if self._capability.capability is ExecutionCapability.SIMULATION
+                else "the Alpaca paper endpoint"
+            )
             market = (
-                "Open (as reported by the simulation)"
+                f"Open (as reported by {source})"
                 if market_open
-                else "Closed (as reported by the simulation)"
+                else f"Closed (as reported by {source})"
             )
         except Exception as error:  # noqa: BLE001 - a status page must not fail closed
             market = f"Unknown ({type(error).__name__})"
@@ -1190,18 +1204,25 @@ class OperatorConsoleService:
         )
         return self._outcome_for_attempt(result.attempt, intent, duplicate=False)
 
+    def _broker_noun(self) -> str:
+        """MILESTONE-088. The broker described in operator-facing text, never hardcoded."""
+        if self._capability.capability is ExecutionCapability.SIMULATION:
+            return "simulated broker"
+        return "Alpaca paper endpoint"
+
     def _outcome_for_attempt(
         self, attempt: ExecutionAttempt, intent: ApprovedOrderIntent | None, *, duplicate: bool
     ) -> ActionOutcome:
         state = human_state_for_attempt(attempt)
         intent_id = attempt.intent_governance_id if intent is None else intent.intent_governance_id
         prefix = "Already confirmed. " if duplicate else ""
+        broker = self._broker_noun()
         if state is HumanState.NEEDS_ATTENTION:
             return ActionOutcome(
                 False,
                 "Outcome unknown — do not retry",
                 prefix
-                + "The order may have reached the simulated broker and no answer proves what "
+                + f"The order may have reached the {broker} and no answer proves what "
                 "happened. The console keeps checking the same order; it will never be sent again.",
                 "unknown",
                 attempt.intent_governance_id,
@@ -1222,7 +1243,7 @@ class OperatorConsoleService:
             return ActionOutcome(
                 False,
                 "Rejected by the broker",
-                prefix + f"The simulated broker refused the order ({attempt.failure_code}). "
+                prefix + f"The {broker} refused the order ({attempt.failure_code}). "
                 "No position was opened.",
                 "sent",
                 attempt.intent_governance_id,
@@ -1232,7 +1253,7 @@ class OperatorConsoleService:
         return ActionOutcome(
             True,
             "Approved and sent" if not duplicate else "Already confirmed",
-            prefix + f"The order was sent to the simulated broker and is {state.value.lower()}.",
+            prefix + f"The order was sent to the {broker} and is {state.value.lower()}.",
             "sent",
             attempt.intent_governance_id,
             intent_id,
@@ -1661,7 +1682,16 @@ class OperatorConsoleService:
                 RuleRow("Approval expiry", f"{configuration.approval_expiry_seconds} seconds"),
             ]
         return SafetyView(
-            capabilities=CAPABILITIES,
+            # MILESTONE-088: CAPABILITIES is the static, milestone-agnostic display table --
+            # correct for a SIMULATION-composed console (self._capability already equals
+            # CAPABILITIES[0], so this is a no-op there) but stale for a PAPER-composed one,
+            # which would otherwise show its OWN capability as "locked" on its own Safety
+            # page. The entry matching what THIS service actually composed as is replaced by
+            # the true, verified `self._capability`; the other two entries are unaffected.
+            capabilities=tuple(
+                self._capability if c.capability is self._capability.capability else c
+                for c in CAPABILITIES
+            ),
             active_capability=self._capability,
             execution_kill_switch_engaged=self._r.kill_switch.is_engaged(),
             configuration_kill_switch=m084_switch,
