@@ -240,13 +240,32 @@ def test_a_second_console_on_the_same_state_dir_is_refused_before_touching_state
     try:
         with pytest.raises(SimulationStateLockedError):
             compose_operator_console(
-                ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"]
+                ExecutionCapability.SIMULATION,
+                service=service,
+                state_dir=world["state_dir"],
+                clock=world["clock"],
+                time_source=world["clock"],
             )
         assert a.store.path.read_bytes() == store_bytes  # nothing was read into a second store
         assert a.state_lock is not None and a.state_lock.held
         a.close()  # the first console stops: the lock is released ...
+        # BUG FIX (not production logic): this composition was missing clock=/time_source=,
+        # so it silently fell back to compose_operator_console's real-wall-clock default
+        # while "a" wrote its proposals against `world["clock"]`, a frozen simulated clock
+        # fixed at a literal 2026-09-28 instant. Once enough real time has passed since that
+        # literal date, the proposals' expires_at (created_at + 1h) looks passed to a console
+        # reading real time, and needs_action_count silently drops to 0 -- a test bug, not a
+        # production one: this is the SAME clock "a" used, restated for the second process
+        # exactly as a real restart would supply it (the launcher passes one real clock to
+        # every composition in a process lifetime; two consoles in a lifetime never see two
+        # different clocks). Nothing about proposal.expired_at() or any expiry computation
+        # changed.
         second = compose_operator_console(
-            ExecutionCapability.SIMULATION, service=service, state_dir=world["state_dir"]
+            ExecutionCapability.SIMULATION,
+            service=service,
+            state_dir=world["state_dir"],
+            clock=world["clock"],
+            time_source=world["clock"],
         )
         try:
             assert second.service.today().needs_action_count == 12  # ... and the state is intact
