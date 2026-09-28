@@ -31,6 +31,7 @@ from empirical_platform.usecases.operator_console import (
     ActionOutcome,
     CapabilityRefusedError,
     ConsoleRefusalError,
+    ExecutionCapability,
     OperatorConsoleService,
     describe_failure,
     refuse_requested_environment,
@@ -198,12 +199,19 @@ def build_application(
         del csrf
         refuse_requested_environment(request.form)
         refreshed = service.refresh_executions()
+        # MILESTONE-088: PAPER also composes this service now, so the wording names the
+        # actual broker rather than always claiming "simulated".
+        broker = (
+            "simulated broker"
+            if service.capability.capability is ExecutionCapability.SIMULATION
+            else "Alpaca paper endpoint"
+        )
         flash.put(
             session_of(request),
             ActionOutcome(
                 True,
                 "Checked with the broker",
-                f"{len(refreshed)} execution(s) were reconciled against the simulated broker.",
+                f"{len(refreshed)} execution(s) were reconciled against the {broker}.",
                 "none",
             ),
         )

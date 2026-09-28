@@ -25,6 +25,7 @@ from empirical_platform.usecases.operator_console import (
 )
 from empirical_platform.usecases.operator_console_exits import ExitReviewView, ExitSummary
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
+from empirical_platform.usecases.paper_operator_console import PaperHealthView
 
 __all__ = [
     "STYLESHEET",
@@ -38,6 +39,7 @@ __all__ = [
     "loaded_day_page",
     "message_page",
     "opportunity_page",
+    "paper_health_page",
     "safety_page",
     "today_page",
 ]
@@ -62,6 +64,24 @@ _CHIP_CLASS = {
     HumanState.CANCEL_REQUESTED: "chip chip-progress",
     HumanState.CANCELLED: "chip chip-muted",
     HumanState.NEEDS_ATTENTION: "chip chip-danger",
+}
+
+
+#: MILESTONE-088. The footer must state the ACTUAL composed environment in plain text, never
+#: just the badge colour -- keyed by `capability_label.upper()`, which for every capability this
+#: module composes is exactly the `ExecutionCapability` value ("SIMULATION" / "PAPER"). A label
+#: this table does not recognise falls back to the original SIMULATION-only wording, so an
+#: unexpected label fails safe toward the most conservative statement rather than a blank line.
+_FOOTER_NOTE = {
+    "SIMULATION": (
+        "Simulation only. No order can reach any venue from this console. "
+        "Paper execution locked — acceptance pending. Live — not authorized."
+    ),
+    "PAPER": (
+        "PAPER environment — orders reach the real Alpaca PAPER endpoint only "
+        "(paper-api.alpaca.markets). This is not real money and not a real-market execution. "
+        "Live — not authorized."
+    ),
 }
 
 
@@ -111,6 +131,11 @@ def _layout(
             f'<div class="banner banner-{tone}" role="status"><strong>{_e(flash.title)}.</strong> '
             f"{_e(flash.message)} <em>{_e(fact)}</em></div>"
         )
+    footer_note = _FOOTER_NOTE.get(
+        capability_label.upper(),
+        "Simulation only. No order can reach any venue from this console. "
+        "Paper execution locked — acceptance pending. Live — not authorized.",
+    )
     return (
         "<!DOCTYPE html>"
         '<html lang="en"><head><meta charset="utf-8">'
@@ -121,8 +146,7 @@ def _layout(
         f'<span class="env-badge">{_e(capability_label.upper())}</span></div>'
         f'<nav class="nav" aria-label="Primary">{nav}</nav></header>'
         f'<main class="page">{stop}{flash_html}{body}</main>'
-        '<footer class="foot">Simulation only. No order can reach any venue from this console. '
-        "Paper execution locked — acceptance pending. Live — not authorized.</footer>"
+        f'<footer class="foot">{_e(footer_note)}</footer>'
         "</body></html>"
     )
 
@@ -154,7 +178,7 @@ def today_page(view: TodayView, csrf: str, flash: ActionOutcome | None = None) -
         f'<div class="stat"><span class="stat-label">Market</span><span class="stat-value small">{_e(view.market_status)}</span></div>'
         f'<div class="stat"><span class="stat-label">Kill switch</span><span class="stat-value small">'
         f"{'Engaged' if view.kill_switch_engaged else 'Released'}</span></div>"
-        f'<div class="stat"><span class="stat-label">Opportunities</span><span class="stat-value">{len(view.opportunities)}</span></div>'
+        f'<div class="stat"><span class="stat-label">Open opportunities</span><span class="stat-value">{view.open_opportunities_count}</span></div>'
         f'<div class="stat stat-accent"><span class="stat-label">Need your decision</span><span class="stat-value">{view.needs_action_count}</span></div>'
         f'<div class="stat"><span class="stat-label">Active executions</span><span class="stat-value">{view.active_executions_count}</span></div>'
         f'<div class="stat"><span class="stat-label">Positions</span><span class="stat-value">{view.active_positions_count}</span></div>'
@@ -165,6 +189,20 @@ def today_page(view: TodayView, csrf: str, flash: ActionOutcome | None = None) -
             '<section class="cards">'
             + "".join(_card(c, csrf) for c in view.opportunities)
             + "</section>"
+        )
+    elif view.capability.capability.value == "PAPER":
+        # MILESTONE-088: PAPER has no opportunity-scanning engine yet (mission scope). The
+        # ONE candidate available is the explicit, Owner-triggered, bounded action below --
+        # same symbol/notional/limit-price safety envelope as the real M085 Paper Acceptance
+        # run. It never runs on page load; nothing exists until this button is pressed.
+        cards = (
+            '<section class="empty"><h2>No opportunities today</h2>'
+            "<p>PAPER has no opportunity-scanning engine in this milestone. You can prepare "
+            "one bounded candidate -- the same safety envelope the real M085 Paper Acceptance "
+            "run used -- and review it below. Nothing is sent until you explicitly approve "
+            "and confirm it.</p>"
+            f'<form method="post" action="/prepare-candidate">{_csrf(csrf)}'
+            '<button class="btn btn-primary" type="submit">Prepare today\N{RIGHT SINGLE QUOTATION MARK}s Paper candidate</button></form></section>'
         )
     else:
         cards = (
@@ -223,6 +261,23 @@ def _card(card: OpportunityCard, csrf: str) -> str:
             f'<a class="btn btn-secondary" href="/execution?intent={_e(card.execution.intent_id)}">View execution</a>'
             "</div>"
         )
+    # MILESTONE-088. A settled card (its decision is final -- rejected, expired, blocked,
+    # or an execution that reached a terminal state) is evidence, not a current opportunity.
+    # `card.reason` and the risk-check count are real historical facts and are not altered
+    # or hidden here; this banner only makes the card's CURRENT status unambiguous so it
+    # cannot be read as an active recommendation.
+    historical = ""
+    if card.state_is_settled():
+        filled = (
+            ""
+            if card.execution is None
+            else f" Filled quantity: {_e(card.execution.filled_quantity)}."
+        )
+        historical = (
+            '<p class="note note-info"><strong>Historical record — not actionable.</strong> '
+            f"This decision is final ({_e(card.state.value).lower()}).{filled} Shown for "
+            "evidence, not as a current opportunity.</p>"
+        )
     evidence = "".join(f"<li>{_e(line)}</li>" for line in card.evidence) or "<li>Not available</li>"
     details = _details(
         "Details",
@@ -245,6 +300,7 @@ def _card(card: OpportunityCard, csrf: str) -> str:
         f'<article class="card" aria-label="{_e(card.symbol)}">'
         f'<div class="card-head"><span class="ticker">{_e(card.symbol)}</span>'
         f'<span class="side">{_e(t.side)}</span>{_chip(card.state)}</div>'
+        f"{historical}"
         f'<p class="reason">{_e(card.reason)}</p>{numbers}{notes}'
         f'<p class="muted">Proposed {_when(card.created_at)} · expires {_when(card.expires_at)}</p>'
         f"{actions}{details}</article>"
@@ -769,6 +825,15 @@ def safety_page(view: SafetyView, csrf: str, flash: ActionOutcome | None) -> str
         "</section>"
     )
     rules = _kv([(r.label, r.value) for r in view.rules]) if view.rules else "<p>Not available</p>"
+    # MILESTONE-088: a PAPER-composed console links to its own read-only broker/schema
+    # health page from here; a SIMULATION-composed one has nothing there and shows nothing.
+    paper_link = (
+        '<section class="card"><h2>Paper broker &amp; schema health</h2>'
+        '<p class="muted">Endpoint, account, market clock, positions and quote -- read-only.'
+        '</p><a class="btn btn-secondary" href="/health">Open Paper health</a></section>'
+        if view.active_capability.capability.value == "PAPER"
+        else ""
+    )
     body = (
         "<h1>Safety</h1>"
         f'<section class="card env-card"><div class="env-badge env-badge-large">{_e(view.active_capability.capability.value)}</div>'
@@ -776,6 +841,7 @@ def safety_page(view: SafetyView, csrf: str, flash: ActionOutcome | None) -> str
         f"{switch}"
         f'<section class="card"><h2>Trading rules</h2><p class="muted">From configuration {_e(view.configuration_id)} '
         f"version {_e(view.configuration_version)}. Read-only.</p>{rules}</section>"
+        f"{paper_link}"
     )
     return _layout(
         title="Safety",
@@ -784,6 +850,64 @@ def safety_page(view: SafetyView, csrf: str, flash: ActionOutcome | None) -> str
         capability_label=view.active_capability.label,
         kill_switch_engaged=engaged,
         flash=flash,
+    )
+
+
+def paper_health_page(view: PaperHealthView, *, capability_label: str) -> str:
+    """MILESTONE-088 Phase 7/13: read-only PAPER broker and account health.
+
+    No field of `PaperHealthView` can hold a credential (see its own docstring), and none
+    is rendered here beyond what that view already carries.
+    """
+    warnings: list[str] = []
+    if not view.is_pinned_paper_host:
+        warnings.append(f"Trading endpoint is {view.trading_endpoint!r}, not the pinned host.")
+    if view.trading_blocked:
+        warnings.append("Trading is BLOCKED on this account.")
+    if view.account_blocked:
+        warnings.append("This account is BLOCKED.")
+    if view.trade_suspended_by_user:
+        warnings.append("Trading is suspended by the account owner.")
+    banner = f'<div class="banner banner-danger">{_e(" ".join(warnings))}</div>' if warnings else ""
+    facts = _kv(
+        [
+            ("Trading endpoint", view.trading_endpoint),
+            ("Pinned PAPER host", "Yes" if view.is_pinned_paper_host else "NO"),
+            ("Market data endpoint", view.market_data_endpoint),
+            ("Account reachable", "Yes" if view.account_reachable else "No"),
+            ("Account status", view.account_status),
+            ("Account reference", view.account_reference),
+            ("Trading blocked", "Yes" if view.trading_blocked else "No"),
+            ("Account blocked", "Yes" if view.account_blocked else "No"),
+            ("Trade suspended by user", "Yes" if view.trade_suspended_by_user else "No"),
+            ("Market is open", "Yes" if view.market_is_open else "No"),
+            ("Next open", _when(view.next_open)),
+            ("Next close", _when(view.next_close)),
+            ("Symbol", view.symbol),
+            ("Asset tradable", "Yes" if view.asset_tradable else "No"),
+            ("Asset status", view.asset_status),
+            ("Current position (shares)", view.position_quantity),
+            ("Quote bid / ask", f"{view.quote_bid} / {view.quote_ask}"),
+            ("Quote captured at", _when(view.quote_captured_at)),
+            ("Quote age (s)", view.quote_age_seconds),
+            ("Quote source", view.quote_source),
+        ]
+    )
+    body = (
+        '<a class="back" href="/safety">← Safety</a>'
+        "<h1>Paper health</h1>"
+        '<p class="lead">Read-only. Every fact below came from a GET request to the real '
+        "Alpaca PAPER endpoint or its market-data endpoint; nothing here can place or cancel "
+        "an order.</p>"
+        f"{banner}"
+        f'<section class="card">{facts}</section>'
+    )
+    return _layout(
+        title="Paper health",
+        active="/safety",
+        body=body,
+        capability_label=capability_label,
+        kill_switch_engaged=False,
     )
 
 

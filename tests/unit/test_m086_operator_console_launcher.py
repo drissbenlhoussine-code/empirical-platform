@@ -205,20 +205,38 @@ class TestTheReconcilerIsStoppedAndJoined:
         assert events == ["refresh start", "refresh end", "server closed", "runtime closed"]
 
     def test_the_launcher_stops_the_reconciler_before_the_runtime_closes(self) -> None:
-        """Source order, parsed: `reconciler.stop()` sits inside the `serve` block's `finally`
-        (before the server closes) and again in an outer `finally` that runs before the
-        `simulation_console_runtime` context (service + lock) exits; no branch closes anyway."""
+        """Source order, parsed. MILESTONE-088 factored the serve/reconciler block that used
+        to sit inline in `main` into `_serve_with_reconciler`, shared with the PAPER launch
+        path, so the property is now checked in two parts: `main` calls it from INSIDE the
+        `simulation_exit_console_runtime` block (so the runtime cannot close first), and
+        `_serve_with_reconciler` itself still stops the reconciler in a `finally` inside the
+        `serve` block (before the server closes) and again in an outer `finally` (before ITS
+        own caller can proceed) -- exactly the same two-`finally` shape as before, just in its
+        own function. No branch closes anyway, in either function."""
         import ast
         from pathlib import Path
 
         source = Path("src/empirical_platform/entrypoints/operator_console.py").read_text("utf-8")
         tree = ast.parse(source)
         main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "main")
-        text = ast.unparse(main)
-        runtime_with = text.index("with simulation_exit_console_runtime(")
+        main_text = ast.unparse(main)
+        # MILESTONE-088's PAPER branch calls _serve_with_reconciler too, and returns earlier
+        # in the function body than the SIMULATION branch below it -- so the NEXT occurrence
+        # after `with simulation_exit_console_runtime(`, not the first anywhere, is the one
+        # that must be inside it.
+        runtime_with = main_text.index("with simulation_exit_console_runtime(")
+        serve_call = main_text.index("_serve_with_reconciler(", runtime_with)
+        assert runtime_with < serve_call  # the call happens INSIDE the runtime's `with` block
+
+        helper = next(
+            n
+            for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == "_serve_with_reconciler"
+        )
+        text = ast.unparse(helper)
         serve_with = text.index("with serve(")
         stop_call = text.index("reconciler.stop()")
-        assert runtime_with < serve_with < stop_call
+        assert serve_with < stop_call
         # The stop is in a `finally` of a try nested in the serve block, i.e. before both exits.
         assert "finally:" in text[serve_with:stop_call]
         assert text.count("reconciler.stop()") == 2  # ... and once more in the outer finally

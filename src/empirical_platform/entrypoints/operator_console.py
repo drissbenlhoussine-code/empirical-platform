@@ -1,14 +1,21 @@
-"""MILESTONE-086 -- `empirical-platform-operator-console`: start the Operator Console.
+"""MILESTONE-086/088 -- `empirical-platform-operator-console`: start the Operator Console.
 
-    empirical-platform-operator-console                 # serve on http://127.0.0.1:8086 and open it
+    empirical-platform-operator-console                 # SIMULATION: serve on http://127.0.0.1:8086
     empirical-platform-operator-console --load-day      # also stage the simulation day at start
     empirical-platform-operator-console --no-browser --port 8090
+    empirical-platform-operator-console --capability paper   # PAPER: real Alpaca paper endpoint
 
-SIMULATION ONLY. The console composes the deterministic simulated broker and nothing else;
-no Alpaca credential is read and no order can reach any venue. It binds to the loopback
-address and refuses any other host. One process serves the pages and, in the background,
-asks the simulated broker about every open execution through the MILESTONE-085 reconciler,
-so Active trades moves from Submitted to Accepted to Filled without shell interaction.
+SIMULATION IS THE DEFAULT (MILESTONE-088 Phase 6): `--capability` defaults to `simulation`
+and every existing flag and behaviour below is unchanged for it. `--capability paper`
+composes over Store B instead (`entrypoints._paper_operator_console_composition`) -- the
+same real Alpaca-credentialed, exact-M085-schema-head-verified context
+`tools/m085_paper_acceptance.py` uses -- and refuses `--load-day`/`--reset-simulation`,
+which have no PAPER meaning. No `--capability live` exists: there is no composition path in
+this repository that can build one. It binds to the loopback address only and refuses any
+other host, in both capabilities. One process serves the pages and, in the background, asks
+the broker (simulated, or the real Alpaca paper endpoint) about every open execution through
+the MILESTONE-085 reconciler, so Active trades moves from Submitted to Accepted to Filled
+without shell interaction.
 
 ONE CONSOLE PER STATE DIRECTORY. The simulation state directory is locked with an
 operating-system file lock before anything else is opened; a second console started on the
@@ -27,14 +34,18 @@ import ipaddress
 import sys
 import threading
 import webbrowser
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from empirical_platform.entrypoints._operator_console_web import SecuritySession, serve
+from empirical_platform.entrypoints._paper_operator_console_composition import (
+    paper_operator_console_runtime,
+)
 from empirical_platform.entrypoints._position_exit_composition import (
     simulation_exit_console_runtime,
 )
 from empirical_platform.entrypoints.operator_console_app import build_application
+from empirical_platform.entrypoints.paper_operator_console_app import build_paper_application
 from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
 
 __all__ = ["main"]
@@ -111,6 +122,52 @@ class _Reconciler(threading.Thread):
                 )
 
 
+def _serve_with_reconciler(
+    application: Callable[..., Iterable[bytes]],
+    *,
+    refresh: Callable[[], object],
+    host: str,
+    port: int,
+    no_browser: bool,
+    reconcile_every: float,
+    banner: tuple[str, ...],
+) -> None:
+    """Shared by both capabilities: start the reconciler, serve, and shut down in order.
+
+    Order matters, in both capabilities alike: no new requests, then the reconciler is
+    stopped AND joined until it has actually terminated, and only THEN does the server close
+    and the composition's own service, persistence and lock release -- no repository or
+    broker client is closed while a reconciliation pass (which calls it) is still running.
+    """
+    reconciler: _Reconciler | None = None
+    try:
+        if reconcile_every > 0:
+            reconciler = _Reconciler(refresh, reconcile_every)
+            reconciler.start()
+        with serve(application, host=host, port=port) as server:
+            url = f"http://{host}:{server.server_port}/today"
+            print("=" * 72)
+            for line in banner:
+                print(line)
+            print(f"  Open {url}")
+            print("  Press Ctrl+C to stop.")
+            print("=" * 72, flush=True)
+            if not no_browser:
+                webbrowser.open(url)
+            try:
+                server.serve_forever(poll_interval=0.5)
+            except KeyboardInterrupt:
+                print("\noperator-console: stopping")
+            finally:
+                if reconciler is not None:
+                    reconciler.stop()
+    finally:
+        # Also holds if the server never started (port in use, Ctrl+C during startup): the
+        # composition's own context manager cannot exit while the reconciler is alive.
+        if reconciler is not None:
+            reconciler.stop()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -124,15 +181,24 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=DEFAULT_STATE_DIR,
         help="where the simulated broker keeps its durable state "
-        "(default ~/.empirical-platform/operator-console)",
+        "(default ~/.empirical-platform/operator-console); SIMULATION only",
     )
     parser.add_argument(
-        "--load-day", action="store_true", help="stage the deterministic simulation day at start"
+        "--capability",
+        choices=("simulation", "paper"),
+        default="simulation",
+        help="SIMULATION (default) or PAPER (MILESTONE-088, real Alpaca paper endpoint). "
+        "There is no 'live' choice: no composition path in this repository can build one.",
+    )
+    parser.add_argument(
+        "--load-day",
+        action="store_true",
+        help="stage the deterministic simulation day at start; SIMULATION only",
     )
     parser.add_argument(
         "--reset-simulation",
         action="store_true",
-        help="forget the simulated broker's orders first",
+        help="forget the simulated broker's orders first; SIMULATION only",
     )
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser")
     parser.add_argument(
@@ -143,6 +209,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     host = _loopback(arguments.host)
+
+    if arguments.capability == "paper":
+        if arguments.load_day or arguments.reset_simulation:
+            print(
+                "REFUSED: --load-day and --reset-simulation have no meaning for "
+                "--capability paper. Nothing was started.",
+                file=sys.stderr,
+            )
+            return 2
+        with paper_operator_console_runtime() as backend:
+            application = build_paper_application(backend, security=SecuritySession())
+            _serve_with_reconciler(
+                application,
+                refresh=backend.service.refresh_executions,
+                host=host,
+                port=arguments.port,
+                no_browser=arguments.no_browser,
+                reconcile_every=arguments.reconcile_every,
+                banner=(
+                    "  OPERATOR CONSOLE -- PAPER. Orders reach the real Alpaca PAPER "
+                    "endpoint only.",
+                    "  Not real money. Every submission requires explicit Owner approval.",
+                    "  Live -- not authorized.",
+                ),
+            )
+        return 0
 
     try:
         # MILESTONE-087: this launcher composes the console WITH the exit path, so it requires
@@ -158,38 +250,18 @@ def main(argv: list[str] | None = None) -> int:
                     f"{', '.join(report.already_present) or 'nothing'}"
                 )
             application = build_application(runtime, security=SecuritySession())
-            reconciler: _Reconciler | None = None
-            try:
-                if arguments.reconcile_every > 0:
-                    reconciler = _Reconciler(
-                        runtime.service.refresh_executions, arguments.reconcile_every
-                    )
-                    reconciler.start()
-                with serve(application, host=host, port=arguments.port) as server:
-                    url = f"http://{host}:{server.server_port}/today"
-                    print("=" * 72)
-                    print("  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.")
-                    print(f"  Open {url}")
-                    print("  Paper execution locked -- acceptance pending. Live -- not authorized.")
-                    print("  Press Ctrl+C to stop.")
-                    print("=" * 72, flush=True)
-                    if not arguments.no_browser:
-                        webbrowser.open(url)
-                    try:
-                        server.serve_forever(poll_interval=0.5)
-                    except KeyboardInterrupt:
-                        print("\noperator-console: stopping")
-                    finally:
-                        # Order matters: no new requests, then the reconciler is stopped AND
-                        # joined until it has terminated, and only after that does the server
-                        # close and the runtime's service and lock release.
-                        if reconciler is not None:
-                            reconciler.stop()
-            finally:
-                # Also holds if the server never started (port in use, Ctrl+C during startup):
-                # the runtime context below cannot exit while the reconciler is alive.
-                if reconciler is not None:
-                    reconciler.stop()
+            _serve_with_reconciler(
+                application,
+                refresh=runtime.service.refresh_executions,
+                host=host,
+                port=arguments.port,
+                no_browser=arguments.no_browser,
+                reconcile_every=arguments.reconcile_every,
+                banner=(
+                    "  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.",
+                    "  Paper execution locked -- acceptance pending. Live -- not authorized.",
+                ),
+            )
     except SimulationStateLockedError as refused:
         print(f"REFUSED: {refused}", file=sys.stderr)
         return 2
