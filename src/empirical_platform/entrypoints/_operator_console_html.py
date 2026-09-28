@@ -201,7 +201,7 @@ def today_page(view: TodayView, csrf: str, flash: ActionOutcome | None = None) -
             "one bounded candidate -- the same safety envelope the real M085 Paper Acceptance "
             "run used -- and review it below. Nothing is sent until you explicitly approve "
             "and confirm it.</p>"
-            f'<form method="post" action="/paper/prepare-candidate">{_csrf(csrf)}'
+            f'<form method="post" action="/prepare-candidate">{_csrf(csrf)}'
             '<button class="btn btn-primary" type="submit">Prepare today\N{RIGHT SINGLE QUOTATION MARK}s Paper candidate</button></form></section>'
         )
     else:
@@ -812,7 +812,7 @@ def safety_page(view: SafetyView, csrf: str, flash: ActionOutcome | None) -> str
     paper_link = (
         '<section class="card"><h2>Paper broker &amp; schema health</h2>'
         '<p class="muted">Endpoint, account, market clock, positions and quote -- read-only.'
-        '</p><a class="btn btn-secondary" href="/paper/health">Open Paper health</a></section>'
+        '</p><a class="btn btn-secondary" href="/health">Open Paper health</a></section>'
         if view.active_capability.capability.value == "PAPER"
         else ""
     )

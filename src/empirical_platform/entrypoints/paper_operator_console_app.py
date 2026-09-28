@@ -9,9 +9,18 @@ handler functions, the SAME CSRF/security/error-translation machinery
 `_paper_operator_console_composition`). This module adds exactly two PAPER-only routes that
 have no SIMULATION equivalent to reuse:
 
-    GET  /paper/health              -- Phase 7: read-only broker/account/schema health
-    POST /paper/prepare-candidate   -- Phase 4/8: the one Owner-triggered action that
-                                        originates a new bounded PAPER candidate
+    GET  /health              -- Phase 7: read-only broker/account/schema health
+    POST /prepare-candidate   -- Phase 4/8: the one Owner-triggered action that
+                                 originates a new bounded PAPER candidate
+
+DELIBERATELY NOT NAMED /paper/*. A reverse proxy exposing this console privately commonly
+does so under its OWN path prefix, e.g. Tailscale Serve's `--set-path /paper`. That prefix
+is stripped before the request reaches this app, so an in-page absolute link the app itself
+emits as `/paper/health` would, once loaded through such a prefix, resolve in the BROWSER
+to `<host>/paper/health` -- which the proxy also routes to this app (since it still starts
+with the proxy's own `/paper` prefix) and strips down to a bare `/health` this app never
+registered: a 404 on a link the page itself rendered. Naming these routes without a leading
+`/paper/` avoids that collision under any proxy path a deployment chooses to use.
 
 `/simulation/load-day` stays wired (inherited from `build_application`) but
 `PaperConsoleBackend.load_day()` always refuses cleanly -- there is no PAPER equivalent of a
@@ -110,6 +119,6 @@ def build_paper_application(
             return refusal(error, "500 Internal Server Error")
         return redirect("/today")
 
-    router.get("/paper/health", paper_health_route)
-    router.post("/paper/prepare-candidate", prepare_candidate_route)
+    router.get("/health", paper_health_route)
+    router.post("/prepare-candidate", prepare_candidate_route)
     return router
