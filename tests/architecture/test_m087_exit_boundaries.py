@@ -1,9 +1,13 @@
-"""MILESTONE-087 -- the exit path's boundaries, parsed from its source.
+"""MILESTONE-087/089 -- the exit path's boundaries, parsed from its source.
 
 M085 stays structurally BUY-only; the exit domain is separate and imports no M085 request
-type; SIMULATION is the only environment an exit can bind; no M087 module imports the real
-Alpaca client or implements the exit port for it; presentation imports no persistence or
-domain; the simulation broker still opens no socket.
+type; SIMULATION and PAPER (never LIVE) are the only environments an exit can bind; no
+M087 domain/usecase/persistence module imports the real Alpaca client directly (it is
+composed in and injected, never imported by these modules); presentation imports no
+persistence or domain; the simulation broker still opens no socket. MILESTONE-089 widened
+the Alpaca adapter itself to implement the exit port (`submit_close_order`) -- narrowly,
+through `PositionExitRequest` alone, never a generic sell; this file's tests were updated
+to prove that narrowness rather than assert the capability's continued absence.
 """
 
 from __future__ import annotations
@@ -56,8 +60,17 @@ def test_the_exit_domain_does_not_import_or_widen_the_m085_request_type() -> Non
     source = EXIT_DOMAIN.read_text(encoding="utf-8")
     assert "class PositionExitRequest:" in source
     assert 'EXIT_SIDE = "SELL_TO_CLOSE"' in source
-    assert 'ALLOWED_EXIT_ENVIRONMENTS: frozenset[str] = frozenset({"SIMULATION"})' in source
-    assert "PAPER" not in source.replace("PAPER or LIVE", "").replace("PaperOrderRequest", "")
+
+
+def test_allowed_exit_environments_is_exactly_simulation_and_paper_never_live() -> None:
+    """MILESTONE-089 widened ALLOWED_EXIT_ENVIRONMENTS from {SIMULATION} to
+    {SIMULATION, PAPER}. Checked against the live value, not the source text, so a rename
+    or reformat cannot silently widen it further. The runtime refusal for LIVE itself is
+    proven by test_the_request_still_refuses_live_and_only_live in
+    test_m087_position_exit_domain.py; this proves the declared set."""
+    from empirical_platform.decision_candidate.position_exit import ALLOWED_EXIT_ENVIRONMENTS
+
+    assert ALLOWED_EXIT_ENVIRONMENTS == frozenset({"SIMULATION", "PAPER"})
 
 
 @pytest.mark.parametrize("path", M087_MODULES, ids=[p.name for p in M087_MODULES])
@@ -72,20 +85,31 @@ def test_no_m087_module_imports_the_real_alpaca_client(path: Path) -> None:
         assert forbidden not in names, (path.name, forbidden)
 
 
-def test_the_alpaca_adapter_has_no_exit_implementation() -> None:
+def test_the_alpaca_adapters_exit_implementation_is_narrow() -> None:
+    """MILESTONE-089: the Alpaca adapter DOES implement the exit port now, but only through
+    `PositionExitRequest` -- a type that cannot express a short, a fractional quantity, an
+    extended-hours order or a time in force other than DAY. This test proves the narrowness
+    (one method, one accepted type, no raw symbol/side parameter) rather than the
+    capability's continued absence, which MILESTONE-089's own mission authorizes."""
     source = ALPACA.read_text(encoding="utf-8")
-    assert "submit_close_order" not in source and "SELL_TO_CLOSE" not in source
-    assert "position_exit" not in source
+    assert source.count("def submit_close_order(") == 1
+    assert "def submit_close_order(\n        self, request: PositionExitRequest" in source
+    # The one broker-write method the exit port adds takes the fully-typed, already-
+    # validated request -- never a raw symbol/side/quantity the caller assembled here.
+    assert "def submit_close_order(self, symbol" not in source
+    names = _imports(ALPACA)
+    assert "empirical_platform.decision_candidate.position_exit.PositionExitRequest" in names
 
 
-def test_only_the_simulation_broker_implements_submit_close_order() -> None:
+def test_exactly_the_simulation_and_alpaca_brokers_implement_submit_close_order() -> None:
     implementers = sorted(
         path
         for path in ROOT.rglob("*.py")
         if "def submit_close_order(" in path.read_text(encoding="utf-8")
     )
-    # The port DECLARES it (a Protocol); the simulation broker is the only IMPLEMENTATION.
-    assert implementers == sorted([EXIT_PORTS, SIMULATION])
+    # The port DECLARES it (a Protocol); SIMULATION and Alpaca (MILESTONE-089) IMPLEMENT it.
+    # No third implementation exists anywhere in the package.
+    assert implementers == sorted([ALPACA, EXIT_PORTS, SIMULATION])
     assert "def reduce_position(" in SIMULATION.read_text(encoding="utf-8")
 
 

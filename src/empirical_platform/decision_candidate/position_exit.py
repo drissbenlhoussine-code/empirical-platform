@@ -28,8 +28,10 @@ is closed only when the exit attempt is FILLED for its whole quantity AND a late
 reconciliation verified the broker position at zero and recorded that verification
 durably (`closed_position_verified_at`, `POSITION_CLOSED_VERIFIED`).
 
-SIMULATION ONLY. `ALLOWED_EXIT_ENVIRONMENTS` names SIMULATION alone. A request binding
-PAPER or LIVE cannot be constructed in this milestone.
+SIMULATION AND PAPER, NEVER LIVE. `ALLOWED_EXIT_ENVIRONMENTS` names SIMULATION and PAPER
+(widened from SIMULATION alone by MILESTONE-089). A request binding LIVE cannot be
+constructed: no `CapabilityStatus` this repository builds carries LIVE with
+`enabled=True`, and no composition function anywhere builds one.
 """
 
 from __future__ import annotations
@@ -98,9 +100,11 @@ __all__ = [
 
 EXIT_SIDE = "SELL_TO_CLOSE"
 EXIT_CLIENT_ORDER_ID_PREFIX = "m087-"
-#: The environments an exit request may bind. SIMULATION only in this milestone: a request
-#: naming PAPER or LIVE cannot be constructed, so no code path can carry one to a broker.
-ALLOWED_EXIT_ENVIRONMENTS: frozenset[str] = frozenset({"SIMULATION"})
+#: The environments an exit request may bind. MILESTONE-089 widens this from SIMULATION
+#: alone to SIMULATION and PAPER -- never LIVE, which no `CapabilityStatus` in this
+#: repository can carry with `enabled=True` and no composition function builds. A request
+#: naming LIVE still cannot be constructed: this is the one place that boundary is drawn.
+ALLOWED_EXIT_ENVIRONMENTS: frozenset[str] = frozenset({"SIMULATION", "PAPER"})
 #: The longest a human exit authorization stays valid, in seconds. The mandatory
 #: liquidation deadline always bounds it as well.
 MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS = 300
