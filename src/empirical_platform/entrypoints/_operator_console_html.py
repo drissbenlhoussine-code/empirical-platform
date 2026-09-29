@@ -643,7 +643,24 @@ def cancel_confirmation_page(
 
 
 def exit_review_page(view: ExitReviewView, csrf: str, capability_label: str) -> str:
-    """The exit review: exact immutable terms, environment badge, one CONFIRM EXIT button."""
+    """The exit review: exact immutable terms, environment badge, one CONFIRM EXIT button.
+
+    THIS PAGE IS ALSO THE FINAL CONFIRMATION (MILESTONE-089). There is no separate screen:
+    the ONE "CONFIRM EXIT" button below submits exactly the frozen, ticket-bound terms shown
+    above. `final_action_sentence` states that action in one unambiguous sentence, naming the
+    real endpoint for PAPER, immediately above the button -- so a click is never mistaken for
+    a generic action.
+    """
+    broker_target = (
+        "the simulated broker"
+        if view.environment == "SIMULATION"
+        else "the real Alpaca PAPER endpoint (not real money, not a live-market execution)"
+    )
+    final_action_sentence = (
+        f"Pressing CONFIRM EXIT will submit one {view.environment} SELL TO CLOSE for the FULL "
+        f"attributable position in {view.symbol} ({view.exit_quantity} shares) to {broker_target}. "
+        "This cannot be undone, and a second click cannot create a second order."
+    )
     warning = ""
     if view.kill_switch_engaged:
         warning = (
@@ -684,6 +701,7 @@ def exit_review_page(view: ExitReviewView, csrf: str, capability_label: str) -> 
         f'<p class="note note-{_e(view.deadline_tone)}"><strong>Liquidation deadline.</strong> {_e(view.deadline_note)}</p>'
         f"{warning}"
         f'<div class="terms">{terms}</div>'
+        f'<p class="note note-danger"><strong>Final confirmation.</strong> {_e(final_action_sentence)}</p>'
         f'<form method="post" action="/exit/confirm" class="confirm-form">{_csrf(csrf)}'
         f'<input type="hidden" name="intent" value="{_e(view.intent_id)}">'
         f'<input type="hidden" name="ticket" value="{_e(view.ticket)}">'
