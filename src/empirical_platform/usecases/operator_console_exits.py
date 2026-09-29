@@ -145,6 +145,23 @@ def _money(value: Decimal | None) -> str:
     return NOT_AVAILABLE if value is None else f"{value:,.2f}"
 
 
+def _broker_noun(environment: str) -> str:
+    """MILESTONE-089. The broker described in operator-facing text, never hardcoded.
+
+    Mirrors `usecases.operator_console.OperatorConsoleService._broker_noun`: the same wording
+    for the same two environments, so an Owner reading either console sees the same phrase.
+    """
+    return "simulated broker" if environment == "SIMULATION" else "Alpaca paper endpoint"
+
+
+def _account_noun(environment: str) -> str:
+    return "Simulation account" if environment == "SIMULATION" else "Alpaca Paper account"
+
+
+def _closed_round_trip_label(environment: str) -> str:
+    return "simulation" if environment == "SIMULATION" else "Alpaca Paper"
+
+
 def _quantity(value: Decimal | int | None) -> str:
     if value is None:
         return NOT_AVAILABLE
@@ -228,6 +245,15 @@ class ExitReviewView:
     current_bid: str
     current_ask: str
     quote_captured_at: datetime | None
+    #: MILESTONE-089 Phase 5: the broker position evidence timestamp -- when
+    #: `broker_position_quantity` (the current-holding figure above) was read, distinct from
+    #: `quote_captured_at` (the price evidence timestamp).
+    position_captured_at: datetime
+    #: MILESTONE-089 Phase 5: the exact deterministic client order id this exit would submit
+    #: under, safely derivable and shown before final confirmation because it is DERIVED from
+    #: already-persisted identity (`derive_exit_client_order_id`), never a value this submits
+    #: early or that could be replayed to create a second order.
+    client_order_id: str
     fingerprint_short: str
     liquidation_deadline: datetime
     deadline_tone: str
@@ -235,6 +261,7 @@ class ExitReviewView:
     authorization_expires_at: datetime
     ticket: str
     kill_switch_engaged: bool
+    full_close_warning: str
 
 
 class PositionExitConsole:
@@ -375,17 +402,18 @@ class PositionExitConsole:
             if entry is None
             else realized_result(entry_avg_fill_price=entry.filled_avg_price, exit_attempt=attempt)
         )
+        label = _closed_round_trip_label(self._environment)
         if realized is not None:
             sign = "+" if realized.realized_pnl >= 0 else "−"
             result_text = (
-                f"Closed round trip (simulation): {realized.quantity} @ "
+                f"Closed round trip ({label}): {realized.quantity} @ "
                 f"{_money(realized.entry_avg_fill_price)} → "
                 f"{_money(realized.exit_avg_fill_price)}; "
                 f"realized {sign}{_money(abs(realized.realized_pnl))} USD"
             )
         elif attempt.position_closed:
             result_text = (
-                "Position closed (simulation); realized result not computable from the record"
+                f"Position closed ({label}); realized result not computable from the record"
             )
         else:
             result_text = NOT_AVAILABLE
@@ -519,12 +547,14 @@ class PositionExitConsole:
             side="SELL TO CLOSE",
             order_type=preview.request.order_type.value,
             limit_price=_money(preview.request.limit_price),
-            account=f"Simulation account ({preview.account_reference[:16]}…)",
+            account=f"{_account_noun(self._environment)} ({preview.account_reference[:16]}…)",
             environment=preview.environment,
             entry_avg_fill_price=_money(entry.entry_avg_fill_price),
             current_bid=_money(preview.quote_bid),
             current_ask=_money(preview.quote_ask),
             quote_captured_at=preview.quote_captured_at,
+            position_captured_at=entry.captured_at,
+            client_order_id=preview.request.client_order_id,
             fingerprint_short=preview.request_fingerprint[:12],
             liquidation_deadline=deadline,
             deadline_tone=tone,
@@ -532,6 +562,12 @@ class PositionExitConsole:
             authorization_expires_at=expires,
             ticket=ticket.encode(self._signer),
             kill_switch_engaged=self._kill_switch.is_engaged(),
+            full_close_warning=(
+                "Confirming will close the WHOLE attributable position in "
+                f"{preview.request.symbol} ({_quantity(preview.request.quantity)} shares) -- a "
+                "full close, not a partial reduction. This is SELL TO CLOSE only: it cannot "
+                "open or increase a short position."
+            ),
         )
 
     # -- confirm ----------------------------------------------------------------------
@@ -617,11 +653,12 @@ class PositionExitConsole:
     def _outcome(self, attempt: PositionExitAttempt, *, duplicate: bool) -> ActionOutcome:
         state = human_state_for_exit(attempt)
         prefix = "Already confirmed. " if duplicate else ""
+        broker = _broker_noun(self._environment)
         if state is HumanState.NEEDS_ATTENTION:
             return ActionOutcome(
                 False,
                 "Outcome unknown — do not retry",
-                prefix + "The exit may have reached the simulated broker and no answer proves what "
+                prefix + f"The exit may have reached the {broker} and no answer proves what "
                 "happened. The console keeps checking the same exit order; it will never be "
                 "sent again.",
                 "unknown",
@@ -641,8 +678,7 @@ class PositionExitConsole:
             return ActionOutcome(
                 False,
                 "Exit rejected by the broker",
-                prefix
-                + f"The simulated broker refused the exit ({attempt.failure_code}). The position "
+                prefix + f"The {broker} refused the exit ({attempt.failure_code}). The position "
                 "remains open.",
                 "sent",
                 intent_id=attempt.entry_intent_governance_id,
@@ -660,8 +696,7 @@ class PositionExitConsole:
         return ActionOutcome(
             True,
             "Exit confirmed and sent" if not duplicate else "Already confirmed",
-            prefix
-            + f"The SELL TO CLOSE was sent to the simulated broker and is {state.value.lower()}. "
+            prefix + f"The SELL TO CLOSE was sent to the {broker} and is {state.value.lower()}. "
             "The position is closed only once the fill is verified.",
             "sent",
             intent_id=attempt.entry_intent_governance_id,

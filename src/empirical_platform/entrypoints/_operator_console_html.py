@@ -121,9 +121,17 @@ def _layout(
     flash_html = ""
     if flash is not None:
         tone = "good" if flash.ok else ("danger" if flash.sent == "unknown" else "warn")
+        # MILESTONE-089: this banner renders after BOTH an entry-order confirmation and an
+        # exit confirmation, on both SIMULATION and PAPER; "simulated broker" was hardcoded
+        # here even though `capability_label` was already a parameter of this function.
+        sent_broker = (
+            "simulated broker"
+            if capability_label.upper() == "SIMULATION"
+            else "Alpaca paper endpoint"
+        )
         fact = {
             "nothing_sent": "Nothing was sent.",
-            "sent": "An order was sent to the simulated broker.",
+            "sent": f"An order was sent to the {sent_broker}.",
             "unknown": "Outcome unknown — do not retry.",
             "none": "",
         }.get(flash.sent, "")
@@ -634,8 +642,8 @@ def cancel_confirmation_page(
     )
 
 
-def exit_review_page(view: ExitReviewView, csrf: str) -> str:
-    """The exit review: exact immutable terms, SIMULATION badge, one CONFIRM EXIT button."""
+def exit_review_page(view: ExitReviewView, csrf: str, capability_label: str) -> str:
+    """The exit review: exact immutable terms, environment badge, one CONFIRM EXIT button."""
     warning = ""
     if view.kill_switch_engaged:
         warning = (
@@ -645,6 +653,7 @@ def exit_review_page(view: ExitReviewView, csrf: str) -> str:
     terms = _kv(
         [
             ("Symbol", view.symbol),
+            ("Action", "SELL TO CLOSE (full close only)"),
             ("Current verified holding", f"{view.current_holding} shares"),
             ("Exit quantity", f"{view.exit_quantity} shares (full close)"),
             ("Side", view.side),
@@ -657,7 +666,9 @@ def exit_review_page(view: ExitReviewView, csrf: str) -> str:
             ("Entry average fill price", view.entry_avg_fill_price),
             ("Current bid / ask", f"{view.current_bid} / {view.current_ask}"),
             ("Price evidence captured", _when(view.quote_captured_at)),
-            ("Exit reference", view.fingerprint_short),
+            ("Broker position evidence captured", _when(view.position_captured_at)),
+            ("Exit reference (request fingerprint)", view.fingerprint_short),
+            ("Client order id (deterministic)", view.client_order_id),
             ("Mandatory liquidation deadline", _when(view.liquidation_deadline)),
             ("Authorization expires", _when(view.authorization_expires_at)),
         ]
@@ -669,6 +680,7 @@ def exit_review_page(view: ExitReviewView, csrf: str) -> str:
         '<p class="lead">You are about to authorize exactly these terms: one SELL TO CLOSE of the '
         "whole verified position. Nothing has been sent. The engine re-reads the position, the "
         "entry, the kill switch and these terms when you confirm and refuses if anything changed.</p>"
+        f'<p class="note note-warn"><strong>Full close.</strong> {_e(view.full_close_warning)}</p>'
         f'<p class="note note-{_e(view.deadline_tone)}"><strong>Liquidation deadline.</strong> {_e(view.deadline_note)}</p>'
         f"{warning}"
         f'<div class="terms">{terms}</div>'
@@ -682,7 +694,7 @@ def exit_review_page(view: ExitReviewView, csrf: str) -> str:
         title="Review exit",
         active="/active",
         body=body,
-        capability_label="Simulation",
+        capability_label=capability_label,
         kill_switch_engaged=view.kill_switch_engaged,
     )
 
@@ -692,10 +704,11 @@ def exit_cancel_confirmation_page(
 ) -> str:
     x = summary.exit
     assert x is not None
+    broker = "simulated broker" if capability_label == "Simulation" else "Alpaca paper endpoint"
     body = (
         f'<a class="back" href="/execution?intent={_e(summary.intent_id)}">← Execution</a>'
         '<section class="confirm"><h1>Request exit cancellation</h1><p class="lead">A cancel request is '
-        "sent to the simulated broker for this exact exit order. A request is not a cancellation: the "
+        f"sent to the {broker} for this exact exit order. A request is not a cancellation: the "
         "exit may still fill before it is cancelled. The position stays open until an exit fills and "
         "is verified.</p>"
         + _kv(

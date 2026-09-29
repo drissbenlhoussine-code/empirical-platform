@@ -249,7 +249,7 @@ def build_application(
         refuse_requested_environment(request.query)
         exits = exits_or_refuse()
         view = exits.review(request.first("intent"))  # type: ignore[attr-defined]
-        return html_response(html.exit_review_page(view, csrf))
+        return html_response(html.exit_review_page(view, csrf, label()))
 
     def exit_confirm(request: Request, csrf: str) -> Response:
         del csrf

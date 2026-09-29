@@ -1564,7 +1564,9 @@ class OperatorConsoleService:
                 if self._exits is not None and intent is not None:
                     exit_summary = self._exits.summary(intent, attempt, self._clock())
                     if exit_summary is not None and exit_summary.position_closed:
-                        exec_outcome = "Position closed (simulation)"
+                        # MILESTONE-089: this used to hardcode "(simulation)" regardless of
+                        # which capability actually closed the position.
+                        exec_outcome = f"Position closed ({self._capability.label.lower()})"
                         result_text = exit_summary.result_text
                     elif exit_summary is not None:
                         exec_outcome = f"{final.value}; exit {exit_summary.state.value.lower()}"
