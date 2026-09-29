@@ -210,6 +210,7 @@ def _compose_verified_console(
             exits=exits,
             intents=repositories.intents,
             entry_attempts=repositories.attempts,
+            configurations=repositories.configurations,
             kill_switch=repositories.kill_switch,
             broker=broker,
             market_data=market_data,

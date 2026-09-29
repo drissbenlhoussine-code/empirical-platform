@@ -134,6 +134,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 exits=exits,
                 intents=repositories.intents,
                 entry_attempts=repositories.attempts,
+                configurations=repositories.configurations,
                 kill_switch=repositories.kill_switch,
                 broker=store_b.broker,
                 market_data=store_b.market_data,

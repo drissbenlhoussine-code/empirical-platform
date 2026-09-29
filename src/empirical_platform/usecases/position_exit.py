@@ -34,8 +34,11 @@ from empirical_platform.decision_candidate.paper_execution import (
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
     BrokerAcknowledgement,
     ExecutionAttempt,
+    ExecutionPolicy,
     PaperExecutionState,
     ReconciliationRoundOutcome,
+    execution_policy_from_configuration,
+    quote_refusal,
 )
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     BrokerOrderView,
@@ -78,6 +81,7 @@ from empirical_platform.decision_candidate.position_exit_repositories import (
 )
 from empirical_platform.decision_candidate.product_repositories import (
     ApprovedOrderIntentRepository,
+    OperatorTradingConfigurationRepository,
 )
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
 from empirical_platform.shared.brokerage.alpaca_paper import (
@@ -197,6 +201,37 @@ def _is_identity_collision(status: int, body: str) -> bool:
     return status == 422 and isinstance(document, dict) and document.get("code") == 40010001
 
 
+def _configuration_policy(
+    configurations: OperatorTradingConfigurationRepository, intent: ApprovedOrderIntent
+) -> ExecutionPolicy:
+    """The send-time policy of the configuration version that governs this position's entry.
+
+    MILESTONE-089: this is the durable market-data freshness bound
+    (`ExecutionPolicy.quote_maximum_age_seconds`, derived from
+    `OperatorTradingConfiguration.maximum_market_data_age_seconds`) M085 already built and
+    already governs this SAME position's entry -- reused for the exit's own quote-freshness
+    gate rather than a new constant. `ApprovedOrderIntent` already names the exact
+    configuration version its entry was evaluated under.
+    """
+    configuration = configurations.get(
+        intent.configuration_governance_id, intent.configuration_version
+    )
+    if configuration is None:
+        raise PositionExitRefusedError(
+            "the configuration version that governed this position's entry no longer exists; "
+            "its quote-freshness policy cannot be established. Nothing was done."
+        )
+    return execution_policy_from_configuration(configuration)
+
+
+def _measure_broker_now(broker: ExitBrokerPort, timing: PaperTimeWindow) -> BoundedInstant:
+    """One round trip to the broker's clock, bounded (MILESTONE-085's discipline, reused)."""
+    sent = timing.read_monotonic()
+    clock = broker.fetch_clock()
+    timing.observe_broker_clock(clock.timestamp, sent, timing.read_monotonic())
+    return timing.broker_now()
+
+
 # ---------------------------------------------------------------------------
 # Assess
 # ---------------------------------------------------------------------------
@@ -305,6 +340,14 @@ class PreviewPositionExitHandler:
     reasons are the operator's message. When eligible, the request is built from the
     VERIFIED quantity and the current bid, its broker identity is derived, and the preview
     is stored append-only.
+
+    THE QUOTE MUST BE FRESH, ON THE BROKER'S CLOCK (MILESTONE-089). The bid pricing this
+    exit is judged by `quote_refusal` -- M085's own quote-quality gate, reused unchanged --
+    against `ExecutionPolicy.quote_maximum_age_seconds`, derived from the SAME
+    `OperatorTradingConfiguration` version that governed this position's entry
+    (`ApprovedOrderIntent.configuration_governance_id`/`configuration_version`). No new
+    constant is introduced: this is the one durable freshness bound the codebase already
+    has, and it is measured on the broker's clock exactly as the entry side measures it.
     """
 
     __slots__ = (
@@ -313,7 +356,9 @@ class PreviewPositionExitHandler:
         "_events",
         "_broker",
         "_market_data",
+        "_configurations",
         "_environment",
+        "_time",
     )
 
     def __init__(
@@ -326,7 +371,9 @@ class PreviewPositionExitHandler:
         events: PositionExitEventRepository,
         broker: ExitBrokerPort,
         market_data: PaperMarketDataPort,
+        configurations: OperatorTradingConfigurationRepository,
         environment: str,
+        time_source: PaperTimeSource | None = None,
     ) -> None:
         self._assess = AssessPositionExitHandler(
             intents=intents,
@@ -338,7 +385,9 @@ class PreviewPositionExitHandler:
         self._events = events
         self._broker = broker
         self._market_data = market_data
+        self._configurations = configurations
         self._environment = environment
+        self._time = time_source or SystemPaperTimeSource()
 
     def handle(self, command: PreviewPositionExitCommand) -> PositionExitPreview:
         assessment = self._assess.handle(command.entry_intent_governance_id, at=command.created_at)
@@ -351,13 +400,25 @@ class PreviewPositionExitHandler:
         quantity = assessment.snapshot.attributable_quantity
         assert quantity is not None
         account_reference = _account_reference_of(self._broker)
+        policy = _configuration_policy(self._configurations, assessment.entry_intent)
         quote = self._market_data.fetch_quote(assessment.entry_intent.symbol)
         bid = _decimal_or_none(None if quote is None else quote.bid)
         ask = _decimal_or_none(None if quote is None else quote.ask)
-        if quote is None or bid is None or bid <= 0:
+        timing = PaperTimeWindow(self._time)
+        broker_now = _measure_broker_now(self._broker, timing)
+        stale = quote_refusal(
+            bid=bid,
+            ask=ask,
+            captured_at=None if quote is None else quote.captured_at,
+            policy=policy,
+            broker_now=broker_now,
+        )
+        if stale is not None:
             raise PositionExitRefusedError(
                 POSITION_NEEDS_ATTENTION
-                + " No current bid is available to price the exit; nothing was prepared."
+                + " The quote is not usable to price this exit: "
+                + stale
+                + ". Nothing was prepared."
             )
         version = self._previews.next_version_for_entry(command.entry_intent_governance_id)
         request = PositionExitRequest(
@@ -550,7 +611,16 @@ class ExitSubmissionResult:
 
 
 class SubmitAuthorizedPositionExitHandler:
-    """Send the one authorized SELL-TO-CLOSE, once, and record whatever happened."""
+    """Send the one authorized SELL-TO-CLOSE, once, and record whatever happened.
+
+    THE QUOTE'S FRESHNESS IS REVALIDATED HERE TOO (MILESTONE-089). A quote that was fresh
+    when the Owner reviewed the exit can go stale by the time they confirm it: this handler
+    re-runs `quote_refusal` against the SAME stored `preview.quote_bid`/`quote_ask`/
+    `quote_captured_at` the Owner was shown, but against a FRESHLY measured broker clock --
+    never a newly fetched quote, and never the authorization's own expiry as a substitute.
+    Growing too old between review and confirm refuses the submission; it does not fall back
+    to a repriced or silently reauthorized exit.
+    """
 
     __slots__ = (
         "_assess",
@@ -560,6 +630,7 @@ class SubmitAuthorizedPositionExitHandler:
         "_acknowledgements",
         "_events",
         "_broker",
+        "_configurations",
         "_kill_switch",
         "_time",
     )
@@ -575,6 +646,7 @@ class SubmitAuthorizedPositionExitHandler:
         acknowledgements: PositionExitAcknowledgementRepository,
         events: PositionExitEventRepository,
         broker: ExitBrokerPort,
+        configurations: OperatorTradingConfigurationRepository,
         kill_switch: ExecutionKillSwitchRepository,
         time_source: PaperTimeSource | None = None,
     ) -> None:
@@ -587,6 +659,7 @@ class SubmitAuthorizedPositionExitHandler:
         self._acknowledgements = acknowledgements
         self._events = events
         self._broker = broker
+        self._configurations = configurations
         self._kill_switch = kill_switch
         self._time = time_source or SystemPaperTimeSource()
 
@@ -643,6 +716,26 @@ class SubmitAuthorizedPositionExitHandler:
             )
         entry = assessment.entry_attempt
         assert entry is not None
+
+        # THE QUOTE, RE-VERIFIED NOW (MILESTONE-089). The SAME evidence the Owner was shown
+        # -- never a freshly fetched, differently priced quote -- judged against a broker
+        # clock reading taken THIS instant. A quote that was fresh at review and has since
+        # aged past the policy limit refuses the send; it is not silently repriced.
+        policy = _configuration_policy(self._configurations, assessment.entry_intent)
+        stale = quote_refusal(
+            bid=preview.quote_bid,
+            ask=preview.quote_ask,
+            captured_at=preview.quote_captured_at,
+            policy=policy,
+            broker_now=timing.broker_now(),
+        )
+        if stale is not None:
+            raise PositionExitRefusedError(
+                POSITION_NEEDS_ATTENTION + " The quote priced this exit at review is no longer "
+                "usable: " + stale + ". Nothing was sent; review the position again for a "
+                "fresh quote."
+            )
+
         account_reference = _account_reference_of(self._broker)
         fingerprint_now = exit_request_fingerprint(
             request=preview.request,

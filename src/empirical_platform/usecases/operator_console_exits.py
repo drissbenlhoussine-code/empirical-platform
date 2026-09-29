@@ -52,6 +52,7 @@ from empirical_platform.decision_candidate.position_exit_repositories import (
 )
 from empirical_platform.decision_candidate.product_repositories import (
     ApprovedOrderIntentRepository,
+    OperatorTradingConfigurationRepository,
 )
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
 from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
@@ -273,6 +274,7 @@ class PositionExitConsole:
         exits: ExitRepositories,
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
+        configurations: OperatorTradingConfigurationRepository,
         kill_switch: ExecutionKillSwitchRepository,
         broker: ExitBrokerPort,
         market_data: PaperMarketDataPort,
@@ -285,6 +287,7 @@ class PositionExitConsole:
         self._x = exits
         self._intents = intents
         self._entries = entry_attempts
+        self._configurations = configurations
         self._kill_switch = kill_switch
         self._broker = broker
         self._market_data = market_data
@@ -510,7 +513,9 @@ class PositionExitConsole:
                 events=self._x.events,
                 broker=self._broker,
                 market_data=self._market_data,
+                configurations=self._configurations,
                 environment=self._environment,
+                time_source=self._time,
             ).handle(
                 PreviewPositionExitCommand(
                     entry_intent_governance_id=intent_id,
@@ -633,6 +638,7 @@ class PositionExitConsole:
                 acknowledgements=self._x.acknowledgements,
                 events=self._x.events,
                 broker=self._broker,
+                configurations=self._configurations,
                 kill_switch=self._kill_switch,
                 time_source=self._time,
             ).handle(

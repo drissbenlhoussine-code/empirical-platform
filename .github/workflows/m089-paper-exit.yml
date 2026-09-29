@@ -73,6 +73,7 @@ jobs:
           python -m pytest --no-cov -v --no-header -p no:cacheprovider
           tests/unit/test_m089_paper_position_exit_composition.py
           tests/unit/test_m089_exit_review_wording.py
+          tests/unit/test_m089_exit_quote_freshness.py
           tests/architecture/test_m089_paper_exit_boundaries.py
           tests/integration/test_m089_paper_exit_postgres.py
       - name: M087 exit suite, still green with M089's changes (Store A untouched)

@@ -326,7 +326,9 @@ def world(engine_b: Engine, engine_c: Engine, tmp_path: Path) -> Iterator[dict[s
     # The SAME long-lived Store B service backs both the M084 and M085 repositories (one
     # database, two milestones' tables) -- unlike `_filled_entry_attempt`'s own short-lived
     # `postgres_repository_runtime` use, which only needs to persist the intent and return.
-    intents = PostgresRepositoryRuntime(store_b_service).approved_order_intents
+    store_b_m084 = PostgresRepositoryRuntime(store_b_service)
+    intents = store_b_m084.approved_order_intents
+    configurations = store_b_m084.operator_trading_configurations
     store = SimulationStore(tmp_path / "broker.json")
     store.stage(scenarios={}, quotes={"AAPL": ("199.95", "200.10")})
     clock = _Clock(CHAIN_AT)
@@ -337,6 +339,7 @@ def world(engine_b: Engine, engine_c: Engine, tmp_path: Path) -> Iterator[dict[s
             "paper": paper,
             "exits": exit_runtime,
             "intents": intents,
+            "configurations": configurations,
             "broker": broker,
             "market_data": market_data,
             "store": store,
@@ -358,7 +361,9 @@ def _prepare_and_confirm_exit(world: dict[str, object], *, intent_id: str) -> ob
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]
         market_data=world["market_data"],  # type: ignore[arg-type]
+        configurations=world["configurations"],  # type: ignore[arg-type]
         environment="PAPER",
+        time_source=world["clock"],  # type: ignore[arg-type]
     ).handle(
         PreviewPositionExitCommand(
             entry_intent_governance_id=intent_id,
@@ -391,6 +396,7 @@ def _prepare_and_confirm_exit(world: dict[str, object], *, intent_id: str) -> ob
         acknowledgements=world["exits"].acknowledgements,  # type: ignore[attr-defined]
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]
+        configurations=world["configurations"],  # type: ignore[arg-type]
         kill_switch=world["paper"].execution_kill_switch,  # type: ignore[attr-defined]
         time_source=world["clock"],  # type: ignore[arg-type]
     ).handle(
@@ -510,7 +516,9 @@ def test_a_preview_names_an_entry_attempt_that_exists_only_in_store_b(
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=broker,
         market_data=world["market_data"],  # type: ignore[arg-type]
+        configurations=world["configurations"],  # type: ignore[arg-type]
         environment="PAPER",
+        time_source=world["clock"],  # type: ignore[arg-type]
     ).handle(
         PreviewPositionExitCommand(
             entry_intent_governance_id=intent_id,
@@ -560,7 +568,9 @@ def test_the_preview_environment_check_accepts_only_paper(
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]
         market_data=world["market_data"],  # type: ignore[arg-type]
+        configurations=world["configurations"],  # type: ignore[arg-type]
         environment="PAPER",
+        time_source=world["clock"],  # type: ignore[arg-type]
     ).handle(
         PreviewPositionExitCommand(
             entry_intent_governance_id=intent_id,
@@ -624,7 +634,9 @@ def test_the_preview_table_is_append_only_and_client_order_id_keeps_the_m087_pre
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]
         market_data=world["market_data"],  # type: ignore[arg-type]
+        configurations=world["configurations"],  # type: ignore[arg-type]
         environment="PAPER",
+        time_source=world["clock"],  # type: ignore[arg-type]
     ).handle(
         PreviewPositionExitCommand(
             entry_intent_governance_id=intent_id,
