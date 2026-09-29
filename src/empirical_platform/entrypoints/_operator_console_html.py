@@ -796,10 +796,20 @@ def history_page(
         )
     else:
         table = '<section class="empty"><h2>Nothing matches</h2></section>'
+    # MILESTONE-089: this used to hardcode "simulation execution. Broker/Paper execution --
+    # future only." even when the console composed here was PAPER -- by then no longer true,
+    # since PAPER execution and PAPER exits are real and current, not a future capability.
+    execution_clause = (
+        "the simulation execution. Broker/Paper execution — future only."
+        if capability_label.upper() == "SIMULATION"
+        else "the Alpaca Paper execution. Orders and exits reach the real Alpaca PAPER endpoint; "
+        "not real money and not a live-market execution."
+    )
     legend = (
-        '<p class="muted">Columns distinguish the model proposal, the Owner decision and the '
-        "simulation execution. Broker/Paper execution — future only. Results are shown only when "
-        "the platform records one; no P&amp;L is computed from incomplete data.</p>"
+        '<p class="muted">Columns distinguish the model proposal, the Owner decision and '
+        + execution_clause
+        + " Results are shown only when the platform records one; no P&amp;L is computed from "
+        "incomplete data.</p>"
     )
     body = f"<h1>History</h1>{form}{legend}{table}"
     return _layout(

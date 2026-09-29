@@ -169,3 +169,17 @@ def test_exit_cancel_confirmation_page_names_the_alpaca_endpoint_for_paper() -> 
     page = exit_cancel_confirmation_page(summary, "csrf-token", "Paper", False)
     assert "Alpaca paper endpoint" in page
     assert "simulated broker" not in page
+
+
+def test_history_legend_is_capability_aware() -> None:
+    from empirical_platform.entrypoints._operator_console_html import history_page
+
+    simulation_page = history_page(
+        (), filters={}, capability_label="Simulation", kill_switch_engaged=False
+    )
+    assert "simulation execution. Broker/Paper execution — future only." in simulation_page
+
+    paper_page = history_page((), filters={}, capability_label="Paper", kill_switch_engaged=False)
+    assert "Alpaca Paper execution" in paper_page
+    assert "future only" not in paper_page
+    assert "simulation execution" not in paper_page
