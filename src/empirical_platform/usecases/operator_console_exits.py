@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from empirical_platform.decision_candidate.paper_execution import ExecutionAttempt
@@ -177,8 +177,18 @@ def _quantity(value: Decimal | int | None) -> str:
 def deadline_status(
     *, deadline: datetime, now: datetime, position_open: bool, position_closed: bool
 ) -> tuple[str, str]:
-    """(tone, sentence) for the mandatory liquidation deadline. Never executes anything."""
-    when = deadline.strftime("%Y-%m-%d %H:%M UTC")
+    """(tone, sentence) for the mandatory liquidation deadline. Never executes anything.
+
+    MILESTONE-089 FIX: `deadline` is a timezone-aware instant that may carry ANY offset
+    (`operator_timezone`, e.g. Europe/Helsinki) -- `strftime` prints whatever wall-clock hour
+    that offset holds, so appending the literal "UTC" without first converting was a
+    mislabeling bug (a 15:45 local reading shown as "15:45 UTC" when the instant is actually
+    12:45 UTC). `.astimezone(UTC)` here matches `entrypoints._operator_console_html._when`'s
+    own conversion exactly, so the banner and the terms table always name the same instant.
+    The comparisons below (`now >= deadline`, `deadline - now`) are untouched: datetime
+    comparison and subtraction are already timezone-correct regardless of display formatting.
+    """
+    when = deadline.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
     if position_closed:
         return "info", f"Position closed. Mandatory liquidation deadline was {when}."
     if not position_open:

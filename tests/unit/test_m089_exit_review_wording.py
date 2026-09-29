@@ -10,14 +10,17 @@ never says "simulated" or "simulation" about a real Alpaca broker action.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from empirical_platform.usecases.operator_console import HumanState
 from empirical_platform.usecases.operator_console_exits import (
+    DEADLINE_MISSED_TRUTH,
     ExitReviewView,
     _account_noun,
     _broker_noun,
     _closed_round_trip_label,
+    deadline_status,
 )
 
 _NOW = datetime(2026, 9, 29, 15, 0, tzinfo=UTC)
@@ -183,3 +186,106 @@ def test_history_legend_is_capability_aware() -> None:
     assert "Alpaca Paper execution" in paper_page
     assert "future only" not in paper_page
     assert "simulation execution" not in paper_page
+
+
+# ---------------------------------------------------------------------------
+# deadline_status: the deadline banner must name the SAME instant as the terms
+# table, in UTC, regardless of operator_timezone -- and the urgency/danger
+# comparisons must not change with the fix.
+# ---------------------------------------------------------------------------
+
+
+def test_a_non_utc_deadline_is_converted_to_utc_before_display() -> None:
+    deadline = datetime(2026, 6, 10, 15, 45, tzinfo=ZoneInfo("Europe/Helsinki"))
+    expected_utc = deadline.astimezone(UTC)
+    now = expected_utc - timedelta(hours=1)  # well outside the urgency window
+    tone, message = deadline_status(
+        deadline=deadline, now=now, position_open=True, position_closed=False
+    )
+    assert tone == "info"
+    assert expected_utc.strftime("%Y-%m-%d %H:%M UTC") in message
+    # The un-converted local wall-clock reading must NOT appear (the mislabeling this fixes).
+    assert deadline.strftime("%H:%M") not in message or deadline.strftime(
+        "%H:%M"
+    ) == expected_utc.strftime("%H:%M")
+
+
+def test_an_already_utc_deadline_is_unchanged() -> None:
+    deadline = datetime(2026, 6, 10, 12, 45, tzinfo=UTC)
+    now = deadline - timedelta(hours=2)
+    tone, message = deadline_status(
+        deadline=deadline, now=now, position_open=True, position_closed=False
+    )
+    assert tone == "info"
+    assert "2026-06-10 12:45 UTC" in message
+
+
+def test_the_banner_and_the_terms_table_name_the_same_instant() -> None:
+    from empirical_platform.entrypoints._operator_console_html import _when
+
+    deadline = datetime(2026, 6, 10, 15, 45, tzinfo=ZoneInfo("Europe/Helsinki"))
+    now = deadline.astimezone(UTC) - timedelta(hours=1)
+    _tone, message = deadline_status(
+        deadline=deadline, now=now, position_open=True, position_closed=False
+    )
+    terms_table_text = _when(deadline)
+    # Same date and hour:minute in both (the terms table additionally carries seconds).
+    shared = deadline.astimezone(UTC).strftime("%Y-%m-%d %H:%M")
+    assert shared in message
+    assert shared in terms_table_text
+
+
+def test_urgency_and_danger_thresholds_are_unaffected_by_timezone_representation() -> None:
+    """The SAME instant, expressed in UTC vs. a non-UTC zone, must yield the identical tone."""
+    deadline_utc = datetime(2026, 6, 10, 12, 45, tzinfo=UTC)
+    deadline_helsinki = deadline_utc.astimezone(ZoneInfo("Europe/Helsinki"))
+    assert deadline_utc == deadline_helsinki  # same instant, different tzinfo
+
+    # Outside the 30-minute urgency window: info.
+    far_now = deadline_utc - timedelta(hours=1)
+    assert (
+        deadline_status(
+            deadline=deadline_utc, now=far_now, position_open=True, position_closed=False
+        )[0]
+        == deadline_status(
+            deadline=deadline_helsinki, now=far_now, position_open=True, position_closed=False
+        )[0]
+        == "info"
+    )
+
+    # Inside the 30-minute urgency window: warn.
+    near_now = deadline_utc - timedelta(minutes=10)
+    tone_utc, message_utc = deadline_status(
+        deadline=deadline_utc, now=near_now, position_open=True, position_closed=False
+    )
+    tone_helsinki, message_helsinki = deadline_status(
+        deadline=deadline_helsinki, now=near_now, position_open=True, position_closed=False
+    )
+    assert tone_utc == tone_helsinki == "warn"
+    assert "10 minute" in message_utc and "10 minute" in message_helsinki
+
+    # At or past the deadline: danger, with the missed-deadline truth.
+    late_now = deadline_utc + timedelta(minutes=1)
+    tone_utc, message_utc = deadline_status(
+        deadline=deadline_utc, now=late_now, position_open=True, position_closed=False
+    )
+    tone_helsinki, message_helsinki = deadline_status(
+        deadline=deadline_helsinki, now=late_now, position_open=True, position_closed=False
+    )
+    assert tone_utc == tone_helsinki == "danger"
+    assert DEADLINE_MISSED_TRUTH in message_utc and DEADLINE_MISSED_TRUTH in message_helsinki
+
+
+def test_deadline_status_position_closed_and_not_open_branches_use_utc_too() -> None:
+    deadline = datetime(2026, 6, 10, 15, 45, tzinfo=ZoneInfo("Europe/Helsinki"))
+    expected = deadline.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+    tone, message = deadline_status(
+        deadline=deadline, now=deadline, position_open=True, position_closed=True
+    )
+    assert tone == "info" and expected in message
+
+    tone, message = deadline_status(
+        deadline=deadline, now=deadline, position_open=False, position_closed=False
+    )
+    assert tone == "info" and expected in message
