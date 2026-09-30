@@ -81,6 +81,9 @@ from empirical_platform.decision_candidate.paper_execution_repositories import (
     PaperBrokerPort,
     PaperMarketDataPort,
 )
+from empirical_platform.decision_candidate.product_repositories import (
+    OperatorTradingConfigurationRepository,
+)
 from empirical_platform.shared.brokerage.alpaca_paper import BrokerResponseInvalidError
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 
@@ -91,7 +94,10 @@ __all__ = [
     "GenerateOpportunitiesHandler",
     "IgnoreOpportunityCommand",
     "IgnoreOpportunityHandler",
+    "OperatorTradingConfiguration",
+    "OperatorTradingConfigurationRepository",
     "OpportunityEngineRefusedError",
+    "OpportunityEnginePolicy",
     "OpportunityStatus",
     "ReviewOpportunityHandler",
     "SymbolEvaluation",
