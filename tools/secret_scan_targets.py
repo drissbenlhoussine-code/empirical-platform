@@ -42,6 +42,11 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     #: FINAL HOLDOUT orchestration script checks itself against before fetching anything.
     #: Same public, non-credential SHA-256; same exact-name discipline as every pattern above.
     re.compile(r'^[+-]?EXPECTED_FROZEN_FINGERPRINT_V2 = "[0-9a-f]{64}"$'),
+    #: MILESTONE-092's own JSON-serialized frozen V2-C fingerprint
+    #: (`external-review/MILESTONE-092/results-v2.json`'s own `frozen_fingerprint` key) --
+    #: the same public, non-credential SHA-256 as `EXPECTED_FROZEN_FINGERPRINT_V2` above,
+    #: cleared by exact JSON key rather than by Python constant name.
+    re.compile(r'^[+-]?\s*"frozen_fingerprint": "[0-9a-f]{64}",?$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the
