@@ -89,7 +89,11 @@ jobs:
           tests/integration/test_m087_schema_ancestry_postgres.py
       - name: The SIMULATION console still starts at the M087 head with the exit path composed
         run: |
-          python -m alembic -c alembic.ini upgrade head
+          # Pinned exactly by MILESTONE-090: this console's own exact-head guard
+          # (require_exact_m087_schema_head) refuses to run against any schema newer than
+          # M087's own reviewed head, and M090's additive migration now stacks beyond it in
+          # the same chain -- "upgrade head" would migrate past what this guard accepts.
+          python -m alembic -c alembic.ini upgrade e7c1a9d3b5f2
           python -m empirical_platform.entrypoints.operator_console --load-day --no-browser --port 8086 --state-dir "$RUNNER_TEMP/console-state" --reconcile-every 2 > console.log 2>&1 &
           CONSOLE_PID=$!
           for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:8086/active && break; sleep 1; done
