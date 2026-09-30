@@ -118,7 +118,9 @@ def test_m085_paper_order_request_is_still_buy_only_and_untouched() -> None:
         ({"quantity": 0}, "positive"),
         ({"quantity": -3}, "positive"),
         ({"quantity": Decimal("1.5")}, "int"),
-        ({"environment": "PAPER"}, "cannot be bound"),
+        # MILESTONE-089 widened ALLOWED_EXIT_ENVIRONMENTS to {"SIMULATION", "PAPER"}; LIVE
+        # remains the one environment this request can never bind (see
+        # test_the_request_still_refuses_live_and_only_live below for the positive case).
         ({"environment": "LIVE"}, "cannot be bound"),
         ({"client_order_id": "m085-" + "c" * 40}, "m087-"),
         ({"time_in_force": "GTC"}, "DAY"),
@@ -127,11 +129,25 @@ def test_m085_paper_order_request_is_still_buy_only_and_untouched() -> None:
         ({"order_type": OrderType.MARKET}, "must not carry"),
     ],
 )
-def test_the_request_cannot_express_anything_but_a_whole_simulation_sell_to_close(
+def test_the_request_cannot_express_anything_but_a_whole_sell_to_close(
     overrides: dict[str, object], message: str
 ) -> None:
     with pytest.raises(ValueError, match=message):
         a_request(**overrides)
+
+
+def test_the_request_still_refuses_live_and_only_live() -> None:
+    """MILESTONE-089: SIMULATION and PAPER both construct; LIVE alone is refused, and no
+    other value silently passes (the frozenset itself is the single source of truth)."""
+    from empirical_platform.decision_candidate.position_exit import ALLOWED_EXIT_ENVIRONMENTS
+
+    assert ALLOWED_EXIT_ENVIRONMENTS == frozenset({"SIMULATION", "PAPER"})
+    a_request(environment="SIMULATION")
+    a_request(environment="PAPER")
+    with pytest.raises(ValueError, match="cannot be bound"):
+        a_request(environment="LIVE")
+    with pytest.raises(ValueError, match="cannot be bound"):
+        a_request(environment="live")
 
 
 def test_the_broker_identity_is_derived_and_differs_per_preview() -> None:

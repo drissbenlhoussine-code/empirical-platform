@@ -41,6 +41,9 @@ from empirical_platform.entrypoints._operator_console_web import SecuritySession
 from empirical_platform.entrypoints._paper_operator_console_composition import (
     paper_operator_console_runtime,
 )
+from empirical_platform.entrypoints._paper_position_exit_composition import (
+    paper_operator_console_with_exit_runtime,
+)
 from empirical_platform.entrypoints._position_exit_composition import (
     simulation_exit_console_runtime,
 )
@@ -185,10 +188,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--capability",
-        choices=("simulation", "paper"),
+        choices=("simulation", "paper", "paper-exit"),
         default="simulation",
-        help="SIMULATION (default) or PAPER (MILESTONE-088, real Alpaca paper endpoint). "
-        "There is no 'live' choice: no composition path in this repository can build one.",
+        help="SIMULATION (default), PAPER (MILESTONE-088, real Alpaca paper endpoint, no exit "
+        "path) or paper-exit (MILESTONE-089, PAPER plus SELL_TO_CLOSE over Store B + Store "
+        "C). There is no 'live' choice: no composition path in this repository can build one.",
     )
     parser.add_argument(
         "--load-day",
@@ -210,14 +214,37 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser.parse_args(argv)
     host = _loopback(arguments.host)
 
-    if arguments.capability == "paper":
+    if arguments.capability in ("paper", "paper-exit"):
         if arguments.load_day or arguments.reset_simulation:
             print(
-                "REFUSED: --load-day and --reset-simulation have no meaning for "
-                "--capability paper. Nothing was started.",
+                f"REFUSED: --load-day and --reset-simulation have no meaning for "
+                f"--capability {arguments.capability}. Nothing was started.",
                 file=sys.stderr,
             )
             return 2
+        if arguments.capability == "paper-exit":
+            # MILESTONE-089: the ONLY difference from --capability paper is which composition
+            # function opens Store C alongside Store B and wires the exit console; the routes,
+            # the app and the banner's first two lines are otherwise identical.
+            with paper_operator_console_with_exit_runtime() as backend:
+                application = build_paper_application(backend, security=SecuritySession())
+                _serve_with_reconciler(
+                    application,
+                    refresh=backend.service.refresh_executions,
+                    host=host,
+                    port=arguments.port,
+                    no_browser=arguments.no_browser,
+                    reconcile_every=arguments.reconcile_every,
+                    banner=(
+                        "  OPERATOR CONSOLE -- PAPER. Orders reach the real Alpaca PAPER "
+                        "endpoint only.",
+                        "  Not real money. Every submission requires explicit Owner approval.",
+                        "  MILESTONE-089: SELL_TO_CLOSE is enabled for attributable PAPER "
+                        "positions.",
+                        "  Live -- not authorized.",
+                    ),
+                )
+            return 0
         with paper_operator_console_runtime() as backend:
             application = build_paper_application(backend, security=SecuritySession())
             _serve_with_reconciler(

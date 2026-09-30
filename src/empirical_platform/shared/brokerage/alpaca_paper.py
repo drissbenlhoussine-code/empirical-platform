@@ -20,11 +20,19 @@ what makes the DEFINITELY-NOT-SENT / MAYBE-SENT distinction below observable
 rather than guessed.
 
 WHAT THIS ADAPTER CANNOT DO. It has no method taking a URL, a host, a header
-mapping, a raw body, or a symbol-and-side pair the caller assembled. It cannot
-express a sell, a short, a fractional quantity, an extended-hours order or a
-time in force other than DAY, because `PaperOrderRequest` cannot express those
-and nothing else is accepted. There is no `--force`, no live mode, and no
-argument that changes the endpoint.
+mapping, a raw body, or a symbol-and-side pair the caller assembled. `submit_order`
+cannot express a sell, a short, a fractional quantity, an extended-hours order or a
+time in force other than DAY, because `PaperOrderRequest` cannot express those and
+nothing else is accepted. There is no `--force`, no live mode, and no argument that
+changes the endpoint.
+
+MILESTONE-089 adds exactly one further capability, `submit_close_order`, and it is
+NOT a generic sell: it takes only a `PositionExitRequest`, a type that can express
+nothing but SELL_TO_CLOSE of a whole positive quantity the domain already verified
+against a real broker position, in an environment this milestone's own
+`ALLOWED_EXIT_ENVIRONMENTS` permits. There is still no method here that accepts a
+caller-assembled side, and still no way to open or widen a short: `broker_side` is
+always the literal `"sell"`, applied by the venue against the long already held.
 
 REDIRECTS ARE REFUSED, NOT FOLLOWED. `http.client` does not follow redirects, so
 a 3xx arrives as a response rather than as a silent hop; it is then refused
@@ -65,6 +73,10 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperOrderRequest,
     classify_broker_refusal,
     order_terms_mismatches,
+)
+from empirical_platform.decision_candidate.position_exit import (
+    PositionExitRequest,
+    exit_order_terms_mismatches,
 )
 
 __all__ = [
@@ -809,6 +821,94 @@ class AlpacaPaperClient:
             http_status=status,
             sanitized_body=sanitized,
         )
+
+    def submit_close_order(
+        self, request: PositionExitRequest, *, before_send: Callable[[], None] | None = None
+    ) -> tuple[int, _OrderView | None, str]:
+        """MILESTONE-089: send the one authorized SELL-TO-CLOSE, exactly as authorized.
+
+        Mirrors `submit_order` exactly -- same endpoint, same ambiguity handling, same
+        identity-collision handling, same redirect refusal -- with two differences only:
+        the body's `side` is `request.broker_side` (always the literal `"sell"`, never a
+        caller-chosen value) rather than a BUY-only request's own side, and the
+        acknowledgement is validated with `exit_order_terms_mismatches`, which compares
+        against side `"sell"` rather than `"buy"`. `PositionExitRequest` cannot express a
+        short, a fractional quantity, extended hours or a time in force other than DAY,
+        so nothing new is possible here that the exit domain did not already verify.
+        """
+        if not isinstance(request, PositionExitRequest):
+            raise ValueError("request must be a PositionExitRequest")
+        payload: dict[str, Any] = {
+            "symbol": request.symbol,
+            "qty": str(request.quantity),
+            "side": request.broker_side,
+            "type": request.order_type.value.lower(),
+            "time_in_force": request.time_in_force.lower(),
+            "extended_hours": request.extended_hours,
+            "client_order_id": request.client_order_id,
+        }
+        if request.order_type is OrderType.LIMIT and request.limit_price is not None:
+            payload["limit_price"] = format(request.limit_price, "f")
+
+        try:
+            status, body, sanitized = self._json(
+                "POST",
+                "/v2/orders",
+                body=json.dumps(payload, sort_keys=True),
+                before_send=before_send,
+            )
+        except EndpointRefusedError as error:
+            raise BrokerAmbiguousDispatchError(
+                f"POST /v2/orders (close) was delivered and answered with a redirect: {error}"
+            ) from error
+        if status in {200, 201}:
+            if not isinstance(body, dict):
+                raise BrokerAmbiguousDispatchError(
+                    f"POST /v2/orders (close) answered HTTP {status} with a body that is not "
+                    "an order; the order may exist",
+                    http_status=status,
+                    sanitized_body=sanitized,
+                )
+            try:
+                return status, self._validated_exit_order_view(body, request=request), sanitized
+            except BrokerResponseInvalidError as error:
+                raise BrokerAmbiguousDispatchError(
+                    f"POST /v2/orders (close) answered HTTP {status} with an unusable order: "
+                    f"{error}",
+                    http_status=status,
+                    sanitized_body=sanitized,
+                ) from error
+        kind = classify_broker_refusal(status, sanitized)
+        if kind is BrokerRefusalKind.CLIENT_ORDER_ID_EXISTS:
+            raise BrokerIdentityExistsError(
+                "POST /v2/orders (close) answered that an order already exists under this "
+                "client_order_id; reconcile the identity, do not send again",
+                http_status=status,
+                sanitized_body=sanitized,
+                request_sent=True,
+            )
+        if kind is BrokerRefusalKind.DEFINITIVE_REFUSAL:
+            return status, None, sanitized
+        raise BrokerAmbiguousDispatchError(
+            f"POST /v2/orders (close) answered HTTP {status}, which does not prove the order "
+            "was refused; reconcile by client_order_id",
+            http_status=status,
+            sanitized_body=sanitized,
+        )
+
+    @classmethod
+    def _validated_exit_order_view(
+        cls, payload: dict[str, Any], *, request: PositionExitRequest
+    ) -> _OrderView:
+        """MILESTONE-089: refuse an acknowledgement that is not about the exit we sent."""
+        view = cls._order_view(payload)
+        mismatches = list(exit_order_terms_mismatches(expected=request, actual=view))
+        if mismatches:
+            raise BrokerResponseInvalidError(
+                "the broker acknowledged an order that differs from the authorized exit: "
+                + ", ".join(sorted(mismatches))
+            )
+        return view
 
     def fetch_order_by_client_order_id(
         self, client_order_id: str

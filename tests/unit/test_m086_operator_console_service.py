@@ -117,7 +117,7 @@ def test_confirm_approval_runs_the_whole_chain_and_the_order_fills(world: World)
     assert open_position.intent_id == intent.intent_governance_id
     assert open_position.position_open and open_position.is_terminal
     assert open_position.state is HumanState.FILLED and not open_position.can_cancel
-    assert "exit locked pending M087" in open_position.exit_status
+    assert "exit locked (no exit path composed on this console)" in open_position.exit_status
     assert open_position.raw_state == "FILLED"
     history = world.service.history()
     assert history[0].final_state is HumanState.FILLED
