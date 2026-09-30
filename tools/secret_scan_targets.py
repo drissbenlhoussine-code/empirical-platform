@@ -37,6 +37,11 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     #: fingerprint in the same file. Same public, non-credential SHA-256; same
     #: exact-name discipline as every pattern above.
     re.compile(r'^[+-]?V1_FROZEN_FINGERPRINT = "[0-9a-f]{64}"$'),
+    #: MILESTONE-092's own frozen V2-C fingerprint (see
+    #: `external-review/MILESTONE-092/policy-freeze-v2.md`) -- the value the VALIDATION/
+    #: FINAL HOLDOUT orchestration script checks itself against before fetching anything.
+    #: Same public, non-credential SHA-256; same exact-name discipline as every pattern above.
+    re.compile(r'^[+-]?EXPECTED_FROZEN_FINGERPRINT_V2 = "[0-9a-f]{64}"$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the
