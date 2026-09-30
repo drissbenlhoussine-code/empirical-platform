@@ -89,12 +89,15 @@ def build_opportunity_engine_application(
         actionable = select_top_actionable(opportunities, top_n=backend.top_n())
         candidates = tuple(o for o in opportunities if o.status is OpportunityStatus.CANDIDATE)
         rejected = tuple(o for o in opportunities if o.status is OpportunityStatus.REJECTED)
+        shown = {o.opportunity_id for o in (*actionable, *candidates, *rejected)}
+        other = tuple(o for o in opportunities if o.opportunity_id not in shown)
         generated_at = opportunities[0].generated_at if opportunities else None
         return html_response(
             html.today_page(
                 actionable=actionable,
                 candidates=candidates,
                 rejected=rejected,
+                other=other,
                 csrf=csrf,
                 generated_at=generated_at,
             )

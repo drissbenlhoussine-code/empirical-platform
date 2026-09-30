@@ -19,7 +19,7 @@ from datetime import datetime
 from decimal import Decimal
 from html import escape as _e
 
-from empirical_platform.usecases.opportunity_engine import TradingOpportunity
+from empirical_platform.usecases.opportunity_engine import OpportunityStatus, TradingOpportunity
 
 __all__ = [
     "STYLESHEET",
@@ -221,6 +221,7 @@ def today_page(
     actionable: tuple[TradingOpportunity, ...],
     candidates: tuple[TradingOpportunity, ...],
     rejected: tuple[TradingOpportunity, ...],
+    other: tuple[TradingOpportunity, ...] = (),
     csrf: str,
     generated_at: datetime | None,
 ) -> str:
@@ -267,7 +268,22 @@ def today_page(
             f"{rows}</table></section>"
         )
 
-    return _layout(title="Today", body=header + cards + candidate_html + rejected_html)
+    other_html = ""
+    if other:
+        rows = "".join(
+            f"<tr><td>{_e(o.symbol)}</td><td>{_e(o.status.value)}</td>"
+            f"<td>{_when(o.evidence_as_of)}</td>"
+            f'<td><a class="muted" href="/opportunity/review?id={_e(o.opportunity_id)}">view</a>'
+            "</td></tr>"
+            for o in other
+        )
+        other_html = (
+            '<section class="card rejected"><h2>No longer actionable (history)</h2>'
+            '<table class="reject"><tr><th>Symbol</th><th>Status</th><th>Evidence as of</th>'
+            f"<th></th></tr>{rows}</table></section>"
+        )
+
+    return _layout(title="Today", body=header + cards + candidate_html + rejected_html + other_html)
 
 
 def review_page(opportunity: TradingOpportunity, csrf: str, *, error: str | None = None) -> str:
@@ -283,20 +299,30 @@ def review_page(opportunity: TradingOpportunity, csrf: str, *, error: str | None
         "commits to EXACTLY these terms, never a repriced plan.</p>"
         f"{warning}"
         f"{_opportunity_card(opportunity, csrf)}"
-        f'<p class="note note-warn"><strong>Final confirmation.</strong> Pressing APPROVE will '
-        f"record that you approved a BUY research plan for {_e(opportunity.symbol)} "
-        f"({opportunity.quantity} shares, entry {_money(opportunity.entry_price)}, stop "
-        f"{_money(opportunity.stop_price)}, target {_money(opportunity.target_price)}). "
-        "THIS DOES NOT SEND ANYTHING TO ANY BROKER — this milestone's engineering ends at "
-        "recording your decision; a later, separately built and separately approved milestone "
-        "would be required before any order could ever be submitted.</p>"
-        f'<form method="post" action="/opportunity/approve" style="display:inline">{_csrf(csrf)}'
-        f'<input type="hidden" name="id" value="{_e(opportunity.opportunity_id)}">'
-        '<button class="btn btn-primary" type="submit">APPROVE</button></form> '
-        f'<form method="post" action="/opportunity/ignore" style="display:inline">{_csrf(csrf)}'
-        f'<input type="hidden" name="id" value="{_e(opportunity.opportunity_id)}">'
-        '<button class="btn btn-danger" type="submit">IGNORE</button></form>'
     )
+    if opportunity.status is OpportunityStatus.ACTIONABLE:
+        body += (
+            f'<p class="note note-warn"><strong>Final confirmation.</strong> Pressing APPROVE '
+            f"will record that you approved a BUY research plan for {_e(opportunity.symbol)} "
+            f"({opportunity.quantity} shares, entry {_money(opportunity.entry_price)}, stop "
+            f"{_money(opportunity.stop_price)}, target {_money(opportunity.target_price)}). "
+            "THIS DOES NOT SEND ANYTHING TO ANY BROKER — this milestone's engineering ends at "
+            "recording your decision; a later, separately built and separately approved "
+            "milestone would be required before any order could ever be submitted.</p>"
+            f'<form method="post" action="/opportunity/approve" style="display:inline">'
+            f"{_csrf(csrf)}"
+            f'<input type="hidden" name="id" value="{_e(opportunity.opportunity_id)}">'
+            '<button class="btn btn-primary" type="submit">APPROVE</button></form> '
+            f'<form method="post" action="/opportunity/ignore" style="display:inline">'
+            f"{_csrf(csrf)}"
+            f'<input type="hidden" name="id" value="{_e(opportunity.opportunity_id)}">'
+            '<button class="btn btn-danger" type="submit">IGNORE</button></form>'
+        )
+    else:
+        body += (
+            f'<p class="note note-info">This opportunity is no longer actionable (status: '
+            f"{_e(opportunity.status.value)}) — no APPROVE or IGNORE action is available.</p>"
+        )
     return _layout(title="Review opportunity", body=body)
 
 
