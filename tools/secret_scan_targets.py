@@ -30,6 +30,13 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     #: patterns above -- not a blanket "any 64-hex value is fine" rule.
     re.compile(r'^[+-]?FROZEN_FINGERPRINT = "[0-9a-f]{64}"$'),
     re.compile(r'^[+-]?\s*"fingerprint": "[0-9a-f]{64}",?$'),
+    #: MILESTONE-092's own reference to V1's ALREADY-cleared fingerprint (the SAME
+    #: value the pattern above already clears under the name `FROZEN_FINGERPRINT`),
+    #: cited here under a different constant name (`V1_FROZEN_FINGERPRINT`) because
+    #: the diagnostic script that reads it needs to distinguish it from a later V2
+    #: fingerprint in the same file. Same public, non-credential SHA-256; same
+    #: exact-name discipline as every pattern above.
+    re.compile(r'^[+-]?V1_FROZEN_FINGERPRINT = "[0-9a-f]{64}"$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the
