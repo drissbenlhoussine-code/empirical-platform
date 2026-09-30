@@ -82,7 +82,12 @@ class Clock:
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    yield from build_engine()
+    # MILESTONE-090 pinned: this suite tests M087's OWN exact-head guard
+    # (`require_exact_m087_schema_head`), so it must build the database at exactly M087's head,
+    # not the repository's current head -- M090's own additive migration is now later in the
+    # same chain and would otherwise make the default `revision="head"` build a database this
+    # guard correctly refuses. See `_m085_support.build_engine`'s own docstring.
+    yield from build_engine(M087_SCHEMA_HEAD)
 
 
 def _truncate(engine: Engine) -> None:
@@ -214,7 +219,9 @@ def test_the_migration_upgrades_downgrades_and_re_upgrades_with_an_exact_head(
             assert m086.service.exits is None
         finally:
             m086.close()
-        alembic_command.upgrade(alembic_config(), "head")
+        # MILESTONE-090 pinned: re-upgrade to exactly M087's own head, not the repository's
+        # current head (M090's own additive migration now stacks beyond it in the same chain).
+        alembic_command.upgrade(alembic_config(), M087_SCHEMA_HEAD)
         with engine.begin() as connection:
             present = {
                 row[0]

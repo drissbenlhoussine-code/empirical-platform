@@ -29,6 +29,9 @@ from empirical_platform.shared.persistence.postgres import PostgresPersistenceSe
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     M085_SCHEMA_HEAD,
 )
+from empirical_platform.shared.persistence.postgres_repositories.position_exit_repositories import (  # noqa: E501
+    M087_SCHEMA_HEAD,
+)
 from empirical_platform.usecases.operator_console import (
     CapabilityRefusedError,
     ConsoleRefusalError,
@@ -286,11 +289,13 @@ def test_a_second_launcher_process_is_refused_with_exit_code_2(world: dict[str, 
     environment = dict(os.environ)
     environment["PYTHONUNBUFFERED"] = "1"
     state_dir = Path(world["state_dir"]) / "launcher"
-    # STACKED-MILESTONE TEST EVOLUTION (M087). The launcher composes the console at the
-    # repository head (the M087 runtime), so this process-level lock test migrates the database
-    # to that head for its duration and returns it to the M085 head afterwards. The subject --
-    # the operating-system lock refusing a second launcher -- is unchanged.
-    alembic_command.upgrade(alembic_config(), "head")
+    # STACKED-MILESTONE TEST EVOLUTION (M087, pinned exactly by M090). The launcher composes
+    # the console over the M087 runtime specifically, so this process-level lock test migrates
+    # the database to EXACTLY M087's head for its duration and returns it to the M085 head
+    # afterwards -- never the repository's current head, which M090's own additive migration
+    # now stacks beyond. The subject -- the operating-system lock refusing a second launcher --
+    # is unchanged.
+    alembic_command.upgrade(alembic_config(), M087_SCHEMA_HEAD)
     argv = [
         sys.executable,
         "-m",

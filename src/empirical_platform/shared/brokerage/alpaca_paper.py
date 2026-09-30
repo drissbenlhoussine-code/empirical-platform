@@ -51,6 +51,12 @@ answer field by field against the request that was sent, and refuses a mismatch
 in `client_order_id`, symbol, side, quantity or order type. A peer that returns
 somebody else's order, or a different order than the one authorized, is a
 failure to fail closed on -- not a result to persist.
+
+MILESTONE-090 adds `AlpacaPaperMarketDataClient.fetch_minute_bars`: real, IEX-feed, 1-minute
+OHLCV evidence over a caller-given `[start, end)` window, on the market-data host, read-only.
+It takes no order-shaped argument and returns no order-shaped answer; it is evidence for the
+opportunity engine to evaluate, exactly like `fetch_quote`, and it does not touch the trading
+host, `AlpacaPaperClient`, or anything order-submission-capable.
 """
 
 from __future__ import annotations
@@ -61,10 +67,11 @@ import json
 import ssl
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 from typing import Any, Final
+from urllib.parse import quote as _urlquote
 
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
@@ -97,6 +104,12 @@ __all__ = [
     "credentials_from_environment",
     "redact_headers",
 ]
+
+#: MILESTONE-090. The largest single page of minute bars this adapter will request.
+#: Alpaca paginates beyond this via `next_page_token`, which this adapter does not follow --
+#: the opportunity engine's own lookback windows are always small (tens of bars), so an
+#: unpaginated single page is the narrowest capability this milestone's actual need requires.
+MAXIMUM_BARS_PER_REQUEST: Final = 1000
 
 REDACTED: Final = "<redacted>"
 
@@ -425,6 +438,23 @@ class _QuoteView:
     ask: str | None
     captured_at: datetime
     source: str
+
+
+@dataclass(frozen=True, slots=True)
+class _BarView:
+    """MILESTONE-090: one real, IEX-feed, 1-minute OHLCV bar. Read-only evidence, nothing else.
+
+    Prices are `str`, matching `_QuoteView`/`_OrderView`'s own convention: the caller converts
+    to `Decimal` at the domain boundary, this adapter never performs financial arithmetic.
+    """
+
+    symbol: str
+    timestamp: datetime
+    open: str
+    high: str
+    low: str
+    close: str
+    volume: int
 
 
 def _sanitize(body: bytes, credentials: AlpacaPaperCredentials | None = None) -> str:
@@ -1082,6 +1112,73 @@ class AlpacaPaperMarketDataClient:
             captured_at=_parse_instant(quote.get("t"), field="quote timestamp"),
             source="alpaca-iex",
         )
+
+    def fetch_minute_bars(
+        self, symbol: str, *, start: datetime, end: datetime, limit: int = 100
+    ) -> tuple[_BarView, ...]:
+        """MILESTONE-090: the one capability this adapter adds beyond quotes -- still read-only.
+
+        Real, IEX-feed, 1-minute OHLCV bars over `[start, end)`, oldest first. `start`/`end`
+        must be timezone-aware; `limit` bounds the single unpaginated page requested (see
+        `MAXIMUM_BARS_PER_REQUEST`). No method added here, or anywhere else in this module, can
+        place, modify or cancel an order: this returns evidence, nothing else.
+        """
+        AlpacaPaperClient._require_plain_symbol(symbol)
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("start and end must be timezone-aware")
+        if end <= start:
+            raise ValueError("end must be after start")
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not (1 <= limit <= MAXIMUM_BARS_PER_REQUEST)
+        ):
+            raise ValueError(f"limit must be an int between 1 and {MAXIMUM_BARS_PER_REQUEST}")
+        query = (
+            "timeframe=1Min"
+            f"&start={_urlquote(start.astimezone(UTC).isoformat())}"
+            f"&end={_urlquote(end.astimezone(UTC).isoformat())}"
+            f"&limit={limit}"
+            "&feed=iex&adjustment=raw&sort=asc"
+        )
+        status, _, raw = self._connection.request("GET", f"/v2/stocks/{symbol}/bars?{query}")
+        if status != 200:
+            return ()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return ()
+        if not isinstance(payload, dict):
+            return ()
+        returned_symbol = payload.get("symbol")
+        if returned_symbol is not None and returned_symbol != symbol:
+            raise BrokerResponseInvalidError(
+                f"asked for {symbol} bars and was given {returned_symbol}"
+            )
+        raw_bars = payload.get("bars")
+        if raw_bars is None:
+            return ()
+        if not isinstance(raw_bars, list):
+            raise BrokerResponseInvalidError("the bars payload is not a list")
+        views: list[_BarView] = []
+        for entry in raw_bars:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("a bar entry is not an object")
+            try:
+                views.append(
+                    _BarView(
+                        symbol=symbol,
+                        timestamp=_parse_instant(entry.get("t"), field="bar timestamp"),
+                        open=str(entry["o"]),
+                        high=str(entry["h"]),
+                        low=str(entry["l"]),
+                        close=str(entry["c"]),
+                        volume=int(entry["v"]),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise BrokerResponseInvalidError(f"a bar entry is malformed: {error}") from error
+        return tuple(views)
 
 
 #: Everything this module treats as a live endpoint and refuses. Recorded as data

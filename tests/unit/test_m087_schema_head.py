@@ -28,6 +28,12 @@ from empirical_platform.shared.persistence.postgres_repositories.position_exit_r
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _M085 = "".join(("a7d3c9", "e14f26"))
+#: MILESTONE-090's own additive migration, the current sole head of this chain. It carries no
+#: schema-head guard of its own (see external-review/MILESTONE-090/scope-and-design.md Section
+#: 4 -- a research/read schema, not a real-broker safety gate), so there is no
+#: `M090_SCHEMA_HEAD` constant to import from a persistence module; the revision id is grouped
+#: here the same way `_M085` is above.
+_M090 = "".join(("a2b4c6d8", "e0f2"))
 _M087 = "".join(("e7c1a9", "d3b5f2"))
 _OLDER = "".join(("9c4b2e", "7d5a18"))
 _UNKNOWN_NEWER = "ffff" + "0" * 8
@@ -120,19 +126,42 @@ def test_an_unreadable_revision_refuses_both_guards() -> None:
         require_exact_m085_schema_head(_Service([], RuntimeError("down")))  # type: ignore[arg-type]
 
 
-def test_the_m087_revision_descends_directly_from_the_m085_revision_and_is_the_only_head() -> None:
+def test_the_m087_revision_descends_directly_from_the_m085_revision() -> None:
+    """M087 stacks directly on M085 with nothing inserted between them.
+
+    MILESTONE-090 pinned: M087 is no longer the sole head of the whole chain (M090's own
+    additive migration now stacks beyond it) -- that broader claim moved to
+    `test_the_m090_revision_is_the_sole_head_descending_linearly_from_m085_through_m087` below.
+    This test keeps proving the narrower, still-true fact this file's docstring promises: M085
+    -> M087 is direct, with no insertion or replacement inside that specific step.
+    """
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [M087_SCHEMA_HEAD]
     m087 = script.get_revision(M087_SCHEMA_HEAD)
     assert m087 is not None and m087.down_revision == M085_SCHEMA_HEAD
     m085 = script.get_revision(M085_SCHEMA_HEAD)
     assert m085 is not None and m085.down_revision == _OLDER
-    # Exactly one revision sits above M085: nothing else was stacked, inserted or replaced.
+    # Exactly one revision sits above M085: nothing else was stacked, inserted or replaced
+    # between M085 and M087 specifically.
     above = [
         r.revision
         for r in script.iterate_revisions(M087_SCHEMA_HEAD, M085_SCHEMA_HEAD)
         if r is not None and r.revision != M085_SCHEMA_HEAD
     ]
     assert above == [M087_SCHEMA_HEAD]
+
+
+def test_the_m090_revision_is_the_sole_head_descending_linearly_from_m085_through_m087() -> None:
+    """The chain remains a single, linear, non-branching history through MILESTONE-090.
+
+    Renamed/split from the pre-M090 test of the same spirit (see the docstring above): the
+    chain's sole head is now M090's own revision, which descends directly from M087, which
+    descends directly from M085 -- proven the same way, one link further.
+    """
+    config = Config(str(_REPO_ROOT / "alembic.ini"))
+    config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
+    script = ScriptDirectory.from_config(config)
+    assert script.get_heads() == [_M090]
+    m090 = script.get_revision(_M090)
+    assert m090 is not None and m090.down_revision == M087_SCHEMA_HEAD
