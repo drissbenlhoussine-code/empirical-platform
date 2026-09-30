@@ -30,6 +30,23 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     #: patterns above -- not a blanket "any 64-hex value is fine" rule.
     re.compile(r'^[+-]?FROZEN_FINGERPRINT = "[0-9a-f]{64}"$'),
     re.compile(r'^[+-]?\s*"fingerprint": "[0-9a-f]{64}",?$'),
+    #: MILESTONE-092's own reference to V1's ALREADY-cleared fingerprint (the SAME
+    #: value the pattern above already clears under the name `FROZEN_FINGERPRINT`),
+    #: cited here under a different constant name (`V1_FROZEN_FINGERPRINT`) because
+    #: the diagnostic script that reads it needs to distinguish it from a later V2
+    #: fingerprint in the same file. Same public, non-credential SHA-256; same
+    #: exact-name discipline as every pattern above.
+    re.compile(r'^[+-]?V1_FROZEN_FINGERPRINT = "[0-9a-f]{64}"$'),
+    #: MILESTONE-092's own frozen V2-C fingerprint (see
+    #: `external-review/MILESTONE-092/policy-freeze-v2.md`) -- the value the VALIDATION/
+    #: FINAL HOLDOUT orchestration script checks itself against before fetching anything.
+    #: Same public, non-credential SHA-256; same exact-name discipline as every pattern above.
+    re.compile(r'^[+-]?EXPECTED_FROZEN_FINGERPRINT_V2 = "[0-9a-f]{64}"$'),
+    #: MILESTONE-092's own JSON-serialized frozen V2-C fingerprint
+    #: (`external-review/MILESTONE-092/results-v2.json`'s own `frozen_fingerprint` key) --
+    #: the same public, non-credential SHA-256 as `EXPECTED_FROZEN_FINGERPRINT_V2` above,
+    #: cleared by exact JSON key rather than by Python constant name.
+    re.compile(r'^[+-]?\s*"frozen_fingerprint": "[0-9a-f]{64}",?$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the
