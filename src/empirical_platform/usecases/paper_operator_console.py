@@ -72,6 +72,7 @@ from empirical_platform.decision_candidate.product_repositories import (
 )
 from empirical_platform.decision_candidate.trade_proposal import TradeProposal
 from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
+from empirical_platform.usecases.operator_console_fixtures import simulation_timezone_for
 from empirical_platform.usecases.paper_execution import (
     PreparePaperBoundTradeProposalCommand,
     PreparePaperBoundTradeProposalHandler,
@@ -174,7 +175,13 @@ def paper_health(
     )
 
 
-def _default_configuration() -> OperatorTradingConfiguration:
+def _default_configuration(*, now: datetime) -> OperatorTradingConfiguration:
+    """`mandatory_liquidation_time=23:59` combined with a 1-hour proposal expiry leaves a
+    ~61-minute-per-UTC-day window where `liquidation_reachable` genuinely (and correctly)
+    refuses -- a real gap near UTC midnight, not a bug in that safety check. Rather than
+    weaken it, `operator_timezone` is chosen (via `simulation_timezone_for`) so `now` always
+    reads mid-morning in it, the same established pattern `operator_console_fixtures.py`
+    already uses for this exact problem."""
     return OperatorTradingConfiguration(
         configuration_governance_id=_CONFIGURATION_ID,
         configuration_version=_CONFIGURATION_VERSION,
@@ -200,7 +207,7 @@ def _default_configuration() -> OperatorTradingConfiguration:
         earliest_entry_time=clock_time(0, 1),
         latest_entry_time=clock_time(23, 58),
         mandatory_liquidation_time=clock_time(23, 59),
-        operator_timezone="UTC",
+        operator_timezone=simulation_timezone_for(now),
         exchange_calendar_policy="XNAS-REGULAR-2026",
         proposal_expiry_seconds=3600,
         approval_expiry_seconds=1800,
@@ -245,7 +252,7 @@ def prepare_paper_candidate(
 
     configuration = configurations.get(_CONFIGURATION_ID, _CONFIGURATION_VERSION)
     if configuration is None:
-        configuration = _default_configuration()
+        configuration = _default_configuration(now=now)
         configurations.save(configuration)
 
     clock = broker.fetch_clock()
