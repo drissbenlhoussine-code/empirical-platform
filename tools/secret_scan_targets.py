@@ -24,6 +24,12 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     re.compile(r'^[+-]?_EXPECTED_MANIFEST_HASH = "[0-9a-f]{64}"$'),
     re.compile(r'^[+-]?\s*"dataset_bundle_sha256": "[0-9a-f]{64}",?$'),
     re.compile(r'^[+-]?\s*"membership_manifest_hash": "[0-9a-f]{64}"$'),
+    #: MILESTONE-091's frozen policy fingerprint: a SHA-256 of public, already-checked-in
+    #: policy/configuration values (see `external-review/MILESTONE-091/policy-freeze.md`),
+    #: not a credential. Matched by exact constant name / JSON key, same discipline as the
+    #: patterns above -- not a blanket "any 64-hex value is fine" rule.
+    re.compile(r'^[+-]?FROZEN_FINGERPRINT = "[0-9a-f]{64}"$'),
+    re.compile(r'^[+-]?\s*"fingerprint": "[0-9a-f]{64}",?$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the
