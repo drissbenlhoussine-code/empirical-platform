@@ -16,13 +16,28 @@ MOBILE-FIRST OWNER UI (post-acceptance redesign). This file renders presentation
 number shown here is read verbatim off `TradingOpportunity`, never recomputed, rounded
 differently, or re-derived. Engine logic, scoring, gates, ranking, and the database schema are
 untouched by this pass; only markup/CSS and how existing fields are laid out changed.
+
+BASE-PATH AWARE, FOR REVERSE-PROXY SUBPATH DEPLOYMENT. A Tailscale (or any) reverse proxy that
+serves this console under a path prefix (e.g. `/m090-review`) strips that prefix before the
+request reaches this process -- routing itself needs no change. But every URL THIS MODULE
+GENERATES (the stylesheet link, form actions, internal hrefs, redirects) is an ABSOLUTE path
+the browser resolves against the proxy's own origin, so it must carry the same prefix back, or
+the next click escapes it. `url_for(base_path, path)` is the one place that prefix is applied;
+every function below threads a `base_path` parameter through to it rather than hand-building a
+URL. `path` given to `url_for` is always one of this module's own hardcoded route literals
+(`"/today"`, `"/opportunity/review"`, ...) -- never anything read from a request -- so this
+can never become an open redirect or point at a different origin. `validate_base_path` fails
+closed on anything that is not empty or a bare absolute-path prefix (no scheme, no host, no
+`..`, no trailing slash, no empty segment).
 """
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from decimal import Decimal
 from html import escape as _e
+from urllib.parse import quote as _urlquote
 
 from empirical_platform.usecases.opportunity_engine import OpportunityStatus, TradingOpportunity
 
@@ -33,7 +48,40 @@ __all__ = [
     "message_page",
     "review_page",
     "today_page",
+    "url_for",
+    "validate_base_path",
 ]
+
+_MAXIMUM_BASE_PATH_LENGTH = 128
+_BASE_PATH_PATTERN = re.compile(r"(?:/[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)+")
+
+
+def validate_base_path(base_path: str) -> str:
+    """ "" (root behaviour, unchanged) or a bare absolute-path prefix -- no scheme, no host,
+    no trailing slash, no empty segment (`//`), no `..`, ASCII only, and bounded in length.
+    Raises `ValueError` (fail closed) on anything else; never silently normalizes."""
+    if base_path == "":
+        return base_path
+    if len(base_path) > _MAXIMUM_BASE_PATH_LENGTH or not _BASE_PATH_PATTERN.fullmatch(base_path):
+        raise ValueError(
+            f"invalid base_path {base_path!r}: must be empty or an absolute path prefix such "
+            "as '/m090-review' (no scheme/host, no trailing slash, no '//', no '..')"
+        )
+    return base_path
+
+
+def url_for(base_path: str, path: str) -> str:
+    """Prefix one of this module's own literal route paths with the configured base path.
+    `path` must already start with '/' and never itself carry `base_path` -- every call site
+    passes a hardcoded route literal, so this can never double-prefix or accept external
+    input. `base_path` is assumed already validated by `validate_base_path` at startup."""
+    assert path.startswith("/"), f"url_for path must be absolute, got {path!r}"
+    return base_path + path
+
+
+def _review_link(base_path: str, opportunity_id: str) -> str:
+    return url_for(base_path, "/opportunity/review") + "?id=" + _urlquote(opportunity_id, safe="")
+
 
 STYLESHEET = """
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -252,14 +300,15 @@ def _ratio(value: Decimal | None) -> str:
     return "Not available" if value is None else f"{value:.2f} : 1"
 
 
-def _layout(*, title: str, body: str) -> str:
+def _layout(*, title: str, body: str, base_path: str = "") -> str:
+    stylesheet_href = _e(url_for(base_path, "/static/opportunity-engine.css"))
     return (
         "<!DOCTYPE html>"
         '<html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1, '
         'viewport-fit=cover">'
         f"<title>{_e(title)} — Opportunity Engine</title>"
-        '<link rel="stylesheet" href="/static/opportunity-engine.css"></head>'
+        f'<link rel="stylesheet" href="{stylesheet_href}"></head>'
         '<body><header><div class="brand">Opportunity Engine</div>'
         '<div class="badge-row">'
         '<span class="badge badge-research">RESEARCH — NOT AUTOMATIC TRADING</span>'
@@ -273,13 +322,14 @@ def _csrf(csrf: str) -> str:
     return f'<input type="hidden" name="csrf_token" value="{_e(csrf)}">'
 
 
-def message_page(*, title: str, message: str, back: str = "/today") -> str:
+def message_page(*, title: str, message: str, back: str = "/today", base_path: str = "") -> str:
+    back_href = _e(url_for(base_path, back))
     body = (
         f"<h1>{_e(title)}</h1>"
         f'<p class="note note-warn">{_e(message)}</p>'
-        f'<a class="btn btn-secondary" href="{_e(back)}">← Back</a>'
+        f'<a class="btn btn-secondary" href="{back_href}">← Back</a>'
     )
-    return _layout(title=title, body=body)
+    return _layout(title=title, body=body, base_path=base_path)
 
 
 def _rejection_summary(opportunity: TradingOpportunity) -> str:
@@ -310,7 +360,7 @@ def _invalid_if_items(opportunity: TradingOpportunity) -> tuple[str, ...]:
     )
 
 
-def _opportunity_card(opportunity: TradingOpportunity, csrf: str) -> str:
+def _opportunity_card(opportunity: TradingOpportunity, csrf: str, *, base_path: str = "") -> str:
     quality_class, quality_label = _quality_label(opportunity.quality_score)
     score_text = (
         "Not scored"
@@ -359,7 +409,8 @@ def _opportunity_card(opportunity: TradingOpportunity, csrf: str) -> str:
         f'<ul class="plain-list">{evidence_items}</ul>'
         f'<div class="section-label">Invalid if</div>'
         f'<ul class="plain-list">{invalid_items}</ul>'
-        f'<form class="block" method="get" action="/opportunity/review">{_csrf(csrf)}'
+        f'<form class="block" method="get" '
+        f'action="{_e(url_for(base_path, "/opportunity/review"))}">{_csrf(csrf)}'
         f'<input type="hidden" name="id" value="{_e(opportunity.opportunity_id)}">'
         '<button class="btn btn-primary btn-block" type="submit">REVIEW TRADE</button></form>'
         "</section>"
@@ -390,6 +441,7 @@ def today_page(
     other: tuple[TradingOpportunity, ...] = (),
     csrf: str,
     generated_at: datetime | None,
+    base_path: str = "",
 ) -> str:
     """Phase 15's Today page. `actionable` is already the ranked, capped top-N (Phase 14) --
     this function does not rank or cap; it only renders."""
@@ -400,7 +452,7 @@ def today_page(
         "before anything downstream can act on it.</p>"
     )
     if actionable:
-        cards = "".join(_opportunity_card(o, csrf) for o in actionable)
+        cards = "".join(_opportunity_card(o, csrf, base_path=base_path) for o in actionable)
     else:
         cards = (
             '<section class="card"><p class="muted">'
@@ -448,7 +500,7 @@ def today_page(
                 status_label=o.status.value.replace("_", " ").title(),
                 status_class="terminal",
                 detail=f"Evidence as of {_when(o.evidence_as_of)}",
-                link=f"/opportunity/review?id={o.opportunity_id}",
+                link=_review_link(base_path, o.opportunity_id),
             )
             for o in other
         )
@@ -457,7 +509,11 @@ def today_page(
             f'No longer actionable (history)</h2><div class="compact-list">{items}</div></div>'
         )
 
-    return _layout(title="Today", body=header + cards + candidate_html + rejected_html + other_html)
+    return _layout(
+        title="Today",
+        body=header + cards + candidate_html + rejected_html + other_html,
+        base_path=base_path,
+    )
 
 
 def _summary_row(question: str, answer: str, *, tone: str = "") -> str:
@@ -495,7 +551,9 @@ def _review_summary_card(opportunity: TradingOpportunity) -> str:
     return f'<section class="card summary-card">{rows}</section>'
 
 
-def review_page(opportunity: TradingOpportunity, csrf: str, *, error: str | None = None) -> str:
+def review_page(
+    opportunity: TradingOpportunity, csrf: str, *, error: str | None = None, base_path: str = ""
+) -> str:
     """Phase 16: immutable exact terms. This page is ALSO the final confirmation -- one
     ticket-less form (M090 has no dispatch to authorize, so there is no signed ticket to
     carry; APPROVE only ever records a durable Owner decision, never a broker send).
@@ -505,11 +563,17 @@ def review_page(opportunity: TradingOpportunity, csrf: str, *, error: str | None
     detail) follows immediately after.
     """
     warning = f'<p class="note note-danger">{_e(error)}</p>' if error else ""
-    body = f'<a class="muted" href="/today">← Today</a><h1>{_e(opportunity.symbol)}</h1>{warning}'
+    today_href = _e(url_for(base_path, "/today"))
+    body = (
+        f'<a class="muted" href="{today_href}">← Today</a>'
+        f"<h1>{_e(opportunity.symbol)}</h1>{warning}"
+    )
     if opportunity.status is OpportunityStatus.ACTIONABLE:
         body += _review_summary_card(opportunity)
-    body += f"{_opportunity_card(opportunity, csrf)}"
+    body += f"{_opportunity_card(opportunity, csrf, base_path=base_path)}"
     if opportunity.status is OpportunityStatus.ACTIONABLE:
+        approve_action = _e(url_for(base_path, "/opportunity/approve"))
+        ignore_action = _e(url_for(base_path, "/opportunity/ignore"))
         body += (
             f'<p class="note note-warn"><strong>Final confirmation.</strong> Pressing APPROVE '
             f"will record that you approved a BUY research plan for {_e(opportunity.symbol)} "
@@ -518,11 +582,11 @@ def review_page(opportunity: TradingOpportunity, csrf: str, *, error: str | None
             "THIS DOES NOT SEND ANYTHING TO ANY BROKER — this milestone's engineering ends at "
             "recording your decision; a later, separately built and separately approved "
             "milestone would be required before any order could ever be submitted.</p>"
-            f'<form class="block" method="post" action="/opportunity/approve">'
+            f'<form class="block" method="post" action="{approve_action}">'
             f"{_csrf(csrf)}"
             f'<input type="hidden" name="id" value="{_e(opportunity.opportunity_id)}">'
             '<button class="btn btn-primary btn-block" type="submit">APPROVE</button></form>'
-            f'<form class="block" method="post" action="/opportunity/ignore">'
+            f'<form class="block" method="post" action="{ignore_action}">'
             f"{_csrf(csrf)}"
             f'<input type="hidden" name="id" value="{_e(opportunity.opportunity_id)}">'
             '<button class="btn btn-danger btn-block" type="submit">IGNORE</button></form>'
@@ -532,25 +596,27 @@ def review_page(opportunity: TradingOpportunity, csrf: str, *, error: str | None
             f'<p class="note note-info">This opportunity is no longer actionable (status: '
             f"{_e(opportunity.status.value)}) — no APPROVE or IGNORE action is available.</p>"
         )
-    return _layout(title="Review opportunity", body=body)
+    return _layout(title="Review opportunity", body=body, base_path=base_path)
 
 
-def approve_confirmation_page(opportunity: TradingOpportunity) -> str:
+def approve_confirmation_page(opportunity: TradingOpportunity, *, base_path: str = "") -> str:
+    today_href = _e(url_for(base_path, "/today"))
     body = (
         f"<h1>Approved — {_e(opportunity.symbol)}</h1>"
         f'<p class="note note-info">Recorded: {_e(opportunity.status.value)}. Nothing was sent '
         "to any broker. This plan now waits for a future, separately approved milestone that "
         "would bind it to real execution.</p>"
-        f'<a class="btn btn-secondary" href="/today">← Today</a>'
+        f'<a class="btn btn-secondary" href="{today_href}">← Today</a>'
     )
-    return _layout(title="Approved", body=body)
+    return _layout(title="Approved", body=body, base_path=base_path)
 
 
-def ignore_confirmation_page(opportunity: TradingOpportunity) -> str:
+def ignore_confirmation_page(opportunity: TradingOpportunity, *, base_path: str = "") -> str:
+    today_href = _e(url_for(base_path, "/today"))
     body = (
         f"<h1>Ignored — {_e(opportunity.symbol)}</h1>"
         f'<p class="note note-info">Recorded: {_e(opportunity.status.value)}. Nothing was sent '
         "to any broker.</p>"
-        f'<a class="btn btn-secondary" href="/today">← Today</a>'
+        f'<a class="btn btn-secondary" href="{today_href}">← Today</a>'
     )
-    return _layout(title="Ignored", body=body)
+    return _layout(title="Ignored", body=body, base_path=base_path)

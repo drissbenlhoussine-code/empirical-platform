@@ -5,6 +5,16 @@ results into HTML. It imports no persistence and no broker adapter directly -- t
 object it is handed already composed those. Reuses `_operator_console_web`'s generic,
 business-logic-free web plumbing (routing, CSRF, security headers, the threaded server) --
 the SAME infrastructure M086-M089's console uses, never their route handlers or HTML.
+
+BASE-PATH AWARE. `base_path` (default "", meaning root/localhost behaviour, unchanged) is the
+ONE knob for deploying this console behind a reverse proxy that strips a path prefix before
+forwarding (e.g. `tailscale serve --set-path /m090-review`) -- ROUTES here stay unprefixed
+literals (`/today`, `/opportunity/review`, ...) because that is what such a proxy hands this
+process; only the URLs this module GENERATES (the not-found redirect, and every `html.*` page
+this module renders) carry the prefix, via `html.url_for`. `base_path` is validated once, at
+construction, and never read from a request -- see `_opportunity_engine_html.py`'s own
+module docstring for the full rationale and `validate_base_path`'s fail-closed contract. This
+is never hardcoded to `/m090-review` or any other specific value here.
 """
 
 from __future__ import annotations
@@ -51,13 +61,17 @@ class OpportunityEngineBackend(Protocol):
 
 
 def build_opportunity_engine_application(
-    backend: OpportunityEngineBackend, *, security: SecuritySession | None = None
+    backend: OpportunityEngineBackend,
+    *,
+    security: SecuritySession | None = None,
+    base_path: str = "",
 ) -> Router:
+    base_path = html.validate_base_path(base_path)  # fail closed at startup, not per-request
     security = security or SecuritySession()
     router = Router(security)
 
     def refusal(title: str, message: str) -> Response:
-        return html_response(html.message_page(title=title, message=message))
+        return html_response(html.message_page(title=title, message=message, base_path=base_path))
 
     def stylesheet(request: Request, csrf: str) -> Response:
         del request, csrf
@@ -100,6 +114,7 @@ def build_opportunity_engine_application(
                 other=other,
                 csrf=csrf,
                 generated_at=generated_at,
+                base_path=base_path,
             )
         )
 
@@ -108,19 +123,19 @@ def build_opportunity_engine_application(
         opportunity = backend.get(opportunity_id)
         if opportunity is None:
             return refusal("Not found", f"No opportunity {opportunity_id!r} exists.")
-        return html_response(html.review_page(opportunity, csrf))
+        return html_response(html.review_page(opportunity, csrf, base_path=base_path))
 
     def approve(request: Request, csrf: str) -> Response:
         del csrf
         opportunity_id = request.first("id")
         approved = backend.approve(opportunity_id, approved_by="owner")
-        return html_response(html.approve_confirmation_page(approved))
+        return html_response(html.approve_confirmation_page(approved, base_path=base_path))
 
     def ignore(request: Request, csrf: str) -> Response:
         del csrf
         opportunity_id = request.first("id")
         ignored = backend.ignore(opportunity_id, ignored_by="owner")
-        return html_response(html.ignore_confirmation_page(ignored))
+        return html_response(html.ignore_confirmation_page(ignored, base_path=base_path))
 
     router.get("/static/opportunity-engine.css", stylesheet)
     router.get("/today", guarded(today))
@@ -128,5 +143,5 @@ def build_opportunity_engine_application(
     router.get("/opportunity/review", guarded(review))
     router.post("/opportunity/approve", guarded(approve))
     router.post("/opportunity/ignore", guarded(ignore))
-    router.on_not_found(lambda request: redirect("/today"))
+    router.on_not_found(lambda request: redirect(html.url_for(base_path, "/today")))
     return router
