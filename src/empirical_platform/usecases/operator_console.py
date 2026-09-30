@@ -281,8 +281,13 @@ _ATTEMPT_STATES: Mapping[PaperExecutionState, HumanState] = {
 }
 
 
-#: The exit status shown when NO exit path is composed (the M086 console without M087).
-OPEN_POSITION_EXIT_STATUS = "Open position — exit locked pending M087."
+#: The exit status shown when NO exit path is composed for THIS console (e.g. `--capability
+#: paper` without `paper-exit`). Capability-aware, not chronology-aware: M087/M089 exist and
+#: are proven regardless of this console's own composition, so the wording names the real
+#: gate (whether an exit path is wired here) rather than a specific milestone that, once
+#: shipped, would make "pending M0xx" permanently stale on every console that simply never
+#: composed the exit path.
+OPEN_POSITION_EXIT_STATUS = "Open position — exit locked (no exit path composed on this console)."
 #: The exit status shown by the M087 console for a position that can be reviewed for closing.
 OPEN_POSITION_REVIEWABLE_STATUS = (
     "Open position — review the exit to close it. Nothing is sent without your confirmation."
