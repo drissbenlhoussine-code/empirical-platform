@@ -92,8 +92,10 @@ __all__ = [
     "IgnoreOpportunityCommand",
     "IgnoreOpportunityHandler",
     "OpportunityEngineRefusedError",
+    "OpportunityStatus",
     "ReviewOpportunityHandler",
     "SymbolEvaluation",
+    "TradingOpportunity",
     "select_top_actionable",
 ]
 
