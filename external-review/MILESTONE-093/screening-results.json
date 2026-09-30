@@ -1,0 +1,921 @@
+{
+  "classification": "NO_CANDIDATE_EDGE",
+  "families": {
+    "MEAN_REVERSION": {
+      "cost_models": {
+        "COST_MODEL_0_IDEALIZED": {
+          "average_trade": 0.16781292296282563,
+          "longest_losing_streak": 172,
+          "max_drawdown": 509.65,
+          "net_pnl": 1810.198,
+          "observations": 297919,
+          "opportunities": 10823,
+          "profit_factor": 1.1569266885762064,
+          "resolved": 10787
+        },
+        "COST_MODEL_1_BASE_CONSERVATIVE": {
+          "average_trade": -1.647855359135997,
+          "longest_losing_streak": 172,
+          "max_drawdown": 17792.223859,
+          "net_pnl": -17775.415759,
+          "observations": 297919,
+          "opportunities": 10823,
+          "profit_factor": 0.3753891002773638,
+          "resolved": 10787
+        },
+        "COST_MODEL_2_STRESS": {
+          "average_trade": -5.279191923333642,
+          "longest_losing_streak": 247,
+          "max_drawdown": 56947.016797,
+          "net_pnl": -56946.643277,
+          "observations": 297919,
+          "opportunities": 10823,
+          "profit_factor": 0.0930062842584144,
+          "resolved": 10787
+        }
+      },
+      "per_symbol_cost_model_1": {
+        "AAPL": {
+          "average_trade": -1.5166144489144318,
+          "longest_losing_streak": 90,
+          "max_drawdown": 2383.588027,
+          "net_pnl": -2375.018227,
+          "profit_factor": 0.40477808880202176,
+          "resolved": 1566
+        },
+        "AMZN": {
+          "average_trade": -1.6740688771634615,
+          "longest_losing_streak": 172,
+          "max_drawdown": 3509.9119445,
+          "net_pnl": -3482.0632645,
+          "profit_factor": 0.352422516917265,
+          "resolved": 2080
+        },
+        "GOOGL": {
+          "average_trade": -1.7246442061524334,
+          "longest_losing_streak": 133,
+          "max_drawdown": 1889.5275655,
+          "net_pnl": -1878.1375405,
+          "profit_factor": 0.3738444449736668,
+          "resolved": 1089
+        },
+        "META": {
+          "average_trade": -1.5137482199074075,
+          "longest_losing_streak": 51,
+          "max_drawdown": 989.2242965,
+          "net_pnl": -980.9088465,
+          "profit_factor": 0.4306999004669674,
+          "resolved": 648
+        },
+        "MSFT": {
+          "average_trade": -1.512892893,
+          "longest_losing_streak": 74,
+          "max_drawdown": 1543.123678,
+          "net_pnl": -1512.892893,
+          "profit_factor": 0.40704164633792705,
+          "resolved": 1000
+        },
+        "NVDA": {
+          "average_trade": -1.8494590572415865,
+          "longest_losing_streak": 126,
+          "max_drawdown": 6187.6727025,
+          "net_pnl": -6154.9997425,
+          "profit_factor": 0.36567999003438395,
+          "resolved": 3328
+        },
+        "QQQ": {
+          "average_trade": -1.3052683333333333,
+          "longest_losing_streak": 72,
+          "max_drawdown": 694.027845,
+          "net_pnl": -685.265875,
+          "profit_factor": 0.373381875049187,
+          "resolved": 525
+        },
+        "SPY": {
+          "average_trade": -1.2815415063520872,
+          "longest_losing_streak": 123,
+          "max_drawdown": 714.36767,
+          "net_pnl": -706.12937,
+          "profit_factor": 0.3079674438931064,
+          "resolved": 551
+        }
+      },
+      "time_of_day_cost_model_1": {
+        "AFTERNOON_14_1530_ET": {
+          "average_trade": -1.7982772861883036,
+          "longest_losing_streak": 126,
+          "max_drawdown": 4369.480507,
+          "net_pnl": -4335.646537,
+          "profit_factor": 0.29493848633209807,
+          "resolved": 2411
+        },
+        "MIDDAY_12_14_ET": {
+          "average_trade": -1.6153240568410463,
+          "longest_losing_streak": 128,
+          "max_drawdown": 4835.6285475,
+          "net_pnl": -4816.8963375,
+          "profit_factor": 0.38470057755287895,
+          "resolved": 2982
+        },
+        "MORNING_10_12_ET": {
+          "average_trade": -1.5266293475709607,
+          "longest_losing_streak": 77,
+          "max_drawdown": 5601.8082295,
+          "net_pnl": -5593.5699295,
+          "profit_factor": 0.4517037056767898,
+          "resolved": 3664
+        }
+      },
+      "walk_forward_cost_model_1": {
+        "design": {
+          "average_trade": -1.6648565067652075,
+          "longest_losing_streak": 172,
+          "max_drawdown": 14650.982777,
+          "net_pnl": -14642.412977,
+          "profit_factor": 0.37888039855743155,
+          "resolved": 8795
+        },
+        "design_dates": [
+          "2026-05-13",
+          "2026-08-18"
+        ],
+        "observe": {
+          "average_trade": -1.57279256124498,
+          "longest_losing_streak": 133,
+          "max_drawdown": 3141.241082,
+          "net_pnl": -3133.002782,
+          "profit_factor": 0.35853775048923764,
+          "resolved": 1992
+        },
+        "observe_dates": [
+          "2026-08-19",
+          "2026-09-29"
+        ]
+      }
+    },
+    "OPENING_RANGE_15": {
+      "cost_models": {
+        "COST_MODEL_0_IDEALIZED": {
+          "average_trade": -0.6750871442276942,
+          "longest_losing_streak": 199,
+          "max_drawdown": 18397.38,
+          "net_pnl": -12665.985,
+          "observations": 287167,
+          "opportunities": 18980,
+          "profit_factor": 0.8337814476726554,
+          "resolved": 18762
+        },
+        "COST_MODEL_1_BASE_CONSERVATIVE": {
+          "average_trade": -2.3922660141509433,
+          "longest_losing_streak": 214,
+          "max_drawdown": 44904.1483575,
+          "net_pnl": -44883.6949575,
+          "observations": 287167,
+          "opportunities": 18980,
+          "profit_factor": 0.5316860368168408,
+          "resolved": 18762
+        },
+        "COST_MODEL_2_STRESS": {
+          "average_trade": -5.826623753997442,
+          "longest_losing_streak": 499,
+          "max_drawdown": 109322.7080925,
+          "net_pnl": -109319.1148725,
+          "observations": 287167,
+          "opportunities": 18980,
+          "profit_factor": 0.2369943857578902,
+          "resolved": 18762
+        }
+      },
+      "per_symbol_cost_model_1": {
+        "AAPL": {
+          "average_trade": -0.7593274092605156,
+          "longest_losing_streak": 107,
+          "max_drawdown": 3135.208485,
+          "net_pnl": -2238.4972025,
+          "profit_factor": 0.8059105545268088,
+          "resolved": 2948
+        },
+        "AMZN": {
+          "average_trade": -4.514281147277227,
+          "longest_losing_streak": 207,
+          "max_drawdown": 10664.07949,
+          "net_pnl": -9118.8479175,
+          "profit_factor": 0.3824267926574586,
+          "resolved": 2020
+        },
+        "GOOGL": {
+          "average_trade": -2.416304273033708,
+          "longest_losing_streak": 89,
+          "max_drawdown": 6509.1668575,
+          "net_pnl": -5376.2770075,
+          "profit_factor": 0.547594220348101,
+          "resolved": 2225
+        },
+        "META": {
+          "average_trade": 0.26016880864197534,
+          "longest_losing_streak": 71,
+          "max_drawdown": 4488.75218,
+          "net_pnl": 421.47347,
+          "profit_factor": 1.0399763045291575,
+          "resolved": 1620
+        },
+        "MSFT": {
+          "average_trade": -3.4978154926437806,
+          "longest_losing_streak": 118,
+          "max_drawdown": 7968.013805,
+          "net_pnl": -7845.60015,
+          "profit_factor": 0.4300330510973017,
+          "resolved": 2243
+        },
+        "NVDA": {
+          "average_trade": -4.060988119777159,
+          "longest_losing_streak": 161,
+          "max_drawdown": 9234.036415,
+          "net_pnl": -8747.36841,
+          "profit_factor": 0.48759677949072255,
+          "resolved": 2154
+        },
+        "QQQ": {
+          "average_trade": -1.5935352627737227,
+          "longest_losing_streak": 110,
+          "max_drawdown": 3506.076085,
+          "net_pnl": -3274.714965,
+          "profit_factor": 0.4694323768711133,
+          "resolved": 2055
+        },
+        "SPY": {
+          "average_trade": -2.488951322562196,
+          "longest_losing_streak": 214,
+          "max_drawdown": 8764.962635,
+          "net_pnl": -8703.862775,
+          "profit_factor": 0.13881930833645334,
+          "resolved": 3497
+        }
+      },
+      "time_of_day_cost_model_1": {
+        "AFTERNOON_14_1530_ET": {
+          "average_trade": -3.589188868301642,
+          "longest_losing_streak": 181,
+          "max_drawdown": 17084.5181775,
+          "net_pnl": -16610.7660825,
+          "profit_factor": 0.3407610117317652,
+          "resolved": 4628
+        },
+        "MIDDAY_12_14_ET": {
+          "average_trade": -2.4030727615440117,
+          "longest_losing_streak": 86,
+          "max_drawdown": 10003.2309525,
+          "net_pnl": -9991.9765425,
+          "profit_factor": 0.5473515855263084,
+          "resolved": 4158
+        },
+        "MORNING_10_12_ET": {
+          "average_trade": -1.2508340127681308,
+          "longest_losing_streak": 94,
+          "max_drawdown": 7471.0291775,
+          "net_pnl": -6122.8324925,
+          "profit_factor": 0.8052076509923355,
+          "resolved": 4895
+        }
+      },
+      "walk_forward_cost_model_1": {
+        "design": {
+          "average_trade": -2.451924574775817,
+          "longest_losing_streak": 214,
+          "max_drawdown": 34847.7658975,
+          "net_pnl": -33905.21302,
+          "profit_factor": 0.5436755061078381,
+          "resolved": 13828
+        },
+        "design_dates": [
+          "2026-05-13",
+          "2026-08-18"
+        ],
+        "observe": {
+          "average_trade": -2.2250672755370897,
+          "longest_losing_streak": 180,
+          "max_drawdown": 11142.2727575,
+          "net_pnl": -10978.4819375,
+          "profit_factor": 0.49032994587465845,
+          "resolved": 4934
+        },
+        "observe_dates": [
+          "2026-08-19",
+          "2026-09-29"
+        ]
+      }
+    },
+    "OPENING_RANGE_5": {
+      "cost_models": {
+        "COST_MODEL_0_IDEALIZED": {
+          "average_trade": -0.6837452287771174,
+          "longest_losing_streak": 237,
+          "max_drawdown": 19638.275,
+          "net_pnl": -14151.475,
+          "observations": 294847,
+          "opportunities": 20946,
+          "profit_factor": 0.8362516458465654,
+          "resolved": 20697
+        },
+        "COST_MODEL_1_BASE_CONSERVATIVE": {
+          "average_trade": -2.4032189323331883,
+          "longest_losing_streak": 237,
+          "max_drawdown": 49764.3778925,
+          "net_pnl": -49739.4222425,
+          "observations": 294847,
+          "opportunities": 20946,
+          "profit_factor": 0.5408697277193771,
+          "resolved": 20697
+        },
+        "COST_MODEL_2_STRESS": {
+          "average_trade": -5.84216633944533,
+          "longest_losing_streak": 519,
+          "max_drawdown": 120923.4166975,
+          "net_pnl": -120915.3167275,
+          "observations": 294847,
+          "opportunities": 20946,
+          "profit_factor": 0.24812989625201237,
+          "resolved": 20697
+        }
+      },
+      "per_symbol_cost_model_1": {
+        "AAPL": {
+          "average_trade": -0.7438220873944119,
+          "longest_losing_streak": 94,
+          "max_drawdown": 3640.004265,
+          "net_pnl": -2289.484385,
+          "profit_factor": 0.8178059521805577,
+          "resolved": 3078
+        },
+        "AMZN": {
+          "average_trade": -3.8479758350243505,
+          "longest_losing_streak": 155,
+          "max_drawdown": 10577.290055,
+          "net_pnl": -9481.4124575,
+          "profit_factor": 0.46368866887347,
+          "resolved": 2464
+        },
+        "GOOGL": {
+          "average_trade": -2.7464942193347195,
+          "longest_losing_streak": 100,
+          "max_drawdown": 7788.9273475,
+          "net_pnl": -6605.3185975,
+          "profit_factor": 0.5167910206170405,
+          "resolved": 2405
+        },
+        "META": {
+          "average_trade": -0.9578907209989259,
+          "longest_losing_streak": 94,
+          "max_drawdown": 5030.5969725,
+          "net_pnl": -1783.5925225,
+          "profit_factor": 0.8593273963643298,
+          "resolved": 1862
+        },
+        "MSFT": {
+          "average_trade": -3.550510206286837,
+          "longest_losing_streak": 132,
+          "max_drawdown": 9386.086715,
+          "net_pnl": -9036.048475,
+          "profit_factor": 0.4318742370385748,
+          "resolved": 2545
+        },
+        "NVDA": {
+          "average_trade": -3.3107859398976984,
+          "longest_losing_streak": 95,
+          "max_drawdown": 9045.57963,
+          "net_pnl": -7767.103815,
+          "profit_factor": 0.5743351103412966,
+          "resolved": 2346
+        },
+        "QQQ": {
+          "average_trade": -1.6404699422222222,
+          "longest_losing_streak": 116,
+          "max_drawdown": 3883.6782,
+          "net_pnl": -3691.05737,
+          "profit_factor": 0.4599547040280865,
+          "resolved": 2250
+        },
+        "SPY": {
+          "average_trade": -2.4247143368027757,
+          "longest_losing_streak": 237,
+          "max_drawdown": 9117.41945,
+          "net_pnl": -9085.40462,
+          "profit_factor": 0.15511617392901428,
+          "resolved": 3747
+        }
+      },
+      "time_of_day_cost_model_1": {
+        "AFTERNOON_14_1530_ET": {
+          "average_trade": -3.6266234396516808,
+          "longest_losing_streak": 188,
+          "max_drawdown": 18413.743035,
+          "net_pnl": -17908.266545,
+          "profit_factor": 0.34377674135592706,
+          "resolved": 4938
+        },
+        "MIDDAY_12_14_ET": {
+          "average_trade": -2.8347680015286922,
+          "longest_losing_streak": 82,
+          "max_drawdown": 12064.6879525,
+          "net_pnl": -12053.4335425,
+          "profit_factor": 0.4908394328330474,
+          "resolved": 4252
+        },
+        "MORNING_10_12_ET": {
+          "average_trade": -1.022961459284627,
+          "longest_losing_streak": 66,
+          "max_drawdown": 6988.22623,
+          "net_pnl": -5376.68543,
+          "profit_factor": 0.8407497577169913,
+          "resolved": 5256
+        }
+      },
+      "walk_forward_cost_model_1": {
+        "design": {
+          "average_trade": -2.477670675087395,
+          "longest_losing_streak": 237,
+          "max_drawdown": 37770.7648625,
+          "net_pnl": -37563.965105,
+          "profit_factor": 0.554396692645265,
+          "resolved": 15161
+        },
+        "design_dates": [
+          "2026-05-13",
+          "2026-08-18"
+        ],
+        "observe": {
+          "average_trade": -2.1993239048952313,
+          "longest_losing_streak": 132,
+          "max_drawdown": 12335.5470075,
+          "net_pnl": -12175.4571375,
+          "profit_factor": 0.49342573463390327,
+          "resolved": 5536
+        },
+        "observe_dates": [
+          "2026-08-19",
+          "2026-09-29"
+        ]
+      }
+    },
+    "RELATIVE_STRENGTH": {
+      "cost_models": {
+        "COST_MODEL_0_IDEALIZED": {
+          "average_trade": -0.07597504082108701,
+          "longest_losing_streak": 31,
+          "max_drawdown": 3029.0,
+          "net_pnl": -325.705,
+          "observations": 297919,
+          "opportunities": 4296,
+          "profit_factor": 0.9878769256995739,
+          "resolved": 4287
+        },
+        "COST_MODEL_1_BASE_CONSERVATIVE": {
+          "average_trade": -1.918645324819221,
+          "longest_losing_streak": 31,
+          "max_drawdown": 8435.26667,
+          "net_pnl": -8225.2325075,
+          "observations": 297919,
+          "opportunities": 4296,
+          "profit_factor": 0.7363450470504812,
+          "resolved": 4287
+        },
+        "COST_MODEL_2_STRESS": {
+          "average_trade": -5.603985892815489,
+          "longest_losing_streak": 40,
+          "max_drawdown": 24047.3899825,
+          "net_pnl": -24024.2875225,
+          "observations": 297919,
+          "opportunities": 4296,
+          "profit_factor": 0.4077294572189393,
+          "resolved": 4287
+        }
+      },
+      "per_symbol_cost_model_1": {
+        "AAPL": {
+          "average_trade": -0.7746533280254777,
+          "longest_losing_streak": 29,
+          "max_drawdown": 802.1808675,
+          "net_pnl": -486.48229,
+          "profit_factor": 0.8681708234986186,
+          "resolved": 628
+        },
+        "AMZN": {
+          "average_trade": -3.627267455295736,
+          "longest_losing_streak": 28,
+          "max_drawdown": 2951.1001925,
+          "net_pnl": -2637.02344,
+          "profit_factor": 0.5272196891179931,
+          "resolved": 727
+        },
+        "GOOGL": {
+          "average_trade": -2.4448837563667234,
+          "longest_losing_streak": 31,
+          "max_drawdown": 1881.0962325,
+          "net_pnl": -1440.0365325,
+          "profit_factor": 0.673461331059799,
+          "resolved": 589
+        },
+        "META": {
+          "average_trade": -1.8452316937119675,
+          "longest_losing_streak": 24,
+          "max_drawdown": 2041.8556925,
+          "net_pnl": -909.699225,
+          "profit_factor": 0.7741336230485276,
+          "resolved": 493
+        },
+        "MSFT": {
+          "average_trade": -0.8457292807017543,
+          "longest_losing_streak": 22,
+          "max_drawdown": 880.80371,
+          "net_pnl": -482.06569,
+          "profit_factor": 0.8682669013229409,
+          "resolved": 570
+        },
+        "NVDA": {
+          "average_trade": -1.7733791640625,
+          "longest_losing_streak": 30,
+          "max_drawdown": 2415.842995,
+          "net_pnl": -2269.92533,
+          "profit_factor": 0.7691289078582774,
+          "resolved": 1280
+        }
+      },
+      "time_of_day_cost_model_1": {
+        "AFTERNOON_14_1530_ET": {
+          "average_trade": -3.6748709266802444,
+          "longest_losing_streak": 25,
+          "max_drawdown": 1804.814785,
+          "net_pnl": -1804.361625,
+          "profit_factor": 0.4890021592291511,
+          "resolved": 491
+        },
+        "MIDDAY_12_14_ET": {
+          "average_trade": -1.3554552174975563,
+          "longest_losing_streak": 25,
+          "max_drawdown": 1414.274285,
+          "net_pnl": -1386.6306875,
+          "profit_factor": 0.7896653613933625,
+          "resolved": 1023
+        },
+        "MORNING_10_12_ET": {
+          "average_trade": -1.615749571886447,
+          "longest_losing_streak": 29,
+          "max_drawdown": 4251.8701475,
+          "net_pnl": -3528.797065,
+          "profit_factor": 0.7930905904379574,
+          "resolved": 2184
+        }
+      },
+      "walk_forward_cost_model_1": {
+        "design": {
+          "average_trade": -1.885713032287542,
+          "longest_losing_streak": 31,
+          "max_drawdown": 6670.50525,
+          "net_pnl": -6190.795885,
+          "profit_factor": 0.7474860739645308,
+          "resolved": 3283
+        },
+        "design_dates": [
+          "2026-05-13",
+          "2026-08-18"
+        ],
+        "observe": {
+          "average_trade": -2.026331297310757,
+          "longest_losing_streak": 30,
+          "max_drawdown": 2039.1580825,
+          "net_pnl": -2034.4366225,
+          "profit_factor": 0.6954576021221768,
+          "resolved": 1004
+        },
+        "observe_dates": [
+          "2026-08-19",
+          "2026-09-29"
+        ]
+      }
+    },
+    "TREND_CONTINUATION": {
+      "cost_models": {
+        "COST_MODEL_0_IDEALIZED": {
+          "average_trade": -0.3292867774745721,
+          "longest_losing_streak": 27,
+          "max_drawdown": 2062.825,
+          "net_pnl": -1327.355,
+          "observations": 275647,
+          "opportunities": 4045,
+          "profit_factor": 0.8978963582902406,
+          "resolved": 4031
+        },
+        "COST_MODEL_1_BASE_CONSERVATIVE": {
+          "average_trade": -2.080074205532126,
+          "longest_losing_streak": 31,
+          "max_drawdown": 8519.7758225,
+          "net_pnl": -8384.7791225,
+          "observations": 275647,
+          "opportunities": 4045,
+          "profit_factor": 0.5186816959565338,
+          "resolved": 4031
+        },
+        "COST_MODEL_2_STRESS": {
+          "average_trade": -5.581649061647234,
+          "longest_losing_streak": 157,
+          "max_drawdown": 22534.3864475,
+          "net_pnl": -22499.6273675,
+          "observations": 275647,
+          "opportunities": 4045,
+          "profit_factor": 0.18278251945967883,
+          "resolved": 4031
+        }
+      },
+      "per_symbol_cost_model_1": {
+        "AAPL": {
+          "average_trade": -1.8262057773109244,
+          "longest_losing_streak": 27,
+          "max_drawdown": 1221.5891375,
+          "net_pnl": -1086.5924375,
+          "profit_factor": 0.5672184094485768,
+          "resolved": 595
+        },
+        "AMZN": {
+          "average_trade": -2.9454886848739497,
+          "longest_losing_streak": 21,
+          "max_drawdown": 1799.5863775,
+          "net_pnl": -1752.5657675,
+          "profit_factor": 0.4089629776777243,
+          "resolved": 595
+        },
+        "GOOGL": {
+          "average_trade": -2.68372441872428,
+          "longest_losing_streak": 25,
+          "max_drawdown": 1360.6220375,
+          "net_pnl": -1304.2900675,
+          "profit_factor": 0.4632415354928831,
+          "resolved": 486
+        },
+        "META": {
+          "average_trade": -1.6071408976261128,
+          "longest_losing_streak": 16,
+          "max_drawdown": 990.8118875,
+          "net_pnl": -541.6064825,
+          "profit_factor": 0.7304369844889892,
+          "resolved": 337
+        },
+        "MSFT": {
+          "average_trade": -2.324396728538283,
+          "longest_losing_streak": 12,
+          "max_drawdown": 1065.59115,
+          "net_pnl": -1001.81499,
+          "profit_factor": 0.503787777933474,
+          "resolved": 431
+        },
+        "NVDA": {
+          "average_trade": -1.822964281789639,
+          "longest_losing_streak": 26,
+          "max_drawdown": 1161.2282475,
+          "net_pnl": -1161.2282475,
+          "profit_factor": 0.6557155527524339,
+          "resolved": 637
+        },
+        "QQQ": {
+          "average_trade": -1.4598403887399465,
+          "longest_losing_streak": 12,
+          "max_drawdown": 544.520465,
+          "net_pnl": -544.520465,
+          "profit_factor": 0.39936143213502834,
+          "resolved": 373
+        },
+        "SPY": {
+          "average_trade": -1.7195158838821492,
+          "longest_losing_streak": 31,
+          "max_drawdown": 999.795705,
+          "net_pnl": -992.160665,
+          "profit_factor": 0.1779810546864854,
+          "resolved": 577
+        }
+      },
+      "time_of_day_cost_model_1": {
+        "AFTERNOON_14_1530_ET": {
+          "average_trade": -2.395411230936819,
+          "longest_losing_streak": 40,
+          "max_drawdown": 2198.98751,
+          "net_pnl": -2198.98751,
+          "profit_factor": 0.40212509100676735,
+          "resolved": 918
+        },
+        "MIDDAY_12_14_ET": {
+          "average_trade": -1.9384836430990686,
+          "longest_losing_streak": 26,
+          "max_drawdown": 2332.4527025,
+          "net_pnl": -2289.3491825,
+          "profit_factor": 0.5268606457042966,
+          "resolved": 1181
+        },
+        "MORNING_10_12_ET": {
+          "average_trade": -1.7038095398773005,
+          "longest_losing_streak": 19,
+          "max_drawdown": 2505.09817,
+          "net_pnl": -2221.76764,
+          "profit_factor": 0.6737746267352913,
+          "resolved": 1304
+        }
+      },
+      "walk_forward_cost_model_1": {
+        "design": {
+          "average_trade": -1.8619812250534569,
+          "longest_losing_streak": 23,
+          "max_drawdown": 5359.7160175,
+          "net_pnl": -5224.7193175,
+          "profit_factor": 0.5720817435331434,
+          "resolved": 2806
+        },
+        "design_dates": [
+          "2026-05-13",
+          "2026-08-18"
+        ],
+        "observe": {
+          "average_trade": -2.579640657142857,
+          "longest_losing_streak": 31,
+          "max_drawdown": 3160.059805,
+          "net_pnl": -3160.059805,
+          "profit_factor": 0.3935586541166466,
+          "resolved": 1225
+        },
+        "observe_dates": [
+          "2026-08-19",
+          "2026-09-29"
+        ]
+      }
+    },
+    "VWAP_PULLBACK": {
+      "cost_models": {
+        "COST_MODEL_0_IDEALIZED": {
+          "average_trade": 0.02965324384787472,
+          "longest_losing_streak": 19,
+          "max_drawdown": 170.785,
+          "net_pnl": 26.51,
+          "observations": 297919,
+          "opportunities": 907,
+          "profit_factor": 1.0147337531332152,
+          "resolved": 894
+        },
+        "COST_MODEL_1_BASE_CONSERVATIVE": {
+          "average_trade": -1.729270687919463,
+          "longest_losing_streak": 38,
+          "max_drawdown": 1546.571895,
+          "net_pnl": -1545.967995,
+          "observations": 297919,
+          "opportunities": 907,
+          "profit_factor": 0.44825435032412875,
+          "resolved": 894
+        },
+        "COST_MODEL_2_STRESS": {
+          "average_trade": -5.247118551454139,
+          "longest_losing_streak": 108,
+          "max_drawdown": 4690.923985,
+          "net_pnl": -4690.923985,
+          "observations": 297919,
+          "opportunities": 907,
+          "profit_factor": 0.11239286935415733,
+          "resolved": 894
+        }
+      },
+      "per_symbol_cost_model_1": {
+        "AAPL": {
+          "average_trade": -1.532954634502924,
+          "longest_losing_streak": 23,
+          "max_drawdown": 262.7391425,
+          "net_pnl": -262.1352425,
+          "profit_factor": 0.527029914940026,
+          "resolved": 171
+        },
+        "AMZN": {
+          "average_trade": -2.544678834951456,
+          "longest_losing_streak": 19,
+          "max_drawdown": 264.30356,
+          "net_pnl": -262.10192,
+          "profit_factor": 0.3214094287643892,
+          "resolved": 103
+        },
+        "GOOGL": {
+          "average_trade": -1.8992510772357725,
+          "longest_losing_streak": 12,
+          "max_drawdown": 277.7746125,
+          "net_pnl": -233.6078825,
+          "profit_factor": 0.4789545037354088,
+          "resolved": 123
+        },
+        "META": {
+          "average_trade": -0.21865486486486488,
+          "longest_losing_streak": 6,
+          "max_drawdown": 123.70323,
+          "net_pnl": -16.18046,
+          "profit_factor": 0.9289893300943792,
+          "resolved": 74
+        },
+        "MSFT": {
+          "average_trade": -1.9459547881355932,
+          "longest_losing_streak": 13,
+          "max_drawdown": 260.10071,
+          "net_pnl": -229.622665,
+          "profit_factor": 0.40722297979988986,
+          "resolved": 118
+        },
+        "NVDA": {
+          "average_trade": -1.7668516972477064,
+          "longest_losing_streak": 23,
+          "max_drawdown": 260.414495,
+          "net_pnl": -192.586835,
+          "profit_factor": 0.5032372073321267,
+          "resolved": 109
+        },
+        "QQQ": {
+          "average_trade": -1.589752638888889,
+          "longest_losing_streak": 16,
+          "max_drawdown": 114.46219,
+          "net_pnl": -114.46219,
+          "profit_factor": 0.27895539354165283,
+          "resolved": 72
+        },
+        "SPY": {
+          "average_trade": -1.8973451612903225,
+          "longest_losing_streak": 38,
+          "max_drawdown": 235.2708,
+          "net_pnl": -235.2708,
+          "profit_factor": 0.06445745715574085,
+          "resolved": 124
+        }
+      },
+      "time_of_day_cost_model_1": {
+        "AFTERNOON_14_1530_ET": {
+          "average_trade": -1.9310439634146341,
+          "longest_losing_streak": 14,
+          "max_drawdown": 316.69121,
+          "net_pnl": -316.69121,
+          "profit_factor": 0.2512857800748625,
+          "resolved": 164
+        },
+        "MIDDAY_12_14_ET": {
+          "average_trade": -1.3244354854368932,
+          "longest_losing_streak": 17,
+          "max_drawdown": 272.83371,
+          "net_pnl": -272.83371,
+          "profit_factor": 0.5392055417401386,
+          "resolved": 206
+        },
+        "MORNING_10_12_ET": {
+          "average_trade": -1.6994505615384616,
+          "longest_losing_streak": 14,
+          "max_drawdown": 603.0985025,
+          "net_pnl": -552.3214325,
+          "profit_factor": 0.5707983346494819,
+          "resolved": 325
+        }
+      },
+      "walk_forward_cost_model_1": {
+        "design": {
+          "average_trade": -1.6241271506211181,
+          "longest_losing_streak": 23,
+          "max_drawdown": 1046.541785,
+          "net_pnl": -1045.937885,
+          "profit_factor": 0.49401532185744584,
+          "resolved": 644
+        },
+        "design_dates": [
+          "2026-05-13",
+          "2026-08-18"
+        ],
+        "observe": {
+          "average_trade": -2.00012044,
+          "longest_losing_streak": 38,
+          "max_drawdown": 500.2148,
+          "net_pnl": -500.03011,
+          "profit_factor": 0.3195241942416624,
+          "resolved": 250
+        },
+        "observe_dates": [
+          "2026-08-19",
+          "2026-09-29"
+        ]
+      }
+    }
+  },
+  "generated_at": "2026-09-30T18:30:21.775436-04:00",
+  "holdout_locked_range": {
+    "accessed": false,
+    "end": "2026-05-12",
+    "start": "2026-03-18"
+  },
+  "research_dataset": {
+    "description": "M091 DEVELOPMENT (2026-07-08..2026-09-29) UNION M092 VALIDATION (2026-05-13..2026-07-07)",
+    "session_count": 100
+  },
+  "symbols": [
+    "AAPL",
+    "AMZN",
+    "GOOGL",
+    "META",
+    "MSFT",
+    "NVDA",
+    "QQQ",
+    "SPY"
+  ]
+}
