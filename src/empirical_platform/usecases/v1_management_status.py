@@ -13,7 +13,12 @@ from __future__ import annotations
 from empirical_platform.decision_candidate.approved_plan import ApprovedPlan
 from empirical_platform.decision_candidate.position_exit import PositionExitAttempt
 
-__all__ = ["MANAGEMENT_STATUS_VALUES", "management_status"]
+__all__ = [
+    "MANAGEMENT_STATUS_VALUES",
+    "ApprovedPlan",
+    "PositionExitAttempt",
+    "management_status",
+]
 
 MANAGEMENT_STATUS_VALUES = (
     "Monitoring",
