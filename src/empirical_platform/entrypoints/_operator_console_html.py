@@ -231,17 +231,26 @@ def today_page(view: TodayView, csrf: str, flash: ActionOutcome | None = None) -
     )
 
 
+#: RELEASE v1. Every "RESEARCH CANDIDATE" card carries exactly this banner. Checked by a
+#: dedicated whole-module lint test (`test_v1_research_candidate_labeling.py`) that this
+#: wording stays plain and un-superlative.
+_RESEARCH_CANDIDATE_BANNER = "Research strategy — profitability has not been validated."
+
+
 def _card(card: OpportunityCard, csrf: str) -> str:
     t = card.terms
     numbers = (
         '<div class="numbers">'
-        f'<div><span class="num-label">Entry (limit)</span><span class="num">{_e(t.limit_price)}</span></div>'
-        f'<div><span class="num-label">Quantity</span><span class="num">{t.quantity}</span></div>'
-        f'<div><span class="num-label">Notional</span><span class="num">{_e(t.notional)} {_e(t.currency)}</span></div>'
-        f'<div><span class="num-label">Max capital</span><span class="num">{_e(card.maximum_capital)}</span></div>'
+        f'<div><span class="num-label">Entry</span><span class="num">{_e(t.limit_price)}</span></div>'
         f'<div><span class="num-label">Stop</span><span class="num">{_e(card.stop_price)}</span></div>'
         f'<div><span class="num-label">Target</span><span class="num">{_e(card.target_price)}</span></div>'
-        f'<div><span class="num-label">Risk</span><span class="num">{_e(card.risk_amount)} ({_e(card.risk_percent)})</span></div>'
+        f'<div><span class="num-label">Quantity</span><span class="num">{t.quantity}</span></div>'
+        f'<div><span class="num-label">Max Loss</span><span class="num">{_e(card.risk_amount)}</span></div>'
+        f'<div><span class="num-label">Target Gain</span><span class="num">{_e(card.target_gain)}</span></div>'
+        f'<div><span class="num-label">R:R</span><span class="num">{_e(card.reward_risk_ratio)}</span></div>'
+        f'<div><span class="num-label">Mandatory Exit</span><span class="num">{_when(card.mandatory_exit)}</span></div>'
+        f'<div><span class="num-label">Notional</span><span class="num">{_e(t.notional)} {_e(t.currency)}</span></div>'
+        f'<div><span class="num-label">Max capital</span><span class="num">{_e(card.maximum_capital)}</span></div>'
         "</div>"
     )
     notes = ""
@@ -253,7 +262,7 @@ def _card(card: OpportunityCard, csrf: str) -> str:
     if card.decision_available and not card.blocked_note:
         actions = (
             '<div class="actions">'
-            f'<a class="btn btn-primary" href="/confirm?action=APPROVE&amp;proposal={_e(card.proposal_id)}">Approve</a>'
+            f'<a class="btn btn-primary" href="/confirm?action=APPROVE&amp;proposal={_e(card.proposal_id)}">REVIEW PLAN</a>'
             f'<a class="btn btn-secondary" href="/confirm?action=REJECT&amp;proposal={_e(card.proposal_id)}">Reject</a>'
             "</div>"
         )
@@ -287,6 +296,12 @@ def _card(card: OpportunityCard, csrf: str) -> str:
             "evidence, not as a current opportunity.</p>"
         )
     evidence = "".join(f"<li>{_e(line)}</li>" for line in card.evidence) or "<li>Not available</li>"
+    invalid_if = (
+        "The review page shows different terms than this card ({}), or the authorization "
+        "window ({} after review) expires before you confirm.".format(
+            "a changed price/quantity/fingerprint", "a short, policy-bounded interval"
+        )
+    )
     details = _details(
         "Details",
         _kv(
@@ -302,14 +317,18 @@ def _card(card: OpportunityCard, csrf: str) -> str:
                 ("Staged simulation behaviour", card.scenario or "Not available"),
             ]
         )
-        + f'<p class="muted">Evidence</p><ul class="evidence">{evidence}</ul>',
+        + f'<p class="muted">Why this candidate</p><ul class="evidence">{evidence}</ul>'
+        + f'<p class="muted">Invalid if</p><p class="reason">{_e(invalid_if)}</p>',
     )
     return (
         f'<article class="card" aria-label="{_e(card.symbol)}">'
+        '<div class="badge-row">'
+        '<span class="badge badge-research">RESEARCH CANDIDATE</span></div>'
+        f'<p class="note note-info">{_e(_RESEARCH_CANDIDATE_BANNER)}</p>'
         f'<div class="card-head"><span class="ticker">{_e(card.symbol)}</span>'
         f'<span class="side">{_e(t.side)}</span>{_chip(card.state)}</div>'
         f"{historical}"
-        f'<p class="reason">{_e(card.reason)}</p>{numbers}{notes}'
+        f'<p class="reason"><strong>Evidence/Quality:</strong> {_e(card.reason)}</p>{numbers}{notes}'
         f'<p class="muted">Proposed {_when(card.created_at)} · expires {_when(card.expires_at)}</p>'
         f"{actions}{details}</article>"
     )
@@ -875,10 +894,31 @@ def safety_page(view: SafetyView, csrf: str, flash: ActionOutcome | None) -> str
         if view.active_capability.capability.value == "PAPER"
         else ""
     )
+    # RELEASE v1. Exactly the mission's required statements, plain text, no interpretation.
+    v1_statements = (
+        '<section class="card"><h2>What this system is</h2>'
+        '<ul class="limits">'
+        "<li>Environment: <strong>PAPER</strong></li>"
+        "<li>Live: <strong>UNAVAILABLE</strong></li>"
+        "<li>Strategy profitability: <strong>NOT VALIDATED</strong></li>"
+        "<li>Automatic authority: <strong>POSITION-REDUCING ONLY, AFTER THE OWNER APPROVES "
+        "A FULL PLAN</strong> -- see /today → Research Candidates for how a plan is "
+        'approved and <a href="/active">Active</a> for what is currently being managed.</li>'
+        "</ul>"
+        '<p class="muted">No:</p>'
+        '<ul class="limits">'
+        "<li>automatic new opportunities becoming orders</li>"
+        "<li>autonomous entry without Owner approval</li>"
+        "<li>shorting</li>"
+        "<li>leverage escalation</li>"
+        "<li>overnight intention</li>"
+        "</ul></section>"
+    )
     body = (
         "<h1>Safety</h1>"
         f'<section class="card env-card"><div class="env-badge env-badge-large">{_e(view.active_capability.capability.value)}</div>'
         f'<p class="lead">{_e(view.active_capability.note)}</p><ul class="caps">{capabilities}</ul></section>'
+        f"{v1_statements}"
         f"{switch}"
         f'<section class="card"><h2>Trading rules</h2><p class="muted">From configuration {_e(view.configuration_id)} '
         f"version {_e(view.configuration_version)}. Read-only.</p>{rules}</section>"
@@ -1048,6 +1088,10 @@ h1{font-size:28px;margin:8px 0 16px;letter-spacing:-.3px}h2{font-size:20px;margi
 .numbers div{display:flex;flex-direction:column}.num-label{font-size:12px;color:var(--muted)}.num{font-weight:700;font-size:17px;font-variant-numeric:tabular-nums}
 .note{margin:0;padding:10px 12px;border-radius:10px;font-size:14px}.note-danger{background:var(--danger-bg);color:var(--danger)}
 .note-warn{background:var(--warn-bg);color:var(--warn)}.note-info{background:var(--info-bg);color:var(--info)}
+.badge-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.badge{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;letter-spacing:.03em}
+.badge-research{background:var(--info-bg);color:var(--info);border-color:var(--info)}
+ul.limits{margin:0 0 10px;padding-left:20px}ul.limits li{margin:4px 0;font-size:14px}
 .muted{color:var(--muted);font-size:14px;margin:0}.muted.block{display:block}
 .actions{display:flex;gap:10px;flex-wrap:wrap}.actions .btn{flex:1 1 140px;text-align:center}
 .btn{display:inline-block;padding:12px 18px;border-radius:10px;border:1px solid transparent;font-weight:700;text-decoration:none;

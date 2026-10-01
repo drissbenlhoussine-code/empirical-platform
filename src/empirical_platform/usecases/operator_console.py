@@ -403,6 +403,13 @@ class OpportunityCard:
     target_price: str
     risk_amount: str
     risk_percent: str
+    #: RELEASE v1 Research Candidate fields: maximum dollar gain if the target is reached,
+    #: the reward:risk ratio, and the mandatory-liquidation deadline this candidate would
+    #: carry if approved. All three are derived from the SAME proposal fields `risk_amount`
+    #: already uses -- no new data source, no new freshness question.
+    target_gain: str
+    reward_risk_ratio: str
+    mandatory_exit: datetime
     reason: str
     evidence: tuple[str, ...]
     created_at: datetime
@@ -851,6 +858,16 @@ class OperatorConsoleService:
             if risk_amount is not None and proposal.estimated_total_cash_required > 0
             else None
         )
+        target_gain = (
+            (proposal.profit_exit_price - proposal.limit_price) * Decimal(proposal.quantity)
+            if proposal.limit_price is not None
+            else None
+        )
+        reward_risk_ratio = (
+            (target_gain / risk_amount)
+            if target_gain is not None and risk_amount is not None and risk_amount > 0
+            else None
+        )
         return OpportunityCard(
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
@@ -865,6 +882,11 @@ class OperatorConsoleService:
             target_price=_money(proposal.profit_exit_price),
             risk_amount=_money(risk_amount),
             risk_percent=(f"{risk_percent:.2f}%" if risk_percent is not None else NOT_AVAILABLE),
+            target_gain=_money(target_gain),
+            reward_risk_ratio=(
+                f"{reward_risk_ratio:.2f}:1" if reward_risk_ratio is not None else NOT_AVAILABLE
+            ),
+            mandatory_exit=proposal.mandatory_liquidation_at,
             reason=(
                 f"Proposed by strategy {strategy}: {len(passed)} of {len(proposal.risk_checks)} "
                 f"risk checks passed" + ("" if not failed else f", {len(failed)} not passed")
