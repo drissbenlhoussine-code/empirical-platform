@@ -229,7 +229,9 @@ def test_database_identity_independent_of_test_name(
     connection.engine.url.port = 55436
     connection.dialect.name = "postgresql"
     connection.exec_driver_sql.return_value.mappings.return_value.one.return_value = {
-        "identity": marker
+        "identity": marker,
+        "database": "disposable_test",
+        "server_port": 55436,
     }
     if marker == safety.TEST_IDENTITY:
         safety._test_connection(connection)
@@ -238,6 +240,7 @@ def test_database_identity_independent_of_test_name(
     else:
         with pytest.raises(safety.DatabaseSafetyError):
             safety._test_connection(connection)
+        connection.close.assert_called_once()
         with pytest.raises(safety.DatabaseSafetyError):
             safety.require_migration_connection(connection)
 

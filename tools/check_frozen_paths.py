@@ -18,6 +18,10 @@ semantic one: a reviewer cannot be asked to judge, per diff, whether an edit
 "really" changed a frozen milestone's meaning, and the author is the last
 person who should be making that call about their own change.
 
+The Owner explicitly authorized one destructive-tool safety supersession on
+2026-10-01. It has a separate exact operational digest and a preserved historical
+blob, not an exemption or an overwrite of the original manifest.
+
 Ownership is derived from the repository, not hand-listed: a path is M083's if
 its name carries the milestone number or the primitive that milestone
 introduced. Deriving it means a frozen file added later cannot escape the guard
@@ -171,6 +175,30 @@ DIGEST_FILES: dict[str, Path] = {
     "M084": REPO_ROOT / "external-review" / "MILESTONE-085" / "m084-frozen-path-digests.json",
 }
 
+# Owner authorization 2026-10-01: one destructive tool has a superseding safety
+# baseline. Historical manifests and base commits above remain unchanged.
+SAFETY_TOOL = "tools/m084_mutation_campaign.py"
+SAFETY_RECORD = REPO_ROOT / "external-review/RELEASE-V1/database-safety/baseline.json"
+
+
+def operational_digest(path: str, historical: str | None) -> str | None:
+    """Only the exact recorded correction supersedes this tool's historical bytes."""
+    if path != SAFETY_TOOL:
+        return historical
+    record = json.loads(SAFETY_RECORD.read_text(encoding="utf-8"))
+    if (
+        record["kind"] != "OWNER_AUTHORIZED_SAFETY_CORRECTION"
+        or record["path"] != SAFETY_TOOL
+        or "".join(record["original_blob"]) != historical
+        or "".join(record["original_commit"]) != M084_BASE
+        or blob_id("HEAD", record["historical_copy"]) != historical
+    ):
+        raise ValueError("invalid M084 safety supersession or historical evidence changed")
+    corrected = "".join(record["corrected_blob"])
+    if re.fullmatch(r"[0-9a-f]{40}", corrected) is None or corrected == historical:
+        raise ValueError("invalid corrected safety identity")
+    return corrected
+
 
 def blob_id(revision: str, path: str) -> str | None:
     """The git blob id of `path` at `revision`, or None if it is absent."""
@@ -205,7 +233,7 @@ def content_violations() -> dict[str, list[str]]:
     for milestone, paths in owned_paths(tracked).items():
         changed = []
         for path in paths:
-            expected = recorded.get(path)
+            expected = operational_digest(path, recorded.get(path))
             current = blob_id("HEAD", path)
             if expected is None:
                 changed.append(f"{path} (no recorded base blob id)")
@@ -258,7 +286,15 @@ def violations() -> dict[str, list[str]]:
         changed = {
             line for line in _git("diff", "--name-only", f"{base}..HEAD").splitlines() if line
         }
-        result[milestone] = [path for path in paths if path in changed]
+        result[milestone] = [
+            path
+            for path in paths
+            if path in changed
+            and not (
+                path == SAFETY_TOOL
+                and blob_id("HEAD", path) == operational_digest(path, base_digests().get(path))
+            )
+        ]
     return result
 
 
@@ -333,7 +369,10 @@ def main(argv: list[str] | None = None) -> int:
     per_milestone = ", ".join(
         f"{m} {len(paths)} since {FROZEN_BASES[m][:12]}" for m, paths in owners.items()
     )
-    print(f"frozen paths unmodified ({per_milestone}; {total} governed, verified {how})")
+    print(
+        f"frozen paths match historical/superseding safety baselines "
+        f"({per_milestone}; {total} governed, verified {how})"
+    )
     return 0
 
 

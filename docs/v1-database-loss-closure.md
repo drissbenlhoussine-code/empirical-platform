@@ -1,6 +1,8 @@
 # V1 database loss closure — pending legacy-tool protection
 
-Status: **BLOCKED_FROZEN_DESTRUCTIVE_TOOL**. Do not initialize the real stores.
+Status: the Owner authorized the scoped M084 safety correction on 2026-10-01.
+See [the superseding operational baseline](../external-review/RELEASE-V1/database-safety/safety-correction.md).
+Do not initialize the real stores without separate authorization.
 This change is not a claim that historical execution data was recovered.
 
 ## Bounded investigation
@@ -58,26 +60,17 @@ SQLAlchemy engines. CI explicitly provisions and marks empty disposable database
 database. Ordinary online Alembic commands refuse the protected real database names.
 
 These are operational accident guards, not a security boundary against a database
-superuser or a deliberately bypassed Python process. The remaining legacy-tool gap
-below must be closed before claiming complete destructive-tool isolation.
+superuser or a deliberately bypassed Python process. The later-discovered legacy-tool gap is addressed by the separately authorized
+safety correction below.
 
-## Exact blocker
+## Resolved legacy-tool blocker
 
-`tools/m084_mutation_campaign.py` accepts an arbitrary `--database` (line 641 at
-the reviewed source) and `_rebuild_schema()` executes `sudo ... psql ... DROP
-DATABASE` before the migration/pytest guards run. A direct invocation can therefore
-target a personal store. The other frozen M084 launchers also use raw psql without
-the new independent-identity preflight. They must not be run against the personal
-cluster.
-
-The repository's M083/M084 frozen-path policy requires byte identity to the
-owner-ratified baseline. Both `tools/check_frozen_paths.py` and
-`tests/architecture/test_frozen_paths.py` enforce it; the exemption set is empty.
-Changing this M084 tool directly would fail that required gate. Merely wrapping it
-would leave its direct entry point unsafe. The guard and baseline were not weakened.
-The necessary next step is an explicitly ratified safety correction to the frozen
-tooling, with refusal tests for personal names, personal markers, and port 55433,
-followed by the full gates. Until then the requested readiness label is withheld.
+The Owner explicitly authorized a destructive-target safety correction on
+2026-10-01. The corrected M084 mutation reset now requires verified TEST identity
+before any schema reset. The original M084 baseline, original digest manifest and
+archived original tool remain historical evidence. A separately recorded exact
+operational blob supersedes only the affected tool; further changes remain gated.
+See the correction record linked above for the scope, old/new identities and tests.
 
 ## Backup operation and limits
 
@@ -147,7 +140,7 @@ mode, at B `b9f2c4d6a8e1` and C `f083b6c29d17`. Generation makes no connection a
 does not change either real store. The artifacts are complete SQL plans, not
 evidence that initialization occurred.
 
-After the blocker above is resolved, review the SQL and obtain explicit approval
+After all safety gates pass, review the SQL and obtain explicit approval
 for permanent loss acknowledgement and clean initialization. Immediately before
 execution, verify the exact endpoint and empty schemas again. Apply only the
 reviewed offline scripts with `psql -X --set ON_ERROR_STOP=1`, explicit host/port/name,
