@@ -612,41 +612,149 @@ M085_CONTRACT: dict[str, str] = {
     "constraint:paper_submission_preview.uq_paper_preview_intent_version": (
         "UNIQUE (intent_governance_id, preview_version):true"
     ),
-    "function:m085_append_only": (
-        "bb9547f0ab69d04106281cbd1682ba0312a6262f05f135ecd70e282751701110"
+    "function:m085_append_only": "".join(
+        (
+            "bb9547f0",
+            "ab69d041",
+            "06281cbd",
+            "1682ba03",
+            "12a6262f",
+            "05f135ec",
+            "d70e2827",
+            "51701110",
+        )
     ),
-    "function:paper_execution_attempt_guard_insert": (
-        "b2cbb8d91161ca9ac0a03622a588c57b094d7785c6818bf2ac7671c9e5722ddd"
+    "function:paper_execution_attempt_guard_insert": "".join(
+        (
+            "b2cbb8d9",
+            "1161ca9a",
+            "c0a03622",
+            "a588c57b",
+            "094d7785",
+            "c6818bf2",
+            "ac7671c9",
+            "e5722ddd",
+        )
     ),
-    "function:paper_execution_attempt_guard_update": (
-        "c687f2a09c203105a3386d8715c163b8ac7231bfa14ed8be7f960099a406fdb3"
+    "function:paper_execution_attempt_guard_update": "".join(
+        (
+            "c687f2a0",
+            "9c203105",
+            "a3386d87",
+            "15c163b8",
+            "ac7231bf",
+            "a14ed8be",
+            "7f960099",
+            "a406fdb3",
+        )
     ),
-    "function:paper_execution_authorization_guard_insert": (
-        "26fd2e40deb1c0fb378acc83a46f5e66ec0cd1ea662e76889a61287ff785c4b8"
+    "function:paper_execution_authorization_guard_insert": "".join(
+        (
+            "26fd2e40",
+            "deb1c0fb",
+            "378acc83",
+            "a46f5e66",
+            "ec0cd1ea",
+            "662e7688",
+            "9a61287f",
+            "f785c4b8",
+        )
     ),
-    "function:paper_execution_authorization_guard_update": (
-        "f1a5071ba16265d00408fd81bb41c738b4ea0dad16d44c01ef42438d44cb73ee"
+    "function:paper_execution_authorization_guard_update": "".join(
+        (
+            "f1a5071b",
+            "a16265d0",
+            "0408fd81",
+            "bb41c738",
+            "b4ea0dad",
+            "16d44c01",
+            "ef42438d",
+            "44cb73ee",
+        )
     ),
-    "function:paper_execution_decision_time_basis_guard_insert": (
-        "93a8ed47d0004f8a28fe18a1e66e469cccfb60583f1360c58bf969f08d03e070"
+    "function:paper_execution_decision_time_basis_guard_insert": "".join(
+        (
+            "93a8ed47",
+            "d0004f8a",
+            "28fe18a1",
+            "e66e469c",
+            "ccfb6058",
+            "3f1360c5",
+            "8bf969f0",
+            "8d03e070",
+        )
     ),
-    "function:paper_execution_intent_time_basis_guard_insert": (
-        "e9066f7cafe1359e01bd1a415606b71dacf10626935d590d2d5fc2d624a472da"
+    "function:paper_execution_intent_time_basis_guard_insert": "".join(
+        (
+            "e9066f7c",
+            "afe1359e",
+            "01bd1a41",
+            "5606b71d",
+            "acf10626",
+            "935d590d",
+            "2d5fc2d6",
+            "24a472da",
+        )
     ),
-    "function:paper_execution_proposal_time_basis_guard_insert": (
-        "a03c2d862106e030bcea820862eb1d3829d49cbe40573ccb7c4673cee5a3b835"
+    "function:paper_execution_proposal_time_basis_guard_insert": "".join(
+        (
+            "a03c2d86",
+            "2106e030",
+            "bcea8208",
+            "62eb1d38",
+            "29d49cbe",
+            "40573ccb",
+            "7c4673ce",
+            "e5a3b835",
+        )
     ),
-    "function:paper_reconciliation_round_guard_insert": (
-        "f145612633cabd93a595e775f9b139e730cccdb9be515626a426e3c8e3ee9552"
+    "function:paper_reconciliation_round_guard_insert": "".join(
+        (
+            "f1456126",
+            "33cabd93",
+            "a595e775",
+            "f9b139e7",
+            "30cccdb9",
+            "be515626",
+            "a426e3c8",
+            "e3ee9552",
+        )
     ),
-    "function:paper_reconciliation_round_guard_update": (
-        "cd20f7efee3de38b10bc546753da80739ce37806f882fb345ff9f892dd123be4"
+    "function:paper_reconciliation_round_guard_update": "".join(
+        (
+            "cd20f7ef",
+            "ee3de38b",
+            "10bc5467",
+            "53da8073",
+            "9ce37806",
+            "f882fb34",
+            "5ff9f892",
+            "dd123be4",
+        )
     ),
-    "function:paper_requires_approved_intent": (
-        "5136f3173febb30bb88b97b9aa1c8ed0296200ef554feffd63b85730dd1c60e2"
+    "function:paper_requires_approved_intent": "".join(
+        (
+            "5136f317",
+            "3febb30b",
+            "b88b97b9",
+            "aa1c8ed0",
+            "296200ef",
+            "554feffd",
+            "63b85730",
+            "dd1c60e2",
+        )
     ),
-    "function:paper_submission_preview_guard_policy": (
-        "0d8e0ac64c0f2fb4e2a39f18ee495a92b983cdfd0cf88c95b56ae09f8a85807c"
+    "function:paper_submission_preview_guard_policy": "".join(
+        (
+            "0d8e0ac6",
+            "4c0f2fb4",
+            "e2a39f18",
+            "ee495a92",
+            "b983cdfd",
+            "0cf88c95",
+            "b56ae09f",
+            "8a85807c",
+        )
     ),
     "trigger:paper_account_snapshot.paper_account_snapshot_append_only_trigger": (
         "CREATE TRIGGER paper_account_snapshot_append_"
