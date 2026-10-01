@@ -1,10 +1,16 @@
 """MILESTONE-089 -- the Operator Console composed for PAPER WITH the exit path: Store B + Store C.
 
 THE DUAL-STORE BOUNDARY, EXPLICIT. Store B is `paper_execution_runtime()`
-(`entrypoints._paper_composition`) -- the SAME real Alpaca-credentialed, exact-M085-schema-
-head-verified context `tools/m085_paper_acceptance.py` and MILESTONE-088's console use,
-UNCHANGED. Store C is a SECOND, independent `PostgresPersistenceService`, over a database this
-module opens itself, exact-M089-schema-head-verified
+(`entrypoints._paper_composition`) -- the SAME real Alpaca-credentialed context
+`tools/m085_paper_acceptance.py` and MILESTONE-088's console use, UNCHANGED. RELEASE v1
+schema-blocker fix: that function now proves Store B compatible via
+`require_v1_integrated_schema_compatibility`, not the historical
+`require_exact_m085_schema_head` (see that function's own docstring in
+`paper_execution_repositories.py` for why: Store A and Store B are the SAME physical
+database in real deployment, and a database correctly migrated to serve this module's own
+`ApprovedPlan` reads can never simultaneously sit at the older, literal M085 revision).
+Store C is a SECOND, independent `PostgresPersistenceService`, over a database this module
+opens itself, exact-M089-schema-head-verified
 (`require_exact_m089_schema_head`) before anything built over it is handed out. There is no
 shared connection, no shared transaction and no cross-database foreign key between the two: a
 preview built for Store C reads Store B's own M085 entry-attempt repository directly (the SAME
@@ -96,8 +102,10 @@ def resolve_paper_exit_postgres_config(
 def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
     """Own Store B's AND Store C's persistence services for the console's lifetime.
 
-    Requires the EXACT M085 schema head on Store B (via `paper_execution_runtime()`,
-    unweakened) and the EXACT M089 schema head on Store C (via
+    Requires Store B proven compatible with the integrated v1 runtime (via
+    `paper_execution_runtime()`'s own `require_v1_integrated_schema_compatibility` guard --
+    RELEASE v1 schema-blocker fix, replacing the historical `require_exact_m085_schema_head`
+    that function used to call) and the EXACT M089 schema head on Store C (via
     `require_exact_m089_schema_head`, unweakened) before either database is read for anything
     but the schema check itself, and before any credential is used to build the broker
     clients. Store C is opened INSIDE Store B's context and closed before it, so a Store-C

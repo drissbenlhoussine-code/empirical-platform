@@ -8,10 +8,10 @@
 SIMULATION IS THE DEFAULT (MILESTONE-088 Phase 6): `--capability` defaults to `simulation`
 and every existing flag and behaviour below is unchanged for it. `--capability paper`
 composes over Store B instead (`entrypoints._paper_operator_console_composition`) -- the
-same real Alpaca-credentialed, exact-M085-schema-head-verified context
-`tools/m085_paper_acceptance.py` uses -- and refuses `--load-day`/`--reset-simulation`,
-which have no PAPER meaning. No `--capability live` exists: there is no composition path in
-this repository that can build one. It binds to the loopback address only and refuses any
+same real Alpaca-credentialed context `tools/m085_paper_acceptance.py` uses -- and refuses
+`--load-day`/`--reset-simulation`, which have no PAPER meaning. No `--capability live`
+exists: there is no composition path in this repository that can build one. It binds to
+the loopback address only and refuses any
 other host, in both capabilities. One process serves the pages and, in the background, asks
 the broker (simulated, or the real Alpaca paper endpoint) about every open execution through
 the MILESTONE-085 reconciler, so Active trades moves from Submitted to Accepted to Filled

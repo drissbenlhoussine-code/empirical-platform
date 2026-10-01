@@ -2,14 +2,17 @@
 
 THE DUAL-STORE BOUNDARY, EXPLICIT. This module builds the console entirely over
 `paper_execution_runtime()` (`entrypoints._paper_composition`) -- Store B, the SAME real
-Alpaca-credentialed, exact-M085-schema-head-verified context `tools/m085_paper_acceptance.py`
-uses, UNCHANGED. There is no second `PostgresPersistenceService`, no console-specific
-database, and no read from `empirical_platform` (the M087/SIMULATION database, Store A) in
-this module at all: PAPER has nothing to put there for this mission (opportunity scanning,
-position/exit UI state) -- `today()`, `active_trades()`, `history()` and `safety()` all
-project directly from Store B's own M085 tables via `OperatorConsoleService`, reused
-unchanged. `require_exact_m085_schema_head` -- unweakened, imported not reimplemented -- is
-the ONE guard that decides whether Store B may be read at all.
+Alpaca-credentialed context `tools/m085_paper_acceptance.py` uses, UNCHANGED. There is no
+second `PostgresPersistenceService`, no console-specific database, and no read from
+`empirical_platform` (the M087/SIMULATION database, Store A) in this module at all: PAPER has
+nothing to put there for this mission (opportunity scanning, position/exit UI state) --
+`today()`, `active_trades()`, `history()` and `safety()` all project directly from Store B's
+own M085 tables via `OperatorConsoleService`, reused unchanged. RELEASE v1 schema-blocker
+fix: `paper_execution_runtime()` itself now proves Store B compatible via
+`require_v1_integrated_schema_compatibility` (see that function's own docstring in
+`paper_execution_repositories.py`), not the historical `require_exact_m085_schema_head` --
+this module still reads NOTHING until `paper_execution_runtime()`'s own guard has passed;
+only which guard that is changed, not the discipline.
 
 WHY `OperatorConsoleService` ITSELF, NOT A PARALLEL CLASS. It was already written against
 the `PaperBrokerPort`/`PaperMarketDataPort` protocols, never against a concrete simulated
@@ -73,7 +76,7 @@ def _utc_now() -> datetime:
 __all__ = ["PAPER_CAPABILITY", "PaperConsoleBackend", "paper_operator_console_runtime"]
 
 #: MILESTONE-088. The real PAPER capability, declared here and ONLY here, after Store B's
-#: exact M085 schema head has actually been verified by `paper_execution_runtime()` below.
+#: schema has actually been proven compatible by `paper_execution_runtime()` below.
 #: `usecases.operator_console.CAPABILITIES` -- M086's own displayed table -- is untouched:
 #: a test pins it to `[True, False, False]` (SIMULATION enabled, PAPER and LIVE locked), and
 #: that remains correct on the M086/M087 branches, where PAPER genuinely is not composed.
@@ -147,9 +150,11 @@ class PaperConsoleBackend:
 def paper_operator_console_runtime() -> Iterator[PaperConsoleBackend]:
     """Own Store B's persistence service for the console's lifetime. PAPER only.
 
-    Requires the EXACT M085 schema head (via `paper_execution_runtime`, unweakened) before
-    anything is built or any credential is read. `exits` is always `None`: PAPER exit stays
-    locked (MILESTONE-088 Phase 11) until M087 SELL_TO_CLOSE has its own Paper acceptance.
+    Requires Store B's schema proven compatible (via `paper_execution_runtime`'s own
+    `require_v1_integrated_schema_compatibility` guard -- RELEASE v1 schema-blocker fix;
+    see that function's docstring in `paper_execution_repositories.py`) before anything is
+    built or any credential is read. `exits` is always `None`: PAPER exit stays locked
+    (MILESTONE-088 Phase 11) until M087 SELL_TO_CLOSE has its own Paper acceptance.
     """
     with paper_execution_runtime() as context:
         signer = HmacSigner(_signing_secret())
