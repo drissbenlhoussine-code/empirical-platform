@@ -96,6 +96,7 @@ from empirical_platform.usecases.position_exit import (
 
 __all__ = [
     "DEFAULT_POLL_INTERVAL_SECONDS",
+    "ApprovedPlanRepository",
     "PlanEvaluationOutcome",
     "PlanManagerThread",
     "PositionPlanManager",

@@ -59,6 +59,10 @@ from empirical_platform.usecases.operator_console import (
 )
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
 from empirical_platform.usecases.paper_operator_console import prepare_paper_candidate
+from empirical_platform.usecases.position_plan_manager import (
+    ApprovedPlanRepository,
+    PositionPlanManager,
+)
 
 
 def _utc_now() -> datetime:
@@ -124,6 +128,14 @@ class PaperConsoleBackend:
     _broker: AlpacaPaperClient
     _market_data: AlpacaPaperMarketDataClient
     _time_source: PaperTimeSource
+    #: RELEASE v1. `None` for M088's own plain PAPER composition (`paper_operator_console_
+    #: runtime`, unchanged below) -- only the SEPARATE exit-capable composition module (the
+    #: capability that can actually close a position) builds these. When set,
+    #: `paper_operator_console_app.py` wires /confirm-approval through `approve_full_plan`
+    #: instead of `service.confirm_approval` directly, and starts `_plan_manager` as a
+    #: background thread for the console process's lifetime.
+    _plans: ApprovedPlanRepository | None = None
+    _plan_manager: PositionPlanManager | None = None
 
 
 @contextmanager

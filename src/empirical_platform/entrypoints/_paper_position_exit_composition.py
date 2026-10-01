@@ -48,6 +48,10 @@ from empirical_platform.shared.config.settings import (
     resolve_foundation_config,
 )
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.approved_plan_repositories import (  # noqa: E501
+    PostgresApprovedPlanRepository,
+    require_exact_v1_approved_plan_schema_head,
+)
 from empirical_platform.shared.persistence.postgres_repositories.paper_position_exit_schema import (
     require_exact_m089_schema_head,
 )
@@ -60,6 +64,7 @@ from empirical_platform.usecases.operator_console import (
     OperatorConsoleService,
 )
 from empirical_platform.usecases.operator_console_exits import ExitRepositories, PositionExitConsole
+from empirical_platform.usecases.position_plan_manager import PositionPlanManager
 
 __all__ = [
     "PAPER_EXIT_DATABASE_VARIABLE",
@@ -99,9 +104,14 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
     failure never leaves Store B's connection dangling and Store B's guard always runs first.
     """
     with paper_execution_runtime() as store_b:
-        store_c_config = resolve_paper_exit_postgres_config(resolve_foundation_config().postgresql)
+        store_a_config = resolve_foundation_config().postgresql
+        store_c_config = resolve_paper_exit_postgres_config(store_a_config)
+        store_a_plans = PostgresPersistenceService(store_a_config)
         store_c = PostgresPersistenceService(store_c_config)
         try:
+            store_a_plans.initialize()
+            require_exact_v1_approved_plan_schema_head(store_a_plans)
+            plans = PostgresApprovedPlanRepository(store_a_plans)
             store_c.initialize()
             require_exact_m089_schema_head(store_c)
             exit_runtime = PostgresPositionExitRuntime(store_c)
@@ -152,6 +162,25 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 time_source=store_b.time_source,
                 exits=exit_console,
             )
+            # RELEASE v1: the automatic position-plan manager, over the SAME Store B/Store C
+            # repositories the Owner's own manual exit already uses -- never a parallel
+            # broker-submission path (see `usecases.position_plan_manager`'s own docstring).
+            plan_manager = PositionPlanManager(
+                plans=plans,
+                intents=repositories.intents,
+                entry_attempts=repositories.attempts,
+                exit_attempts=exits.attempts,
+                previews=exits.previews,
+                authorizations=exits.authorizations,
+                acknowledgements=exits.acknowledgements,
+                events=exits.events,
+                rounds=exits.rounds,
+                broker=store_b.broker,
+                market_data=store_b.market_data,
+                configurations=repositories.configurations,
+                environment=PAPER_CAPABILITY.capability.value,
+                time_source=store_b.time_source,
+            )
             yield PaperConsoleBackend(
                 service=service,
                 configuration_id="CFG-089-PAPER",
@@ -160,6 +189,9 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 _broker=store_b.broker,
                 _market_data=store_b.market_data,
                 _time_source=store_b.time_source,
+                _plans=plans,
+                _plan_manager=plan_manager,
             )
         finally:
             store_c.close()
+            store_a_plans.close()

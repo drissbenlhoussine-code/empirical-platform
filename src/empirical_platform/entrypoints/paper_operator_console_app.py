@@ -45,6 +45,7 @@ from empirical_platform.entrypoints._paper_operator_console_composition import (
     PaperConsoleBackend,
 )
 from empirical_platform.entrypoints.operator_console_app import build_application
+from empirical_platform.usecases.full_plan_approval import approve_full_plan
 from empirical_platform.usecases.operator_console import (
     CapabilityRefusedError,
     ConsoleRefusalError,
@@ -121,4 +122,38 @@ def build_paper_application(
 
     router.get("/health", paper_health_route)
     router.post("/prepare-candidate", prepare_candidate_route)
+
+    # RELEASE v1: when this backend was composed WITH plan management
+    # (`paper_operator_console_with_exit_runtime`, `backend._plans is not None`), ONE Owner
+    # approval must create BOTH the entry authorization and the durable `ApprovedPlan` the
+    # automatic manager later watches. This OVERRIDES the base router's `/confirm-approval`
+    # registration (same path, registered again -- a later `router.post` for an existing
+    # path replaces it) rather than editing `operator_console_app.py`'s own shared handler,
+    # so the plain SIMULATION console and M088's own plain PAPER composition
+    # (`backend._plans is None`) are completely untouched by this change.
+    if backend._plans is not None:
+
+        def confirm_approval_with_plan(request: Request, csrf: str) -> Response:
+            del csrf
+            refuse_requested_environment(request.form)
+            proposal = request.first("proposal")
+            assert backend._plans is not None
+            result = approve_full_plan(
+                backend.service,
+                backend._repositories,
+                backend._plans,
+                proposal_id=proposal,
+                token=request.first("ticket"),
+                candidate_id=request.first("candidate", proposal),
+            )
+            if result.plan is not None:
+                print(
+                    f"paper-console: plan {result.plan.plan_id} for {proposal} "
+                    f"{'created' if result.plan_created_now else 'already existed'}",
+                    file=sys.stderr,
+                )
+            return redirect(f"/opportunity?id={proposal}")
+
+        router.post("/confirm-approval", confirm_approval_with_plan)
+
     return router
