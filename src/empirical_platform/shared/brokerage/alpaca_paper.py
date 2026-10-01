@@ -65,7 +65,7 @@ import hashlib
 import http.client
 import json
 import ssl
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -104,6 +104,10 @@ __all__ = [
     "credentials_from_environment",
     "redact_headers",
 ]
+
+#: MILESTONE-095. `_NewsArticleView`/`_NewsPage` are returned by `fetch_news`; they are
+#: not in `__all__` above because callers receive them via the method's return
+#: annotation, matching `_QuoteView`/`_BarView`'s own (unexported, return-only) convention.
 
 #: MILESTONE-090. The largest single page of minute bars this adapter will request.
 #: Alpaca paginates beyond this via `next_page_token`, which this adapter does not follow --
@@ -455,6 +459,36 @@ class _BarView:
     low: str
     close: str
     volume: int
+
+
+@dataclass(frozen=True, slots=True)
+class _NewsArticleView:
+    """MILESTONE-095: one real Benzinga-sourced news article from Alpaca's News API.
+
+    `created_at` is the article's first-publication time; `updated_at` can differ (some
+    articles are edited after publication) and is carried separately rather than
+    overwriting `created_at`, so a caller enforcing point-in-time safety always has the
+    true original publication instant to compare against, never a possibly-later edit
+    time. Read-only evidence, nothing else -- this type cannot place, modify or cancel
+    anything, and nothing in this module gains such a capability from it.
+    """
+
+    article_id: int
+    headline: str
+    summary: str
+    source: str
+    symbols: tuple[str, ...]
+    created_at: datetime
+    updated_at: datetime
+    url: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _NewsPage:
+    """One page of `fetch_news`. `next_page_token` is `None` exactly when exhausted."""
+
+    articles: tuple[_NewsArticleView, ...]
+    next_page_token: str | None
 
 
 def _sanitize(body: bytes, credentials: AlpacaPaperCredentials | None = None) -> str:
@@ -1179,6 +1213,78 @@ class AlpacaPaperMarketDataClient:
             except (KeyError, TypeError, ValueError) as error:
                 raise BrokerResponseInvalidError(f"a bar entry is malformed: {error}") from error
         return tuple(views)
+
+    def fetch_news(
+        self,
+        symbols: Sequence[str],
+        *,
+        start: datetime,
+        end: datetime,
+        limit: int = 50,
+        page_token: str | None = None,
+    ) -> _NewsPage:
+        """MILESTONE-095: real, Benzinga-sourced news articles over `[start, end)`, one page.
+
+        Still on the read-only data host (`DATA_ENDPOINT_HOST`), still no order-shaped
+        argument or return value anywhere in this method. `symbols` filters which tickers
+        an article must be tagged with; `page_token` follows `next_page_token` from a prior
+        page -- the caller decides whether and how far to paginate, this method never loops.
+        """
+        for symbol in symbols:
+            AlpacaPaperClient._require_plain_symbol(symbol)
+        if not symbols:
+            raise ValueError("symbols must be non-empty")
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("start and end must be timezone-aware")
+        if end <= start:
+            raise ValueError("end must be after start")
+        if not isinstance(limit, int) or isinstance(limit, bool) or not (1 <= limit <= 50):
+            raise ValueError("limit must be an int between 1 and 50")
+        query = (
+            f"symbols={_urlquote(','.join(symbols))}"
+            f"&start={_urlquote(start.astimezone(UTC).isoformat())}"
+            f"&end={_urlquote(end.astimezone(UTC).isoformat())}"
+            f"&limit={limit}"
+            "&include_content=false&exclude_contentless=false"
+        )
+        if page_token is not None:
+            query += f"&page_token={_urlquote(page_token)}"
+        status, _, raw = self._connection.request("GET", f"/v1beta1/news?{query}")
+        if status != 200:
+            return _NewsPage(articles=(), next_page_token=None)
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return _NewsPage(articles=(), next_page_token=None)
+        if not isinstance(payload, dict):
+            return _NewsPage(articles=(), next_page_token=None)
+        raw_articles = payload.get("news")
+        if raw_articles is None:
+            return _NewsPage(articles=(), next_page_token=None)
+        if not isinstance(raw_articles, list):
+            raise BrokerResponseInvalidError("the news payload is not a list")
+        views: list[_NewsArticleView] = []
+        for entry in raw_articles:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("a news entry is not an object")
+            try:
+                views.append(
+                    _NewsArticleView(
+                        article_id=int(entry["id"]),
+                        headline=str(entry.get("headline", "")),
+                        summary=str(entry.get("summary", "")),
+                        source=str(entry.get("source", "")),
+                        symbols=tuple(entry.get("symbols") or ()),
+                        created_at=_parse_instant(entry.get("created_at"), field="created_at"),
+                        updated_at=_parse_instant(entry.get("updated_at"), field="updated_at"),
+                        url=entry.get("url"),
+                    )
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise BrokerResponseInvalidError(f"a news entry is malformed: {error}") from error
+        next_token = payload.get("next_page_token")
+        resolved_token = next_token if isinstance(next_token, str) else None
+        return _NewsPage(articles=tuple(views), next_page_token=resolved_token)
 
 
 #: Everything this module treats as a live endpoint and refuses. Recorded as data
