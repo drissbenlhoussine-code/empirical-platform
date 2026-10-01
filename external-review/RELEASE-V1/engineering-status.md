@@ -2,120 +2,118 @@
 
 Branch `release/v1-personal-paper`, from the exact latest green stack tip
 (`ed9215301f53c3eb9e029caf26be843b57d4f941`, M095/PR #25's head). This is an honest
-progress record, not a "done" claim -- see FINAL STATUS at the end.
+progress record across two engineering passes, not a "done" claim -- see FINAL STATUS in
+the PR/final report.
 
-## What this pass actually built, and proved with real tests
+## What this branch has actually built, and proved with real tests
 
 1. **Kill switch semantics (Release Blocker: "kill switch must not trap an open
-   position")**. Removed the three exit-side kill-switch refusals in
-   `usecases/position_exit.py` (`AuthorizePositionExitHandler.handle`,
-   `SubmitAuthorizedPositionExitHandler.handle`, and its pre-send-boundary check) and the
-   console-level check in `usecases/operator_console_exits.py::confirm`. Entry-side
-   blocking is UNCHANGED. Documented in `docs/operations/kill-switch.md`. The pre-existing
-   `test_m087_position_exit_service.py` kill-switch test was rewritten to assert the NEW
-   (correct) behavior rather than deleted.
+   position")**. An engaged kill switch blocks new entries only, never a position-reducing
+   exit. `docs/operations/kill-switch.md`. The pre-existing `test_m087_position_exit_
+   service.py` kill-switch test rewritten to assert the NEW (correct) behavior.
 
-2. **`ApprovedPlan` domain model**
-   (`decision_candidate/approved_plan.py` + `approved_plan_repositories.py`). Pure,
-   frozen, immutable terms (stop/target/mandatory-liquidation/owner-approval identity),
-   a deterministic `system_identity` derivation that traces every automatic action back
-   to the one Owner approval that created it, and the pure `evaluate_exit_trigger`
-   decision function. 12 exhaustive unit tests, zero I/O
-   (`tests/unit/test_v1_approved_plan_domain.py`).
+2. **`ApprovedPlan` domain model** (`decision_candidate/approved_plan.py` +
+   `approved_plan_repositories.py`). Pure, frozen, immutable terms, a deterministic
+   `system_identity` derivation, and the pure `evaluate_exit_trigger` decision function.
+   12 exhaustive unit tests, zero I/O (`tests/unit/test_v1_approved_plan_domain.py`).
 
 3. **`PositionPlanManager`** (`usecases/position_plan_manager.py`) -- Release Blocker 4's
-   core: polls durable `ApprovedPlan`s, evaluates stop/target/mandatory-exit against fresh
-   broker/market truth, and on a trigger, durably claims the right to act
-   (`ApprovedPlanRepository.claim_exit_trigger`, same atomic-UPDATE discipline as the
-   existing `claim_dispatch`), then dispatches through the EXISTING, unmodified
-   `AuthorizePositionExitHandler` -> `SubmitAuthorizedPositionExitHandler` chain with
-   `authorized_by` set to the plan's own system identity -- never a fabricated human
-   identity, never a new broker-submission code path. 7 tests
-   (`tests/unit/test_v1_position_plan_manager.py`) run over the REAL simulation broker and
-   the REAL M087 exit handlers (not mocks), covering: monitoring (no trigger), a stop
-   trigger submitting a real SELL_TO_CLOSE, a target trigger, the mandatory-exit deadline
-   firing on time alone, two managers racing on the identical tick submitting exactly one
-   exit, and a simulated restart (a claim recorded with nothing yet dispatched, picked up
-   and completed by a fresh manager instance over a rebuilt broker connection).
+   automatic exit engine. Polls durable `ApprovedPlan`s, evaluates stop/target/mandatory-
+   exit against fresh broker/market truth, durably claims the right to act, then dispatches
+   through the EXISTING, unmodified `AuthorizePositionExitHandler` ->
+   `SubmitAuthorizedPositionExitHandler` chain with `authorized_by` set to the plan's
+   system identity. 7 tests over the REAL simulation broker and REAL M087 exit handlers:
+   stop trigger, target trigger, mandatory-exit-on-time-alone, two managers racing
+   submitting exactly one exit, and simulated restart recovery.
 
-4. **Entry-governance regression lock** (`tests/unit/test_v1_entry_governance_lock.py`) --
-   two tests, explicitly labeled against the real M089 incident shape (an expired
-   approval; a regenerated proposal at different terms), run over the real handler chain.
-   This formalizes coverage that already existed in `test_m085_paper_execution_handlers.py`
-   and `test_m086_operator_console_service.py` as its own dedicated v1 proof.
+4. **Postgres persistence for `ApprovedPlan`** (added this pass -- was the #1 remaining
+   gap after the previous report). Migration `b9f2c4d6a8e1` (additive on M090's head, Store
+   A), its own `require_exact_v1_approved_plan_schema_head` guard (this table feeds a real
+   unattended-order-submission decision, the same class of danger M085/M087's guards exist
+   for -- unlike M090's guard-free research schema), and database-level triggers
+   independently enforcing claim-once and immutable-terms, belt-and-suspenders alongside
+   the repository's own conditional UPDATE. `PostgresApprovedPlanRepository` follows the
+   M085 persistence discipline exactly (literal SQL constants, fail-closed reads). **12
+   integration tests against a REAL local PostgreSQL 16 instance**, including the core
+   proof: 8 real concurrent connections racing the identical `claim_exit_trigger` UPDATE,
+   exactly one wins. A genuine bug (an unescaped colon in a CHECK constraint's SQL text
+   being silently parsed as a SQLAlchemy bind parameter, corrupting the stored constraint)
+   was caught and fixed by this local-Postgres testing before ever reaching CI.
 
-5. **Architecture boundary tests**
-   (`tests/architecture/test_v1_position_plan_manager_boundaries.py`, 4 tests): the
-   manager and the plan domain/repository modules cannot import or name a BUY-capable
-   surface, a Live client, or `paper_execution`'s own handlers; the manager never
-   constructs an order/exit request literal itself (quantity/price always come from the
-   existing, broker-verified construction inside `PreviewPositionExitHandler`); the plan
-   domain module is proven I/O-free.
+5. **`approve_full_plan`** (added this pass; `usecases/full_plan_approval.py`) -- Release
+   Blocker 2's connector. Calls the existing `OperatorConsoleService.confirm_approval`
+   UNCHANGED (full existing safety logic preserved), then creates the durable `ApprovedPlan`
+   from the FRESH M085 `TradeProposal`'s own `stop_loss_price`/`profit_exit_price`/
+   `quantity` -- never from a Research Candidate's possibly-stale research-time numbers.
+   Idempotent: proven to recover and create the plan when called after an EARLIER,
+   interrupted call already authorized/submitted the entry (the narrow ordering window the
+   module docstring names honestly). 5 tests over the real simulation broker and real
+   M084-M086 handler chain.
 
-6. **Autostart artifacts** (`deploy/windows/run-v1-console.ps1`,
-   `deploy/windows/v1-console-task.xml`) -- committed, documented, explicitly NOT
-   registered against the live machine (that is an Owner action). Honestly scoped: they
-   currently autostart the EXISTING M088/M089 console (`operator_console.py --capability
-   paper-exit`), not a not-yet-built consolidated v1 console -- see item 7.
+6. **Entry-governance regression lock** (`tests/unit/test_v1_entry_governance_lock.py`) --
+   two tests against the real M089 incident shape, run over the real handler chain.
+
+7. **Architecture boundary tests**
+   (`tests/architecture/test_v1_position_plan_manager_boundaries.py`, 4 tests): no
+   BUY-capable or Live surface reachable from the manager/plan modules; the manager never
+   constructs an order/exit request literal itself; the plan domain module is I/O-free.
+
+8. **Autostart artifacts** (`deploy/windows/run-v1-console.ps1`,
+   `deploy/windows/v1-console-task.xml`) -- committed, documented, NOT registered against
+   the live machine. Honestly scoped: still point at the EXISTING M088/M089 console, not a
+   not-yet-built consolidated v1 console (see Not Done #1 below).
 
 **Full regression proof**: `PYTHONPATH=...\v1-release\src pytest tests/unit
-tests/architecture -q` -> **4432 passed, 0 failed** (the coverage-PERCENTAGE gate still
-fails at 75.49%, the same pre-existing, documented, non-regression condition noted in
-M093-M095's own reports -- not a test failure). `ruff check`, `ruff format`, `mypy` on
-every new/changed file, `tools/check_architecture.py`, and `tools/secret_scan_targets.py`
-all clean.
+tests/architecture -q` -> **4437 passed, 0 failed** (the coverage-PERCENTAGE gate still
+fails at 75.49%, the same pre-existing, documented, non-regression condition noted since
+M093). Postgres suites (new `test_v1_approved_plan_postgres.py` plus the full existing
+M085-M089/M090-ancestry suites, to confirm zero regression from stacking a new migration
+on top) -- **35 passed, 0 failed**, against a real local PostgreSQL 16. `ruff check`,
+`ruff format`, `mypy`, `tools/check_architecture.py`, `tools/secret_scan_targets.py` all
+clean. Two pre-existing pinned-migration-manifest tests were updated to recognize this
+branch's new migration as a third known, accounted-for chain addition (the same way they
+were updated when M090's migration first joined M087's) -- not weakened, just extended.
 
-## What this pass did NOT complete -- named honestly, not glossed over
+## What remains -- named honestly, not glossed over
 
-1. **Console consolidation (Release Blocker 1)**. The TODAY/ACTIVE/HISTORY/SAFETY
-   navigation, the "RESEARCH CANDIDATE" banner/labeling and exact candidate fields, and
-   integrating the M090 opportunity-engine's candidates into the existing
-   `operator_console.py` are NOT built. The existing M088/M089 console (candidate review +
-   approval + active positions + kill switch, one process, port 8086) remains the only
-   running console; it does not yet present the ONE full-plan approval UI, does not yet
-   create an `ApprovedPlan` row when the Owner approves, and does not yet start
-   `PlanManagerThread` inside its process.
-2. **The one-click full-plan approval endpoint (Release Blocker 2)**. The domain pieces
-   (`ApprovedPlan`, system identity, `PositionPlanManager`) exist and are tested in
-   isolation; the console ROUTE that lets the Owner approve a candidate once and have it
-   create both the entry authorization AND the `ApprovedPlan` row in one action does not
-   exist yet. This is the critical remaining wiring step -- the hard part (the automatic
-   manager itself) is built and tested; the UI/endpoint that produces its input is not.
-3. **Postgres persistence for `ApprovedPlan`**. Only the Protocol
-   (`ApprovedPlanRepository`) and an in-memory fake exist. No Alembic migration, no
-   `PostgresApprovedPlanRepository`, and therefore no PostgreSQL integration test exists
-   yet -- `claim_exit_trigger`'s atomicity is proven against the in-memory fake's own lock,
-   not against a real `UPDATE ... WHERE ... IS NULL RETURNING` under concurrent Postgres
-   connections. This is the single highest-priority remaining item before any real
-   deployment: the exactly-once claim is architecturally sound and unit-tested, but not
-   yet proven under real Postgres concurrency the way `claim_dispatch` was for M085.
-4. **Active Trade UI / History / Safety page content** exactly as specified (symbol,
-   quantity, unrealized P&L, management status enum, "Automatic management is limited to
-   the Owner-approved Paper plan" banner, manual-exit escape hatch, full History
-   traceability fields) -- not built; these render data this pass's domain model can now
-   supply, but the HTML/routes do not exist.
-5. **Retiring the M090-M095 report consoles from "normal navigation"** -- not applicable
-   yet, since there is no new consolidated navigation for them to be retired FROM. Their
-   evidence files are untouched.
-6. **Full mission test matrix A-V** -- tests A (full-plan immutable approval), D (no
-   automatic entry without approval), I (partial fills), K (position-zero required for
-   CLOSED), Q (no overnight intended position), S/T (Simulation/Live-impossible
-   regression), U (mobile UI), V (autostart/bootstrap artifact presence) are either
-   covered indirectly by existing M085-M089 tests reused unchanged, or not yet written as
-   dedicated v1 tests, because the UI/endpoint they'd test (item 2 above) does not exist
-   yet. B, C, E, F, G, H, J, L, M, N, O, P are directly and freshly proven by the test
-   files listed above.
-7. **CI / PR**. Not yet opened -- see GIT section of the final report.
+1. **Console consolidation (Release Blocker 1)**. TODAY/ACTIVE/HISTORY/SAFETY navigation,
+   the "RESEARCH CANDIDATE" banner/labeling and exact candidate fields, and integrating
+   M090's opportunity-engine candidates into `operator_console.py`, are NOT built. The
+   existing M088/M089 console remains the only running console and does not yet expose a
+   "REVIEW PLAN" button wired to `approve_full_plan`, nor start `PlanManagerThread` inside
+   its process.
+2. **Active Trade UI / History / Safety page content** exactly as specified -- not built;
+   the domain model can now supply every field the mission asks for (`ApprovedPlan`,
+   `PlanEvaluationOutcome`, the existing History-adjacent repositories), but no HTML/routes
+   exist yet to render them.
+3. **Retiring the M090-M095 report consoles from "normal navigation"** -- not applicable
+   yet, since there is no new consolidated navigation for them to be retired FROM.
+4. **Starting `PlanManagerThread` inside the console process** -- the class exists and is
+   tested standalone (`tests/unit/test_v1_position_plan_manager.py`), but no composition
+   root yet wires it into a running console's startup sequence.
+5. **Remaining mission test matrix**: A (full-plan immutable approval, now testable at the
+   UI layer once item 1 exists -- the underlying immutability IS proven at the domain/
+   connector layer already), D (no automatic entry without approval -- implied by
+   `approve_full_plan`'s reuse of `confirm_approval`, not yet a dedicated UI-level test), I
+   (partial fills), K (position-zero required for CLOSED -- covered indirectly by reused
+   M087 `position_closed` logic, not a dedicated v1 test), Q (no overnight intended
+   position), S/T (Simulation/Live-impossible regression -- T is covered by this branch's
+   architecture tests; S needs a dedicated run), U (mobile UI -- no UI exists yet), V
+   (autostart artifact presence -- the files exist and are documented; no automated test
+   asserts their content). B, C, E, F, G, H, J, L, M, N, O, P are directly and freshly
+   proven by the test files already in this branch.
 
-## Why engineering stopped here rather than pushing further
+## Why engineering stopped here
 
-This is an honest timeboxing decision, not a discovered blocker: Release Blockers 1 and 2
-(console UI + the approval endpoint that creates an `ApprovedPlan`) and Blocker 4's
-Postgres persistence are each a substantial, separate unit of real work, and the highest-
-risk, hardest-to-get-right piece of the whole release -- the automatic unattended
-position-reducing exit logic itself, including its collision-safety and crash-recovery
-behavior -- is the piece this pass prioritized getting genuinely right and genuinely
-tested against the real simulation broker, rather than spreading effort thin across every
-blocker and risking a shallow, under-tested implementation of the part that submits real
-orders without a human in the loop. The remaining work is substantial but is UI/wiring/
-persistence work over an already-proven core, not open design risk.
+Two full passes have now delivered, in priority order: the automatic unattended exit
+engine with proven collision-safety and crash-recovery (hardest, highest-risk), Postgres
+persistence proven under real concurrent-connection racing (the explicitly-named #1 gap),
+and the one-click approval connector that ties entry authorization to plan creation with a
+proven, tested idempotent-recovery story for its one honestly-disclosed ordering gap. What
+remains is real, substantial work (a mobile-first console UI, History/Safety pages, process
+composition to start the background manager) but it is UI/wiring/composition work laid
+over an already-proven, already-tested safety core -- not open design risk. Building that
+UI to the same rigor this pass held itself to (real tests against the real simulation
+broker, not a shallow HTML mockup) is a genuinely large unit of work in its own right, and
+attempting it in the remaining time of this pass risked exactly the shallow, under-tested
+result this project's own discipline exists to avoid.
