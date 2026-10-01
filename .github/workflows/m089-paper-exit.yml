@@ -30,6 +30,7 @@ on:
       - 'src/empirical_platform/**/_paper_composition.py'
       - 'src/empirical_platform/**/_paper_operator_console_composition.py'
       - 'src/empirical_platform/**/paper_execution_repositories.py'
+      - 'src/empirical_platform/**/paper_schema_contract.py'
       - 'src/empirical_platform/**/approved_plan_repositories.py'
       - 'src/empirical_platform/**/position_plan_manager.py'
       - 'src/empirical_platform/**/position_exit*.py'
@@ -128,21 +129,21 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: empirical
-          POSTGRES_DB: empirical_platform
+          POSTGRES_DB: empirical_platform_v1_test
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U empirical -d empirical_platform"
+          --health-cmd "pg_isready -U empirical -d empirical_platform_v1_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
       EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
       EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
-      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform_v1_test
       EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
       # Store C: a SECOND database on the SAME throwaway server, created explicitly below
       # before Store C's own migration chain ever connects to it.
-      EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE: empirical_platform_paper_exit
+      EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE: empirical_platform_v1_paper_exit_test
       EMPIRICAL_ALPACA_PAPER_BASE_URL: https://paper-api.alpaca.markets
     steps:
       - uses: actions/checkout@v4
@@ -157,7 +158,7 @@ jobs:
       - name: Create Store C's database on the throwaway server
         run: >-
           PGPASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER
-          psql -h localhost -U empirical -d empirical_platform
+          psql -h localhost -U empirical -d empirical_platform_v1_test
           -c "CREATE DATABASE $EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE"
       - name: Set test-shaped Alpaca credential placeholders (never real; see the test's own no_broker_network proof)
         run: |

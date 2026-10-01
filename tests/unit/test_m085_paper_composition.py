@@ -43,6 +43,10 @@ from empirical_platform.shared.persistence.postgres_repositories.paper_execution
     V1_INTEGRATED_SCHEMA_HEAD,
     SchemaCompatibilityError,
 )
+from empirical_platform.shared.persistence.postgres_repositories.paper_schema_contract import (
+    M085_CONTRACT,
+    M085_CONTRACT_SELECT,
+)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 #: Revisions other than the head, grouped for the secret scanner.
@@ -80,6 +84,10 @@ class _HeadWork:
         self.statements.append(statement)
         if self._failure is not None:
             raise self._failure
+        if statement == M085_CONTRACT_SELECT:
+            return [
+                {"object_key": key, "definition": value} for key, value in M085_CONTRACT.items()
+            ]
         if "alembic_version" in statement:
             return list(self._head_rows)
         return list(self._table_rows)
@@ -468,6 +476,7 @@ class TestTheSchemaHeadIsExact:
         assert work.statements == [
             "SELECT version_num FROM public.alembic_version",
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+            M085_CONTRACT_SELECT,
         ]
 
     @pytest.mark.parametrize(

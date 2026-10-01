@@ -69,6 +69,10 @@ from empirical_platform.decision_candidate.paper_execution import (
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.paper_schema_contract import (
+    M085_CONTRACT,
+    M085_CONTRACT_SELECT,
+)
 
 if TYPE_CHECKING:
     from alembic.script import ScriptDirectory
@@ -269,7 +273,8 @@ def require_v1_integrated_schema_compatibility(service: PostgresPersistenceServi
          known-good, reviewed revision, never "any later revision."
       2. `M085_SCHEMA_HEAD` is a genuine ancestor of `V1_INTEGRATED_SCHEMA_HEAD` in the
          real Alembic revision graph this repository ships (see `_ancestor_revisions`).
-      3. Every M085 table Paper execution actually reads and writes still exists.
+      3. Every required M085 table and its physical contract remain intact: columns,
+         constraints, enabled triggers and the trigger function implementations.
 
     M087's and M090's own migrations are documented, and verified by this repository's
     architecture tests, as purely additive over M085's tables (no `ALTER`/`DROP` of any
@@ -281,6 +286,9 @@ def require_v1_integrated_schema_compatibility(service: PostgresPersistenceServi
         with service.unit_of_work() as work:
             revision_rows = list(work.execute(_SCHEMA_HEAD_SELECT))
             table_rows = list(work.execute(_PUBLIC_TABLES_SELECT))
+            contract_rows = list(
+                work.execute(M085_CONTRACT_SELECT, {"tables": list(_M085_REQUIRED_TABLES)})
+            )
     except Exception as error:
         raise SchemaCompatibilityError(
             "the database schema could not be read; refusing to run paper execution "
@@ -310,6 +318,14 @@ def require_v1_integrated_schema_compatibility(service: PostgresPersistenceServi
         raise SchemaCompatibilityError(
             f"the database is missing required M085 table(s) {missing}; refusing to run "
             "paper execution against an incomplete schema"
+        )
+
+    actual = {row["object_key"]: row["definition"] for row in contract_rows}
+    changed = sorted(key for key, expected in M085_CONTRACT.items() if actual.get(key) != expected)
+    if changed:
+        raise SchemaCompatibilityError(
+            f"required M085 schema contract is missing or changed: {changed}; "
+            "refusing to run paper execution against unverified invariants"
         )
 
     return V1_INTEGRATED_SCHEMA_HEAD

@@ -35,15 +35,17 @@ submit calls on a fake broker, because it would also catch an accidental `fetch_
 
 NEITHER DATABASE IS EVER THE REAL DEPLOYED DATABASE. Both `engine` and `engine_c` resolve
 through `_m085_support.config()`/`_m089_support.store_c_config()`, the SAME disposable-test
-databases every other suite in this repository already uses (see those modules' own
-docstrings for the guards that keep this suite off a real database). The real
+databases used by the other integration suites, with this suite's additional explicit
+_test database-name guard. The real
 `empirical_platform_paper`/`empirical_platform_paper_exit` databases are never opened here.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from threading import Event
 
 import pytest
 from sqlalchemy import text
@@ -60,10 +62,15 @@ from empirical_platform.shared.persistence.postgres_repositories.approved_plan_r
     PostgresApprovedPlanRepository,
 )
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    M085_SCHEMA_HEAD,
     V1_INTEGRATED_SCHEMA_HEAD,
+    PaperSchemaHeadError,
+    SchemaCompatibilityError,
+    require_exact_m085_schema_head,
 )
 from empirical_platform.shared.persistence.postgres_repositories.paper_position_exit_schema import (  # noqa: E501
     M089_SCHEMA_HEAD,
+    PaperExitSchemaHeadError,
 )
 from empirical_platform.usecases.operator_console import OperatorConsoleService
 from empirical_platform.usecases.operator_console_exits import ExitRepositories
@@ -81,16 +88,28 @@ _FAKE_KEY_TAIL = "TESTVALUEDEPLOY000000000000000000000000001"
 _PAPER_URL = "https://paper-api.alpaca.markets"
 
 
-@pytest.fixture(scope="module")
-def engine() -> Iterator[Engine]:
+@pytest.fixture(autouse=True)
+def disposable_database_names() -> None:
+    """Refuse production names before any destructive integration fixture runs."""
+    if postgres_enabled():
+        for name in (
+            "EMPIRICAL_PLATFORM_POSTGRES_DATABASE",
+            "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE",
+        ):
+            if not os.environ.get(name, "").endswith("_test"):
+                pytest.fail(f"{name} must explicitly name a disposable _test database")
+
+
+@pytest.fixture
+def engine(disposable_database_names: None) -> Iterator[Engine]:
     """Store A/B, migrated the ORDINARY way -- `alembic upgrade head` -- never pinned."""
     if not postgres_enabled():
         pytest.skip("PostgreSQL integration tests require explicit opt-in")
     yield from build_engine("head")
 
 
-@pytest.fixture(scope="module")
-def engine_c() -> Iterator[Engine]:
+@pytest.fixture
+def engine_c(disposable_database_names: None) -> Iterator[Engine]:
     """Store C, migrated through its own separate chain to its own real head."""
     if not postgres_enabled():
         pytest.skip("PostgreSQL integration tests require explicit opt-in")
@@ -167,6 +186,7 @@ def test_the_real_integrated_console_boots_against_databases_at_full_head(
     no_broker_network: list[tuple[str, str]],
     engine: Engine,
     engine_c: Engine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The exact scenario Release Blocker 5 found broken, reproduced and proven fixed.
 
@@ -190,11 +210,101 @@ def test_the_real_integrated_console_boots_against_databases_at_full_head(
         # database), so the tick's two queries (list_unclaimed/list_claimed) find nothing
         # and the loop makes no broker call -- `no_broker_network` proves that directly
         # rather than inferring it from the table being empty.
+        completed = Event()
+        original = PositionPlanManager.evaluate_once
+
+        def observed_tick(self: PositionPlanManager, *, now: datetime) -> object:
+            result = original(self, now=now)
+            completed.set()  # only a successful real tick counts
+            return result
+
+        monkeypatch.setattr(PositionPlanManager, "evaluate_once", observed_tick)
         manager_thread = PlanManagerThread(
             backend._plan_manager,  # noqa: SLF001
             now=lambda: datetime.now(UTC),
         )
         manager_thread.start()
-        manager_thread.stop()
+        try:
+            assert completed.wait(timeout=10), "the real Plan Manager tick did not complete"
+        finally:
+            manager_thread.stop()
 
     assert no_broker_network == []
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "UPDATE public.alembic_version SET version_num = 'unreviewed_future'",
+        "DROP TABLE public.paper_reconciliation_round CASCADE",
+        "ALTER TABLE public.paper_execution_attempt DROP COLUMN state CASCADE",
+        "ALTER TABLE public.paper_execution_attempt DISABLE TRIGGER "
+        "paper_execution_attempt_guard_update_trigger",
+        "ALTER TABLE public.paper_execution_attempt DROP CONSTRAINT "
+        "uq_paper_attempt_one_per_intent",
+        "CREATE OR REPLACE FUNCTION "
+        "public.paper_execution_attempt_guard_update() "
+        "RETURNS trigger AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql",
+    ],
+)
+def test_incompatible_main_contract_refuses_real_boot(
+    real_deployment_environment: None,
+    no_broker_network: list[tuple[str, str]],
+    engine: Engine,
+    statement: str,
+) -> None:
+    # Function-scoped disposable databases are recreated for each corruption case.
+    with engine.begin() as connection:
+        connection.execute(text(statement))
+    with pytest.raises(SchemaCompatibilityError):
+        with paper_operator_console_with_exit_runtime():
+            pytest.fail("incompatible main database was accepted")
+    assert no_broker_network == []
+
+
+def test_wrong_store_c_head_refuses_real_boot(
+    real_deployment_environment: None,
+    no_broker_network: list[tuple[str, str]],
+    engine_c: Engine,
+) -> None:
+    with engine_c.begin() as connection:
+        connection.execute(
+            text("UPDATE public.alembic_version SET version_num = 'unreviewed_future'")
+        )
+    with pytest.raises(PaperExitSchemaHeadError):
+        with paper_operator_console_with_exit_runtime():
+            pytest.fail("incompatible Store C was accepted")
+    assert no_broker_network == []
+
+
+def test_historical_guard_still_rejects_full_head(engine: Engine) -> None:
+    from tests.integration._m085_support import config
+
+    from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+
+    service = PostgresPersistenceService(config())
+    service.initialize()
+    try:
+        with pytest.raises(PaperSchemaHeadError):
+            require_exact_m085_schema_head(service)
+    finally:
+        service.close()
+
+
+def test_contract_is_the_unchanged_historical_m085_contract() -> None:
+    from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+        _M085_REQUIRED_TABLES,
+    )
+    from empirical_platform.shared.persistence.postgres_repositories.paper_schema_contract import (
+        M085_CONTRACT,
+        M085_CONTRACT_SELECT,
+    )
+
+    if not postgres_enabled():
+        pytest.skip("PostgreSQL integration tests require explicit opt-in")
+    for historical_engine in build_engine(M085_SCHEMA_HEAD):
+        with historical_engine.connect() as connection:
+            rows = connection.execute(
+                text(M085_CONTRACT_SELECT), {"tables": list(_M085_REQUIRED_TABLES)}
+            )
+            assert dict(rows.tuples().all()) == M085_CONTRACT

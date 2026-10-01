@@ -26,6 +26,10 @@ from empirical_platform.shared.persistence.postgres_repositories.paper_execution
     SchemaCompatibilityError,
     require_v1_integrated_schema_compatibility,
 )
+from empirical_platform.shared.persistence.postgres_repositories.paper_schema_contract import (
+    M085_CONTRACT,
+    M085_CONTRACT_SELECT,
+)
 
 _UNKNOWN_NEWER = "ffff" + "0" * 8
 _M084_HEAD = "".join(("a3f7c2", "1d9b04"))
@@ -58,6 +62,10 @@ class _Work:
         del parameters
         if self._failure is not None:
             raise self._failure
+        if statement == M085_CONTRACT_SELECT:
+            return [
+                {"object_key": key, "definition": value} for key, value in M085_CONTRACT.items()
+            ]
         if "alembic_version" in statement:
             return list(self._revision_rows)
         return list(self._table_rows)
@@ -194,3 +202,29 @@ def test_an_unreadable_migration_history_fails_closed(monkeypatch: pytest.Monkey
 
 def test_the_refusal_is_an_operator_refusal() -> None:
     assert issubclass(SchemaCompatibilityError, ValueError)
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "column:paper_execution_attempt.state",
+        "constraint:paper_execution_attempt.uq_paper_attempt_one_per_intent",
+        "trigger:paper_execution_attempt.paper_execution_attempt_guard_update_trigger",
+        "function:paper_execution_attempt_guard_update",
+    ],
+)
+def test_missing_or_changed_physical_invariant_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+    key: str,
+) -> None:
+    original = _Work.execute
+
+    def damaged(self: _Work, statement: str, parameters: object = None) -> list[dict[str, object]]:
+        rows = original(self, statement, parameters)
+        if statement == M085_CONTRACT_SELECT:
+            return [row for row in rows if row["object_key"] != key]
+        return rows
+
+    monkeypatch.setattr(_Work, "execute", damaged)
+    with pytest.raises(SchemaCompatibilityError, match="schema contract"):
+        require_v1_integrated_schema_compatibility(_Service(_rows(V1_INTEGRATED_SCHEMA_HEAD)))  # type: ignore[arg-type]
