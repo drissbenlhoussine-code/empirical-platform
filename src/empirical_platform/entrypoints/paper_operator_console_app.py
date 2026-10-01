@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import sys
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 
 from empirical_platform.entrypoints import _operator_console_html as html
 from empirical_platform.entrypoints._operator_console_web import (
@@ -57,8 +58,21 @@ from empirical_platform.usecases.paper_operator_console import (
     PaperCandidateBlockedError,
     paper_health,
 )
+from empirical_platform.usecases.v1_management_status import management_status
 
 __all__ = ["build_paper_application"]
+
+
+def _decimal(value: str) -> Decimal | None:
+    try:
+        return Decimal(value)
+    except (InvalidOperation, TypeError):
+        return None
+
+
+def _money(value: Decimal | None) -> str:
+    return "Not available" if value is None else f"{value:,.2f}"
+
 
 _REFUSED = (
     ConsoleRefusalError,
@@ -155,5 +169,117 @@ def build_paper_application(
             return redirect(f"/opportunity?id={proposal}")
 
         router.post("/confirm-approval", confirm_approval_with_plan)
+
+        # RELEASE v1: Active and History likewise OVERRIDE the base router's registration
+        # (same path, registered again) only for the exit-capable composition
+        # (`backend._plans is not None`) -- SIMULATION and plain PAPER are untouched.
+
+        def active_with_plan(request: Request, csrf: str) -> Response:
+            del request
+            assert backend._plans is not None
+            assert backend._exits is not None
+            rows = backend.service.active_trades()
+            plan_blocks: dict[str, str] = {}
+            for row in rows:
+                plan = backend._plans.for_entry(row.intent_id)
+                if plan is None:
+                    continue
+                attempt = backend._exits.attempts.active_for_entry(row.intent_id)
+                entry_avg = _decimal(row.filled_avg_price)
+                quote = backend._market_data.fetch_quote(row.symbol)
+                current = _decimal(quote.bid) if quote is not None and quote.bid else None
+                filled_qty = _decimal(row.filled_quantity)
+                unrealized = (
+                    (current - entry_avg) * filled_qty
+                    if entry_avg is not None and current is not None and filled_qty is not None
+                    else None
+                )
+                plan_blocks[row.intent_id] = html.approved_plan_block(
+                    quantity=str(plan.approved_quantity),
+                    entry_avg_fill=row.filled_avg_price,
+                    current_price=_money(current),
+                    unrealized_pnl=_money(unrealized),
+                    stop_price=_money(plan.stop_price),
+                    target_price=_money(plan.target_price),
+                    mandatory_exit=plan.mandatory_liquidation_at.isoformat(timespec="minutes"),
+                    max_loss=_money(
+                        (plan.approved_quantity * (entry_avg - plan.stop_price))
+                        if entry_avg is not None
+                        else None
+                    ),
+                    management_status=management_status(plan, attempt),
+                    review_manual_exit_url=(
+                        f"/exit/review?intent={row.intent_id}" if row.can_review_exit else None
+                    ),
+                )
+            return html_response(
+                html.active_page(rows, csrf, label(), False, None, plan_blocks=plan_blocks)
+            )
+
+        def history_with_plan(request: Request, csrf: str) -> Response:
+            del csrf
+            assert backend._plans is not None
+            assert backend._exits is not None
+            filters = {
+                key: request.first(key)
+                for key in ("date", "symbol", "decision", "outcome")
+                if request.first(key)
+            }
+            rows = backend.service.history(
+                date=filters.get("date") or None,
+                symbol=filters.get("symbol") or None,
+                decision=filters.get("decision") or None,
+                outcome=filters.get("outcome") or None,
+            )
+            plan_cells: dict[str, str] = {}
+            for row in rows:
+                key = row.intent_id or row.proposal_id
+                if row.intent_id is None:
+                    continue
+                plan = backend._plans.for_entry(row.intent_id)
+                if plan is None:
+                    continue
+                attempt = backend._exits.attempts.active_for_entry(row.intent_id)
+                trigger = plan.triggered_exit_kind.value if plan.triggered_exit_kind else "—"
+                verified = "Yes" if attempt is not None and attempt.position_closed else "No"
+                exit_order = (
+                    attempt.broker_order_id or "—"
+                    if attempt is not None and attempt.broker_order_id
+                    else "—"
+                )
+                exit_fill = (
+                    f"{attempt.filled_quantity} @ {attempt.filled_avg_price}"
+                    if attempt is not None and attempt.filled_quantity is not None
+                    else "Not filled"
+                )
+                gross_pnl = "Not available"
+                entry_avg = _decimal(row.price)
+                if (
+                    attempt is not None
+                    and attempt.filled_avg_price is not None
+                    and attempt.filled_quantity is not None
+                    and entry_avg is not None
+                ):
+                    gross_pnl = _money(
+                        (attempt.filled_avg_price - entry_avg) * attempt.filled_quantity
+                    )
+                plan_cells[key] = (
+                    f"Candidate {plan.candidate_id}<br>Owner {plan.owner_approval_id}"
+                    f"<br>Trigger {trigger}<br>Exit order {exit_order}"
+                    f"<br>Exit fill {exit_fill}<br>Zero-verified {verified}"
+                    f"<br>Gross P&amp;L {gross_pnl}"
+                )
+            return html_response(
+                html.history_page(
+                    rows,
+                    filters=filters,
+                    capability_label=label(),
+                    kill_switch_engaged=False,
+                    plan_cells=plan_cells,
+                )
+            )
+
+        router.get("/active", active_with_plan)
+        router.get("/history", history_with_plan)
 
     return router

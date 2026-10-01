@@ -9,9 +9,10 @@ for genuine danger. A large SIMULATION badge is in the header of every page.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from html import escape
+from types import MappingProxyType
 
 from empirical_platform.usecases.operator_console import (
     ActionOutcome,
@@ -458,7 +459,9 @@ def _timeline(summary: ExecutionSummary) -> str:
     return f'<ol class="timeline">{steps}</ol>'
 
 
-def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool = True) -> str:
+def _execution_block(
+    summary: ExecutionSummary, csrf: str, *, with_actions: bool = True, plan_block: str = ""
+) -> str:
     t = summary.terms
     warnings = "".join(f'<p class="note note-warn">{_e(w)}</p>' for w in summary.warnings)
     pending = (
@@ -519,7 +522,7 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
         f'<article class="card exec" aria-label="{_e(summary.symbol)} execution">'
         f'<div class="card-head"><span class="ticker">{_e(summary.symbol)}</span>'
         f'<span class="side">{_e(t.side)}</span><span class="category">{_e(summary.category)}</span>{_chip(summary.state)}</div>'
-        f"{pending}{warnings}{_timeline(summary)}{facts}{exit_block}{actions}"
+        f"{plan_block}{pending}{warnings}{_timeline(summary)}{facts}{exit_block}{actions}"
         + _details(
             "Details",
             _kv(
@@ -531,6 +534,52 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
             ),
         )
         + "</article>"
+    )
+
+
+def approved_plan_block(
+    *,
+    quantity: str,
+    entry_avg_fill: str,
+    current_price: str,
+    unrealized_pnl: str,
+    stop_price: str,
+    target_price: str,
+    mandatory_exit: str,
+    max_loss: str,
+    management_status: str,
+    review_manual_exit_url: str | None,
+) -> str:
+    """RELEASE v1 -- the APPROVED PLAN block on an Active Trade card.
+
+    Pure string rendering: every value is already computed by the caller (route layer),
+    which is where `ApprovedPlan`/`PositionExitAttempt` data actually lives -- this module
+    never imports `decision_candidate` directly (entrypoints may only import usecases).
+    """
+    manual_exit = (
+        f'<p class="muted"><a href="{_e(review_manual_exit_url)}">REVIEW MANUAL EXIT</a> '
+        "-- a human-authorized escape hatch; automatic management never depends on it "
+        "being used.</p>"
+        if review_manual_exit_url
+        else ""
+    )
+    return (
+        '<section class="card plan-card">'
+        f'<h3>Approved plan <span class="chip">{_e(management_status)}</span></h3>'
+        '<p class="note note-info">Automatic management is limited to the Owner-approved '
+        "Paper plan.</p>"
+        '<div class="numbers">'
+        f'<div><span class="num-label">Quantity</span><span class="num">{_e(quantity)}</span></div>'
+        f'<div><span class="num-label">Entry avg fill</span><span class="num">{_e(entry_avg_fill)}</span></div>'
+        f'<div><span class="num-label">Current price</span><span class="num">{_e(current_price)}</span></div>'
+        f'<div><span class="num-label">Unrealized P&amp;L</span><span class="num">{_e(unrealized_pnl)}</span></div>'
+        f'<div><span class="num-label">Stop</span><span class="num">{_e(stop_price)}</span></div>'
+        f'<div><span class="num-label">Target</span><span class="num">{_e(target_price)}</span></div>'
+        f'<div><span class="num-label">Mandatory Exit</span><span class="num">{_e(mandatory_exit)}</span></div>'
+        f'<div><span class="num-label">Max Loss</span><span class="num">{_e(max_loss)}</span></div>'
+        "</div>"
+        f"{manual_exit}"
+        "</section>"
     )
 
 
@@ -583,6 +632,8 @@ def active_page(
     capability_label: str,
     kill_switch_engaged: bool,
     flash: ActionOutcome | None,
+    *,
+    plan_blocks: Mapping[str, str] = MappingProxyType({}),
 ) -> str:
     refresh = (
         f'<form method="post" action="/active/refresh" class="inline">{_csrf(csrf)}'
@@ -597,7 +648,10 @@ def active_page(
             sections.append(
                 f'<h2 class="group">{_e(group)} <span class="muted">({len(members)})</span></h2>'
                 '<section class="cards">'
-                + "".join(_execution_block(r, csrf) for r in members)
+                + "".join(
+                    _execution_block(r, csrf, plan_block=plan_blocks.get(r.intent_id, ""))
+                    for r in members
+                )
                 + "</section>"
             )
         cards = "".join(sections)
@@ -781,6 +835,7 @@ def history_page(
     filters: dict[str, str],
     capability_label: str,
     kill_switch_engaged: bool,
+    plan_cells: Mapping[str, str] = MappingProxyType({}),
 ) -> str:
     def option(name: str, value: str, label: str) -> str:
         selected = " selected" if filters.get(name, "") == value else ""
@@ -811,6 +866,13 @@ def history_page(
         + "</select></label>"
         '<button class="btn btn-secondary" type="submit">Filter</button></form>'
     )
+    show_plan_column = bool(plan_cells)
+
+    def _plan_cell(r: HistoryEntry) -> str:
+        if not show_plan_column:
+            return ""
+        return f"<td>{plan_cells.get(r.intent_id or r.proposal_id, '—')}</td>"
+
     if rows:
         table_rows = "".join(
             "<tr>"
@@ -822,14 +884,17 @@ def history_page(
             f"<td>{_chip(r.final_state)}</td>"
             f"<td>{_e(r.quantity)} @ {_e(r.price)}</td>"
             f"<td>{_e(r.result)}</td>"
+            f"{_plan_cell(r)}"
             f"<td>{f'<a href="/execution?intent={_e(r.intent_id)}">View</a>' if r.intent_id else f'<a href="/opportunity?id={_e(r.proposal_id)}">View</a>'}</td>"
             "</tr>"
             for r in rows
         )
+        plan_header = "<th>Plan</th>" if show_plan_column else ""
         table = (
             '<div class="table-wrap"><table class="history"><thead><tr><th>When</th><th>Symbol</th>'
             "<th>Model proposal</th><th>Owner decision</th><th>Execution</th><th>Final state</th>"
-            f"<th>Qty @ price</th><th>Result</th><th></th></tr></thead><tbody>{table_rows}</tbody></table></div>"
+            f"<th>Qty @ price</th><th>Result</th>{plan_header}<th></th></tr></thead>"
+            f"<tbody>{table_rows}</tbody></table></div>"
         )
     else:
         table = '<section class="empty"><h2>Nothing matches</h2></section>'

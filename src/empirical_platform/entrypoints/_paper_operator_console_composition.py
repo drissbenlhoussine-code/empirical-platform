@@ -57,6 +57,7 @@ from empirical_platform.usecases.operator_console import (
     HmacSigner,
     OperatorConsoleService,
 )
+from empirical_platform.usecases.operator_console_exits import ExitRepositories
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
 from empirical_platform.usecases.paper_operator_console import prepare_paper_candidate
 from empirical_platform.usecases.position_plan_manager import (
@@ -136,6 +137,10 @@ class PaperConsoleBackend:
     #: background thread for the console process's lifetime.
     _plans: ApprovedPlanRepository | None = None
     _plan_manager: PositionPlanManager | None = None
+    #: RELEASE v1. Set alongside `_plans`/`_plan_manager` so the Active/History routes can
+    #: read the SAME exit-attempt records the manual exit flow and the automatic manager
+    #: both already use -- never a second, parallel read of exit state.
+    _exits: ExitRepositories | None = None
 
 
 @contextmanager

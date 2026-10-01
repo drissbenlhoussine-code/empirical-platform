@@ -191,6 +191,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 _time_source=store_b.time_source,
                 _plans=plans,
                 _plan_manager=plan_manager,
+                _exits=exits,
             )
         finally:
             store_c.close()
