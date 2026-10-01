@@ -2,14 +2,24 @@ name: M089 Paper exit
 
 # MILESTONE-089 -- Store C (the PAPER exit-lifecycle database), its own self-contained Alembic
 # chain, the cross-database composition over a fabricated Store B, and the M089 architecture
-# boundaries -- on two real, disposable PostgreSQL 16 databases in this job only. No Alpaca
-# credential exists in this workflow and no external endpoint is contacted: every broker call in
-# these suites goes to `SimulatedPaperBroker`/`SimulatedMarketData`, never the real Alpaca
-# adapter. The M087 exit suite runs alongside to prove Store A (SIMULATION) is unaffected.
+# boundaries -- on two real, disposable PostgreSQL 16 databases in the `paper-exit-postgres`
+# job. No Alpaca credential exists in THAT job and no external endpoint is contacted: every
+# broker call in its suites goes to `SimulatedPaperBroker`/`SimulatedMarketData`, never the
+# real Alpaca adapter. The M087 exit suite runs alongside to prove Store A (SIMULATION) is
+# unaffected.
+#
+# RELEASE v1 SCHEMA-BLOCKER FIX -- `v1-deployment-shape-postgres` is a SEPARATE job (its own
+# throwaway Postgres server, no shared state with `paper-exit-postgres`) that boots the REAL
+# `paper_operator_console_with_exit_runtime()` composition against Store A/B and Store C both
+# migrated the ordinary way (`alembic upgrade head`, never pinned) -- see
+# `tests/integration/test_v1_integrated_deployment_shape_postgres.py`'s own module docstring.
+# That composition reads real Alpaca credential environment variables before its schema guard
+# runs, so this job sets TEST-SHAPED ones (never a real key) and the test itself proves, at the
+# HTTP transport seam, that zero requests are ever made with them.
 
 on:
   push:
-    branches: [feature/m089-paper-sell-to-close]
+    branches: [feature/m089-paper-sell-to-close, release/v1-personal-paper]
   pull_request:
     paths:
       - '.github/workflows/m089-paper-exit.yml'
@@ -17,6 +27,11 @@ on:
       - 'migrations_paper_exit/**'
       - 'src/empirical_platform/**/paper_position_exit_schema.py'
       - 'src/empirical_platform/**/_paper_position_exit_composition.py'
+      - 'src/empirical_platform/**/_paper_composition.py'
+      - 'src/empirical_platform/**/_paper_operator_console_composition.py'
+      - 'src/empirical_platform/**/paper_execution_repositories.py'
+      - 'src/empirical_platform/**/approved_plan_repositories.py'
+      - 'src/empirical_platform/**/position_plan_manager.py'
       - 'src/empirical_platform/**/position_exit*.py'
       - 'src/empirical_platform/**/operator_console*.py'
       - 'src/empirical_platform/**/_operator_console*.py'
@@ -26,6 +41,10 @@ on:
       - 'tests/**/_m089_support.py'
       - 'tests/**/test_m087*.py'
       - 'tests/**/_m087_fakes.py'
+      - 'tests/**/test_m085_paper_composition.py'
+      - 'tests/**/test_v1_integrated_schema_compatibility.py'
+      - 'tests/**/test_v1_integrated_deployment_shape_postgres.py'
+      - 'tests/**/test_v1_approved_plan_postgres.py'
 
 permissions:
   contents: read
@@ -101,3 +120,53 @@ jobs:
           grep -q 'env-badge">SIMULATION</span>' active.html
           kill "$CONSOLE_PID"
           cat console.log
+
+  v1-deployment-shape-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: empirical
+          POSTGRES_DB: empirical_platform
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U empirical -d empirical_platform"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
+      EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform
+      EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
+      # Store C: a SECOND database on the SAME throwaway server, created explicitly below
+      # before Store C's own migration chain ever connects to it.
+      EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE: empirical_platform_paper_exit
+      EMPIRICAL_ALPACA_PAPER_BASE_URL: https://paper-api.alpaca.markets
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[persistence,object-storage,test]'
+      - name: Set isolated database placeholder
+        run: echo "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
+      - name: Create Store C's database on the throwaway server
+        run: >-
+          PGPASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER
+          psql -h localhost -U empirical -d empirical_platform
+          -c "CREATE DATABASE $EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE"
+      - name: Set test-shaped Alpaca credential placeholders (never real; see the test's own no_broker_network proof)
+        run: |
+          echo "EMPIRICAL_ALPACA_PAPER_API_KEY=${EMPIRICAL_PLATFORM_POSTGRES_USER}-ci-only-key" >> "$GITHUB_ENV"
+          echo "EMPIRICAL_ALPACA_PAPER_SECRET_KEY=${EMPIRICAL_PLATFORM_POSTGRES_USER}-ci-only-secret" >> "$GITHUB_ENV"
+      - name: RELEASE v1 schema-blocker fix -- the guard unit tests and the real deployment shape at full head
+        run: >-
+          python -m pytest --no-cov -v --no-header -p no:cacheprovider
+          tests/unit/test_v1_integrated_schema_compatibility.py
+          tests/unit/test_m085_paper_composition.py
+          tests/integration/test_v1_integrated_deployment_shape_postgres.py
+          tests/integration/test_v1_approved_plan_postgres.py
