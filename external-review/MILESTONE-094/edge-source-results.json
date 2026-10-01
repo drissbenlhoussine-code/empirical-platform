@@ -1,0 +1,546 @@
+{
+  "classification": "NO_PROMISING_EDGE_SOURCE",
+  "generated_at": "2026-10-01T01:17:44.078693-04:00",
+  "holdout_locked_range": {
+    "accessed": false,
+    "end": "2026-05-12",
+    "start": "2026-03-18"
+  },
+  "phase10_gap_study": {
+    "by_gap_direction": {
+      "FLAT": {
+        "mean_30m_forward_return_percent": 0.01036,
+        "n": 58
+      },
+      "GAP_DOWN": {
+        "mean_30m_forward_return_percent": 0.00724,
+        "n": 239
+      },
+      "GAP_UP": {
+        "mean_30m_forward_return_percent": 0.04619,
+        "n": 249
+      }
+    },
+    "event_data_note": "No earnings-calendar or news/sentiment data port exists anywhere in this repository (only corporate-action/split-dividend semantics does); this gap study uses only prior-close/today-open displacement and early-session range, which ARE already legitimately available. Fabricating event data was not done.",
+    "event_news_earnings_data": "EVENT_DATA_NOT_AVAILABLE"
+  },
+  "phase12_information_coefficient": {
+    "feature": "relative_return_vs_spy_percent",
+    "n": 37470,
+    "spearman_ic": -0.0036,
+    "target": "30m_forward_return_percent"
+  },
+  "phase13_temporal_stability": {
+    "quartile_1": {
+      "dates": [
+        "2026-05-13",
+        "2026-06-16"
+      ],
+      "n": 9342,
+      "spearman_ic": -0.0096,
+      "strongest_minus_weakest_spread_percent": -0.01284
+    },
+    "quartile_2": {
+      "dates": [
+        "2026-06-17",
+        "2026-07-21"
+      ],
+      "n": 9066,
+      "spearman_ic": -0.0074,
+      "strongest_minus_weakest_spread_percent": -0.02416
+    },
+    "quartile_3": {
+      "dates": [
+        "2026-07-22",
+        "2026-08-25"
+      ],
+      "n": 9762,
+      "spearman_ic": 0.0037,
+      "strongest_minus_weakest_spread_percent": -0.00765
+    },
+    "quartile_4": {
+      "dates": [
+        "2026-08-26",
+        "2026-09-29"
+      ],
+      "n": 9300,
+      "spearman_ic": -0.0163,
+      "strongest_minus_weakest_spread_percent": 0.00902
+    }
+  },
+  "phase14_cross_symbol_stability": {
+    "AAPL": {
+      "spread_percent": -0.02727,
+      "strongest_mean_percent": 0.00225,
+      "strongest_n": 2332,
+      "weakest_mean_percent": 0.02953,
+      "weakest_n": 1913
+    },
+    "AMZN": {
+      "spread_percent": -0.02349,
+      "strongest_mean_percent": -0.02546,
+      "strongest_n": 1360,
+      "weakest_mean_percent": -0.00197,
+      "weakest_n": 2043
+    },
+    "GOOGL": {
+      "spread_percent": -0.00388,
+      "strongest_mean_percent": 0.00358,
+      "strongest_n": 2134,
+      "weakest_mean_percent": 0.00746,
+      "weakest_n": 2022
+    },
+    "META": {
+      "spread_percent": -0.0014,
+      "strongest_mean_percent": 0.00709,
+      "strongest_n": 2136,
+      "weakest_mean_percent": 0.00849,
+      "weakest_n": 2096
+    },
+    "MSFT": {
+      "spread_percent": -0.01983,
+      "strongest_mean_percent": 0.01091,
+      "strongest_n": 2420,
+      "weakest_mean_percent": 0.03074,
+      "weakest_n": 1654
+    },
+    "NVDA": {
+      "spread_percent": 0.00192,
+      "strongest_mean_percent": -0.0017,
+      "strongest_n": 2108,
+      "weakest_mean_percent": -0.00363,
+      "weakest_n": 2762
+    }
+  },
+  "phase15_cost_aware_value": {
+    "cross_sectional_strongest_minus_weakest_spread_percent": -0.0088,
+    "cross_sectional_survives_cost1": false,
+    "round_trip_cost_percent": {
+      "COST_MODEL_0": 0.0,
+      "COST_MODEL_1": 0.1,
+      "COST_MODEL_2": 0.3
+    },
+    "selectivity_top_1pct_mean_move_percent": 0.05213,
+    "selectivity_top_1pct_survives_cost1": false,
+    "selectivity_top_5pct_mean_move_percent": 0.01731,
+    "selectivity_top_5pct_survives_cost1": false
+  },
+  "phase16_scorecard": {
+    "CROSS_SECTIONAL_RELATIVE_STRENGTH": {
+      "complexity": "moderate (per-timestamp cross-sectional ranking across symbols)",
+      "cost_survivability": "does not survive COST1",
+      "cross_symbol_stability": "broad across symbols",
+      "data_availability": "full",
+      "observed_information_strength": "present",
+      "sample_size": 12490,
+      "strongest_minus_weakest_spread_percent": -0.0088,
+      "temporal_stability": "1/4 quartiles same sign (positive spread)"
+    },
+    "EVENT_DATA_REQUIRED": {
+      "complexity": "unknown",
+      "cost_survivability": "n/a",
+      "cross_symbol_stability": "n/a",
+      "data_availability": "NONE (EVENT_DATA_NOT_AVAILABLE)",
+      "observed_information_strength": "unknown -- not measurable with current data",
+      "sample_size": 0,
+      "temporal_stability": "n/a"
+    },
+    "LOW_FREQUENCY_HIGH_CONVICTION": {
+      "complexity": "low (a frequency/selectivity choice on top of SELECTIVE_MOMENTUM)",
+      "cost_survivability": "not demonstrated",
+      "cross_symbol_stability": "inherits SELECTIVE_MOMENTUM's",
+      "data_availability": "full",
+      "observed_information_strength": "see SELECTIVE_MOMENTUM top-1%/5% survivability",
+      "sample_size": 375,
+      "temporal_stability": "inherits SELECTIVE_MOMENTUM's"
+    },
+    "MULTI_TIMEFRAME_TREND": {
+      "best_abs_spearman_ic": 0.0196,
+      "complexity": "low (single rolling-window feature)",
+      "cost_survivability": "not evaluated (IC too small to build a bucket spread)",
+      "cross_symbol_stability": "not separately broken out (own-symbol feature, pooled)",
+      "data_availability": "full (same 1-min bars already fetched)",
+      "observed_information_strength": "weak",
+      "sample_size": 148244,
+      "temporal_stability": "not separately re-tested per quartile in this fork"
+    },
+    "OPENING_GAP_CONTEXT": {
+      "by_gap_direction": {
+        "FLAT": {
+          "mean_30m_forward_return_percent": 0.01036,
+          "n": 58
+        },
+        "GAP_DOWN": {
+          "mean_30m_forward_return_percent": 0.00724,
+          "n": 239
+        },
+        "GAP_UP": {
+          "mean_30m_forward_return_percent": 0.04619,
+          "n": 249
+        }
+      },
+      "complexity": "low",
+      "cost_survivability": "see owner-report.md",
+      "cross_symbol_stability": "pooled across RANKED_SYMBOLS, not broken out per symbol",
+      "data_availability": "full (no event/news data required for this specific cut)",
+      "observed_information_strength": "see table",
+      "sample_size": 546,
+      "temporal_stability": "not separately re-tested per quartile in this fork"
+    },
+    "REGIME_CONDITIONING": {
+      "by_spy_session_return_sign": {
+        "SPY_SESSION_FLAT": {
+          "mean_30m_forward_return_percent": 0.08307,
+          "n": 60
+        },
+        "SPY_SESSION_NEGATIVE": {
+          "mean_30m_forward_return_percent": -0.00018,
+          "n": 19306
+        },
+        "SPY_SESSION_POSITIVE": {
+          "mean_30m_forward_return_percent": 0.00513,
+          "n": 18553
+        }
+      },
+      "by_spy_vwap_position": {
+        "SPY_ABOVE_VWAP": {
+          "mean_30m_forward_return_percent": 0.00646,
+          "n": 20223
+        },
+        "SPY_BELOW_VWAP": {
+          "mean_30m_forward_return_percent": -0.00191,
+          "n": 17696
+        }
+      },
+      "complexity": "low (two SPY-derived labels)",
+      "cost_survivability": "regime differences small vs COST1; see owner-report.md",
+      "cross_symbol_stability": "pooled across RANKED_SYMBOLS, not broken out per symbol",
+      "data_availability": "full",
+      "observed_information_strength": "weak-to-moderate (see per-regime means)",
+      "sample_size": 37919,
+      "temporal_stability": "not separately re-tested per quartile in this fork"
+    },
+    "SELECTIVE_MOMENTUM": {
+      "complexity": "moderate (percentile bucketing of the cross-sectional signal)",
+      "cost_survivability": "does not survive COST1",
+      "cross_symbol_stability": "max single-symbol share reported per bucket",
+      "data_availability": "full",
+      "observed_information_strength": "see selectivity table (monotonicity by percentile)",
+      "sample_size": 375,
+      "selectivity_table": {
+        "top_10pct": {
+          "chronological_first_half_mean_percent": 0.0172,
+          "chronological_second_half_mean_percent": -0.02057,
+          "max_single_day_share_percent": 7.5,
+          "max_single_symbol_share_percent": 22.5,
+          "mean_30m_forward_return_percent": -0.00169,
+          "n": 3747
+        },
+        "top_1pct": {
+          "chronological_first_half_mean_percent": 0.12053,
+          "chronological_second_half_mean_percent": -0.01591,
+          "max_single_day_share_percent": 24.53,
+          "max_single_symbol_share_percent": 54.4,
+          "mean_30m_forward_return_percent": 0.05213,
+          "n": 375
+        },
+        "top_25pct": {
+          "chronological_first_half_mean_percent": -0.00588,
+          "chronological_second_half_mean_percent": 0.0068,
+          "max_single_day_share_percent": 3.45,
+          "max_single_symbol_share_percent": 20.21,
+          "mean_30m_forward_return_percent": 0.00046,
+          "n": 9368
+        },
+        "top_50pct": {
+          "chronological_first_half_mean_percent": 0.0005,
+          "chronological_second_half_mean_percent": 0.01313,
+          "max_single_day_share_percent": 1.92,
+          "max_single_symbol_share_percent": 18.47,
+          "mean_30m_forward_return_percent": 0.00682,
+          "n": 18735
+        },
+        "top_5pct": {
+          "chronological_first_half_mean_percent": 0.06195,
+          "chronological_second_half_mean_percent": -0.02732,
+          "max_single_day_share_percent": 8.27,
+          "max_single_symbol_share_percent": 24.87,
+          "mean_30m_forward_return_percent": 0.01731,
+          "n": 1874
+        }
+      },
+      "temporal_stability": "chronological first/second-half means reported per bucket"
+    },
+    "VOLATILITY_COMPRESSION_EXPANSION": {
+      "by_volatility_bucket": {
+        "HIGH": {
+          "mean_30m_forward_return_percent": 0.0038,
+          "n": 1327
+        },
+        "LOW": {
+          "mean_30m_forward_return_percent": -0.00446,
+          "n": 14872
+        },
+        "NORMAL": {
+          "mean_30m_forward_return_percent": 0.00728,
+          "n": 21720
+        }
+      },
+      "complexity": "low-moderate (range_compression_ratio exists but not scored here)",
+      "cost_survivability": "see owner-report.md",
+      "cross_symbol_stability": "pooled, not broken out per symbol",
+      "data_availability": "full",
+      "observed_information_strength": "weak (see by_own_trailing_volatility_bucket)",
+      "sample_size": 37919,
+      "temporal_stability": "not separately re-tested per quartile in this fork"
+    }
+  },
+  "phase4_cost_turnover_diagnosis": {
+    "conclusion": "Cost drag per trade is roughly uniform (~$1.7-1.85/trade) across all six families regardless of turnover. VWAP_PULLBACK, the LOWEST-turnover family tested (1.117 trades/symbol-session), already has a near-zero gross (COST0) edge (+$0.0297/trade) and is fully erased by cost. Lower turnover alone does not produce a larger per-trade GROSS edge in this dataset -- the primary failure mode is signal quality (gross expectancy at or below zero for 4 of 6 variants even before cost), not merely trade count. See M093's own spot-check: tight $1-2/share stop/target geometry on $150-500 stocks makes a fixed ~10bps round-trip cost a large fraction of the risk unit itself -- a geometry/cost interaction, not a frequency problem alone.",
+    "cost_drag_per_trade_is_roughly_uniform_across_families": true,
+    "lowest_turnover_family": "VWAP_PULLBACK",
+    "lowest_turnover_family_still_fails_cost1": true,
+    "per_family": {
+      "MEAN_REVERSION": {
+        "cost0_avg_per_trade": 0.1678,
+        "cost1_avg_per_trade": -1.6479,
+        "cost_drag_per_trade": -1.8157,
+        "required_gross_improvement_to_breakeven_at_cost1": 1.8157,
+        "resolved": 10787,
+        "signal_quality_already_negative_pre_cost": false,
+        "turnover_per_symbol_session": 13.484
+      },
+      "OPENING_RANGE_15": {
+        "cost0_avg_per_trade": -0.6751,
+        "cost1_avg_per_trade": -2.3923,
+        "cost_drag_per_trade": -1.7172,
+        "required_gross_improvement_to_breakeven_at_cost1": null,
+        "resolved": 18762,
+        "signal_quality_already_negative_pre_cost": true,
+        "turnover_per_symbol_session": 23.453
+      },
+      "OPENING_RANGE_5": {
+        "cost0_avg_per_trade": -0.6837,
+        "cost1_avg_per_trade": -2.4032,
+        "cost_drag_per_trade": -1.7195,
+        "required_gross_improvement_to_breakeven_at_cost1": null,
+        "resolved": 20697,
+        "signal_quality_already_negative_pre_cost": true,
+        "turnover_per_symbol_session": 25.871
+      },
+      "RELATIVE_STRENGTH": {
+        "cost0_avg_per_trade": -0.076,
+        "cost1_avg_per_trade": -1.9186,
+        "cost_drag_per_trade": -1.8427,
+        "required_gross_improvement_to_breakeven_at_cost1": null,
+        "resolved": 4287,
+        "signal_quality_already_negative_pre_cost": true,
+        "turnover_per_symbol_session": 7.145
+      },
+      "TREND_CONTINUATION": {
+        "cost0_avg_per_trade": -0.3293,
+        "cost1_avg_per_trade": -2.0801,
+        "cost_drag_per_trade": -1.7508,
+        "required_gross_improvement_to_breakeven_at_cost1": null,
+        "resolved": 4031,
+        "signal_quality_already_negative_pre_cost": true,
+        "turnover_per_symbol_session": 5.039
+      },
+      "VWAP_PULLBACK": {
+        "cost0_avg_per_trade": 0.0297,
+        "cost1_avg_per_trade": -1.7293,
+        "cost_drag_per_trade": -1.7589,
+        "required_gross_improvement_to_breakeven_at_cost1": 1.7589,
+        "resolved": 894,
+        "signal_quality_already_negative_pre_cost": false,
+        "turnover_per_symbol_session": 1.117
+      }
+    }
+  },
+  "phase5_horizon_study": {
+    "120m": {
+      "mean_percent": 0.0154,
+      "median_percent": 0.0064,
+      "n": 27614,
+      "sign_persistence_percent": 50.45,
+      "stdev_percent": 0.70802
+    },
+    "15m": {
+      "mean_percent": 0.00121,
+      "median_percent": 0.0,
+      "n": 37925,
+      "sign_persistence_percent": 49.95,
+      "stdev_percent": 0.26915
+    },
+    "30m": {
+      "mean_percent": 0.00259,
+      "median_percent": 0.0,
+      "n": 37925,
+      "sign_persistence_percent": 49.96,
+      "stdev_percent": 0.37572
+    },
+    "5m": {
+      "mean_percent": 0.00043,
+      "median_percent": 0.0,
+      "n": 37925,
+      "sign_persistence_percent": 49.68,
+      "stdev_percent": 0.15881
+    },
+    "60m": {
+      "mean_percent": 0.00767,
+      "median_percent": 0.00313,
+      "n": 34507,
+      "sign_persistence_percent": 50.22,
+      "stdev_percent": 0.51859
+    },
+    "to_liquidation": {
+      "mean_percent": -0.02252,
+      "median_percent": -0.00197,
+      "n": 37925,
+      "sign_persistence_percent": 49.73,
+      "stdev_percent": 0.81321
+    }
+  },
+  "phase6_multi_timeframe": {
+    "trailing_15m_momentum": {
+      "n": 37925,
+      "spearman_ic_vs_30m_forward_return": -0.0
+    },
+    "trailing_30m_momentum": {
+      "n": 37925,
+      "spearman_ic_vs_30m_forward_return": -0.0129
+    },
+    "trailing_5m_momentum": {
+      "n": 37925,
+      "spearman_ic_vs_30m_forward_return": -0.0041
+    },
+    "trailing_60m_momentum": {
+      "n": 34469,
+      "spearman_ic_vs_30m_forward_return": -0.0196
+    }
+  },
+  "phase7_regime": {
+    "by_own_trailing_volatility_bucket": {
+      "HIGH": {
+        "mean_30m_forward_return_percent": 0.0038,
+        "n": 1327
+      },
+      "LOW": {
+        "mean_30m_forward_return_percent": -0.00446,
+        "n": 14872
+      },
+      "NORMAL": {
+        "mean_30m_forward_return_percent": 0.00728,
+        "n": 21720
+      }
+    },
+    "by_spy_session_return_sign": {
+      "SPY_SESSION_FLAT": {
+        "mean_30m_forward_return_percent": 0.08307,
+        "n": 60
+      },
+      "SPY_SESSION_NEGATIVE": {
+        "mean_30m_forward_return_percent": -0.00018,
+        "n": 19306
+      },
+      "SPY_SESSION_POSITIVE": {
+        "mean_30m_forward_return_percent": 0.00513,
+        "n": 18553
+      }
+    },
+    "by_spy_vwap_position": {
+      "SPY_ABOVE_VWAP": {
+        "mean_30m_forward_return_percent": 0.00646,
+        "n": 20223
+      },
+      "SPY_BELOW_VWAP": {
+        "mean_30m_forward_return_percent": -0.00191,
+        "n": 17696
+      }
+    }
+  },
+  "phase8_cross_sectional": {
+    "by_bucket": {
+      "MIDDLE": {
+        "mean_30m_forward_return_percent": -0.00371,
+        "n": 12490
+      },
+      "STRONGEST": {
+        "mean_30m_forward_return_percent": 0.0013,
+        "n": 12490
+      },
+      "WEAKEST": {
+        "mean_30m_forward_return_percent": 0.0101,
+        "n": 12490
+      }
+    },
+    "strongest_minus_weakest_spread_percent": -0.0088
+  },
+  "phase9_selectivity": {
+    "top_10pct": {
+      "chronological_first_half_mean_percent": 0.0172,
+      "chronological_second_half_mean_percent": -0.02057,
+      "max_single_day_share_percent": 7.5,
+      "max_single_symbol_share_percent": 22.5,
+      "mean_30m_forward_return_percent": -0.00169,
+      "n": 3747
+    },
+    "top_1pct": {
+      "chronological_first_half_mean_percent": 0.12053,
+      "chronological_second_half_mean_percent": -0.01591,
+      "max_single_day_share_percent": 24.53,
+      "max_single_symbol_share_percent": 54.4,
+      "mean_30m_forward_return_percent": 0.05213,
+      "n": 375
+    },
+    "top_25pct": {
+      "chronological_first_half_mean_percent": -0.00588,
+      "chronological_second_half_mean_percent": 0.0068,
+      "max_single_day_share_percent": 3.45,
+      "max_single_symbol_share_percent": 20.21,
+      "mean_30m_forward_return_percent": 0.00046,
+      "n": 9368
+    },
+    "top_50pct": {
+      "chronological_first_half_mean_percent": 0.0005,
+      "chronological_second_half_mean_percent": 0.01313,
+      "max_single_day_share_percent": 1.92,
+      "max_single_symbol_share_percent": 18.47,
+      "mean_30m_forward_return_percent": 0.00682,
+      "n": 18735
+    },
+    "top_5pct": {
+      "chronological_first_half_mean_percent": 0.06195,
+      "chronological_second_half_mean_percent": -0.02732,
+      "max_single_day_share_percent": 8.27,
+      "max_single_symbol_share_percent": 24.87,
+      "mean_30m_forward_return_percent": 0.01731,
+      "n": 1874
+    }
+  },
+  "research_dataset": {
+    "description": "M091 DEVELOPMENT (2026-07-08..2026-09-29) UNION M092 VALIDATION (2026-05-13..2026-07-07) -- identical to M093's own research dataset, reused rather than widened",
+    "ranked_symbols": [
+      "AAPL",
+      "AMZN",
+      "GOOGL",
+      "META",
+      "MSFT",
+      "NVDA"
+    ],
+    "session_count": 100,
+    "symbol_session_pairs_fetched": 800,
+    "symbol_session_pairs_non_empty": 768,
+    "symbols": [
+      "AAPL",
+      "AMZN",
+      "GOOGL",
+      "META",
+      "MSFT",
+      "NVDA",
+      "QQQ",
+      "SPY"
+    ]
+  },
+  "selected_directions": []
+}
