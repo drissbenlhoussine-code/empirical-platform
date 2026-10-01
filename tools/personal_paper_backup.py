@@ -49,6 +49,16 @@ def run_pg(arguments: list[str], environment: dict[str, str]) -> str:
     return result.stdout
 
 
+def pg_executable(pg_bin: Path, name: str) -> Path:
+    # Debian's pg_dump/pg_restore symlinks share pg_wrapper, which dispatches by
+    # argv[0]. Resolving the final symlink destroys that dispatch information.
+    suffix = ".exe" if os.name == "nt" else ""
+    executable = pg_bin.absolute() / (name + suffix)
+    if not executable.is_file():
+        raise DatabaseSafetyError("required PostgreSQL executable is missing")
+    return executable
+
+
 def rotate(root: Path, keep: int) -> None:
     """Only this tool's complete, hash-verified sets can be removed; unknown files stay."""
     complete = []
@@ -86,9 +96,8 @@ def backup(identity_path: Path, root: Path, pg_bin: Path, keep: int = 168) -> Pa
     config = resolve_foundation_config().postgresql
     if (config.host, config.port) != (manifest["host"], manifest["port"]):
         raise DatabaseSafetyError("backup endpoint differs from PERSONAL_PAPER identity")
-    suffix = ".exe" if os.name == "nt" else ""
-    dump = (pg_bin / ("pg_dump" + suffix)).resolve(strict=True)
-    restore = (pg_bin / ("pg_restore" + suffix)).resolve(strict=True)
+    dump = pg_executable(pg_bin, "pg_dump")
+    restore = pg_executable(pg_bin, "pg_restore")
     root.mkdir(parents=True, exist_ok=True)
     lock = root / ".backup.lock"
     try:

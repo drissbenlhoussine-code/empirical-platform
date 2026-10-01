@@ -248,3 +248,13 @@ def test_no_implicit_port_or_mode(monkeypatch: pytest.MonkeyPatch) -> None:
         safety.require_test_target("valid_test", None)
     with pytest.raises(safety.DatabaseSafetyError, match="DATABASE_MODE"):
         safety.require_test_target("valid_test", 55436)
+
+
+def test_postgres_wrapper_keeps_dispatch_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "is_file", lambda path: path.name in {"pg_dump", "pg_dump.exe"})
+    executable = backups.pg_executable(tmp_path, "pg_dump")
+    assert executable.stem == "pg_dump"
+    with pytest.raises(safety.DatabaseSafetyError, match="missing"):
+        backups.pg_executable(tmp_path, "pg_restore")
