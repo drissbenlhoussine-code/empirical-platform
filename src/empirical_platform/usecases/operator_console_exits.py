@@ -606,12 +606,8 @@ class PositionExitConsole:
                 "The exit terms shown are no longer the current ones. Nothing was sent. Review "
                 "the exit again.",
             )
-        if self._kill_switch.is_engaged():
-            raise ConsoleRefusalError(
-                "Execution blocked",
-                "The kill switch is engaged, so this exit cannot be submitted. Nothing was sent. "
-                "Release the kill switch on the Safety page first.",
-            )
+        # RELEASE v1: the kill switch blocks new entries only; a position-reducing exit is
+        # never blocked by it. See `docs/operations/kill-switch.md`.
         authorization = self._x.authorizations.latest_for_entry(intent_id)
         if (
             authorization is None
