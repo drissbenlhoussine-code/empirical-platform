@@ -264,7 +264,15 @@ def _is_a_recorded_blob_id(line: str, tracked: dict[str, str]) -> bool:
     match = _BLOB_ID_MANIFEST_ENTRY.match(line)
     if match is None:
         return False
-    return tracked.get(match["path"]) == match["blob"]
+    if tracked.get(match["path"]) == match["blob"]:
+        return True
+    # Owner-authorized safety supersession retains this tool's ORIGINAL digest.
+    # Prove it against the archived Git blob; never clear by name/hex shape alone.
+    return (
+        match["path"] == "tools/m084_mutation_campaign.py"
+        and tracked.get("external-review/RELEASE-V1/database-safety/original-tool.py.txt")
+        == match["blob"]
+    )
 
 
 def _is_known_benign_secret_finding(

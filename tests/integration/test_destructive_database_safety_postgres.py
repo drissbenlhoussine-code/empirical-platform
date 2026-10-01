@@ -19,6 +19,9 @@ from empirical_platform.shared.persistence.database_safety import (
     DatabaseSafetyError,
     require_test_target,
 )
+from empirical_platform.shared.persistence.postgres_repositories import (
+    paper_execution_repositories as paper_schema,
+)
 
 
 @pytest.mark.integration
@@ -103,7 +106,7 @@ def test_actual_tool_preserves_personal_markers_and_resets_explicit_test(
                         "SELECT to_regclass('public.durable_canary')"
                     ).fetchone() == (None,)
                     assert check.execute("SELECT version_num FROM alembic_version").fetchone() == (
-                        "b9f2c4d6a8e1",
+                        paper_schema.V1_INTEGRATED_SCHEMA_HEAD,
                     )
                     assert check.execute(IDENTITY_QUERY).fetchone()[1] == TEST_IDENTITY
                 finally:

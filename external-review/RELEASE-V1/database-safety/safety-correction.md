@@ -49,7 +49,10 @@ is a byte-preserving archive of the original Git blob, also keeping that origina
 object available in shallow checkouts. The original M084 digest manifest and commit
 remain unchanged. The shared frozen-path gate accepts only the exact recorded
 corrected tool blob and verifies the archived historical blob. Further tool changes
-or historical-copy tampering fail the gate. No file was added to EXEMPT.
+or historical-copy tampering fail the gate. No file was added to EXEMPT. The secret scanner verifies the original manifest
+entry against the actual archived Git blob after supersession, rather than requiring
+it to equal the corrected tool. Adversarial scanner tests retain findings for invented
+digests, wrong paths and identical-looking entries outside the governed manifests.
 
 This supersedes the original tool for **destructive operational use only**. The
 archived original is retained for audit and must not be executed against personal
