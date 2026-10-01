@@ -39,7 +39,7 @@ from empirical_platform.shared.config.settings import (
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
-    require_exact_m085_schema_head,
+    require_v1_integrated_schema_compatibility,
 )
 from empirical_platform.shared.persistence.postgres_repositories.runtime import (
     PostgresRepositoryRuntime,
@@ -88,11 +88,19 @@ def paper_execution_runtime(
     service = PostgresPersistenceService(resolved)
     try:
         service.initialize()
-        # CORRECTIVE PASS (item 4). Refuse before any repository or broker client is
-        # handed out when the database is not at EXACTLY the schema this code's guards
-        # were written for: an older head lacks triggers this code relies on, and a
-        # newer or foreign head may have replaced them.
-        require_exact_m085_schema_head(service)
+        # CORRECTIVE PASS (item 4), THEN RELEASE v1 (schema-blocker fix). Refuse before
+        # any repository or broker client is handed out when the database is not PROVEN
+        # compatible with this runtime. Store A is the SAME physical database M090's and
+        # RELEASE v1's own migrations additively stack onto (see
+        # `paper_execution_repositories.require_v1_integrated_schema_compatibility`'s own
+        # docstring): a database correctly migrated to serve those later milestones can
+        # never simultaneously sit at the literal M085 revision, so the exact-M085 guard
+        # (kept, unweakened, for the SIMULATION console's own deliberately-frozen
+        # composition) is the wrong guard for this real, integrated runtime. This one
+        # proves the database is at the one reviewed integrated head, that M085 is a
+        # genuine ancestor of it in the real migration graph, and that the specific M085
+        # tables this runtime depends on still exist -- never "any later revision."
+        require_v1_integrated_schema_compatibility(service)
         yield PaperExecutionContext(
             m084=PostgresRepositoryRuntime(service),
             paper=PostgresPaperExecutionRuntime(service),
