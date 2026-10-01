@@ -7,6 +7,9 @@ import threading
 from datetime import datetime
 
 from empirical_platform.decision_candidate.approved_plan import ApprovedPlan, ExitTriggerKind
+from empirical_platform.decision_candidate.approved_plan_repositories import (
+    ApprovedPlanAlreadyExistsError,
+)
 
 
 class FakeApprovedPlans:
@@ -17,7 +20,14 @@ class FakeApprovedPlans:
     def save(self, plan: ApprovedPlan) -> ApprovedPlan:
         with self._lock:
             if plan.plan_id in self.rows:
-                raise ValueError(f"plan {plan.plan_id!r} already exists")
+                raise ApprovedPlanAlreadyExistsError(f"plan {plan.plan_id!r} already exists")
+            if any(
+                p.entry_intent_governance_id == plan.entry_intent_governance_id
+                for p in self.rows.values()
+            ):
+                raise ApprovedPlanAlreadyExistsError(
+                    f"a plan already exists for entry {plan.entry_intent_governance_id!r}"
+                )
             self.rows[plan.plan_id] = plan
             return plan
 

@@ -47,6 +47,12 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     #: the same public, non-credential SHA-256 as `EXPECTED_FROZEN_FINGERPRINT_V2` above,
     #: cleared by exact JSON key rather than by Python constant name.
     re.compile(r'^[+-]?\s*"frozen_fingerprint": "[0-9a-f]{64}",?$'),
+    #: RELEASE v1's approved-plan migration test downgrading to M090's own 12-hex revision
+    #: id (a public Alembic revision identifier, not a credential) to prove the schema-head
+    #: guard refuses it -- same exact-call-site discipline as the patterns above, matched by
+    #: the literal `alembic_command.downgrade(cfg, "...")` call shape, not a blanket
+    #: "any 12-hex string is fine" rule.
+    re.compile(r'^[+-]?\s*alembic_command\.downgrade\(cfg, "[0-9a-f]{12}"\)$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the

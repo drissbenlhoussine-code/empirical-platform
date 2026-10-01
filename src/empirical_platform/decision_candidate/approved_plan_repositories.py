@@ -16,7 +16,16 @@ from typing import Protocol
 
 from empirical_platform.decision_candidate.approved_plan import ApprovedPlan, ExitTriggerKind
 
-__all__ = ["ApprovedPlanRepository"]
+__all__ = ["ApprovedPlanAlreadyExistsError", "ApprovedPlanRepository"]
+
+
+class ApprovedPlanAlreadyExistsError(ValueError):
+    """`save` was asked to insert a `plan_id` (or entry) that already has a plan.
+
+    Backend-agnostic: both the in-memory fake (`tests/unit/_v1_fakes.py`) and
+    `PostgresApprovedPlanRepository` raise exactly this type, so a caller (e.g.
+    `usecases/full_plan_approval.py`) can catch one error regardless of backend.
+    """
 
 
 class ApprovedPlanRepository(Protocol):

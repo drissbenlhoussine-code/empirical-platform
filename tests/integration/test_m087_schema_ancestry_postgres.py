@@ -218,10 +218,12 @@ def test_the_m085_migration_files_are_byte_identical_to_the_published_m085_head(
         for p in (REPO_ROOT / "migrations" / "versions").glob("*.py")
     )
     added = sorted(set(present) - set(recorded))
-    # MILESTONE-090 pinned: its own additive migration is now also present beyond the M085
-    # manifest, alongside M087's. Both are KNOWN, accounted-for additions; nothing else is.
+    # MILESTONE-090 and RELEASE v1 pinned: their own additive migrations are now also
+    # present beyond the M085 manifest, alongside M087's. All three are KNOWN,
+    # accounted-for additions; nothing else is.
     assert added == [
         "migrations/versions/a2b4c6d8e0f2_create_m090_opportunity_engine_schema.py",
+        "migrations/versions/b9f2c4d6a8e1_create_v1_approved_plan_schema.py",
         "migrations/versions/e7c1a9d3b5f2_create_m087_position_exit_schema.py",
     ]
     assert not (set(recorded) - set(present))  # nothing removed
