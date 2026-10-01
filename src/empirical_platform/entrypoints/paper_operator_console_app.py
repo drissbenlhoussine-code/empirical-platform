@@ -245,9 +245,7 @@ def build_paper_application(
             except _REFUSED as error:
                 return refusal(error, "400 Bad Request")
             except Exception as error:  # noqa: BLE001 - never a traceback to the browser
-                print(
-                    f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr
-                )
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
                 return refusal(error, "500 Internal Server Error")
             if result.plan is not None:
                 print(
@@ -284,9 +282,7 @@ def build_paper_application(
             except _REFUSED as error:
                 return refusal(error, "400 Bad Request")
             except Exception as error:  # noqa: BLE001 - never a traceback to the browser
-                print(
-                    f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr
-                )
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
                 return refusal(error, "500 Internal Server Error")
             return html_response(
                 html.active_page(rows, csrf, label(), False, None, plan_blocks=plan_blocks)
@@ -322,9 +318,7 @@ def build_paper_application(
             except _REFUSED as error:
                 return refusal(error, "400 Bad Request")
             except Exception as error:  # noqa: BLE001 - never a traceback to the browser
-                print(
-                    f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr
-                )
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
                 return refusal(error, "500 Internal Server Error")
             return html_response(
                 html.history_page(

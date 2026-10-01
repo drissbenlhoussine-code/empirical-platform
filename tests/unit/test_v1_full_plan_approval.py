@@ -6,13 +6,15 @@ unmodified).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
 from tests.unit._m086_fakes import World, simulation_world
 from tests.unit._v1_fakes import FakeApprovedPlans
 
-from empirical_platform.decision_candidate.approved_plan import derive_system_identity
+from empirical_platform.decision_candidate.approved_plan import ApprovedPlan, derive_system_identity
 from empirical_platform.usecases.full_plan_approval import approve_full_plan
 from empirical_platform.usecases.operator_console import ConsoleRefusalError
 
@@ -139,6 +141,66 @@ def test_resuming_after_an_interrupted_call_creates_the_missing_plan(world: Worl
     intent = world.repositories.intents.for_proposal(proposal_id)
     assert intent is not None
     assert resumed.plan.entry_intent_governance_id == intent.intent_governance_id
+
+
+class _RacingPlans(FakeApprovedPlans):
+    """Simulates the exact TOCTOU race `approve_full_plan` guards against: the FIRST
+    `for_entry` call reports nothing exists (as it legitimately would an instant before
+    another caller's `save()` lands), but `save()` itself still discovers the row is
+    already there -- and a SECOND `for_entry` (the code's own race-recovery read) sees the
+    winner, exactly as a real repository would once the concurrent write has landed."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._first_lookup_done = False
+
+    def for_entry(self, entry_intent_governance_id: str) -> ApprovedPlan | None:
+        if not self._first_lookup_done:
+            self._first_lookup_done = True
+            return None
+        return super().for_entry(entry_intent_governance_id)
+
+
+def test_losing_a_save_race_reads_back_the_winner_instead_of_erroring(world: World) -> None:
+    world.load_day(("AAPL",))
+    proposal_id = world.proposal_id("AAPL")
+    review = world.service.prepare_approval(proposal_id)
+    plans = _RacingPlans()
+    world.service.confirm_approval(proposal_id, review.ticket)
+    intent = world.repositories.intents.for_proposal(proposal_id)
+    assert intent is not None
+    winner = _a_winning_plan(intent.intent_governance_id)
+    plans.save(winner)
+
+    outcome = approve_full_plan(
+        world.service,
+        world.repositories,
+        plans,
+        proposal_id=proposal_id,
+        token=review.ticket,
+        candidate_id="OPP-TEST-RACE",
+    )
+
+    assert outcome.plan == winner
+    assert outcome.plan_created_now is False
+
+
+def _a_winning_plan(intent_governance_id: str) -> ApprovedPlan:
+    owner = "DEC-WINNER"
+    plan_id = f"PLAN-{intent_governance_id}"
+    return ApprovedPlan(
+        plan_id=plan_id,
+        candidate_id="OPP-WINNER",
+        entry_intent_governance_id=intent_governance_id,
+        symbol="AAPL",
+        approved_quantity=Decimal("1"),
+        stop_price=Decimal("1"),
+        target_price=Decimal("2"),
+        mandatory_liquidation_at=datetime(2026, 10, 1, 20, 0, tzinfo=UTC),
+        owner_approval_id=owner,
+        system_identity=derive_system_identity(plan_id=plan_id, owner_approval_id=owner),
+        created_at=datetime(2026, 10, 1, 15, 0, tzinfo=UTC),
+    )
 
 
 def test_a_rejected_or_expired_approval_creates_no_plan(world: World) -> None:
