@@ -187,6 +187,7 @@ def a_config() -> PostgreSQLConfigSnapshot:
 @pytest.fixture
 def composition(monkeypatch: pytest.MonkeyPatch) -> type[FakeService]:
     """Replace the persistence service and supply a credential-bearing environment."""
+    monkeypatch.setattr(_paper_composition, "require_personal_identity", lambda *a, **k: None)
     FakeService.instances = []
     FakeService.head_rows = [{"version_num": V1_INTEGRATED_SCHEMA_HEAD}]
     FakeService.table_rows = [{"tablename": t} for t in _M085_REQUIRED_TABLES]

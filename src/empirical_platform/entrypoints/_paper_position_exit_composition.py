@@ -53,6 +53,7 @@ from empirical_platform.shared.config.settings import (
     PostgreSQLConfigSnapshot,
     resolve_foundation_config,
 )
+from empirical_platform.shared.persistence.database_safety import require_personal_identity
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.approved_plan_repositories import (  # noqa: E501
     PostgresApprovedPlanRepository,
@@ -121,6 +122,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
             require_exact_v1_approved_plan_schema_head(store_a_plans)
             plans = PostgresApprovedPlanRepository(store_a_plans)
             store_c.initialize()
+            require_personal_identity(store_c, store_c_config, store="C")
             require_exact_m089_schema_head(store_c)
             exit_runtime = PostgresPositionExitRuntime(store_c)
             exits = ExitRepositories(

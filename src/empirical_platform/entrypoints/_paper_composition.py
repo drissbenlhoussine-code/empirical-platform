@@ -36,6 +36,7 @@ from empirical_platform.shared.config.settings import (
     PostgreSQLConfigSnapshot,
     resolve_foundation_config,
 )
+from empirical_platform.shared.persistence.database_safety import require_personal_identity
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
@@ -88,6 +89,7 @@ def paper_execution_runtime(
     service = PostgresPersistenceService(resolved)
     try:
         service.initialize()
+        require_personal_identity(service, resolved, store="B")
         # CORRECTIVE PASS (item 4), THEN RELEASE v1 (schema-blocker fix). Refuse before
         # any repository or broker client is handed out when the database is not PROVEN
         # compatible with this runtime. Store A is the SAME physical database M090's and

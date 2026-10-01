@@ -25,6 +25,11 @@ on:
       - '.github/workflows/m089-paper-exit.yml'
       - 'alembic_paper_exit.ini'
       - 'migrations_paper_exit/**'
+      - 'src/empirical_platform/shared/persistence/database_safety.py'
+      - 'tests/conftest.py'
+      - 'tests/**/test_database*.py'
+      - 'tools/personal_paper_backup.py'
+      - 'tools/mark_test_database.py'
       - 'src/empirical_platform/**/paper_position_exit_schema.py'
       - 'src/empirical_platform/**/_paper_position_exit_composition.py'
       - 'src/empirical_platform/**/_paper_composition.py'
@@ -58,21 +63,22 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: empirical
-          POSTGRES_DB: empirical_platform
+          POSTGRES_DB: empirical_platform_safety_test
           POSTGRES_HOST_AUTH_METHOD: trust
         ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U empirical -d empirical_platform"
+          --health-cmd "pg_isready -U empirical -d empirical_platform_safety_test"
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_DATABASE_MODE: TEST
       EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
       EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
-      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform_safety_test
       EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
       # Store C: a SECOND database on the SAME throwaway server, created explicitly below
       # before Store C's own migration chain ever connects to it.
-      EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE: empirical_platform_paper_exit
+      EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE: empirical_platform_safety_paper_exit_test
     steps:
       - uses: actions/checkout@v4
         with:
@@ -86,8 +92,10 @@ jobs:
       - name: Create Store C's database on the throwaway server
         run: >-
           PGPASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER
-          psql -h localhost -U empirical -d empirical_platform
+          psql -h localhost -U empirical -d empirical_platform_safety_test
           -c "CREATE DATABASE $EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE"
+      - name: Mark explicitly isolated empty test databases
+        run: python tools/mark_test_database.py
       - name: M089 suites -- unit, architecture, PostgreSQL (Store C + the cross-database round trip)
         run: >-
           python -m pytest --no-cov -v --no-header -p no:cacheprovider
@@ -137,6 +145,7 @@ jobs:
           --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_DATABASE_MODE: TEST
       EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
       EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
       EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform_v1_test
@@ -164,6 +173,8 @@ jobs:
         run: |
           echo "EMPIRICAL_ALPACA_PAPER_API_KEY=${EMPIRICAL_PLATFORM_POSTGRES_USER}-ci-only-key" >> "$GITHUB_ENV"
           echo "EMPIRICAL_ALPACA_PAPER_SECRET_KEY=${EMPIRICAL_PLATFORM_POSTGRES_USER}-ci-only-secret" >> "$GITHUB_ENV"
+      - name: Mark explicitly isolated empty test databases
+        run: python tools/mark_test_database.py
       - name: RELEASE v1 schema-blocker fix -- the guard unit tests and the real deployment shape at full head
         run: >-
           python -m pytest --no-cov -v --no-header -p no:cacheprovider
@@ -171,3 +182,5 @@ jobs:
           tests/unit/test_m085_paper_composition.py
           tests/integration/test_v1_integrated_deployment_shape_postgres.py
           tests/integration/test_v1_approved_plan_postgres.py
+          tests/integration/test_database_backup_restore.py
+          tests/unit/test_database_safety.py

@@ -5,18 +5,9 @@ Not a test module. Mirrors `_m085_support.py`'s `postgres_enabled`/`config`/`ale
 self-contained Alembic chain (`alembic_paper_exit.ini` / `migrations_paper_exit/`), never
 through `migrations/`'s chain and never against Store A or Store B.
 
-WHICH DATABASE. `store_c_config()` reads the SAME `EMPIRICAL_PLATFORM_POSTGRES_HOST/PORT/USER/
-PASSWORD` env vars `_m085_support.config()` reads (one Postgres server, several databases), but
-the database name comes from `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE`
-(default `empirical_platform_paper_exit`) -- mirroring exactly what
-`entrypoints._paper_position_exit_composition.resolve_paper_exit_postgres_config` derives in
-production, so a test failure here reflects the real composition path.
-
-`build_engine_c` REFUSES to run against a database not named `empirical_platform_paper_exit`
-(the default) or a name ending in `_paper_exit_test`/`_paper_exit` when explicitly overridden,
-as a defense against a misconfigured environment pointing this suite's `DROP SCHEMA CASCADE` at
-a real database. This is stricter than `_m085_support.build_engine`, which has no such guard,
-because the M089 mission is explicit that no Paper database may be mutated by engineering.
+Both stores require explicit disposable names ending in _test, TEST mode, and an
+independent database comment of EMPIRICAL:TEST. Port 55433 and personal database
+names are always forbidden. There is no default Store C test database.
 """
 
 from __future__ import annotations
@@ -38,6 +29,7 @@ from empirical_platform.entrypoints._paper_position_exit_composition import (
     PAPER_EXIT_DATABASE_VARIABLE,
 )
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
+from empirical_platform.shared.persistence.database_safety import install_test_connection_guard
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -53,8 +45,8 @@ M089_TABLES = (
     "position_exit_preview",
 )
 
-_DEFAULT_STORE_C_TEST_DATABASE = "empirical_platform_paper_exit"
-_ALLOWED_STORE_C_TEST_SUFFIXES = ("_paper_exit", "_paper_exit_test")
+_DEFAULT_STORE_C_TEST_DATABASE = "missing_explicit_test_database"
+_ALLOWED_STORE_C_TEST_SUFFIXES = ("_paper_exit_test",)
 
 
 def store_c_config(application_name: str = "empirical-platform-m089") -> PostgreSQLConfigSnapshot:
@@ -94,6 +86,7 @@ def build_engine_c(revision: str = "head") -> Iterator[Engine]:
     if not postgres_enabled():
         pytest.skip("PostgreSQL integration tests require explicit opt-in")
     cfg = store_c_config()
+    install_test_connection_guard()
     engine = sa.create_engine(cfg.sqlalchemy_url())
     with engine.begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))

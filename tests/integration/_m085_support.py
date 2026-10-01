@@ -73,6 +73,7 @@ from empirical_platform.shared.brokerage.paper_time import (
     PaperTimeSource,
 )
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
+from empirical_platform.shared.persistence.database_safety import install_test_connection_guard
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     PostgresPaperExecutionRuntime,
 )
@@ -179,6 +180,7 @@ def build_engine(revision: str = "head") -> Iterator[Engine]:
     """
     if not postgres_enabled():
         pytest.skip("PostgreSQL integration tests require explicit opt-in")
+    install_test_connection_guard()
     engine = sa.create_engine(config().sqlalchemy_url())
     with engine.begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))

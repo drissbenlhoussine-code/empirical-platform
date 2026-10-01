@@ -38,9 +38,16 @@ def run_migrations_online() -> None:
     from empirical_platform.shared.config.settings import resolve_foundation_config
 
     postgres_config = resolve_foundation_config().postgresql
+    from empirical_platform.shared.persistence.database_safety import (
+        refuse_unplanned_personal_migration,
+        require_migration_connection,
+    )
+
+    refuse_unplanned_personal_migration(postgres_config)
     connectable = create_engine(postgres_config.sqlalchemy_url())
 
     with connectable.connect() as connection:
+        require_migration_connection(connection)
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
