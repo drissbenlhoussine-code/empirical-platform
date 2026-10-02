@@ -79,6 +79,7 @@ from empirical_platform.shared.persistence.postgres_repositories.entry_risk_stor
     encode_risk,
     preview_risk,
     risk_insert,
+    risk_projection,
 )
 from empirical_platform.shared.persistence.postgres_repositories.paper_schema_contract import (
     M085_CONTRACT,
@@ -661,102 +662,82 @@ class PostgresPaperAccountSnapshotRepository:
 # Submission preview
 # ---------------------------------------------------------------------------
 
-_PREVIEW_INSERT = (
-    "INSERT INTO public.paper_submission_preview (preview_id, "
-    "intent_governance_id, preview_version, account_snapshot_id, "
-    "account_reference, symbol, side, quantity, order_type, "
-    "limit_price, time_in_force, extended_hours, "
-    "client_order_id, request_fingerprint, approved_fingerprint, "
-    "market_is_open, market_next_open, market_next_close, "
-    "quote_bid, quote_ask, quote_captured_at, quote_source, "
-    "asset_tradable, asset_status, asset_class, asset_exchange, "
-    "asset_fractionable, refusals, created_at, "
-    "configuration_governance_id, configuration_version, "
-    "policy_fingerprint, maximum_notional, "
-    "quote_maximum_age_seconds, maximum_spread_percent, "
-    "policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, "
-    "intent_expires_at, binding_fingerprint) VALUES "
-    "(:preview_id, :intent_governance_id, :preview_version, "
-    ":account_snapshot_id, :account_reference, :symbol, :side, "
-    ":quantity, :order_type, :limit_price, :time_in_force, "
-    ":extended_hours, :client_order_id, :request_fingerprint, "
-    ":approved_fingerprint, :market_is_open, :market_next_open, "
-    ":market_next_close, :quote_bid, :quote_ask, "
-    ":quote_captured_at, :quote_source, :asset_tradable, "
-    ":asset_status, :asset_class, :asset_exchange, "
-    ":asset_fractionable, :refusals, :created_at, "
-    ":configuration_governance_id, :configuration_version, "
-    ":policy_fingerprint, :maximum_notional, "
-    ":quote_maximum_age_seconds, :maximum_spread_percent, "
-    ":policy_watchlist, :policy_prohibited_instruments, "
-    ":earliest_entry_time, :latest_entry_time, "
-    ":operator_timezone, :intent_expires_at, "
-    ":binding_fingerprint) RETURNING preview_id, "
-    "intent_governance_id, preview_version, account_snapshot_id, "
-    "account_reference, symbol, side, quantity, order_type, "
-    "limit_price, time_in_force, extended_hours, "
-    "client_order_id, request_fingerprint, approved_fingerprint, "
-    "market_is_open, market_next_open, market_next_close, "
-    "quote_bid, quote_ask, quote_captured_at, quote_source, "
-    "asset_tradable, asset_status, asset_class, asset_exchange, "
-    "asset_fractionable, refusals, created_at, "
-    "configuration_governance_id, configuration_version, "
-    "policy_fingerprint, maximum_notional, "
-    "quote_maximum_age_seconds, maximum_spread_percent, "
-    "policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, "
-    "intent_expires_at, binding_fingerprint, "
-    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
-    "risk_contract"
+_PREVIEW_INSERT = risk_projection(
+    (
+        "INSERT INTO public.paper_submission_preview "
+        "(preview_id, intent_governance_id, preview_version, account_snapshot_id, "
+        "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
+        "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
+        "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
+        "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
+        "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+        "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+        "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+        "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+        "binding_fingerprint) "
+        "VALUES (:preview_id, :intent_governance_id, :preview_version, :account_snapshot_id, "
+        ":account_reference, :symbol, :side, :quantity, :order_type, :limit_price, "
+        ":time_in_force, :extended_hours, :client_order_id, :request_fingerprint, "
+        ":approved_fingerprint, :market_is_open, :market_next_open, :market_next_close, "
+        ":quote_bid, :quote_ask, :quote_captured_at, :quote_source, :asset_tradable, "
+        ":asset_status, :asset_class, :asset_exchange, :asset_fractionable, :refusals, "
+        ":created_at, :configuration_governance_id, :configuration_version, "
+        ":policy_fingerprint, :maximum_notional, :quote_maximum_age_seconds, "
+        ":maximum_spread_percent, :policy_watchlist, :policy_prohibited_instruments, "
+        ":earliest_entry_time, :latest_entry_time, :operator_timezone, :intent_expires_at, "
+        ":binding_fingerprint) "
+        "RETURNING preview_id, intent_governance_id, preview_version, account_snapshot_id, "
+        "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
+        "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
+        "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
+        "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
+        "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+        "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+        "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+        "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+        "binding_fingerprint"
+    ),
+    "paper_submission_preview",
 )
 
-_PREVIEW_SELECT_BY_ID = (
-    "SELECT preview_id, intent_governance_id, preview_version, "
-    "account_snapshot_id, account_reference, symbol, side, "
-    "quantity, order_type, limit_price, time_in_force, "
-    "extended_hours, client_order_id, request_fingerprint, "
-    "approved_fingerprint, market_is_open, market_next_open, "
-    "market_next_close, quote_bid, quote_ask, quote_captured_at, "
-    "quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at, "
-    "configuration_governance_id, configuration_version, "
-    "policy_fingerprint, maximum_notional, "
-    "quote_maximum_age_seconds, maximum_spread_percent, "
-    "policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, "
-    "intent_expires_at, binding_fingerprint, "
-    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
-    "risk_contract FROM public.paper_submission_preview WHERE "
-    "preview_id = :preview_id"
+_PREVIEW_SELECT_BY_ID = risk_projection(
+    (
+        "SELECT preview_id, intent_governance_id, preview_version, account_snapshot_id, "
+        "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
+        "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
+        "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
+        "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
+        "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+        "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+        "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+        "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+        "binding_fingerprint "
+        "FROM public.paper_submission_preview WHERE preview_id = :preview_id"
+    ),
+    "paper_submission_preview",
 )
 
-_PREVIEW_SELECT_LATEST = (
-    "SELECT preview_id, intent_governance_id, preview_version, "
-    "account_snapshot_id, account_reference, symbol, side, "
-    "quantity, order_type, limit_price, time_in_force, "
-    "extended_hours, client_order_id, request_fingerprint, "
-    "approved_fingerprint, market_is_open, market_next_open, "
-    "market_next_close, quote_bid, quote_ask, quote_captured_at, "
-    "quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at, "
-    "configuration_governance_id, configuration_version, "
-    "policy_fingerprint, maximum_notional, "
-    "quote_maximum_age_seconds, maximum_spread_percent, "
-    "policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, "
-    "intent_expires_at, binding_fingerprint, "
-    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
-    "risk_contract FROM public.paper_submission_preview WHERE "
-    "intent_governance_id = :intent ORDER BY preview_version "
-    "DESC LIMIT 1"
+_PREVIEW_SELECT_LATEST = risk_projection(
+    (
+        "SELECT preview_id, intent_governance_id, preview_version, account_snapshot_id, "
+        "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
+        "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
+        "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
+        "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
+        "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
+        "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
+        "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
+        "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
+        "binding_fingerprint "
+        "FROM public.paper_submission_preview WHERE intent_governance_id = :intent "
+        "ORDER BY preview_version DESC LIMIT 1"
+    ),
+    "paper_submission_preview",
 )
 
 _PREVIEW_MAX_VERSION = (
-    "SELECT COALESCE(MAX(preview_version), 0) AS highest, "
-    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
-    "risk_contract FROM public.paper_submission_preview WHERE "
-    "intent_governance_id = :intent"
+    "SELECT COALESCE(MAX(preview_version), 0) AS highest "
+    "FROM public.paper_submission_preview WHERE intent_governance_id = :intent"
 )
 
 
@@ -905,95 +886,80 @@ class PostgresSubmissionPreviewRepository:
 # Authorization
 # ---------------------------------------------------------------------------
 
-_AUTHORIZATION_INSERT = (
-    "INSERT INTO public.paper_execution_authorization "
-    "(authorization_id, intent_governance_id, preview_id, "
-    "preview_version, request_fingerprint, account_reference, "
-    "client_order_id, authorized_by, authorized_at, expires_at, "
-    "consumed_at, consumed_by_attempt_id, basis_host_at, "
-    "basis_broker_earliest_at, basis_host_requested_at, "
-    "basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, "
-    "quote_captured_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint) VALUES (:authorization_id, "
-    ":intent_governance_id, :preview_id, :preview_version, "
-    ":request_fingerprint, :account_reference, :client_order_id, "
-    ":authorized_by, :authorized_at, :expires_at, :consumed_at, "
-    ":consumed_by_attempt_id, :basis_host_at, "
-    ":basis_broker_earliest_at, :basis_host_requested_at, "
-    ":basis_broker_latest_at, :symbol, :side, :quantity, "
-    ":order_type, :limit_price, :maximum_notional, :quote_bid, "
-    ":quote_ask, :quote_captured_at, "
-    ":configuration_governance_id, :configuration_version, "
-    ":policy_fingerprint, :preview_binding_fingerprint) "
-    "RETURNING authorization_id, intent_governance_id, "
-    "preview_id, preview_version, request_fingerprint, "
-    "account_reference, client_order_id, authorized_by, "
-    "authorized_at, expires_at, consumed_at, "
-    "consumed_by_attempt_id, basis_host_at, "
-    "basis_broker_earliest_at, basis_host_requested_at, "
-    "basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, "
-    "quote_captured_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint, "
-    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
-    "risk_contract"
+_AUTHORIZATION_INSERT = risk_projection(
+    (
+        "INSERT INTO public.paper_execution_authorization "
+        "(authorization_id, intent_governance_id, preview_id, preview_version, "
+        "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
+        "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+        "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+        "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+        "configuration_governance_id, configuration_version, policy_fingerprint, "
+        "preview_binding_fingerprint) "
+        "VALUES (:authorization_id, :intent_governance_id, :preview_id, :preview_version, "
+        ":request_fingerprint, :account_reference, :client_order_id, :authorized_by, "
+        ":authorized_at, :expires_at, :consumed_at, :consumed_by_attempt_id, "
+        ":basis_host_at, :basis_broker_earliest_at, :basis_host_requested_at, "
+        ":basis_broker_latest_at, :symbol, :side, :quantity, :order_type, :limit_price, "
+        ":maximum_notional, :quote_bid, :quote_ask, :quote_captured_at, "
+        ":configuration_governance_id, :configuration_version, :policy_fingerprint, "
+        ":preview_binding_fingerprint) "
+        "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
+        "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
+        "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+        "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+        "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+        "configuration_governance_id, configuration_version, policy_fingerprint, "
+        "preview_binding_fingerprint"
+    ),
+    "paper_execution_authorization",
 )
 
-_AUTHORIZATION_SELECT_BY_ID = (
-    "SELECT authorization_id, intent_governance_id, preview_id, "
-    "preview_version, request_fingerprint, account_reference, "
-    "client_order_id, authorized_by, authorized_at, expires_at, "
-    "consumed_at, consumed_by_attempt_id, basis_host_at, "
-    "basis_broker_earliest_at, basis_host_requested_at, "
-    "basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, "
-    "quote_captured_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint, "
-    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
-    "risk_contract FROM public.paper_execution_authorization "
-    "WHERE authorization_id = :authorization_id"
+_AUTHORIZATION_SELECT_BY_ID = risk_projection(
+    (
+        "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
+        "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
+        "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+        "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+        "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+        "configuration_governance_id, configuration_version, policy_fingerprint, "
+        "preview_binding_fingerprint "
+        "FROM public.paper_execution_authorization WHERE authorization_id = :authorization_id"
+    ),
+    "paper_execution_authorization",
 )
 
-_AUTHORIZATION_SELECT_LATEST = (
-    "SELECT authorization_id, intent_governance_id, preview_id, "
-    "preview_version, request_fingerprint, account_reference, "
-    "client_order_id, authorized_by, authorized_at, expires_at, "
-    "consumed_at, consumed_by_attempt_id, basis_host_at, "
-    "basis_broker_earliest_at, basis_host_requested_at, "
-    "basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, "
-    "quote_captured_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint, "
-    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
-    "risk_contract FROM public.paper_execution_authorization "
-    "WHERE intent_governance_id = :intent ORDER BY authorized_at "
-    "DESC, authorization_id DESC LIMIT 1"
+_AUTHORIZATION_SELECT_LATEST = risk_projection(
+    (
+        "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
+        "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
+        "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+        "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+        "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+        "configuration_governance_id, configuration_version, policy_fingerprint, "
+        "preview_binding_fingerprint "
+        "FROM public.paper_execution_authorization WHERE intent_governance_id = :intent "
+        "ORDER BY authorized_at DESC, authorization_id DESC LIMIT 1"
+    ),
+    "paper_execution_authorization",
 )
 
 #: The exactly-once statement. `consumed_at IS NULL` is the entire race
 #: mechanism: the second worker updates zero rows and gets nothing back.
-_AUTHORIZATION_CONSUME = (
-    "UPDATE public.paper_execution_authorization SET consumed_at "
-    "= :claimed_at, consumed_by_attempt_id = :attempt_id WHERE "
-    "authorization_id = :authorization_id AND consumed_at IS "
-    "NULL RETURNING authorization_id, intent_governance_id, "
-    "preview_id, preview_version, request_fingerprint, "
-    "account_reference, client_order_id, authorized_by, "
-    "authorized_at, expires_at, consumed_at, "
-    "consumed_by_attempt_id, basis_host_at, "
-    "basis_broker_earliest_at, basis_host_requested_at, "
-    "basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, "
-    "quote_captured_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint, "
-    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
-    "risk_contract"
+_AUTHORIZATION_CONSUME = risk_projection(
+    (
+        "UPDATE public.paper_execution_authorization "
+        "SET consumed_at = :claimed_at, consumed_by_attempt_id = :attempt_id "
+        "WHERE authorization_id = :authorization_id AND consumed_at IS NULL "
+        "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
+        "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
+        "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
+        "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
+        "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
+        "configuration_governance_id, configuration_version, policy_fingerprint, "
+        "preview_binding_fingerprint"
+    ),
+    "paper_execution_authorization",
 )
 
 

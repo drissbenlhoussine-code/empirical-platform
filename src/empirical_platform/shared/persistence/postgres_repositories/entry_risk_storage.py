@@ -65,3 +65,11 @@ def preview_risk(preview: SubmissionPreview) -> str | None:
         },
         sort_keys=True,
     )
+
+
+def risk_projection(statement: str, table: str) -> str:
+    """Extend repository-owned row statements; legacy schemas return SQL NULL evidence."""
+    field = f", to_jsonb({table})->'risk_contract' AS risk_contract"
+    if "RETURNING " in statement:
+        return statement + field
+    return statement.replace(f" FROM public.{table}", field + f" FROM public.{table}", 1)

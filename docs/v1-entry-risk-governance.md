@@ -45,7 +45,12 @@ They remain readable under historical schemas and as historical rows after the
 upgrade. Missing limits never mean unlimited risk. On the current schema, the
 runtime refuses legacy configurations for preview/send, and database insert
 triggers independently refuse legacy new entries. Historical suites use their
-historical heads; separate full-head tests prove the new boundary.
+historical heads; separate full-head tests prove the new boundary. The explicitly
+allowlisted `tests/historical_schema_plugin.py` supplies byte-identical ancestor
+migration files to historical M083/M084/M085 suites without altering their test
+assertions or production schema guards. This proves current-code compatibility
+at historical schemas, not current-head acceptance of legacy entries. The v1
+suites are outside that allowlist and explicitly request unrestricted `head`.
 
 Startup requires the exact reviewed head and unchanged M085 physical contract,
 plus new risk columns, enabled triggers and the exact risk-trigger implementation.
