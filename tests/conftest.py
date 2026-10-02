@@ -11,4 +11,4 @@ def pytest_configure() -> None:
 
 
 # Explicit historical schema compatibility; full-head v1 suites are never redirected.
-pytest_plugins = ["tests.historical_schema_plugin"]
+pytest_plugins = ["tests.historical_schema_plugin", "tests.secondary_database_plugin"]

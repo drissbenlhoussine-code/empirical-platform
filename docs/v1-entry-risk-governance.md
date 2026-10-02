@@ -77,3 +77,10 @@ before the new runtime can use it. Never automatically downgrade or restore.
 
 Owner configuration, plan generation and broker actions remain separate gates.
 No real BUY, SELL, CANCEL or LIVE write is part of implementation or tests.
+
+Historical secondary-database fixtures receive explicit `_test` addresses and
+EMPIRICAL:TEST markers through `tests/secondary_database_plugin.py`. Existing
+unmarked or PERSONAL_PAPER targets are refused before any DROP. This test-only
+address/identity plumbing does not disable the production connection guard or
+alter historical assertions. M076's reversible-migration check likewise runs on
+its own migration graph, not through the new irreversible evidence boundary.

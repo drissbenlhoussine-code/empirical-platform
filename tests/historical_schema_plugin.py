@@ -14,6 +14,7 @@ from alembic.script import ScriptDirectory
 
 _ROOT = Path(__file__).resolve().parents[1]
 _HEADS = {
+    "test_m076_operator_position_ledger_lifecycle.py": "b7e1c4a9" + "5d38",
     **dict.fromkeys(
         (
             "test_m083_evaluation_evidence_watermark_lifecycle.py",
