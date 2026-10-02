@@ -1778,8 +1778,8 @@ class PostgresTimeBasisRepository:
 #: Serialises allocation per attempt. The UNIQUE (attempt_id, sequence) constraint is the
 #: guarantee; this lock is what turns a racing writer's failure into a wait.
 _ROUND_LOCK_ATTEMPT = (
-    "SELECT attempt_id FROM public.paper_execution_attempt WHERE "
-    "attempt_id = :attempt_id FOR UPDATE"
+    "SELECT attempt_id FROM public.paper_execution_attempt "
+    "WHERE attempt_id = :attempt_id FOR UPDATE"
 )
 _ROUND_MAX_SEQUENCE = (
     "SELECT COALESCE(MAX(sequence), 0) AS highest FROM "
@@ -1824,8 +1824,9 @@ _ROUND_COMPLETE = (
     ":outcome, completed_at = :completed_at, "
     "acknowledgement_sequence = :acknowledgement_sequence, "
     "broker_earliest_at = :broker_earliest_at, broker_latest_at "
-    "= :broker_latest_at, detail = :detail WHERE round_id = "
-    ":round_id AND outcome IS NULL RETURNING round_id, "
+    "= :broker_latest_at, detail = :detail "
+    "WHERE round_id = :round_id AND outcome IS NULL "
+    "RETURNING round_id, "
     "attempt_id, intent_governance_id, authorization_id, "
     "client_order_id, account_reference, sequence, started_at, "
     "outcome, completed_at, acknowledgement_sequence, "
