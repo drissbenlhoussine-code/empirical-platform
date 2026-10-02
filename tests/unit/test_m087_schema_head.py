@@ -172,7 +172,7 @@ def test_the_v1_revision_is_the_sole_head_descending_linearly_from_m085_through_
     assert script.get_heads() == [_V1_APPROVED_PLAN]
     v1 = script.get_revision(_V1_APPROVED_PLAN)
     assert v1 is not None and v1.down_revision == ("b9f2c4d6" + "a8e1")
-    approved = script.get_revision(("b9f2c4d6" + "a8e1"))
+    approved = script.get_revision("b9f2c4d6" + "a8e1")
     assert approved is not None and approved.down_revision == _M090
     m090 = script.get_revision(_M090)
     assert m090 is not None and m090.down_revision == M087_SCHEMA_HEAD

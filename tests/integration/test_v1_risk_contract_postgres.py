@@ -1,5 +1,6 @@
 """Real additive upgrade and immutable risk evidence, on isolated TEST databases only."""
 
+import json
 from collections.abc import Iterator
 from dataclasses import replace
 from datetime import timedelta
@@ -142,6 +143,44 @@ def test_upgrade_and_full_risk_round_trip(engine: Engine) -> None:
         )
         with pytest.raises(PaperExecutionRefusedError, match="legacy"):
             _policy_for(legacy_intent, runtime.operator_trading_configurations)
+
+        # Direct SQL cannot create a legacy configuration on the current schema.
+        with (
+            pytest.raises(DBAPIError, match="require explicit risk contract version 2"),
+            engine.begin() as conn,
+        ):
+            conn.execute(
+                text("""
+                INSERT INTO public.operator_trading_configuration
+                SELECT (jsonb_populate_record(NULL::public.operator_trading_configuration,
+                    to_jsonb(c) || jsonb_build_object('configuration_governance_id',
+                    'CFG-LEGACY-BYPASS', 'risk_contract', NULL))).*
+                FROM public.operator_trading_configuration c
+                WHERE configuration_governance_id='CFG-HISTORICAL'
+            """)
+            )
+        assert saved.entry_risk is not None
+        for change in [
+            {"quantity": 2},
+            {"planned_loss": "0"},
+            {"stop_price": "0.01"},
+            {"entry_ceiling": "10000"},
+        ]:
+            hostile = saved.entry_risk.document() | change
+            with (
+                pytest.raises(DBAPIError, match="approved entry risk invariant failed"),
+                engine.begin() as conn,
+            ):
+                conn.execute(
+                    text("""
+                    INSERT INTO public.trade_proposal
+                    SELECT (jsonb_populate_record(NULL::public.trade_proposal,
+                        to_jsonb(p) || jsonb_build_object('proposal_governance_id',
+                        'PROP-RISK-BYPASS', 'risk_contract', CAST(:risk AS jsonb)))).*
+                    FROM public.trade_proposal p WHERE proposal_governance_id=:proposal
+                """),
+                    {"risk": json.dumps(hostile), "proposal": saved.proposal_governance_id},
+                )
         for table, key, value in [
             (
                 "operator_trading_configuration",

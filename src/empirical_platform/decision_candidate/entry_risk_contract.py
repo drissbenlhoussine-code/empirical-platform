@@ -73,7 +73,11 @@ class EntryRiskContract:
 def read_risk(value: object) -> EntryRiskContract | None:
     if value is None:
         return None  # explicitly historical; current v1 send requires version 2
-    if not isinstance(value, dict) or value.get("version") != 2:
+    if (
+        not isinstance(value, dict)
+        or type(value.get("version")) is not int
+        or value.get("version") != 2
+    ):
         raise ValueError("invalid entry risk contract version")
     for name in ("entry_ceiling", "stop_price", "maximum_planned_loss_per_trade", "planned_loss"):
         if not isinstance(value.get(name), str):

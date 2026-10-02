@@ -1260,6 +1260,8 @@ class ExecutionPolicy:
     maximum_planned_loss_per_trade: Decimal | None = None
 
     def __post_init__(self) -> None:
+        if type(self.risk_contract_version) is not int:
+            raise ValueError("execution risk version must be an integer")
         if self.risk_contract_version == 2:
             validate_limits(
                 self.maximum_position_quantity_shares, self.maximum_planned_loss_per_trade

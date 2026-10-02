@@ -332,3 +332,25 @@ def test_last_transport_boundary_recomputes_risk(changed: str) -> None:
     assert reached == [True]
     assert not result.dispatched
     assert world["broker"].submitted == []
+
+
+@pytest.mark.parametrize("version", [True, 2.0, "2", 3])
+def test_risk_version_is_explicit_integer(version: object) -> None:
+    document = risk().document() | {"version": version}
+    with pytest.raises(ValueError):
+        read_risk(document)
+
+
+def test_owner_proposal_rendering_contains_exact_risk_evidence() -> None:
+    from empirical_platform.usecases.decision_to_approval_io import (
+        render_proposal_json,
+        render_proposal_text,
+    )
+
+    proposal = evaluate(configuration=config()).proposal
+    assert proposal is not None and proposal.entry_risk is not None
+    assert render_proposal_json(proposal)["entry_risk"] == proposal.entry_risk.document()
+    rendered = render_proposal_text(proposal)
+    assert f"evaluated planned loss {proposal.entry_risk.planned_loss}" in rendered
+    assert "configured maximum shares 1" in rendered
+    assert "configured maximum planned loss 5" in rendered

@@ -40,7 +40,7 @@ def configuration_risk(row: dict[str, Any]) -> dict[str, Any]:
     risk = row.get("risk_contract")
     if risk is None:
         return {}
-    if risk.get("version") != 2:
+    if type(risk.get("version")) is not int or risk.get("version") != 2:
         raise ValueError("invalid stored risk configuration version")
     if not isinstance(risk.get("maximum_planned_loss_per_trade"), str):
         raise ValueError("stored loss cap must be an exact decimal string")
