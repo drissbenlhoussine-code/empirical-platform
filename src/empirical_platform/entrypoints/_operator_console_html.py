@@ -247,6 +247,8 @@ def _card(card: OpportunityCard, csrf: str) -> str:
         f'<div><span class="num-label">Target</span><span class="num">{_e(card.target_price)}</span></div>'
         f'<div><span class="num-label">Quantity</span><span class="num">{t.quantity}</span></div>'
         f'<div><span class="num-label">Max Loss</span><span class="num">{_e(card.risk_amount)}</span></div>'
+        f'<div><span class="num-label">Configured maximum shares</span><span class="num">{_e(card.maximum_quantity_shares)}</span></div>'
+        f'<div><span class="num-label">Configured maximum planned loss</span><span class="num">{_e(card.maximum_planned_loss)}</span></div>'
         f'<div><span class="num-label">Target Gain</span><span class="num">{_e(card.target_gain)}</span></div>'
         f'<div><span class="num-label">R:R</span><span class="num">{_e(card.reward_risk_ratio)}</span></div>'
         f'<div><span class="num-label">Mandatory Exit</span><span class="num">{_when(card.mandatory_exit)}</span></div>'
@@ -379,6 +381,11 @@ def confirmation_page(view: ConfirmationView, csrf: str, capability_label: str) 
             ("Quantity", str(t.quantity)),
             ("Order type", t.order_type),
             ("Limit price", t.limit_price),
+            ("Approved stop", view.stop_price),
+            ("Target", view.target_price),
+            ("Evaluated planned loss", view.planned_loss),
+            ("Configured maximum shares", view.maximum_quantity_shares),
+            ("Configured maximum planned loss", view.maximum_planned_loss),
             ("Time in force", t.time_in_force),
             ("Extended hours", t.extended_hours),
             ("Environment", view.environment),

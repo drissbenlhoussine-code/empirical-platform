@@ -155,3 +155,11 @@ of zero as a clean start (not restored history), then set INITIALIZED and requir
 first verified backup. Keep historical loss and M089 evidence documented separately.
 No automatic transition, migration, reset, restore, synthetic historical insert, or
 broker action is included in this preparation.
+
+## V1 risk-contract upgrade preparation (2026-10-02)
+
+The subsequent additive main head is `c6e2a4f8b901`; Store C remains unchanged.
+This does not supersede the historical loss investigation or imply a real upgrade
+has occurred. See [v1 entry-risk governance](v1-entry-risk-governance.md) for the
+explicit future backup, upgrade, verification and manifest transition. The real
+stores must not be migrated or restored during the engineering release blocker.

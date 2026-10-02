@@ -19,6 +19,9 @@ import pytest
 from empirical_platform.shared.persistence.postgres_repositories import (
     paper_execution_repositories,
 )
+from empirical_platform.shared.persistence.postgres_repositories.entry_risk_schema import (
+    V1_RISK_CONTRACT,
+)
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     _M085_REQUIRED_TABLES,
     M085_SCHEMA_HEAD,
@@ -64,7 +67,8 @@ class _Work:
             raise self._failure
         if statement == M085_CONTRACT_SELECT:
             return [
-                {"object_key": key, "definition": value} for key, value in M085_CONTRACT.items()
+                {"object_key": key, "definition": value}
+                for key, value in (M085_CONTRACT | V1_RISK_CONTRACT).items()
             ]
         if "alembic_version" in statement:
             return list(self._revision_rows)
@@ -93,7 +97,7 @@ def _rows(*revisions: str) -> list[dict[str, object]]:
 
 
 def test_the_pin_is_the_reviewed_v1_head() -> None:
-    assert V1_INTEGRATED_SCHEMA_HEAD == "".join(("b9f2c4d6", "a8e1"))
+    assert V1_INTEGRATED_SCHEMA_HEAD == "".join(("c6e2a4f8", "b901"))
     assert V1_INTEGRATED_SCHEMA_HEAD != M085_SCHEMA_HEAD
 
 

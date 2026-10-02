@@ -5,7 +5,7 @@ permanently rejected the real deployment database once it was correctly migrated
 Store A (the main `migrations/` chain, feeding `ApprovedPlan`) and Store B
 (`paper_execution_runtime()`'s own database) are the SAME physical database in real
 deployment, and `alembic upgrade head` on that one chain reaches the v1 head
-(`b9f2c4d6a8e1`), never the literal, frozen M085 revision the old guard demanded. No prior
+(`c6e2a4f8b901`), never the literal, frozen M085 revision the old guard demanded. No prior
 test caught this: every Postgres suite pins its own test database to the exact revision ITS
 OWN guard expects (`test_m085_corrective_pass_postgres.py` pins to `M085_SCHEMA_HEAD`,
 `test_m087_position_exit_postgres.py` steps the chain milestone by milestone, and nothing
@@ -237,6 +237,10 @@ def test_the_real_integrated_console_boots_against_databases_at_full_head(
     [
         "UPDATE public.alembic_version SET version_num = 'unreviewed_future'",
         "DROP TABLE public.paper_reconciliation_round CASCADE",
+        "ALTER TABLE public.trade_proposal DROP COLUMN risk_contract",
+        "ALTER TABLE public.approved_order_intent DISABLE TRIGGER v1_entry_risk_guard",
+        "CREATE OR REPLACE FUNCTION public.v1_entry_risk_guard() "
+        "RETURNS trigger AS $$ BEGIN RETURN NEW; END; $$ LANGUAGE plpgsql",
         "ALTER TABLE public.paper_execution_attempt DROP COLUMN state CASCADE",
         "ALTER TABLE public.paper_execution_attempt DISABLE TRIGGER "
         "paper_execution_attempt_guard_update_trigger",

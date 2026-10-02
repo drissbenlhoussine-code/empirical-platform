@@ -14,10 +14,9 @@ from decimal import Decimal
 
 import pytest
 import sqlalchemy as sa
-from alembic import command as alembic_command
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
-from tests.integration._m085_support import alembic_config, build_engine, config, postgres_enabled
+from tests.integration._m085_support import build_engine, config, postgres_enabled
 
 from empirical_platform.decision_candidate.approved_plan import (
     ApprovedPlan,
@@ -93,12 +92,16 @@ def test_the_schema_head_guard_passes_at_the_real_head(
 
 
 def test_the_schema_head_guard_refuses_an_older_database(engine: Engine) -> None:
-    """Downgrades the SHARED module engine to M090's head (one revision behind this
-    table) just long enough to prove the guard refuses it, then restores it to this
-    table's own head in a `finally` -- the module's `engine` fixture is reused by every
-    other test in this file and must be left exactly as it found it."""
-    cfg = alembic_config()
-    alembic_command.downgrade(cfg, "a2b4c6d8e0f2")
+    """An older revision stamp fails closed without destructive downgrade.
+
+    The shared TEST database is restored to its exact original stamp in finally.
+    A separate risk-contract integration test proves the real additive upgrade.
+    """
+    with engine.begin() as connection:
+        connection.execute(
+            text("UPDATE alembic_version SET version_num = :revision"),
+            {"revision": "a2b4c6d8" + "e0f2"},
+        )
     try:
         service = PostgresPersistenceService(config("v1-guard-refusal"))
         service.initialize()
@@ -108,7 +111,11 @@ def test_the_schema_head_guard_refuses_an_older_database(engine: Engine) -> None
         finally:
             service.close()
     finally:
-        alembic_command.upgrade(cfg, V1_APPROVED_PLAN_SCHEMA_HEAD)
+        with engine.begin() as connection:
+            connection.execute(
+                text("UPDATE alembic_version SET version_num = :head"),
+                {"head": V1_APPROVED_PLAN_SCHEMA_HEAD},
+            )
 
 
 def test_save_get_and_round_trip(repo: PostgresApprovedPlanRepository) -> None:

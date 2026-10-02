@@ -31,7 +31,6 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
     OperatorTradingConfiguration,
     OrderType,
     TradingSession,
-    configuration_fingerprint,
 )
 from empirical_platform.decision_candidate.product_market_inputs import (
     AccountSnapshot,
@@ -224,21 +223,7 @@ def read_configuration(document: object) -> OperatorTradingConfiguration:
     """
     where = "configuration"
     body = _object(document, where=where)
-    risk: dict[str, Any] = {}
-    if "risk_contract_version" in body:
-        risk = {
-            "risk_contract_version": _whole(body, "risk_contract_version", where=where),
-            "maximum_position_quantity_shares": _whole(
-                body, "maximum_position_quantity_shares", where=where
-            ),
-            "maximum_planned_loss_per_trade": _amount(
-                body, "maximum_planned_loss_per_trade", where=where
-            ),
-        }
-    elif "maximum_position_quantity_shares" in body or "maximum_planned_loss_per_trade" in body:
-        raise InputError("explicit risk_contract_version is required")
     return OperatorTradingConfiguration(
-        **risk,
         configuration_governance_id=_text(body, "configuration_governance_id", where=where),
         configuration_version=_whole(body, "configuration_version", where=where),
         base_currency=_text(body, "base_currency", where=where),
@@ -500,7 +485,6 @@ def _money(value: Decimal | None) -> str | None:
 
 def render_proposal_json(proposal: TradeProposal) -> dict[str, Any]:
     return {
-        **({"entry_risk": proposal.entry_risk.document()} if proposal.entry_risk else {}),
         "proposal_governance_id": proposal.proposal_governance_id,
         "proposal_version": proposal.proposal_version,
         "evaluation_context_id": proposal.evaluation_context_id,
@@ -550,15 +534,6 @@ def render_proposal_text(proposal: TradeProposal) -> str:
         f"  configuration {proposal.configuration_governance_id} v{proposal.configuration_version}",
         f"  risk checks passed: {len(proposal.risk_checks)}",
     ]
-    if proposal.entry_risk is not None:
-        risk = proposal.entry_risk
-        lines.extend(
-            [
-                f"  evaluated planned loss {risk.planned_loss}",
-                f"  configured maximum shares {risk.maximum_position_quantity_shares}",
-                f"  configured maximum planned loss {risk.maximum_planned_loss_per_trade}",
-            ]
-        )
     return "\n".join(lines) + "\n"
 
 
@@ -655,7 +630,6 @@ def render_decision_text(decision: ApprovalDecision) -> str:
 
 def render_intent_json(intent: ApprovedOrderIntent) -> dict[str, Any]:
     return {
-        **({"entry_risk": intent.entry_risk.document()} if intent.entry_risk else {}),
         "intent_governance_id": intent.intent_governance_id,
         "proposal_governance_id": intent.proposal_governance_id,
         "proposal_version": intent.proposal_version,
@@ -714,18 +688,7 @@ def render_configuration_json(configuration: OperatorTradingConfiguration) -> di
     should be able to write this out, edit it, bump the version and store it
     back, rather than reconstruct the file from documentation.
     """
-    risk = (
-        {}
-        if configuration.risk_contract_version == 1
-        else {
-            "risk_contract_version": 2,
-            "configuration_fingerprint": configuration_fingerprint(configuration),
-            "maximum_position_quantity_shares": configuration.maximum_position_quantity_shares,
-            "maximum_planned_loss_per_trade": str(configuration.maximum_planned_loss_per_trade),
-        }
-    )
     return {
-        **risk,
         "configuration_governance_id": configuration.configuration_governance_id,
         "configuration_version": configuration.configuration_version,
         "base_currency": configuration.base_currency,
@@ -788,9 +751,6 @@ def render_configuration_text(configuration: OperatorTradingConfiguration) -> st
         f"per-trade {render_money(configuration.maximum_capital_per_trade)} "
         f"({render_money(configuration.maximum_percent_per_trade)}%) "
         f"reserve {render_money(configuration.minimum_cash_reserve)}\n"
-        f"  risk contract v{configuration.risk_contract_version}: maximum shares "
-        f"{configuration.maximum_position_quantity_shares}; maximum planned loss "
-        f"{configuration.maximum_planned_loss_per_trade}\n"
         f"  daily loss limit {render_money(configuration.maximum_daily_loss)}   "
         f"daily order limit {configuration.maximum_daily_order_count}   "
         f"max positions {configuration.maximum_simultaneous_positions}\n"

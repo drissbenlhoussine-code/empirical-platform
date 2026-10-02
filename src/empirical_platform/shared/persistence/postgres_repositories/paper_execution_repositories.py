@@ -46,6 +46,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from empirical_platform.decision_candidate.entry_risk_contract import read_risk
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
     TERMINAL_PAPER_STATES,
@@ -69,6 +70,16 @@ from empirical_platform.decision_candidate.paper_execution import (
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.entry_risk_schema import (
+    V1_RISK_CONTRACT,
+    V1_RISK_TABLES,
+)
+from empirical_platform.shared.persistence.postgres_repositories.entry_risk_storage import (
+    configuration_risk,
+    encode_risk,
+    preview_risk,
+    risk_insert,
+)
 from empirical_platform.shared.persistence.postgres_repositories.paper_schema_contract import (
     M085_CONTRACT,
     M085_CONTRACT_SELECT,
@@ -171,7 +182,7 @@ def require_exact_m085_schema_head(service: PostgresPersistenceService) -> str:
 #: RELEASE v1's own `approved_plan` migration, additively stacked on M090 or M087 or M085
 #: in the SAME `migrations/` chain (Store A). An explicit allowlist of exactly one value --
 #: updating it to a later value is a deliberate, reviewed code change, never automatic.
-V1_INTEGRATED_SCHEMA_HEAD = "b9f2c4d6" + "a8e1"
+V1_INTEGRATED_SCHEMA_HEAD = "c6e2a4f8" + "b901"
 
 #: The M085 tables Paper execution actually reads and writes, proven present by name
 #: before any repository or broker client is built. The SAME enumeration
@@ -287,7 +298,10 @@ def require_v1_integrated_schema_compatibility(service: PostgresPersistenceServi
             revision_rows = list(work.execute(_SCHEMA_HEAD_SELECT))
             table_rows = list(work.execute(_PUBLIC_TABLES_SELECT))
             contract_rows = list(
-                work.execute(M085_CONTRACT_SELECT, {"tables": list(_M085_REQUIRED_TABLES)})
+                work.execute(
+                    M085_CONTRACT_SELECT,
+                    {"tables": list(set(_M085_REQUIRED_TABLES) | set(V1_RISK_TABLES))},
+                )
             )
     except Exception as error:
         raise SchemaCompatibilityError(
@@ -321,10 +335,14 @@ def require_v1_integrated_schema_compatibility(service: PostgresPersistenceServi
         )
 
     actual = {row["object_key"]: row["definition"] for row in contract_rows}
-    changed = sorted(key for key, expected in M085_CONTRACT.items() if actual.get(key) != expected)
+    changed = sorted(
+        key
+        for key, expected in (M085_CONTRACT | V1_RISK_CONTRACT).items()
+        if actual.get(key) != expected
+    )
     if changed:
         raise SchemaCompatibilityError(
-            f"required M085 schema contract is missing or changed: {changed}; "
+            f"required M085/v1 risk schema contract is missing or changed: {changed}; "
             "refusing to run paper execution against unverified invariants"
         )
 
@@ -478,15 +496,16 @@ def _refusals(row: Mapping[str, Any], field: str) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 _KILL_SWITCH_LATEST = (
-    "SELECT kill_switch_id, scope, version, engaged, changed_by, changed_at, reason "
-    "FROM public.paper_execution_kill_switch "
+    "SELECT kill_switch_id, scope, version, engaged, changed_by, "
+    "changed_at, reason FROM public.paper_execution_kill_switch "
     "WHERE scope = :scope ORDER BY version DESC LIMIT 1"
 )
 
 _KILL_SWITCH_INSERT = (
     "INSERT INTO public.paper_execution_kill_switch "
-    "(kill_switch_id, scope, version, engaged, changed_by, changed_at, reason) "
-    "VALUES (:kill_switch_id, :scope, :version, :engaged, :changed_by, :changed_at, :reason)"
+    "(kill_switch_id, scope, version, engaged, changed_by, "
+    "changed_at, reason) VALUES (:kill_switch_id, :scope, "
+    ":version, :engaged, :changed_by, :changed_at, :reason)"
 )
 
 
@@ -549,24 +568,32 @@ class PostgresExecutionKillSwitchRepository:
 # ---------------------------------------------------------------------------
 
 _ACCOUNT_INSERT = (
-    "INSERT INTO public.paper_account_snapshot "
-    "(snapshot_id, environment, endpoint_host, account_reference, account_status, currency, "
-    "buying_power, cash, equity, multiplier, shorting_enabled, trading_blocked, "
-    "transfers_blocked, account_blocked, trade_suspended_by_user, captured_at) "
-    "VALUES (:snapshot_id, :environment, :endpoint_host, :account_reference, :account_status, "
-    ":currency, :buying_power, :cash, :equity, :multiplier, :shorting_enabled, "
-    ":trading_blocked, :transfers_blocked, :account_blocked, :trade_suspended_by_user, "
-    ":captured_at) "
-    "RETURNING snapshot_id, environment, endpoint_host, account_reference, account_status, "
-    "currency, buying_power, cash, equity, multiplier, shorting_enabled, trading_blocked, "
-    "transfers_blocked, account_blocked, trade_suspended_by_user, captured_at"
+    "INSERT INTO public.paper_account_snapshot (snapshot_id, "
+    "environment, endpoint_host, account_reference, "
+    "account_status, currency, buying_power, cash, equity, "
+    "multiplier, shorting_enabled, trading_blocked, "
+    "transfers_blocked, account_blocked, "
+    "trade_suspended_by_user, captured_at) VALUES (:snapshot_id, "
+    ":environment, :endpoint_host, :account_reference, "
+    ":account_status, :currency, :buying_power, :cash, :equity, "
+    ":multiplier, :shorting_enabled, :trading_blocked, "
+    ":transfers_blocked, :account_blocked, "
+    ":trade_suspended_by_user, :captured_at) RETURNING "
+    "snapshot_id, environment, endpoint_host, account_reference, "
+    "account_status, currency, buying_power, cash, equity, "
+    "multiplier, shorting_enabled, trading_blocked, "
+    "transfers_blocked, account_blocked, "
+    "trade_suspended_by_user, captured_at"
 )
 
 _ACCOUNT_SELECT = (
-    "SELECT snapshot_id, environment, endpoint_host, account_reference, account_status, "
-    "currency, buying_power, cash, equity, multiplier, shorting_enabled, trading_blocked, "
-    "transfers_blocked, account_blocked, trade_suspended_by_user, captured_at "
-    "FROM public.paper_account_snapshot WHERE snapshot_id = :snapshot_id"
+    "SELECT snapshot_id, environment, endpoint_host, "
+    "account_reference, account_status, currency, buying_power, "
+    "cash, equity, multiplier, shorting_enabled, "
+    "trading_blocked, transfers_blocked, account_blocked, "
+    "trade_suspended_by_user, captured_at FROM "
+    "public.paper_account_snapshot WHERE snapshot_id = "
+    ":snapshot_id"
 )
 
 
@@ -635,77 +662,107 @@ class PostgresPaperAccountSnapshotRepository:
 # ---------------------------------------------------------------------------
 
 _PREVIEW_INSERT = (
-    "INSERT INTO public.paper_submission_preview "
-    "(preview_id, intent_governance_id, preview_version, account_snapshot_id, "
-    "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
-    "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
-    "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
-    "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
-    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
-    "binding_fingerprint) "
-    "VALUES (:preview_id, :intent_governance_id, :preview_version, :account_snapshot_id, "
-    ":account_reference, :symbol, :side, :quantity, :order_type, :limit_price, "
-    ":time_in_force, :extended_hours, :client_order_id, :request_fingerprint, "
-    ":approved_fingerprint, :market_is_open, :market_next_open, :market_next_close, "
-    ":quote_bid, :quote_ask, :quote_captured_at, :quote_source, :asset_tradable, "
-    ":asset_status, :asset_class, :asset_exchange, :asset_fractionable, :refusals, "
-    ":created_at, :configuration_governance_id, :configuration_version, "
-    ":policy_fingerprint, :maximum_notional, :quote_maximum_age_seconds, "
-    ":maximum_spread_percent, :policy_watchlist, :policy_prohibited_instruments, "
-    ":earliest_entry_time, :latest_entry_time, :operator_timezone, :intent_expires_at, "
-    ":binding_fingerprint) "
-    "RETURNING preview_id, intent_governance_id, preview_version, account_snapshot_id, "
-    "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
-    "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
-    "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
-    "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
-    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
-    "binding_fingerprint"
+    "INSERT INTO public.paper_submission_preview (preview_id, "
+    "intent_governance_id, preview_version, account_snapshot_id, "
+    "account_reference, symbol, side, quantity, order_type, "
+    "limit_price, time_in_force, extended_hours, "
+    "client_order_id, request_fingerprint, approved_fingerprint, "
+    "market_is_open, market_next_open, market_next_close, "
+    "quote_bid, quote_ask, quote_captured_at, quote_source, "
+    "asset_tradable, asset_status, asset_class, asset_exchange, "
+    "asset_fractionable, refusals, created_at, "
+    "configuration_governance_id, configuration_version, "
+    "policy_fingerprint, maximum_notional, "
+    "quote_maximum_age_seconds, maximum_spread_percent, "
+    "policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, "
+    "intent_expires_at, binding_fingerprint) VALUES "
+    "(:preview_id, :intent_governance_id, :preview_version, "
+    ":account_snapshot_id, :account_reference, :symbol, :side, "
+    ":quantity, :order_type, :limit_price, :time_in_force, "
+    ":extended_hours, :client_order_id, :request_fingerprint, "
+    ":approved_fingerprint, :market_is_open, :market_next_open, "
+    ":market_next_close, :quote_bid, :quote_ask, "
+    ":quote_captured_at, :quote_source, :asset_tradable, "
+    ":asset_status, :asset_class, :asset_exchange, "
+    ":asset_fractionable, :refusals, :created_at, "
+    ":configuration_governance_id, :configuration_version, "
+    ":policy_fingerprint, :maximum_notional, "
+    ":quote_maximum_age_seconds, :maximum_spread_percent, "
+    ":policy_watchlist, :policy_prohibited_instruments, "
+    ":earliest_entry_time, :latest_entry_time, "
+    ":operator_timezone, :intent_expires_at, "
+    ":binding_fingerprint) RETURNING preview_id, "
+    "intent_governance_id, preview_version, account_snapshot_id, "
+    "account_reference, symbol, side, quantity, order_type, "
+    "limit_price, time_in_force, extended_hours, "
+    "client_order_id, request_fingerprint, approved_fingerprint, "
+    "market_is_open, market_next_open, market_next_close, "
+    "quote_bid, quote_ask, quote_captured_at, quote_source, "
+    "asset_tradable, asset_status, asset_class, asset_exchange, "
+    "asset_fractionable, refusals, created_at, "
+    "configuration_governance_id, configuration_version, "
+    "policy_fingerprint, maximum_notional, "
+    "quote_maximum_age_seconds, maximum_spread_percent, "
+    "policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, "
+    "intent_expires_at, binding_fingerprint, "
+    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
+    "risk_contract"
 )
 
 _PREVIEW_SELECT_BY_ID = (
-    "SELECT preview_id, intent_governance_id, preview_version, account_snapshot_id, "
-    "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
-    "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
-    "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
-    "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
-    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
-    "binding_fingerprint "
-    "FROM public.paper_submission_preview WHERE preview_id = :preview_id"
+    "SELECT preview_id, intent_governance_id, preview_version, "
+    "account_snapshot_id, account_reference, symbol, side, "
+    "quantity, order_type, limit_price, time_in_force, "
+    "extended_hours, client_order_id, request_fingerprint, "
+    "approved_fingerprint, market_is_open, market_next_open, "
+    "market_next_close, quote_bid, quote_ask, quote_captured_at, "
+    "quote_source, asset_tradable, asset_status, asset_class, "
+    "asset_exchange, asset_fractionable, refusals, created_at, "
+    "configuration_governance_id, configuration_version, "
+    "policy_fingerprint, maximum_notional, "
+    "quote_maximum_age_seconds, maximum_spread_percent, "
+    "policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, "
+    "intent_expires_at, binding_fingerprint, "
+    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
+    "risk_contract FROM public.paper_submission_preview WHERE "
+    "preview_id = :preview_id"
 )
 
 _PREVIEW_SELECT_LATEST = (
-    "SELECT preview_id, intent_governance_id, preview_version, account_snapshot_id, "
-    "account_reference, symbol, side, quantity, order_type, limit_price, time_in_force, "
-    "extended_hours, client_order_id, request_fingerprint, approved_fingerprint, "
-    "market_is_open, market_next_open, market_next_close, quote_bid, quote_ask, "
-    "quote_captured_at, quote_source, asset_tradable, asset_status, asset_class, "
-    "asset_exchange, asset_fractionable, refusals, created_at, configuration_governance_id, "
-    "configuration_version, policy_fingerprint, maximum_notional, quote_maximum_age_seconds, "
-    "maximum_spread_percent, policy_watchlist, policy_prohibited_instruments, "
-    "earliest_entry_time, latest_entry_time, operator_timezone, intent_expires_at, "
-    "binding_fingerprint "
-    "FROM public.paper_submission_preview WHERE intent_governance_id = :intent "
-    "ORDER BY preview_version DESC LIMIT 1"
+    "SELECT preview_id, intent_governance_id, preview_version, "
+    "account_snapshot_id, account_reference, symbol, side, "
+    "quantity, order_type, limit_price, time_in_force, "
+    "extended_hours, client_order_id, request_fingerprint, "
+    "approved_fingerprint, market_is_open, market_next_open, "
+    "market_next_close, quote_bid, quote_ask, quote_captured_at, "
+    "quote_source, asset_tradable, asset_status, asset_class, "
+    "asset_exchange, asset_fractionable, refusals, created_at, "
+    "configuration_governance_id, configuration_version, "
+    "policy_fingerprint, maximum_notional, "
+    "quote_maximum_age_seconds, maximum_spread_percent, "
+    "policy_watchlist, policy_prohibited_instruments, "
+    "earliest_entry_time, latest_entry_time, operator_timezone, "
+    "intent_expires_at, binding_fingerprint, "
+    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
+    "risk_contract FROM public.paper_submission_preview WHERE "
+    "intent_governance_id = :intent ORDER BY preview_version "
+    "DESC LIMIT 1"
 )
 
 _PREVIEW_MAX_VERSION = (
-    "SELECT COALESCE(MAX(preview_version), 0) AS highest "
-    "FROM public.paper_submission_preview WHERE intent_governance_id = :intent"
+    "SELECT COALESCE(MAX(preview_version), 0) AS highest, "
+    "to_jsonb(paper_submission_preview)->'risk_contract' AS "
+    "risk_contract FROM public.paper_submission_preview WHERE "
+    "intent_governance_id = :intent"
 )
 
 
 def _row_to_policy(row: Mapping[str, Any]) -> ExecutionPolicy:
     policy = ExecutionPolicy(
+        **configuration_risk(dict(row)),
         configuration_governance_id=_str(row, "configuration_governance_id"),
         configuration_version=_int(row, "configuration_version"),
         maximum_notional=_decimal(row, "maximum_notional"),
@@ -731,6 +788,7 @@ def _row_to_preview(row: Mapping[str, Any]) -> SubmissionPreview:
 
 def _build_preview(row: Mapping[str, Any]) -> SubmissionPreview:
     return SubmissionPreview(
+        entry_risk=read_risk((row.get("risk_contract") or {}).get("entry")),
         preview_id=_str(row, "preview_id"),
         intent_governance_id=_str(row, "intent_governance_id"),
         preview_version=_int(row, "preview_version"),
@@ -778,8 +836,9 @@ class PostgresSubmissionPreviewRepository:
     def save(self, preview: SubmissionPreview) -> SubmissionPreview:
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                _PREVIEW_INSERT,
+                risk_insert(_PREVIEW_INSERT, preview_risk(preview)),
                 {
+                    "risk_contract": preview_risk(preview),
                     "preview_id": preview.preview_id,
                     "intent_governance_id": preview.intent_governance_id,
                     "preview_version": preview.preview_version,
@@ -848,71 +907,99 @@ class PostgresSubmissionPreviewRepository:
 
 _AUTHORIZATION_INSERT = (
     "INSERT INTO public.paper_execution_authorization "
-    "(authorization_id, intent_governance_id, preview_id, preview_version, "
-    "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
-    "configuration_governance_id, configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint) "
-    "VALUES (:authorization_id, :intent_governance_id, :preview_id, :preview_version, "
-    ":request_fingerprint, :account_reference, :client_order_id, :authorized_by, "
-    ":authorized_at, :expires_at, :consumed_at, :consumed_by_attempt_id, "
-    ":basis_host_at, :basis_broker_earliest_at, :basis_host_requested_at, "
-    ":basis_broker_latest_at, :symbol, :side, :quantity, :order_type, :limit_price, "
-    ":maximum_notional, :quote_bid, :quote_ask, :quote_captured_at, "
-    ":configuration_governance_id, :configuration_version, :policy_fingerprint, "
-    ":preview_binding_fingerprint) "
-    "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
-    "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
-    "configuration_governance_id, configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint"
+    "(authorization_id, intent_governance_id, preview_id, "
+    "preview_version, request_fingerprint, account_reference, "
+    "client_order_id, authorized_by, authorized_at, expires_at, "
+    "consumed_at, consumed_by_attempt_id, basis_host_at, "
+    "basis_broker_earliest_at, basis_host_requested_at, "
+    "basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, "
+    "quote_captured_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint) VALUES (:authorization_id, "
+    ":intent_governance_id, :preview_id, :preview_version, "
+    ":request_fingerprint, :account_reference, :client_order_id, "
+    ":authorized_by, :authorized_at, :expires_at, :consumed_at, "
+    ":consumed_by_attempt_id, :basis_host_at, "
+    ":basis_broker_earliest_at, :basis_host_requested_at, "
+    ":basis_broker_latest_at, :symbol, :side, :quantity, "
+    ":order_type, :limit_price, :maximum_notional, :quote_bid, "
+    ":quote_ask, :quote_captured_at, "
+    ":configuration_governance_id, :configuration_version, "
+    ":policy_fingerprint, :preview_binding_fingerprint) "
+    "RETURNING authorization_id, intent_governance_id, "
+    "preview_id, preview_version, request_fingerprint, "
+    "account_reference, client_order_id, authorized_by, "
+    "authorized_at, expires_at, consumed_at, "
+    "consumed_by_attempt_id, basis_host_at, "
+    "basis_broker_earliest_at, basis_host_requested_at, "
+    "basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, "
+    "quote_captured_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint, "
+    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
+    "risk_contract"
 )
 
 _AUTHORIZATION_SELECT_BY_ID = (
-    "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
-    "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
-    "configuration_governance_id, configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint "
-    "FROM public.paper_execution_authorization WHERE authorization_id = :authorization_id"
+    "SELECT authorization_id, intent_governance_id, preview_id, "
+    "preview_version, request_fingerprint, account_reference, "
+    "client_order_id, authorized_by, authorized_at, expires_at, "
+    "consumed_at, consumed_by_attempt_id, basis_host_at, "
+    "basis_broker_earliest_at, basis_host_requested_at, "
+    "basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, "
+    "quote_captured_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint, "
+    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
+    "risk_contract FROM public.paper_execution_authorization "
+    "WHERE authorization_id = :authorization_id"
 )
 
 _AUTHORIZATION_SELECT_LATEST = (
-    "SELECT authorization_id, intent_governance_id, preview_id, preview_version, "
-    "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
-    "configuration_governance_id, configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint "
-    "FROM public.paper_execution_authorization WHERE intent_governance_id = :intent "
-    "ORDER BY authorized_at DESC, authorization_id DESC LIMIT 1"
+    "SELECT authorization_id, intent_governance_id, preview_id, "
+    "preview_version, request_fingerprint, account_reference, "
+    "client_order_id, authorized_by, authorized_at, expires_at, "
+    "consumed_at, consumed_by_attempt_id, basis_host_at, "
+    "basis_broker_earliest_at, basis_host_requested_at, "
+    "basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, "
+    "quote_captured_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint, "
+    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
+    "risk_contract FROM public.paper_execution_authorization "
+    "WHERE intent_governance_id = :intent ORDER BY authorized_at "
+    "DESC, authorization_id DESC LIMIT 1"
 )
 
 #: The exactly-once statement. `consumed_at IS NULL` is the entire race
 #: mechanism: the second worker updates zero rows and gets nothing back.
 _AUTHORIZATION_CONSUME = (
-    "UPDATE public.paper_execution_authorization "
-    "SET consumed_at = :claimed_at, consumed_by_attempt_id = :attempt_id "
-    "WHERE authorization_id = :authorization_id AND consumed_at IS NULL "
-    "RETURNING authorization_id, intent_governance_id, preview_id, preview_version, "
-    "request_fingerprint, account_reference, client_order_id, authorized_by, authorized_at, "
-    "expires_at, consumed_at, consumed_by_attempt_id, basis_host_at, basis_broker_earliest_at, "
-    "basis_host_requested_at, basis_broker_latest_at, symbol, side, quantity, order_type, "
-    "limit_price, maximum_notional, quote_bid, quote_ask, quote_captured_at, "
-    "configuration_governance_id, configuration_version, policy_fingerprint, "
-    "preview_binding_fingerprint"
+    "UPDATE public.paper_execution_authorization SET consumed_at "
+    "= :claimed_at, consumed_by_attempt_id = :attempt_id WHERE "
+    "authorization_id = :authorization_id AND consumed_at IS "
+    "NULL RETURNING authorization_id, intent_governance_id, "
+    "preview_id, preview_version, request_fingerprint, "
+    "account_reference, client_order_id, authorized_by, "
+    "authorized_at, expires_at, consumed_at, "
+    "consumed_by_attempt_id, basis_host_at, "
+    "basis_broker_earliest_at, basis_host_requested_at, "
+    "basis_broker_latest_at, symbol, side, quantity, order_type, "
+    "limit_price, maximum_notional, quote_bid, quote_ask, "
+    "quote_captured_at, configuration_governance_id, "
+    "configuration_version, policy_fingerprint, "
+    "preview_binding_fingerprint, "
+    "to_jsonb(paper_execution_authorization)->'risk_contract' AS "
+    "risk_contract"
 )
 
 
 def _row_to_authorization(row: Mapping[str, Any]) -> ExecutionAuthorization:
     return ExecutionAuthorization(
+        entry_risk=read_risk(row.get("risk_contract")),
         authorization_id=_str(row, "authorization_id"),
         intent_governance_id=_str(row, "intent_governance_id"),
         preview_id=_str(row, "preview_id"),
@@ -956,8 +1043,9 @@ class PostgresExecutionAuthorizationRepository:
     def save(self, authorization: ExecutionAuthorization) -> ExecutionAuthorization:
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                _AUTHORIZATION_INSERT,
+                risk_insert(_AUTHORIZATION_INSERT, encode_risk(authorization.entry_risk)),
                 {
+                    "risk_contract": encode_risk(authorization.entry_risk),
                     "authorization_id": authorization.authorization_id,
                     "intent_governance_id": authorization.intent_governance_id,
                     "preview_id": authorization.preview_id,
@@ -1011,47 +1099,58 @@ class PostgresExecutionAuthorizationRepository:
 # ---------------------------------------------------------------------------
 
 _ATTEMPT_INSERT = (
-    "INSERT INTO public.paper_execution_attempt "
-    "(attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "request_fingerprint, state, claimed_at, submitted_at, acknowledged_at, terminal_at, "
-    "broker_order_id, broker_status, filled_quantity, filled_avg_price, failure_code, "
-    "failure_detail) "
-    "VALUES (:attempt_id, :intent_governance_id, :authorization_id, :client_order_id, "
-    ":request_fingerprint, :state, :claimed_at, NULL, NULL, NULL, NULL, NULL, NULL, NULL, "
-    "NULL, NULL) "
-    "RETURNING attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "request_fingerprint, state, claimed_at, submitted_at, acknowledged_at, terminal_at, "
-    "broker_order_id, broker_status, filled_quantity, filled_avg_price, failure_code, "
-    "failure_detail"
+    "INSERT INTO public.paper_execution_attempt (attempt_id, "
+    "intent_governance_id, authorization_id, client_order_id, "
+    "request_fingerprint, state, claimed_at, submitted_at, "
+    "acknowledged_at, terminal_at, broker_order_id, "
+    "broker_status, filled_quantity, filled_avg_price, "
+    "failure_code, failure_detail) VALUES (:attempt_id, "
+    ":intent_governance_id, :authorization_id, :client_order_id, "
+    ":request_fingerprint, :state, :claimed_at, NULL, NULL, "
+    "NULL, NULL, NULL, NULL, NULL, NULL, NULL) RETURNING "
+    "attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, request_fingerprint, state, claimed_at, "
+    "submitted_at, acknowledged_at, terminal_at, "
+    "broker_order_id, broker_status, filled_quantity, "
+    "filled_avg_price, failure_code, failure_detail"
 )
 
 _ATTEMPT_SELECT_BY_ID = (
-    "SELECT attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "request_fingerprint, state, claimed_at, submitted_at, acknowledged_at, terminal_at, "
-    "broker_order_id, broker_status, filled_quantity, filled_avg_price, failure_code, "
-    "failure_detail FROM public.paper_execution_attempt WHERE attempt_id = :key"
+    "SELECT attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, request_fingerprint, state, claimed_at, "
+    "submitted_at, acknowledged_at, terminal_at, "
+    "broker_order_id, broker_status, filled_quantity, "
+    "filled_avg_price, failure_code, failure_detail FROM "
+    "public.paper_execution_attempt WHERE attempt_id = :key"
 )
 
 _ATTEMPT_SELECT_BY_INTENT = (
-    "SELECT attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "request_fingerprint, state, claimed_at, submitted_at, acknowledged_at, terminal_at, "
-    "broker_order_id, broker_status, filled_quantity, filled_avg_price, failure_code, "
-    "failure_detail FROM public.paper_execution_attempt WHERE intent_governance_id = :key"
+    "SELECT attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, request_fingerprint, state, claimed_at, "
+    "submitted_at, acknowledged_at, terminal_at, "
+    "broker_order_id, broker_status, filled_quantity, "
+    "filled_avg_price, failure_code, failure_detail FROM "
+    "public.paper_execution_attempt WHERE intent_governance_id = "
+    ":key"
 )
 
 _ATTEMPT_SELECT_BY_CLIENT_ORDER_ID = (
-    "SELECT attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "request_fingerprint, state, claimed_at, submitted_at, acknowledged_at, terminal_at, "
-    "broker_order_id, broker_status, filled_quantity, filled_avg_price, failure_code, "
-    "failure_detail FROM public.paper_execution_attempt WHERE client_order_id = :key"
+    "SELECT attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, request_fingerprint, state, claimed_at, "
+    "submitted_at, acknowledged_at, terminal_at, "
+    "broker_order_id, broker_status, filled_quantity, "
+    "filled_avg_price, failure_code, failure_detail FROM "
+    "public.paper_execution_attempt WHERE client_order_id = :key"
 )
 
 _ATTEMPT_SELECT_RECENT = (
-    "SELECT attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "request_fingerprint, state, claimed_at, submitted_at, acknowledged_at, terminal_at, "
-    "broker_order_id, broker_status, filled_quantity, filled_avg_price, failure_code, "
-    "failure_detail FROM public.paper_execution_attempt "
-    "ORDER BY claimed_at DESC, attempt_id DESC LIMIT :limit"
+    "SELECT attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, request_fingerprint, state, claimed_at, "
+    "submitted_at, acknowledged_at, terminal_at, "
+    "broker_order_id, broker_status, filled_quantity, "
+    "filled_avg_price, failure_code, failure_detail FROM "
+    "public.paper_execution_attempt ORDER BY claimed_at DESC, "
+    "attempt_id DESC LIMIT :limit"
 )
 
 #: COALESCE on every broker column so that a later observation never blanks an
@@ -1063,22 +1162,24 @@ _ATTEMPT_SELECT_RECENT = (
 #: refuses rewriting them. `broker_order_id` still prefers the new value, so a broker
 #: that changes its answer is refused by the guard rather than silently ignored.
 _ATTEMPT_TRANSITION = (
-    "UPDATE public.paper_execution_attempt SET "
-    "state = :state, "
+    "UPDATE public.paper_execution_attempt SET state = :state, "
     "submitted_at = COALESCE(submitted_at, :submitted_at), "
-    "acknowledged_at = COALESCE(acknowledged_at, :acknowledged_at), "
-    "terminal_at = :terminal_at, "
-    "broker_order_id = COALESCE(:broker_order_id, broker_order_id), "
-    "broker_status = COALESCE(:broker_status, broker_status), "
-    "filled_quantity = COALESCE(CAST(:filled_quantity AS numeric), filled_quantity), "
-    "filled_avg_price = COALESCE(CAST(:filled_avg_price AS numeric), filled_avg_price), "
-    "failure_code = COALESCE(:failure_code, failure_code), "
-    "failure_detail = COALESCE(:failure_detail, failure_detail) "
-    "WHERE attempt_id = :attempt_id "
-    "RETURNING attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "request_fingerprint, state, claimed_at, submitted_at, acknowledged_at, terminal_at, "
-    "broker_order_id, broker_status, filled_quantity, filled_avg_price, failure_code, "
-    "failure_detail"
+    "acknowledged_at = COALESCE(acknowledged_at, "
+    ":acknowledged_at), terminal_at = :terminal_at, "
+    "broker_order_id = COALESCE(:broker_order_id, "
+    "broker_order_id), broker_status = COALESCE(:broker_status, "
+    "broker_status), filled_quantity = "
+    "COALESCE(CAST(:filled_quantity AS numeric), "
+    "filled_quantity), filled_avg_price = "
+    "COALESCE(CAST(:filled_avg_price AS numeric), "
+    "filled_avg_price), failure_code = COALESCE(:failure_code, "
+    "failure_code), failure_detail = COALESCE(:failure_detail, "
+    "failure_detail) WHERE attempt_id = :attempt_id RETURNING "
+    "attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, request_fingerprint, state, claimed_at, "
+    "submitted_at, acknowledged_at, terminal_at, "
+    "broker_order_id, broker_status, filled_quantity, "
+    "filled_avg_price, failure_code, failure_detail"
 )
 
 
@@ -1308,25 +1409,30 @@ class PostgresExecutionAttemptRepository:
 
 _ACKNOWLEDGEMENT_INSERT = (
     "INSERT INTO public.paper_broker_acknowledgement "
-    "(acknowledgement_id, attempt_id, sequence, kind, observed_at, http_status, "
-    "broker_order_id, broker_status, client_order_id_echo, payload_digest, sanitized_payload) "
-    "VALUES (:acknowledgement_id, :attempt_id, :sequence, :kind, :observed_at, :http_status, "
-    ":broker_order_id, :broker_status, :client_order_id_echo, :payload_digest, "
-    ":sanitized_payload) "
-    "RETURNING acknowledgement_id, attempt_id, sequence, kind, observed_at, http_status, "
-    "broker_order_id, broker_status, client_order_id_echo, payload_digest, sanitized_payload"
+    "(acknowledgement_id, attempt_id, sequence, kind, "
+    "observed_at, http_status, broker_order_id, broker_status, "
+    "client_order_id_echo, payload_digest, sanitized_payload) "
+    "VALUES (:acknowledgement_id, :attempt_id, :sequence, :kind, "
+    ":observed_at, :http_status, :broker_order_id, "
+    ":broker_status, :client_order_id_echo, :payload_digest, "
+    ":sanitized_payload) RETURNING acknowledgement_id, "
+    "attempt_id, sequence, kind, observed_at, http_status, "
+    "broker_order_id, broker_status, client_order_id_echo, "
+    "payload_digest, sanitized_payload"
 )
 
 _ACKNOWLEDGEMENT_SELECT = (
-    "SELECT acknowledgement_id, attempt_id, sequence, kind, observed_at, http_status, "
-    "broker_order_id, broker_status, client_order_id_echo, payload_digest, sanitized_payload "
-    "FROM public.paper_broker_acknowledgement WHERE attempt_id = :attempt_id "
-    "ORDER BY sequence ASC"
+    "SELECT acknowledgement_id, attempt_id, sequence, kind, "
+    "observed_at, http_status, broker_order_id, broker_status, "
+    "client_order_id_echo, payload_digest, sanitized_payload "
+    "FROM public.paper_broker_acknowledgement WHERE attempt_id = "
+    ":attempt_id ORDER BY sequence ASC"
 )
 
 _ACKNOWLEDGEMENT_MAX_SEQUENCE = (
-    "SELECT COALESCE(MAX(sequence), 0) AS highest "
-    "FROM public.paper_broker_acknowledgement WHERE attempt_id = :attempt_id"
+    "SELECT COALESCE(MAX(sequence), 0) AS highest FROM "
+    "public.paper_broker_acknowledgement WHERE attempt_id = "
+    ":attempt_id"
 )
 
 
@@ -1392,16 +1498,19 @@ class PostgresBrokerAcknowledgementRepository:
 # ---------------------------------------------------------------------------
 
 _EVENT_INSERT = (
-    "INSERT INTO public.paper_execution_event "
-    "(event_id, intent_governance_id, attempt_id, event_type, occurred_at, detail) "
-    "VALUES (:event_id, :intent_governance_id, :attempt_id, :event_type, :occurred_at, :detail) "
-    "RETURNING event_id, intent_governance_id, attempt_id, event_type, occurred_at, detail"
+    "INSERT INTO public.paper_execution_event (event_id, "
+    "intent_governance_id, attempt_id, event_type, occurred_at, "
+    "detail) VALUES (:event_id, :intent_governance_id, "
+    ":attempt_id, :event_type, :occurred_at, :detail) RETURNING "
+    "event_id, intent_governance_id, attempt_id, event_type, "
+    "occurred_at, detail"
 )
 
 _EVENT_SELECT = (
-    "SELECT event_id, intent_governance_id, attempt_id, event_type, occurred_at, detail "
-    "FROM public.paper_execution_event WHERE intent_governance_id = :intent "
-    "ORDER BY occurred_at ASC, event_id ASC"
+    "SELECT event_id, intent_governance_id, attempt_id, "
+    "event_type, occurred_at, detail FROM "
+    "public.paper_execution_event WHERE intent_governance_id = "
+    ":intent ORDER BY occurred_at ASC, event_id ASC"
 )
 
 
@@ -1453,23 +1562,31 @@ class PostgresPaperExecutionEventRepository:
 
 _INTENT_TIME_BASIS_INSERT = (
     "INSERT INTO public.paper_intent_time_basis "
-    "(intent_governance_id, approved_fingerprint, intent_created_at, intent_expires_at, "
-    "intent_mandatory_liquidation_at, broker_endpoint_host, basis_host_requested_at, "
-    "basis_host_at, basis_broker_earliest_at, basis_broker_latest_at) "
-    "VALUES (:intent_governance_id, :approved_fingerprint, :intent_created_at, "
-    ":intent_expires_at, :intent_mandatory_liquidation_at, :broker_endpoint_host, "
-    ":basis_host_requested_at, :basis_host_at, :basis_broker_earliest_at, "
-    ":basis_broker_latest_at) "
-    "RETURNING intent_governance_id, approved_fingerprint, intent_created_at, "
-    "intent_expires_at, intent_mandatory_liquidation_at, broker_endpoint_host, "
-    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at"
+    "(intent_governance_id, approved_fingerprint, "
+    "intent_created_at, intent_expires_at, "
+    "intent_mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, "
+    "basis_broker_earliest_at, basis_broker_latest_at) VALUES "
+    "(:intent_governance_id, :approved_fingerprint, "
+    ":intent_created_at, :intent_expires_at, "
+    ":intent_mandatory_liquidation_at, :broker_endpoint_host, "
+    ":basis_host_requested_at, :basis_host_at, "
+    ":basis_broker_earliest_at, :basis_broker_latest_at) "
+    "RETURNING intent_governance_id, approved_fingerprint, "
+    "intent_created_at, intent_expires_at, "
+    "intent_mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, "
+    "basis_broker_earliest_at, basis_broker_latest_at"
 )
 
 _INTENT_TIME_BASIS_SELECT = (
-    "SELECT intent_governance_id, approved_fingerprint, intent_created_at, "
-    "intent_expires_at, intent_mandatory_liquidation_at, broker_endpoint_host, "
-    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at "
-    "FROM public.paper_intent_time_basis WHERE intent_governance_id = :intent"
+    "SELECT intent_governance_id, approved_fingerprint, "
+    "intent_created_at, intent_expires_at, "
+    "intent_mandatory_liquidation_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, "
+    "basis_broker_earliest_at, basis_broker_latest_at FROM "
+    "public.paper_intent_time_basis WHERE intent_governance_id = "
+    ":intent"
 )
 
 
@@ -1490,45 +1607,64 @@ def _row_to_intent_time_basis(row: Mapping[str, Any]) -> IntentTimeBasis:
 
 _PROPOSAL_TIME_BASIS_INSERT = (
     "INSERT INTO public.paper_proposal_time_basis "
-    "(proposal_governance_id, proposal_version, content_fingerprint, proposal_created_at, "
-    "proposal_expires_at, mandatory_liquidation_at, broker_endpoint_host, "
-    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at) "
-    "VALUES (:proposal_governance_id, :proposal_version, :content_fingerprint, "
-    ":proposal_created_at, :proposal_expires_at, :mandatory_liquidation_at, "
-    ":broker_endpoint_host, :basis_host_requested_at, :basis_host_at, "
+    "(proposal_governance_id, proposal_version, "
+    "content_fingerprint, proposal_created_at, "
+    "proposal_expires_at, mandatory_liquidation_at, "
+    "broker_endpoint_host, basis_host_requested_at, "
+    "basis_host_at, basis_broker_earliest_at, "
+    "basis_broker_latest_at) VALUES (:proposal_governance_id, "
+    ":proposal_version, :content_fingerprint, "
+    ":proposal_created_at, :proposal_expires_at, "
+    ":mandatory_liquidation_at, :broker_endpoint_host, "
+    ":basis_host_requested_at, :basis_host_at, "
     ":basis_broker_earliest_at, :basis_broker_latest_at) "
-    "RETURNING proposal_governance_id, proposal_version, content_fingerprint, "
-    "proposal_created_at, proposal_expires_at, mandatory_liquidation_at, broker_endpoint_host, "
-    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at"
+    "RETURNING proposal_governance_id, proposal_version, "
+    "content_fingerprint, proposal_created_at, "
+    "proposal_expires_at, mandatory_liquidation_at, "
+    "broker_endpoint_host, basis_host_requested_at, "
+    "basis_host_at, basis_broker_earliest_at, "
+    "basis_broker_latest_at"
 )
 
 _PROPOSAL_TIME_BASIS_SELECT = (
-    "SELECT proposal_governance_id, proposal_version, content_fingerprint, "
-    "proposal_created_at, proposal_expires_at, mandatory_liquidation_at, broker_endpoint_host, "
-    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at "
-    "FROM public.paper_proposal_time_basis "
-    "WHERE proposal_governance_id = :proposal AND proposal_version = :version"
+    "SELECT proposal_governance_id, proposal_version, "
+    "content_fingerprint, proposal_created_at, "
+    "proposal_expires_at, mandatory_liquidation_at, "
+    "broker_endpoint_host, basis_host_requested_at, "
+    "basis_host_at, basis_broker_earliest_at, "
+    "basis_broker_latest_at FROM "
+    "public.paper_proposal_time_basis WHERE "
+    "proposal_governance_id = :proposal AND proposal_version = "
+    ":version"
 )
 
 _DECISION_TIME_BASIS_INSERT = (
     "INSERT INTO public.paper_decision_time_basis "
-    "(decision_governance_id, proposal_governance_id, proposal_version, approved_fingerprint, "
-    "decided_at, decision_expires_at, broker_endpoint_host, basis_host_requested_at, "
-    "basis_host_at, basis_broker_earliest_at, basis_broker_latest_at) "
-    "VALUES (:decision_governance_id, :proposal_governance_id, :proposal_version, "
-    ":approved_fingerprint, :decided_at, :decision_expires_at, :broker_endpoint_host, "
-    ":basis_host_requested_at, :basis_host_at, :basis_broker_earliest_at, "
-    ":basis_broker_latest_at) "
-    "RETURNING decision_governance_id, proposal_governance_id, proposal_version, "
-    "approved_fingerprint, decided_at, decision_expires_at, broker_endpoint_host, "
-    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at"
+    "(decision_governance_id, proposal_governance_id, "
+    "proposal_version, approved_fingerprint, decided_at, "
+    "decision_expires_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, "
+    "basis_broker_earliest_at, basis_broker_latest_at) VALUES "
+    "(:decision_governance_id, :proposal_governance_id, "
+    ":proposal_version, :approved_fingerprint, :decided_at, "
+    ":decision_expires_at, :broker_endpoint_host, "
+    ":basis_host_requested_at, :basis_host_at, "
+    ":basis_broker_earliest_at, :basis_broker_latest_at) "
+    "RETURNING decision_governance_id, proposal_governance_id, "
+    "proposal_version, approved_fingerprint, decided_at, "
+    "decision_expires_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, "
+    "basis_broker_earliest_at, basis_broker_latest_at"
 )
 
 _DECISION_TIME_BASIS_SELECT = (
-    "SELECT decision_governance_id, proposal_governance_id, proposal_version, "
-    "approved_fingerprint, decided_at, decision_expires_at, broker_endpoint_host, "
-    "basis_host_requested_at, basis_host_at, basis_broker_earliest_at, basis_broker_latest_at "
-    "FROM public.paper_decision_time_basis WHERE decision_governance_id = :decision"
+    "SELECT decision_governance_id, proposal_governance_id, "
+    "proposal_version, approved_fingerprint, decided_at, "
+    "decision_expires_at, broker_endpoint_host, "
+    "basis_host_requested_at, basis_host_at, "
+    "basis_broker_earliest_at, basis_broker_latest_at FROM "
+    "public.paper_decision_time_basis WHERE "
+    "decision_governance_id = :decision"
 )
 
 
@@ -1676,46 +1812,58 @@ class PostgresTimeBasisRepository:
 #: Serialises allocation per attempt. The UNIQUE (attempt_id, sequence) constraint is the
 #: guarantee; this lock is what turns a racing writer's failure into a wait.
 _ROUND_LOCK_ATTEMPT = (
-    "SELECT attempt_id FROM public.paper_execution_attempt "
-    "WHERE attempt_id = :attempt_id FOR UPDATE"
+    "SELECT attempt_id FROM public.paper_execution_attempt WHERE "
+    "attempt_id = :attempt_id FOR UPDATE"
 )
 _ROUND_MAX_SEQUENCE = (
-    "SELECT COALESCE(MAX(sequence), 0) AS highest "
-    "FROM public.paper_reconciliation_round WHERE attempt_id = :attempt_id"
+    "SELECT COALESCE(MAX(sequence), 0) AS highest FROM "
+    "public.paper_reconciliation_round WHERE attempt_id = "
+    ":attempt_id"
 )
 _ROUND_INSERT = (
-    "INSERT INTO public.paper_reconciliation_round "
-    "(round_id, attempt_id, intent_governance_id, authorization_id, client_order_id, "
-    "account_reference, sequence, started_at, outcome, completed_at, acknowledgement_sequence, "
-    "broker_earliest_at, broker_latest_at, detail) "
-    "VALUES (:round_id, :attempt_id, :intent_governance_id, :authorization_id, :client_order_id, "
-    ":account_reference, :sequence, :started_at, NULL, NULL, NULL, NULL, NULL, NULL) "
-    "RETURNING round_id, attempt_id, intent_governance_id, authorization_id, "
-    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
-    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail"
+    "INSERT INTO public.paper_reconciliation_round (round_id, "
+    "attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, account_reference, sequence, started_at, "
+    "outcome, completed_at, acknowledgement_sequence, "
+    "broker_earliest_at, broker_latest_at, detail) VALUES "
+    "(:round_id, :attempt_id, :intent_governance_id, "
+    ":authorization_id, :client_order_id, :account_reference, "
+    ":sequence, :started_at, NULL, NULL, NULL, NULL, NULL, NULL) "
+    "RETURNING round_id, attempt_id, intent_governance_id, "
+    "authorization_id, client_order_id, account_reference, "
+    "sequence, started_at, outcome, completed_at, "
+    "acknowledgement_sequence, broker_earliest_at, "
+    "broker_latest_at, detail"
 )
 _ROUND_SELECT_BY_ATTEMPT = (
-    "SELECT round_id, attempt_id, intent_governance_id, authorization_id, "
-    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
-    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail "
-    "FROM public.paper_reconciliation_round WHERE attempt_id = :attempt_id ORDER BY sequence ASC"
+    "SELECT round_id, attempt_id, intent_governance_id, "
+    "authorization_id, client_order_id, account_reference, "
+    "sequence, started_at, outcome, completed_at, "
+    "acknowledgement_sequence, broker_earliest_at, "
+    "broker_latest_at, detail FROM "
+    "public.paper_reconciliation_round WHERE attempt_id = "
+    ":attempt_id ORDER BY sequence ASC"
 )
 _ROUND_SELECT_BY_ID = (
-    "SELECT round_id, attempt_id, intent_governance_id, authorization_id, "
-    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
-    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail "
-    "FROM public.paper_reconciliation_round WHERE round_id = :round_id"
+    "SELECT round_id, attempt_id, intent_governance_id, "
+    "authorization_id, client_order_id, account_reference, "
+    "sequence, started_at, outcome, completed_at, "
+    "acknowledgement_sequence, broker_earliest_at, "
+    "broker_latest_at, detail FROM "
+    "public.paper_reconciliation_round WHERE round_id = :round_id"
 )
 #: Completes exactly the still-incomplete round; a completed round matches no row.
 _ROUND_COMPLETE = (
-    "UPDATE public.paper_reconciliation_round SET outcome = :outcome, "
-    "completed_at = :completed_at, acknowledgement_sequence = :acknowledgement_sequence, "
-    "broker_earliest_at = :broker_earliest_at, "
-    "broker_latest_at = :broker_latest_at, detail = :detail "
-    "WHERE round_id = :round_id AND outcome IS NULL "
-    "RETURNING round_id, attempt_id, intent_governance_id, authorization_id, "
-    "client_order_id, account_reference, sequence, started_at, outcome, completed_at, "
-    "acknowledgement_sequence, broker_earliest_at, broker_latest_at, detail"
+    "UPDATE public.paper_reconciliation_round SET outcome = "
+    ":outcome, completed_at = :completed_at, "
+    "acknowledgement_sequence = :acknowledgement_sequence, "
+    "broker_earliest_at = :broker_earliest_at, broker_latest_at "
+    "= :broker_latest_at, detail = :detail WHERE round_id = "
+    ":round_id AND outcome IS NULL RETURNING round_id, "
+    "attempt_id, intent_governance_id, authorization_id, "
+    "client_order_id, account_reference, sequence, started_at, "
+    "outcome, completed_at, acknowledgement_sequence, "
+    "broker_earliest_at, broker_latest_at, detail"
 )
 
 

@@ -31,7 +31,6 @@ from decimal import Decimal
 from enum import StrEnum
 from types import MappingProxyType
 
-from empirical_platform.decision_candidate.entry_risk_contract import EntryRiskContract
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.trade_proposal import ProposalStatus, TradeProposal
 
@@ -271,14 +270,7 @@ class ApprovedOrderIntent:
     expires_at: datetime
     submission_state: SubmissionState
 
-    entry_risk: EntryRiskContract | None = None
-
     def __post_init__(self) -> None:
-        if self.entry_risk is not None and (
-            self.entry_risk.quantity != self.quantity
-            or self.entry_risk.entry_ceiling != self.limit_price
-        ):
-            raise ValueError("intent terms differ from immutable risk contract")
         for field_name in (
             "intent_governance_id",
             "proposal_governance_id",
@@ -371,7 +363,6 @@ def build_approved_order_intent(
         raise ValueError("the approval expired before the intent was created")
 
     return ApprovedOrderIntent(
-        entry_risk=proposal.entry_risk,
         intent_governance_id=intent_governance_id,
         proposal_governance_id=proposal.proposal_governance_id,
         proposal_version=proposal.proposal_version,

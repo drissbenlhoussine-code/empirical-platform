@@ -422,6 +422,9 @@ class OpportunityCard:
     execution: ExecutionSummary | None
     scenario: str | None
 
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
+
     def state_is_settled(self) -> bool:
         """Whether this card has nothing left for the operator to see on Today."""
         if self.execution is not None:
@@ -511,6 +514,12 @@ class ConfirmationView:
     approval_expires_at: datetime | None
     ticket: str
     kill_switch_engaged: bool
+
+    stop_price: str = "Historical: not specified"
+    target_price: str = "Historical: not specified"
+    planned_loss: str = "Historical: not specified"
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -853,6 +862,8 @@ class OperatorConsoleService:
             if proposal.limit_price is not None
             else None
         )
+        if proposal.entry_risk is not None:
+            risk_amount = proposal.entry_risk.planned_loss
         risk_percent = (
             (risk_amount / proposal.estimated_total_cash_required * Decimal(100))
             if risk_amount is not None and proposal.estimated_total_cash_required > 0
@@ -869,6 +880,16 @@ class OperatorConsoleService:
             else None
         )
         return OpportunityCard(
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
             symbol=proposal.symbol,
@@ -989,6 +1010,23 @@ class OperatorConsoleService:
             issued_at=now,
         )
         return ConfirmationView(
+            stop_price=_money(proposal.stop_loss_price),
+            target_price=_money(proposal.profit_exit_price),
+            planned_loss=(
+                str(proposal.entry_risk.planned_loss)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             action=action,
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,

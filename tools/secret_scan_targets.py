@@ -268,11 +268,33 @@ def _is_a_recorded_blob_id(line: str, tracked: dict[str, str]) -> bool:
         return True
     # Owner-authorized safety supersession retains this tool's ORIGINAL digest.
     # Prove it against the archived Git blob; never clear by name/hex shape alone.
-    return (
-        match["path"] == "tools/m084_mutation_campaign.py"
-        and tracked.get("external-review/RELEASE-V1/database-safety/original-tool.py.txt")
-        == match["blob"]
-    )
+    archives = {
+        "src/empirical_platform/decision_candidate/operator_trading_configuration.py": (
+            "external-review/RELEASE-V1/risk-governance/original-operator_trading_configu"
+            "ration.py.txt"
+        ),
+        "src/empirical_platform/decision_candidate/trade_proposal.py": (
+            "external-review/RELEASE-V1/risk-governance/original-trade_proposal.py.txt"
+        ),
+        "src/empirical_platform/decision_candidate/trade_approval.py": (
+            "external-review/RELEASE-V1/risk-governance/original-trade_approval.py.txt"
+        ),
+        (
+            "src/empirical_platform/shared/persistence/postgres_repositories/decision_to_appr"
+            "oval_repositories.py"
+        ): (
+            "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_rep"
+            "ositories.py.txt"
+        ),
+        "src/empirical_platform/usecases/decision_to_approval_io.py": (
+            "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_io.py.txt"
+        ),
+        "tools/m084_mutation_campaign.py": (
+            "external-review/RELEASE-V1/database-safety/original-tool.py.txt"
+        ),
+    }
+    archived = archives.get(match["path"])
+    return archived is not None and tracked.get(archived) == match["blob"]
 
 
 def _is_known_benign_secret_finding(

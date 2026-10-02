@@ -44,7 +44,7 @@ _OPERATION = "v1.approved_plan.row_mapping"
 
 #: The ONE schema revision this code was written against: additive on the M090 head
 #: `a2b4c6d8e0f2`, in the SAME `migrations/` chain (Store A).
-V1_APPROVED_PLAN_SCHEMA_HEAD = "b9f2c4d6" + "a8e1"
+V1_APPROVED_PLAN_SCHEMA_HEAD = "c6e2a4f8" + "b901"
 _SCHEMA_HEAD_SELECT = "SELECT version_num FROM public.alembic_version"
 
 

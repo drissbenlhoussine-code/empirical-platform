@@ -181,8 +181,57 @@ SAFETY_TOOL = "tools/m084_mutation_campaign.py"
 SAFETY_RECORD = REPO_ROOT / "external-review/RELEASE-V1/database-safety/baseline.json"
 
 
+# Owner-authorized v1 compatibility supersession, 2026-10-02. Exact files only.
+RISK_RECORD = REPO_ROOT / "external-review/RELEASE-V1/risk-governance/baseline.json"
+RISK_ARCHIVES: dict[str, str] = {
+    "src/empirical_platform/decision_candidate/operator_trading_configuration.py": (
+        "external-review/RELEASE-V1/risk-governance/original-operator_trading_configuration.py.txt"
+    ),
+    "src/empirical_platform/decision_candidate/trade_proposal.py": (
+        "external-review/RELEASE-V1/risk-governance/original-trade_proposal.py.txt"
+    ),
+    "src/empirical_platform/decision_candidate/trade_approval.py": (
+        "external-review/RELEASE-V1/risk-governance/original-trade_approval.py.txt"
+    ),
+    (
+        "src/empirical_platform/shared/persistence/postgres_repositories/decision_to_appr"
+        "oval_repositories.py"
+    ): (
+        "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_rep"
+        "ositories.py.txt"
+    ),
+    "src/empirical_platform/usecases/decision_to_approval_io.py": (
+        "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_io.py.txt"
+    ),
+}
+
+
+def risk_operational_digest(path: str, historical: str | None) -> str:
+    """Require preserved original bytes and the exact superseding operational identity."""
+    record = json.loads(RISK_RECORD.read_text(encoding="utf-8"))
+    if (
+        record["kind"] != "OWNER_AUTHORIZED_RISK_COMPATIBILITY_CORRECTION"
+        or "".join(record["original_commit"]) != M084_BASE
+        or set(record["files"]) != set(RISK_ARCHIVES)
+    ):
+        raise ValueError("invalid risk compatibility supersession scope")
+    item = record["files"][path]
+    if (
+        "".join(item["original_blob"]) != historical
+        or item["historical_copy"] != RISK_ARCHIVES[path]
+        or blob_id("HEAD", RISK_ARCHIVES[path]) != historical
+    ):
+        raise ValueError("risk compatibility historical evidence changed")
+    corrected = "".join(item["corrected_blob"])
+    if re.fullmatch(r"[0-9a-f]{40}", corrected) is None or corrected == historical:
+        raise ValueError("invalid corrected risk compatibility identity")
+    return corrected
+
+
 def operational_digest(path: str, historical: str | None) -> str | None:
     """Only the exact recorded correction supersedes this tool's historical bytes."""
+    if path in RISK_ARCHIVES:
+        return risk_operational_digest(path, historical)
     if path != SAFETY_TOOL:
         return historical
     record = json.loads(SAFETY_RECORD.read_text(encoding="utf-8"))
@@ -291,7 +340,7 @@ def violations() -> dict[str, list[str]]:
             for path in paths
             if path in changed
             and not (
-                path == SAFETY_TOOL
+                (path == SAFETY_TOOL or path in RISK_ARCHIVES)
                 and blob_id("HEAD", path) == operational_digest(path, base_digests().get(path))
             )
         ]

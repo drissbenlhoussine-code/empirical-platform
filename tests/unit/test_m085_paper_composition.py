@@ -37,6 +37,9 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
 )
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.entry_risk_schema import (
+    V1_RISK_CONTRACT,
+)
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
     _M085_REQUIRED_TABLES,
     M085_SCHEMA_HEAD,
@@ -86,7 +89,8 @@ class _HeadWork:
             raise self._failure
         if statement == M085_CONTRACT_SELECT:
             return [
-                {"object_key": key, "definition": value} for key, value in M085_CONTRACT.items()
+                {"object_key": key, "definition": value}
+                for key, value in (M085_CONTRACT | V1_RISK_CONTRACT).items()
             ]
         if "alembic_version" in statement:
             return list(self._head_rows)

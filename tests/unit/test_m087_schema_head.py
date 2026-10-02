@@ -39,7 +39,7 @@ _M090 = "".join(("a2b4c6d8", "e0f2"))
 #: its own schema-head guard (`require_exact_v1_approved_plan_schema_head` in
 #: `approved_plan_repositories.py`) since, unlike M090, it feeds a real-broker safety
 #: decision (the automatic exit manager) -- see that migration's own docstring.
-_V1_APPROVED_PLAN = "".join(("b9f2c4d6", "a8e1"))
+_V1_APPROVED_PLAN = "".join(("c6e2a4f8", "b901"))
 _M087 = "".join(("e7c1a9", "d3b5f2"))
 _OLDER = "".join(("9c4b2e", "7d5a18"))
 _UNKNOWN_NEWER = "ffff" + "0" * 8
@@ -171,6 +171,8 @@ def test_the_v1_revision_is_the_sole_head_descending_linearly_from_m085_through_
     script = ScriptDirectory.from_config(config)
     assert script.get_heads() == [_V1_APPROVED_PLAN]
     v1 = script.get_revision(_V1_APPROVED_PLAN)
-    assert v1 is not None and v1.down_revision == _M090
+    assert v1 is not None and v1.down_revision == ("b9f2c4d6" + "a8e1")
+    approved = script.get_revision(("b9f2c4d6" + "a8e1"))
+    assert approved is not None and approved.down_revision == _M090
     m090 = script.get_revision(_M090)
     assert m090 is not None and m090.down_revision == M087_SCHEMA_HEAD
