@@ -9,9 +9,10 @@ for genuine danger. A large SIMULATION badge is in the header of every page.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from html import escape
+from types import MappingProxyType
 
 from empirical_platform.usecases.operator_console import (
     ActionOutcome,
@@ -231,17 +232,28 @@ def today_page(view: TodayView, csrf: str, flash: ActionOutcome | None = None) -
     )
 
 
+#: RELEASE v1. Every "RESEARCH CANDIDATE" card carries exactly this banner. Checked by a
+#: dedicated whole-module lint test (`test_v1_research_candidate_labeling.py`) that this
+#: wording stays plain and un-superlative.
+_RESEARCH_CANDIDATE_BANNER = "Research strategy — profitability has not been validated."
+
+
 def _card(card: OpportunityCard, csrf: str) -> str:
     t = card.terms
     numbers = (
         '<div class="numbers">'
-        f'<div><span class="num-label">Entry (limit)</span><span class="num">{_e(t.limit_price)}</span></div>'
-        f'<div><span class="num-label">Quantity</span><span class="num">{t.quantity}</span></div>'
-        f'<div><span class="num-label">Notional</span><span class="num">{_e(t.notional)} {_e(t.currency)}</span></div>'
-        f'<div><span class="num-label">Max capital</span><span class="num">{_e(card.maximum_capital)}</span></div>'
+        f'<div><span class="num-label">Entry</span><span class="num">{_e(t.limit_price)}</span></div>'
         f'<div><span class="num-label">Stop</span><span class="num">{_e(card.stop_price)}</span></div>'
         f'<div><span class="num-label">Target</span><span class="num">{_e(card.target_price)}</span></div>'
-        f'<div><span class="num-label">Risk</span><span class="num">{_e(card.risk_amount)} ({_e(card.risk_percent)})</span></div>'
+        f'<div><span class="num-label">Quantity</span><span class="num">{t.quantity}</span></div>'
+        f'<div><span class="num-label">Max Loss</span><span class="num">{_e(card.risk_amount)}</span></div>'
+        f'<div><span class="num-label">Configured maximum shares</span><span class="num">{_e(card.maximum_quantity_shares)}</span></div>'
+        f'<div><span class="num-label">Configured maximum planned loss</span><span class="num">{_e(card.maximum_planned_loss)}</span></div>'
+        f'<div><span class="num-label">Target Gain</span><span class="num">{_e(card.target_gain)}</span></div>'
+        f'<div><span class="num-label">R:R</span><span class="num">{_e(card.reward_risk_ratio)}</span></div>'
+        f'<div><span class="num-label">Mandatory Exit</span><span class="num">{_when(card.mandatory_exit)}</span></div>'
+        f'<div><span class="num-label">Notional</span><span class="num">{_e(t.notional)} {_e(t.currency)}</span></div>'
+        f'<div><span class="num-label">Max capital</span><span class="num">{_e(card.maximum_capital)}</span></div>'
         "</div>"
     )
     notes = ""
@@ -253,7 +265,7 @@ def _card(card: OpportunityCard, csrf: str) -> str:
     if card.decision_available and not card.blocked_note:
         actions = (
             '<div class="actions">'
-            f'<a class="btn btn-primary" href="/confirm?action=APPROVE&amp;proposal={_e(card.proposal_id)}">Approve</a>'
+            f'<a class="btn btn-primary" href="/confirm?action=APPROVE&amp;proposal={_e(card.proposal_id)}">REVIEW PLAN</a>'
             f'<a class="btn btn-secondary" href="/confirm?action=REJECT&amp;proposal={_e(card.proposal_id)}">Reject</a>'
             "</div>"
         )
@@ -287,6 +299,12 @@ def _card(card: OpportunityCard, csrf: str) -> str:
             "evidence, not as a current opportunity.</p>"
         )
     evidence = "".join(f"<li>{_e(line)}</li>" for line in card.evidence) or "<li>Not available</li>"
+    invalid_if = (
+        "The review page shows different terms than this card ({}), or the authorization "
+        "window ({} after review) expires before you confirm.".format(
+            "a changed price/quantity/fingerprint", "a short, policy-bounded interval"
+        )
+    )
     details = _details(
         "Details",
         _kv(
@@ -302,14 +320,18 @@ def _card(card: OpportunityCard, csrf: str) -> str:
                 ("Staged simulation behaviour", card.scenario or "Not available"),
             ]
         )
-        + f'<p class="muted">Evidence</p><ul class="evidence">{evidence}</ul>',
+        + f'<p class="muted">Why this candidate</p><ul class="evidence">{evidence}</ul>'
+        + f'<p class="muted">Invalid if</p><p class="reason">{_e(invalid_if)}</p>',
     )
     return (
         f'<article class="card" aria-label="{_e(card.symbol)}">'
+        '<div class="badge-row">'
+        '<span class="badge badge-research">RESEARCH CANDIDATE</span></div>'
+        f'<p class="note note-info">{_e(_RESEARCH_CANDIDATE_BANNER)}</p>'
         f'<div class="card-head"><span class="ticker">{_e(card.symbol)}</span>'
         f'<span class="side">{_e(t.side)}</span>{_chip(card.state)}</div>'
         f"{historical}"
-        f'<p class="reason">{_e(card.reason)}</p>{numbers}{notes}'
+        f'<p class="reason"><strong>Evidence/Quality:</strong> {_e(card.reason)}</p>{numbers}{notes}'
         f'<p class="muted">Proposed {_when(card.created_at)} · expires {_when(card.expires_at)}</p>'
         f"{actions}{details}</article>"
     )
@@ -359,6 +381,11 @@ def confirmation_page(view: ConfirmationView, csrf: str, capability_label: str) 
             ("Quantity", str(t.quantity)),
             ("Order type", t.order_type),
             ("Limit price", t.limit_price),
+            ("Approved stop", view.stop_price),
+            ("Target", view.target_price),
+            ("Evaluated planned loss", view.planned_loss),
+            ("Configured maximum shares", view.maximum_quantity_shares),
+            ("Configured maximum planned loss", view.maximum_planned_loss),
             ("Time in force", t.time_in_force),
             ("Extended hours", t.extended_hours),
             ("Environment", view.environment),
@@ -439,7 +466,9 @@ def _timeline(summary: ExecutionSummary) -> str:
     return f'<ol class="timeline">{steps}</ol>'
 
 
-def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool = True) -> str:
+def _execution_block(
+    summary: ExecutionSummary, csrf: str, *, with_actions: bool = True, plan_block: str = ""
+) -> str:
     t = summary.terms
     warnings = "".join(f'<p class="note note-warn">{_e(w)}</p>' for w in summary.warnings)
     pending = (
@@ -500,7 +529,7 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
         f'<article class="card exec" aria-label="{_e(summary.symbol)} execution">'
         f'<div class="card-head"><span class="ticker">{_e(summary.symbol)}</span>'
         f'<span class="side">{_e(t.side)}</span><span class="category">{_e(summary.category)}</span>{_chip(summary.state)}</div>'
-        f"{pending}{warnings}{_timeline(summary)}{facts}{exit_block}{actions}"
+        f"{plan_block}{pending}{warnings}{_timeline(summary)}{facts}{exit_block}{actions}"
         + _details(
             "Details",
             _kv(
@@ -512,6 +541,52 @@ def _execution_block(summary: ExecutionSummary, csrf: str, *, with_actions: bool
             ),
         )
         + "</article>"
+    )
+
+
+def approved_plan_block(
+    *,
+    quantity: str,
+    entry_avg_fill: str,
+    current_price: str,
+    unrealized_pnl: str,
+    stop_price: str,
+    target_price: str,
+    mandatory_exit: str,
+    max_loss: str,
+    management_status: str,
+    review_manual_exit_url: str | None,
+) -> str:
+    """RELEASE v1 -- the APPROVED PLAN block on an Active Trade card.
+
+    Pure string rendering: every value is already computed by the caller (route layer),
+    which is where `ApprovedPlan`/`PositionExitAttempt` data actually lives -- this module
+    never imports `decision_candidate` directly (entrypoints may only import usecases).
+    """
+    manual_exit = (
+        f'<p class="muted"><a href="{_e(review_manual_exit_url)}">REVIEW MANUAL EXIT</a> '
+        "-- a human-authorized escape hatch; automatic management never depends on it "
+        "being used.</p>"
+        if review_manual_exit_url
+        else ""
+    )
+    return (
+        '<section class="card plan-card">'
+        f'<h3>Approved plan <span class="chip">{_e(management_status)}</span></h3>'
+        '<p class="note note-info">Automatic management is limited to the Owner-approved '
+        "Paper plan.</p>"
+        '<div class="numbers">'
+        f'<div><span class="num-label">Quantity</span><span class="num">{_e(quantity)}</span></div>'
+        f'<div><span class="num-label">Entry avg fill</span><span class="num">{_e(entry_avg_fill)}</span></div>'
+        f'<div><span class="num-label">Current price</span><span class="num">{_e(current_price)}</span></div>'
+        f'<div><span class="num-label">Unrealized P&amp;L</span><span class="num">{_e(unrealized_pnl)}</span></div>'
+        f'<div><span class="num-label">Stop</span><span class="num">{_e(stop_price)}</span></div>'
+        f'<div><span class="num-label">Target</span><span class="num">{_e(target_price)}</span></div>'
+        f'<div><span class="num-label">Mandatory Exit</span><span class="num">{_e(mandatory_exit)}</span></div>'
+        f'<div><span class="num-label">Max Loss</span><span class="num">{_e(max_loss)}</span></div>'
+        "</div>"
+        f"{manual_exit}"
+        "</section>"
     )
 
 
@@ -564,6 +639,8 @@ def active_page(
     capability_label: str,
     kill_switch_engaged: bool,
     flash: ActionOutcome | None,
+    *,
+    plan_blocks: Mapping[str, str] = MappingProxyType({}),
 ) -> str:
     refresh = (
         f'<form method="post" action="/active/refresh" class="inline">{_csrf(csrf)}'
@@ -578,7 +655,10 @@ def active_page(
             sections.append(
                 f'<h2 class="group">{_e(group)} <span class="muted">({len(members)})</span></h2>'
                 '<section class="cards">'
-                + "".join(_execution_block(r, csrf) for r in members)
+                + "".join(
+                    _execution_block(r, csrf, plan_block=plan_blocks.get(r.intent_id, ""))
+                    for r in members
+                )
                 + "</section>"
             )
         cards = "".join(sections)
@@ -762,6 +842,7 @@ def history_page(
     filters: dict[str, str],
     capability_label: str,
     kill_switch_engaged: bool,
+    plan_cells: Mapping[str, str] = MappingProxyType({}),
 ) -> str:
     def option(name: str, value: str, label: str) -> str:
         selected = " selected" if filters.get(name, "") == value else ""
@@ -792,6 +873,13 @@ def history_page(
         + "</select></label>"
         '<button class="btn btn-secondary" type="submit">Filter</button></form>'
     )
+    show_plan_column = bool(plan_cells)
+
+    def _plan_cell(r: HistoryEntry) -> str:
+        if not show_plan_column:
+            return ""
+        return f"<td>{plan_cells.get(r.intent_id or r.proposal_id, '—')}</td>"
+
     if rows:
         table_rows = "".join(
             "<tr>"
@@ -803,14 +891,17 @@ def history_page(
             f"<td>{_chip(r.final_state)}</td>"
             f"<td>{_e(r.quantity)} @ {_e(r.price)}</td>"
             f"<td>{_e(r.result)}</td>"
+            f"{_plan_cell(r)}"
             f"<td>{f'<a href="/execution?intent={_e(r.intent_id)}">View</a>' if r.intent_id else f'<a href="/opportunity?id={_e(r.proposal_id)}">View</a>'}</td>"
             "</tr>"
             for r in rows
         )
+        plan_header = "<th>Plan</th>" if show_plan_column else ""
         table = (
             '<div class="table-wrap"><table class="history"><thead><tr><th>When</th><th>Symbol</th>'
             "<th>Model proposal</th><th>Owner decision</th><th>Execution</th><th>Final state</th>"
-            f"<th>Qty @ price</th><th>Result</th><th></th></tr></thead><tbody>{table_rows}</tbody></table></div>"
+            f"<th>Qty @ price</th><th>Result</th>{plan_header}<th></th></tr></thead>"
+            f"<tbody>{table_rows}</tbody></table></div>"
         )
     else:
         table = '<section class="empty"><h2>Nothing matches</h2></section>'
@@ -875,10 +966,31 @@ def safety_page(view: SafetyView, csrf: str, flash: ActionOutcome | None) -> str
         if view.active_capability.capability.value == "PAPER"
         else ""
     )
+    # RELEASE v1. Exactly the mission's required statements, plain text, no interpretation.
+    v1_statements = (
+        '<section class="card"><h2>What this system is</h2>'
+        '<ul class="limits">'
+        "<li>Environment: <strong>PAPER</strong></li>"
+        "<li>Live: <strong>UNAVAILABLE</strong></li>"
+        "<li>Strategy profitability: <strong>NOT VALIDATED</strong></li>"
+        "<li>Automatic authority: <strong>POSITION-REDUCING ONLY, AFTER THE OWNER APPROVES "
+        "A FULL PLAN</strong> -- see /today → Research Candidates for how a plan is "
+        'approved and <a href="/active">Active</a> for what is currently being managed.</li>'
+        "</ul>"
+        '<p class="muted">No:</p>'
+        '<ul class="limits">'
+        "<li>automatic new opportunities becoming orders</li>"
+        "<li>autonomous entry without Owner approval</li>"
+        "<li>shorting</li>"
+        "<li>leverage escalation</li>"
+        "<li>overnight intention</li>"
+        "</ul></section>"
+    )
     body = (
         "<h1>Safety</h1>"
         f'<section class="card env-card"><div class="env-badge env-badge-large">{_e(view.active_capability.capability.value)}</div>'
         f'<p class="lead">{_e(view.active_capability.note)}</p><ul class="caps">{capabilities}</ul></section>'
+        f"{v1_statements}"
         f"{switch}"
         f'<section class="card"><h2>Trading rules</h2><p class="muted">From configuration {_e(view.configuration_id)} '
         f"version {_e(view.configuration_version)}. Read-only.</p>{rules}</section>"
@@ -1048,6 +1160,10 @@ h1{font-size:28px;margin:8px 0 16px;letter-spacing:-.3px}h2{font-size:20px;margi
 .numbers div{display:flex;flex-direction:column}.num-label{font-size:12px;color:var(--muted)}.num{font-weight:700;font-size:17px;font-variant-numeric:tabular-nums}
 .note{margin:0;padding:10px 12px;border-radius:10px;font-size:14px}.note-danger{background:var(--danger-bg);color:var(--danger)}
 .note-warn{background:var(--warn-bg);color:var(--warn)}.note-info{background:var(--info-bg);color:var(--info)}
+.badge-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.badge{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:11px;font-weight:700;letter-spacing:.03em}
+.badge-research{background:var(--info-bg);color:var(--info);border-color:var(--info)}
+ul.limits{margin:0 0 10px;padding-left:20px}ul.limits li{margin:4px 0;font-size:14px}
 .muted{color:var(--muted);font-size:14px;margin:0}.muted.block{display:block}
 .actions{display:flex;gap:10px;flex-wrap:wrap}.actions .btn{flex:1 1 140px;text-align:center}
 .btn{display:inline-block;padding:12px 18px;border-radius:10px;border:1px solid transparent;font-weight:700;text-decoration:none;

@@ -26,11 +26,15 @@ than being accepted and then policed somewhere downstream.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import asdict, dataclass
 from datetime import time
 from decimal import Decimal
 from enum import StrEnum
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from empirical_platform.decision_candidate.entry_risk_contract import money, validate_limits
 
 __all__ = [
     "AccountMode",
@@ -226,8 +230,24 @@ class OperatorTradingConfiguration:
     overnight_positions_permitted: bool
     account_mode: AccountMode
     kill_switch: KillSwitchState
+    # Version 1 is historical evidence, not a current v1 entry policy.
+    risk_contract_version: int = 1
+    maximum_position_quantity_shares: int | None = None
+    maximum_planned_loss_per_trade: Decimal | None = None
 
     def __post_init__(self) -> None:
+        if type(self.risk_contract_version) is not int or self.risk_contract_version not in (1, 2):
+            raise ValueError("unsupported risk contract version")
+        if self.risk_contract_version == 1:
+            if (
+                self.maximum_position_quantity_shares is not None
+                or self.maximum_planned_loss_per_trade is not None
+            ):
+                raise ValueError("historical policy cannot acquire inferred risk limits")
+        else:
+            validate_limits(
+                self.maximum_position_quantity_shares, self.maximum_planned_loss_per_trade
+            )
         _require_identifier(self.configuration_governance_id, field="configuration_governance_id")
         if isinstance(self.configuration_version, bool) or not isinstance(
             self.configuration_version, int
@@ -386,3 +406,21 @@ class OperatorTradingConfiguration:
     def is_trading_permitted(self) -> bool:
         """False whenever the operator has engaged the global stop."""
         return self.kill_switch is KillSwitchState.DISENGAGED
+
+
+def configuration_fingerprint(configuration: OperatorTradingConfiguration) -> str:
+    """Canonical complete policy identity, stable across exact Decimal round trips."""
+
+    def canonical(value: object) -> object:
+        if isinstance(value, Decimal):
+            return money(value)
+        if isinstance(value, time):
+            return value.isoformat()
+        if isinstance(value, tuple):
+            return [canonical(item) for item in value]
+        return value
+
+    payload = {key: canonical(value) for key, value in asdict(configuration).items()}
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()

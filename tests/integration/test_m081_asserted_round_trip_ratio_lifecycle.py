@@ -550,7 +550,7 @@ def test_two_positions_of_unknown_denomination_are_never_summed(clean_tables: En
 
 @pytest.fixture
 def second_database(engine: Engine) -> Iterator[str]:
-    name = "m081_firewall_probe"
+    name = "m081_firewall_probe_test"
     with engine.connect() as conn:
         conn.execution_options(isolation_level="AUTOCOMMIT")
         conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))

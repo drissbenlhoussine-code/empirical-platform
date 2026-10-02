@@ -401,23 +401,29 @@ def _run_test(node: str, *, schema_database: str | None) -> tuple[bool, str]:
 
 
 def _rebuild_schema(database: str) -> None:
-    """Drop and re-create one database, then migrate it from the mutated file."""
-    subprocess.run(  # noqa: S603 - fixed argument vector, no shell
-        [  # noqa: S607
-            "sudo",
-            "-u",
-            "postgres",
-            "psql",
-            "-q",
-            "-c",
-            f"DROP DATABASE IF EXISTS {database}",
-            "-c",
-            f"CREATE DATABASE {database} OWNER empirical",
-        ],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        check=True,
+    """Reset only an explicitly marked disposable test schema."""
+    import sys
+
+    from sqlalchemy import create_engine, text
+
+    from empirical_platform.shared.config.settings import resolve_foundation_config
+    from empirical_platform.shared.persistence.database_safety import (
+        install_test_connection_guard,
+        require_test_connection,
+        require_test_target,
     )
+
+    configuration = resolve_foundation_config().postgresql.model_copy(update={"database": database})
+    require_test_target(database, configuration.port)
+    install_test_connection_guard()
+    engine = create_engine(configuration.sqlalchemy_url())
+    try:
+        with engine.begin() as connection:
+            require_test_connection(connection)
+            connection.execute(text("DROP SCHEMA public CASCADE"))
+            connection.execute(text("CREATE SCHEMA public"))
+    finally:
+        engine.dispose()
     # The migration is itself a mutation target, so it needs the same bytecode
     # discipline as the test runs: a stale `.pyc` here would migrate the rebuilt
     # database from the wrong version of the schema.
@@ -426,7 +432,7 @@ def _rebuild_schema(database: str) -> None:
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment["EMPIRICAL_PLATFORM_POSTGRES_DATABASE"] = database
     subprocess.run(  # noqa: S603 - fixed argument vector, no shell
-        [".venv313/bin/python", "-m", "alembic", "upgrade", "head"],  # noqa: S607
+        [sys.executable, "-m", "alembic", "upgrade", "head"],  # noqa: S607
         cwd=REPO_ROOT,
         capture_output=True,
         check=True,

@@ -1,0 +1,98 @@
+{
+  "kind": "OWNER_AUTHORIZED_RISK_COMPATIBILITY_CORRECTION",
+  "authorized_on": "2026-10-02",
+  "original_commit": [
+    "11271346",
+    "23b25178",
+    "b4d98236",
+    "d5ab75f8",
+    "f2134760"
+  ],
+  "files": {
+    "src/empirical_platform/decision_candidate/operator_trading_configuration.py": {
+      "historical_copy": "external-review/RELEASE-V1/risk-governance/original-operator_trading_configuration.py.txt",
+      "original_blob": [
+        "3f7094ae",
+        "76fef22d",
+        "3fbbc863",
+        "f2908867",
+        "0650017d"
+      ],
+      "corrected_blob": [
+        "1517a0e4",
+        "7daaad56",
+        "e19b2ba6",
+        "7ec9e37a",
+        "c3a2eb4d"
+      ]
+    },
+    "src/empirical_platform/decision_candidate/trade_proposal.py": {
+      "historical_copy": "external-review/RELEASE-V1/risk-governance/original-trade_proposal.py.txt",
+      "original_blob": [
+        "e6eb947c",
+        "6ed7445d",
+        "7c609659",
+        "d1c22148",
+        "1e16cc18"
+      ],
+      "corrected_blob": [
+        "c81ddcf4",
+        "29521fbc",
+        "cf156983",
+        "1f965d5a",
+        "f505da55"
+      ]
+    },
+    "src/empirical_platform/decision_candidate/trade_approval.py": {
+      "historical_copy": "external-review/RELEASE-V1/risk-governance/original-trade_approval.py.txt",
+      "original_blob": [
+        "0cbcb634",
+        "85838ba0",
+        "379e8e97",
+        "8b23c87b",
+        "f51d242f"
+      ],
+      "corrected_blob": [
+        "55514d40",
+        "20130320",
+        "3036ecf8",
+        "1bcf1c16",
+        "56a5d75b"
+      ]
+    },
+    "src/empirical_platform/shared/persistence/postgres_repositories/decision_to_approval_repositories.py": {
+      "historical_copy": "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_repositories.py.txt",
+      "original_blob": [
+        "e7d3a984",
+        "0062e420",
+        "ffd4ec5e",
+        "5523422c",
+        "da9dd1b2"
+      ],
+      "corrected_blob": [
+        "c59d06f3",
+        "e72b6281",
+        "3e3ff9aa",
+        "40a908f5",
+        "739b5654"
+      ]
+    },
+    "src/empirical_platform/usecases/decision_to_approval_io.py": {
+      "historical_copy": "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_io.py.txt",
+      "original_blob": [
+        "5a9ce723",
+        "1ddc47ad",
+        "30e85271",
+        "2789c280",
+        "ba203617"
+      ],
+      "corrected_blob": [
+        "093b0bf3",
+        "bc1e3da5",
+        "042b057f",
+        "12f883df",
+        "214990d9"
+      ]
+    }
+  }
+}

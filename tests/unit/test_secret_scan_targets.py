@@ -464,6 +464,28 @@ def test_the_manifest_shape_outside_the_manifest_is_still_a_finding(tmp_path: Pa
     assert _filter_benign_secret_findings(tmp_path, findings) == findings
 
 
+@pytest.mark.parametrize("case", ["preserved", "invented", "wrong_path", "outside_manifest"])
+def test_safety_supersession_requires_the_actual_preserved_git_blob(
+    tmp_path: Path, case: str
+) -> None:
+    tool = "tools/m084_mutation_campaign.py"
+    archive = "external-review/RELEASE-V1/database-safety/original-tool.py.txt"
+    blobs = _repository_with_manifest(
+        tmp_path,
+        {
+            tool: "# corrected safety tool\n",
+            archive: "# historical tool\n",
+        },
+    )
+    key = tool if case != "wrong_path" else "tools/another_tool.py"
+    value = blobs[archive] if case != "invented" else _INVENTED_FORTY_HEX
+    manifest = _M084_MANIFEST if case != "outside_manifest" else "config/credentials.json"
+    _write(tmp_path / manifest, "{\n" + f'  "{key}": "{value}"' + "\n}\n")
+    findings = {manifest: [{"type": "Hex High Entropy String", "line_number": 2}]}
+    result = _filter_benign_secret_findings(tmp_path, findings)
+    assert result == ({} if case == "preserved" else findings)
+
+
 def test_the_manifest_rule_clears_nothing_where_git_cannot_answer(tmp_path: Path) -> None:
     # No repository, so no index to check the value against. The rule must fail
     # CLOSED: a filter that clears findings when its evidence is unavailable is
@@ -476,3 +498,18 @@ def test_the_manifest_rule_clears_nothing_where_git_cannot_answer(tmp_path: Path
     findings = {_MANIFEST: [{"type": "Hex High Entropy String", "line_number": 2}]}
 
     assert _filter_benign_secret_findings(tmp_path, findings) == findings
+
+
+@pytest.mark.parametrize("case", ["preserved", "invented", "wrong_path", "outside_manifest"])
+def test_risk_supersession_requires_preserved_blob(tmp_path: Path, case: str) -> None:
+    tool = "src/empirical_platform/decision_candidate/trade_proposal.py"
+    archive = "external-review/RELEASE-V1/risk-governance/original-trade_proposal.py.txt"
+    blobs = _repository_with_manifest(tmp_path, {tool: "# v2\n", archive: "# historical\n"})
+    key = tool if case != "wrong_path" else "src/another.py"
+    value = blobs[archive] if case != "invented" else _INVENTED_FORTY_HEX
+    manifest = _M084_MANIFEST if case != "outside_manifest" else "config/credentials.json"
+    _write(tmp_path / manifest, "{\n" + f'  "{key}": "{value}"' + "\n}\n")
+    findings = {manifest: [{"type": "Hex High Entropy String", "line_number": 2}]}
+    assert _filter_benign_secret_findings(tmp_path, findings) == (
+        {} if case == "preserved" else findings
+    )

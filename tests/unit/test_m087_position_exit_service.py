@@ -192,18 +192,22 @@ def test_a_stale_ticket_and_an_expired_review_send_nothing(world: World) -> None
     assert [o for o in world.store.orders() if o.side == "sell"] == []
 
 
-def test_the_kill_switch_engaged_after_the_review_blocks_the_confirmation(world: World) -> None:
+def test_the_kill_switch_engaged_after_the_review_does_not_block_the_confirmation(
+    world: World,
+) -> None:
+    """RELEASE v1 behavior change: the kill switch blocks NEW ENTRIES only. An already-open
+    position must never be silently trapped by it, so an engaged kill switch must not block
+    reviewing, authorizing, or submitting a position-reducing exit. See
+    `docs/operations/kill-switch.md`."""
     intent = _open_position(world, "AAPL")
     exits = world.service.exits
     assert exits is not None
     review = exits.review(intent)
     world.service.set_kill_switch(engaged=True, reason="test")
-    with pytest.raises(ConsoleRefusalError, match="kill switch"):
-        exits.confirm(intent, review.ticket)
-    assert _exits(world, intent) == () and world.exits.authorizations.rows == {}  # type: ignore[attr-defined]
-    world.service.set_kill_switch(engaged=False, reason="test")
-    fresh = exits.review(intent)
-    assert exits.confirm(intent, fresh.ticket).ok
+    outcome = exits.confirm(intent, review.ticket)
+    assert outcome.ok
+    assert len(_exits(world, intent)) == 1
+    assert [o for o in world.store.orders() if o.side == "sell"] != []
 
 
 def test_a_position_that_changed_after_the_review_is_refused_at_confirmation(world: World) -> None:

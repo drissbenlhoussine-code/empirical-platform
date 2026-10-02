@@ -403,6 +403,13 @@ class OpportunityCard:
     target_price: str
     risk_amount: str
     risk_percent: str
+    #: RELEASE v1 Research Candidate fields: maximum dollar gain if the target is reached,
+    #: the reward:risk ratio, and the mandatory-liquidation deadline this candidate would
+    #: carry if approved. All three are derived from the SAME proposal fields `risk_amount`
+    #: already uses -- no new data source, no new freshness question.
+    target_gain: str
+    reward_risk_ratio: str
+    mandatory_exit: datetime
     reason: str
     evidence: tuple[str, ...]
     created_at: datetime
@@ -414,6 +421,9 @@ class OpportunityCard:
     intent_id: str | None
     execution: ExecutionSummary | None
     scenario: str | None
+
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
 
     def state_is_settled(self) -> bool:
         """Whether this card has nothing left for the operator to see on Today."""
@@ -504,6 +514,12 @@ class ConfirmationView:
     approval_expires_at: datetime | None
     ticket: str
     kill_switch_engaged: bool
+
+    stop_price: str = "Historical: not specified"
+    target_price: str = "Historical: not specified"
+    planned_loss: str = "Historical: not specified"
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
 
 
 @dataclass(frozen=True, slots=True)
@@ -846,12 +862,34 @@ class OperatorConsoleService:
             if proposal.limit_price is not None
             else None
         )
+        if proposal.entry_risk is not None:
+            risk_amount = proposal.entry_risk.planned_loss
         risk_percent = (
             (risk_amount / proposal.estimated_total_cash_required * Decimal(100))
             if risk_amount is not None and proposal.estimated_total_cash_required > 0
             else None
         )
+        target_gain = (
+            (proposal.profit_exit_price - proposal.limit_price) * Decimal(proposal.quantity)
+            if proposal.limit_price is not None
+            else None
+        )
+        reward_risk_ratio = (
+            (target_gain / risk_amount)
+            if target_gain is not None and risk_amount is not None and risk_amount > 0
+            else None
+        )
         return OpportunityCard(
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
             symbol=proposal.symbol,
@@ -865,6 +903,11 @@ class OperatorConsoleService:
             target_price=_money(proposal.profit_exit_price),
             risk_amount=_money(risk_amount),
             risk_percent=(f"{risk_percent:.2f}%" if risk_percent is not None else NOT_AVAILABLE),
+            target_gain=_money(target_gain),
+            reward_risk_ratio=(
+                f"{reward_risk_ratio:.2f}:1" if reward_risk_ratio is not None else NOT_AVAILABLE
+            ),
+            mandatory_exit=proposal.mandatory_liquidation_at,
             reason=(
                 f"Proposed by strategy {strategy}: {len(passed)} of {len(proposal.risk_checks)} "
                 f"risk checks passed" + ("" if not failed else f", {len(failed)} not passed")
@@ -967,6 +1010,23 @@ class OperatorConsoleService:
             issued_at=now,
         )
         return ConfirmationView(
+            stop_price=_money(proposal.stop_loss_price),
+            target_price=_money(proposal.profit_exit_price),
+            planned_loss=(
+                str(proposal.entry_risk.planned_loss)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             action=action,
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,

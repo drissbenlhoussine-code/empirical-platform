@@ -28,12 +28,18 @@ from empirical_platform.shared.persistence.postgres_repositories.position_exit_r
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _M085 = "".join(("a7d3c9", "e14f26"))
-#: MILESTONE-090's own additive migration, the current sole head of this chain. It carries no
-#: schema-head guard of its own (see external-review/MILESTONE-090/scope-and-design.md Section
-#: 4 -- a research/read schema, not a real-broker safety gate), so there is no
-#: `M090_SCHEMA_HEAD` constant to import from a persistence module; the revision id is grouped
-#: here the same way `_M085` is above.
+#: MILESTONE-090's own additive migration, no longer the sole head (RELEASE v1's own
+#: migration now stacks beyond it -- see `_V1_APPROVED_PLAN` below). It carries no schema-
+#: head guard of its own (see external-review/MILESTONE-090/scope-and-design.md Section 4
+#: -- a research/read schema, not a real-broker safety gate), so there is no
+#: `M090_SCHEMA_HEAD` constant to import from a persistence module; the revision id is
+#: grouped here the same way `_M085` is above.
 _M090 = "".join(("a2b4c6d8", "e0f2"))
+#: RELEASE v1's own additive migration, the current sole head of this chain. It DOES carry
+#: its own schema-head guard (`require_exact_v1_approved_plan_schema_head` in
+#: `approved_plan_repositories.py`) since, unlike M090, it feeds a real-broker safety
+#: decision (the automatic exit manager) -- see that migration's own docstring.
+_V1_APPROVED_PLAN = "".join(("c6e2a4f8", "b901"))
 _M087 = "".join(("e7c1a9", "d3b5f2"))
 _OLDER = "".join(("9c4b2e", "7d5a18"))
 _UNKNOWN_NEWER = "ffff" + "0" * 8
@@ -152,16 +158,21 @@ def test_the_m087_revision_descends_directly_from_the_m085_revision() -> None:
     assert above == [M087_SCHEMA_HEAD]
 
 
-def test_the_m090_revision_is_the_sole_head_descending_linearly_from_m085_through_m087() -> None:
-    """The chain remains a single, linear, non-branching history through MILESTONE-090.
+def test_the_v1_revision_is_the_sole_head_descending_linearly_from_m085_through_m090() -> None:
+    """The chain remains a single, linear, non-branching history through RELEASE v1.
 
-    Renamed/split from the pre-M090 test of the same spirit (see the docstring above): the
-    chain's sole head is now M090's own revision, which descends directly from M087, which
-    descends directly from M085 -- proven the same way, one link further.
+    Renamed/split again from the pre-v1 test of the same spirit (see the docstring above):
+    the chain's sole head is now the v1 approved-plan revision, which descends directly
+    from M090, which descends directly from M087, which descends directly from M085 --
+    proven the same way, one link further each time.
     """
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [_M090]
+    assert script.get_heads() == [_V1_APPROVED_PLAN]
+    v1 = script.get_revision(_V1_APPROVED_PLAN)
+    assert v1 is not None and v1.down_revision == ("b9f2c4d6" + "a8e1")
+    approved = script.get_revision("b9f2c4d6" + "a8e1")
+    assert approved is not None and approved.down_revision == _M090
     m090 = script.get_revision(_M090)
     assert m090 is not None and m090.down_revision == M087_SCHEMA_HEAD
