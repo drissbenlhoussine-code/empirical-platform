@@ -202,7 +202,9 @@ def test_real_market_journal_dump_restore_preserves_approval_unknown_and_zero(
         url = make_url(engine_url)
         executable = shutil.which(name)
         assert executable, f"{name} required for the isolated restore rehearsal"
-        environment = dict(os.environ)
+        # PGHOSTADDR/PGSERVICE inherited from a user's shell must not redirect
+        # the CLI away from the explicit endpoint whose TEST marker was checked.
+        environment = {key: value for key, value in os.environ.items() if not key.startswith("PG")}
         environment.update(
             PGHOST=url.host or "",
             PGPORT=str(url.port or ""),
