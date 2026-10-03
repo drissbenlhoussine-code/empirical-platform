@@ -199,10 +199,11 @@ line-ending = "lf"
 [tool.mypy]
 python_version = "3.13"
 strict = true
-mypy_path = "src"
+mypy_path = ["src", "integrations/ibkr/src"]
 packages = ["empirical_platform"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src", "integrations/ibkr/src"]
 minversion = "8.4"
 testpaths = ["tests"]
 markers = [
