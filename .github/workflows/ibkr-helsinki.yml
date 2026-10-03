@@ -33,6 +33,10 @@ jobs:
       EMPIRICAL_IBKR_TEST_URL: postgresql+psycopg://empirical@localhost:5432/empirical_ibkr_test
       PYTHONPATH: src:integrations/ibkr/src:.
     steps:
+      # Historical byte seals were reviewed from Windows materialization.
+      # Existing .gitattributes still pins Python and corrected fixtures explicitly.
+      - name: Match reviewed fixture checkout
+        run: git config --global core.autocrlf true
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -41,7 +45,7 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install -e '.[persistence,object-storage,dev,test,security,build]'
       - name: Isolated test password
-        run: echo "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
+        run: printf 'EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> "$GITHUB_ENV"
       - name: Test API key
         run: echo "EMPIRICAL_ALPACA_PAPER_API_KEY=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
       - name: Test API secret

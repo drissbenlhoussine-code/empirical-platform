@@ -33,6 +33,13 @@ Local PostgreSQL used a new disposable cluster on **127.0.0.1:55437**, with expl
 EMPIRICAL:TEST database markers. No tests targeted personal port 55433. Destructive
 fixture setup requires the existing test-identity guard before SQL.
 
+The first full Linux CI run exposed the historical M062/M064 dataset seals'
+dependence on Windows CRLF checkout, and a false match in the credential-redaction
+test because its dummy password equaled the username. The new workflow now sets
+`core.autocrlf=true` before checkout, preserving existing `.gitattributes` overrides,
+and generates an ephemeral distinct test password. Historical fixtures, byte seals
+and tests are unchanged. API placeholders still derive from the disposable user.
+
 ## Safety proof map
 
 | Property | Evidence |
