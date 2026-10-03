@@ -57,7 +57,9 @@ and tests are unchanged. API placeholders still derive from the disposable user.
 
 ## Unproven real acceptance
 
-Owner reports TWS/Gateway is not installed or configured. Account readiness,
+Owner update on 2026-10-03: Individual application submitted; residential-address
+verification RECEIVED — BEING PROCESSED; account approval pending and Paper login
+unavailable. This is Owner-reported status. No funding is requested. Account readiness,
 permissions, live Helsinki data, real contract resolution and the Paper round trip
 remain **unverified**. The separate personal market journal, canonical EUR Owner
 configuration and opt-in runtime wiring have not been deployed. No existing
@@ -73,3 +75,15 @@ approval after read-only setup and deployment verification.
 
 Final operational gate: **IBKR_OWNER_SETUP_REQUIRED**. CI results are attached to
 the dedicated PR and must be green before advancing to acceptance.
+
+## Offline closure follow-up
+
+The previous head's full CI completed green, including 1,726 PostgreSQL tests and
+82 focused IBKR checks. Follow-up work converts the one-off actual-SDK check into
+a hash-pinned CI test that decodes the actual adapter's outbound protobuf while
+all sockets are forbidden. A new real pg_dump/pg_restore rehearsal compares the
+entire isolated journal, including immutable approvals, UNKNOWN claims and
+post-fill zero evidence. Both checks pass locally; current-head CI is authoritative.
+
+See `offline-closure.md` for the explicit PROVEN_OFFLINE /
+REQUIRES_REAL_IBKR_PAPER_ACCEPTANCE matrix and prepared deployment/restore steps.

@@ -1,13 +1,21 @@
 # IBKR Paper Owner setup gate
 
-Status: IBKR_OWNER_SETUP_REQUIRED. The Owner confirmed that TWS / IB Gateway is
-not installed or configured. No real IBKR connection, entitlement, fill, or round
-trip has been verified. Test doubles and an offline SDK serialization check are
-engineering evidence only. No broker writes were made during engineering.
+Status: IBKR_OWNER_SETUP_REQUIRED. Owner update on 2026-10-03: the Individual
+account application was successfully submitted; residential-address verification
+is RECEIVED — BEING PROCESSED; account approval is pending. TWS / IB Gateway Paper
+login is not available yet. This is Owner-reported status, not API verification.
+No real IBKR connection, entitlement, fill, or round trip has been verified.
+Test doubles and offline SDK serialization are engineering evidence only.
+No broker writes were made during engineering.
+
+**No account funding is requested to accelerate engineering.** All engineering
+checks below run without an authenticated IBKR session. Do not poll or wait idle
+for account approval. Resume real setup when the Owner confirms Paper login is
+available; approval alone is not proof of Paper access or data entitlements.
 
 ## Minimal interactive steps
 
-1. Install [official TWS or IB Gateway](https://www.interactivebrokers.com/docs/tws-api/doc/download-tws-or-ib-gateway/download-tws-or-ib-gateway).
+1. Once IBKR approval and Paper access are available, install [official TWS or IB Gateway](https://www.interactivebrokers.com/docs/tws-api/doc/download-tws-or-ib-gateway/download-tws-or-ib-gateway).
    Log in yourself to **Paper Trading**. Complete any required account activation
    and authentication in IBKR; never paste credentials or tokens into chat.
 2. In API settings enable socket clients, restrict access to localhost, and leave
@@ -15,7 +23,8 @@ engineering evidence only. No broker writes were made during engineering.
    Reserve a dedicated nonzero client ID (71 is the probe default). Do not use
    Live ports, a Live login, or a shared client ID.
 3. Verify the Paper account identifier is DU followed by digits, the account is
-   ready, and explicit EUR cash is available without borrowing. Verify Finland
+   ready, and explicit EUR **Paper simulated cash** is available without borrowing.
+   This does not request a deposit into the real account. Verify Finland
    equity permissions and the live Nasdaq Helsinki data entitlement needed by
    the API. Delayed or missing quotes cannot pass acceptance.
 4. Report only that Paper login and read-only API setup are ready, the chosen
@@ -53,8 +62,14 @@ Engineering inspected official SDK 10.50.2 from
 `https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip`.
 Archive SHA256:
 `673129e5cba58c4d77bc40647265f84ea42f605eccf88fa4c1221d62d12454f3`.
-Its real EClient encoded one bounded BUY into an in-memory transport (one message,
-zero socket calls). Callback and lifecycle tests use explicit fakes. The SDK is
+The repeatable `tests/ibkr_offline/verify_sdk.py` check passes the actual adapter's
+bounded BUY and whole/partial-position SELL_TO_CLOSE to real EClient, captures each
+protobuf frame in memory, decodes and
+asserts its contract/account/quantity/limit/DAY/extended-hours/orderRef fields.
+Both socket construction and connection helpers are blocked; read-only refusal
+and final-gate refusal are checked before any frame is encoded. The dedicated CI job verifies the archive
+digest before extraction and executes this check without broker credentials.
+Callback and lifecycle tests use explicit fakes. The SDK is
 not vendored, and its successful serialization does not establish broker acceptance.
 
 ## Deployment boundary after read-only connectivity
@@ -116,3 +131,6 @@ runtime's approved dispatch capability belongs to a later supervised acceptance.
   separately approved Paper round trip. Engineering tests are not substitutes.
 
 Calendar source: [Nasdaq European trading hours and holidays](https://www.nasdaq.com/european-market-activity/trading-hours).
+
+Proof separation and the prepared deployment/acceptance sequence are recorded in
+[`offline-closure.md`](offline-closure.md).

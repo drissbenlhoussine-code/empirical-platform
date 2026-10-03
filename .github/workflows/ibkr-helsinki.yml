@@ -9,6 +9,22 @@ permissions:
   contents: read
 
 jobs:
+  official-sdk-offline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[persistence,test]' -e ./integrations/ibkr
+      - name: Download and verify pinned official SDK
+        run: |
+          curl --fail --location https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip --output "$RUNNER_TEMP/twsapi.zip"
+          python tools/verify_ibkr_sdk_archive.py "$RUNNER_TEMP/twsapi.zip"
+          unzip -q "$RUNNER_TEMP/twsapi.zip" -d "$RUNNER_TEMP/ibkr-sdk"
+          python -m pip install "$RUNNER_TEMP/ibkr-sdk/IBJts/source/pythonclient"
+      - name: Real SDK wire encoding with all sockets forbidden
+        run: python -m pytest tests/ibkr_offline/verify_sdk.py --no-cov -q
   postgres-and-regression:
     runs-on: ubuntu-latest
     services:
@@ -31,6 +47,7 @@ jobs:
       EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
       EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE: empirical_ibkr_paper_exit_test
       EMPIRICAL_IBKR_TEST_URL: postgresql+psycopg://empirical@localhost:5432/empirical_ibkr_test
+      EMPIRICAL_IBKR_RESTORE_TEST_URL: postgresql+psycopg://empirical@localhost:5432/empirical_ibkr_restore_test
       PYTHONPATH: src:integrations/ibkr/src:.
     steps:
       # Historical byte seals were reviewed from Windows materialization.
@@ -54,6 +71,8 @@ jobs:
         run: |
           createdb -h localhost -U empirical empirical_ibkr_paper_exit_test
           createdb -h localhost -U empirical empirical_ibkr_test
+          createdb -h localhost -U empirical empirical_ibkr_restore_test
+          psql -h localhost -U empirical -d empirical_ibkr_restore_test -c "COMMENT ON DATABASE empirical_ibkr_restore_test IS 'EMPIRICAL:TEST';"
           psql -h localhost -U empirical -d empirical_ibkr_regression_test -c "COMMENT ON DATABASE empirical_ibkr_regression_test IS 'EMPIRICAL:TEST'; COMMENT ON DATABASE empirical_ibkr_paper_exit_test IS 'EMPIRICAL:TEST'; COMMENT ON DATABASE empirical_ibkr_test IS 'EMPIRICAL:TEST';"
       - name: Full PostgreSQL and Alpaca regression
         run: python -m pytest tests/integration --no-cov -q

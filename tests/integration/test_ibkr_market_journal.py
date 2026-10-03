@@ -1,11 +1,15 @@
 """Real isolated PostgreSQL concurrency/restart/immutability evidence."""
 
+import json
 import os
+import shutil
+import subprocess
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -156,3 +160,92 @@ def test_cross_plan_concurrency_and_ambiguous_recovery(store: MarketStore) -> No
         journal.reserve(plans[1 - i], OrderPurpose.ENTRY, 15, Decimal("1"), Decimal("100"), NOW)
         is None
     )
+
+
+def test_real_market_journal_dump_restore_preserves_approval_unknown_and_zero(
+    store: MarketStore, tmp_path: Path
+) -> None:
+    """Synthetic engineering state restored only into an independently marked TEST DB."""
+    target_url = os.environ.get("EMPIRICAL_IBKR_RESTORE_TEST_URL")
+    if not target_url:
+        pytest.skip("explicit isolated restore TEST database not configured")
+    target = create_engine(target_url)
+    tables = (
+        "alembic_version",
+        "market_configuration",
+        "market_plan",
+        "market_dispatch",
+        "market_observation",
+        "market_cancel_claim",
+        "market_safety",
+        "market_zero_verification",
+    )
+
+    def snapshot(database: MarketStore) -> dict[str, list[str]]:
+        with database.transaction() as connection:
+            return {
+                table: sorted(
+                    json.dumps(row, sort_keys=True, default=str)
+                    for row in connection.execute(
+                        text(f"SELECT row_to_json(t) FROM {table} t")  # noqa: S608 - fixed table tuple
+                    ).scalars()
+                )
+                for table in tables
+            }
+
+    def run_pg(
+        name: str, engine_url: object, arguments: list[str]
+    ) -> subprocess.CompletedProcess[str]:
+        # sqlalchemy URL is retained locally; credentials never enter command arguments.
+        from sqlalchemy.engine import make_url
+
+        url = make_url(engine_url)
+        executable = shutil.which(name)
+        assert executable, f"{name} required for the isolated restore rehearsal"
+        environment = dict(os.environ)
+        environment.update(
+            PGHOST=url.host or "",
+            PGPORT=str(url.port or ""),
+            PGUSER=url.username or "",
+            PGDATABASE=url.database or "",
+            PGPASSWORD=url.password or "",
+        )
+        result = subprocess.run(  # noqa: S603 - fixed PostgreSQL tools, guarded TEST endpoints
+            [executable, *arguments],
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode == 0, f"{name} failed (server text withheld)"
+        return result
+
+    try:
+        assert target.url != store.engine.url
+        with store.engine.connect() as connection:
+            require_test_connection(connection)
+        with target.begin() as connection:
+            require_test_connection(connection)  # Must precede all destructive SQL.
+            connection.exec_driver_sql("DROP SCHEMA public CASCADE")
+            connection.exec_driver_sql("CREATE SCHEMA public")
+        expected = snapshot(store)
+        assert expected["market_zero_verification"]
+        assert any('"UNKNOWN"' in row for row in expected["market_dispatch"])
+        dump = tmp_path / "synthetic-market-journal.dump"
+        run_pg("pg_dump", store.engine.url, ["--format=custom", "--file", str(dump)])
+        assert dump.stat().st_size > 0
+        listing = run_pg("pg_restore", target.url, ["--list", str(dump)]).stdout
+        assert "market_zero_verification" in listing
+        run_pg(
+            "pg_restore",
+            target.url,
+            ["--exit-on-error", "--dbname", target.url.database, str(dump)],
+        )
+        restored = MarketStore(target, expected_identity=TEST_IDENTITY)
+        assert snapshot(restored) == expected
+        for candidate in PostgresMarketJournal(restored).active_plans():
+            record = PostgresMarketJournal(restored).dispatch(candidate.plan_id, OrderPurpose.ENTRY)
+            if record is not None:
+                assert record.state == "UNKNOWN"
+    finally:
+        target.dispose()
