@@ -15,6 +15,7 @@ from empirical_ibkr.paper import IBKRPaperAdapter, _contract
 from empirical_ibkr.session import (
     IBKROwnerSetupRequiredError,
     IBKRSession,
+    _require_safe_protobuf_runtime,
 )
 from tests.unit.test_ibkr_market_access import NOW, instrument, plan
 
@@ -142,6 +143,8 @@ class Client:
 
 @pytest.fixture
 def session(monkeypatch: pytest.MonkeyPatch) -> Any:
+    # This fixture replaces the entire SDK. The real runtime guard is tested below.
+    monkeypatch.setattr("empirical_ibkr.session._require_safe_protobuf_runtime", lambda: None)
     for name, clsname, cls in (
         ("client", "EClient", Client),
         ("wrapper", "EWrapper", type("Wrapper", (), {})),
@@ -157,6 +160,34 @@ def session(monkeypatch: pytest.MonkeyPatch) -> Any:
     value.connect()
     yield value
     value.close()
+
+
+@pytest.mark.parametrize("version", ["5.29.5", "6.33.5", None])
+def test_unreviewed_protobuf_refused_before_sdk_or_socket(
+    monkeypatch: pytest.MonkeyPatch, version: str | None
+) -> None:
+    monkeypatch.setattr(
+        "empirical_ibkr.session.import_module", lambda name: SimpleNamespace(__version__=version)
+    )
+    value = IBKRSession(account="DU12345")
+    with pytest.raises(IBKROwnerSetupRequiredError, match="protobuf"):
+        value.connect()
+    assert value._client is None
+
+
+def test_missing_protobuf_refused_and_reviewed_patch_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def missing(name: str) -> None:
+        raise ImportError("unavailable")
+
+    monkeypatch.setattr("empirical_ibkr.session.import_module", missing)
+    with pytest.raises(IBKROwnerSetupRequiredError, match="protobuf"):
+        _require_safe_protobuf_runtime()
+    monkeypatch.setattr(
+        "empirical_ibkr.session.import_module", lambda name: SimpleNamespace(__version__="5.29.6")
+    )
+    _require_safe_protobuf_runtime()
 
 
 def record() -> DispatchRecord:

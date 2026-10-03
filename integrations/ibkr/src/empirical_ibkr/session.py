@@ -12,11 +12,22 @@ import threading
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
+from importlib import import_module
 from typing import Any
 
 
 class IBKROwnerSetupRequiredError(RuntimeError):
     """Paper session, official SDK or API permission is unavailable."""
+
+
+def _require_safe_protobuf_runtime() -> None:
+    """Refuse the upstream SDK's vulnerable dependency pin before any socket opens."""
+    try:
+        version = getattr(import_module("google.protobuf"), "__version__", None)
+    except ImportError as error:
+        raise IBKROwnerSetupRequiredError("reviewed protobuf 5.29.6 runtime required") from error
+    if version != "5.29.6":
+        raise IBKROwnerSetupRequiredError("reviewed protobuf 5.29.6 runtime required")
 
 
 class IBKRSession:
@@ -82,6 +93,7 @@ class IBKRSession:
             return list(self._rows[key])
 
     def connect(self) -> None:
+        _require_safe_protobuf_runtime()
         if self._client is not None:
             raise IBKROwnerSetupRequiredError("create a fresh verified session after disconnect")
         try:

@@ -7,7 +7,7 @@ name = "empirical-ibkr-paper"
 version = "0.1.0"
 description = "Optional official TWS API adapter for Empirical Paper market-access ports"
 requires-python = ">=3.13"
-dependencies = ["empirical-platform"]
+dependencies = ["empirical-platform", "protobuf==5.29.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

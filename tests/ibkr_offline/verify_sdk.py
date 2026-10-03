@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 from empirical_ibkr.paper import IBKRPaperAdapter
-from empirical_ibkr.session import IBKRSession
+from empirical_ibkr.session import IBKRSession, _require_safe_protobuf_runtime
 from ibapi.client import EClient
 from ibapi.protobuf.PlaceOrderRequest_pb2 import PlaceOrderRequest
 from ibapi.wrapper import EWrapper
@@ -52,6 +52,7 @@ def test_actual_adapter_serializes_exact_terms_with_real_sdk_and_no_network(
 
     monkeypatch.setattr(socket, "socket", deny_socket)
     monkeypatch.setattr(socket, "create_connection", deny_socket)
+    _require_safe_protobuf_runtime()  # Actual imported runtime, not metadata or a double.
     wire = WireCapture()
     client = EClient(RejectErrors())
     client.conn = wire

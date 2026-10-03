@@ -14,7 +14,8 @@ no account-approval polling is scheduled, and no broker writes are authorized.
 | Market-data validation | Synthetic stale, missing, crossed and wrong-route evidence refused; no synthetic quote claimed live |
 | Governed proposal and risk | Existing canonical configuration/proposal/risk logic, whole-share cap, EUR notional/loss and independent gates |
 | Owner approval | Exact fingerprint and immutable terms, original quote expiry, changed/expired terms refused |
-| Official SDK compatibility | Hash-pinned 10.50.2, actual adapter to real EClient to decoded protobuf; socket creation forbidden; exact BUY and whole/partial close fields, read-only default and final-gate refusal verified |
+| Official SDK compatibility | Hash-pinned unmodified 10.50.2 source with patched protobuf 5.29.6, actual adapter to real EClient to decoded protobuf; socket creation forbidden; exact BUY and whole/partial close fields, read-only default and final-gate refusal verified |
+| Optional dependency security | Upstream vulnerable protobuf pin identified; reviewed patched runtime pinned and audited; missing/old/unreviewed runtime refused before any socket; no audit suppression |
 | Dispatch/recovery | Real PostgreSQL atomic claims, duplicate prevention, UNKNOWN/restart and collision checks; callback doubles for execution observations |
 | Partial fill and close | Terminal-entry reconciliation, exact attributable quantity, shared Plan Manager exit cycle, no-short refusal |
 | Position zero | Durable zero snapshot required after exit fill before CLOSED; evidence survives restore |
@@ -34,8 +35,9 @@ Repeatable entrypoints:
   its restore rehearsal additionally requires `EMPIRICAL_IBKR_RESTORE_TEST_URL`.
   Destructive setup invokes `require_test_connection` before SQL; personal targets
   and ambiguous identities are refused. Source and restore targets must differ.
-- `tests/ibkr_offline/verify_sdk.py` runs explicitly after installing the reviewed
-  SDK. It is intentionally outside default test filename discovery so the frozen
+- `tests/ibkr_offline/verify_sdk.py` runs explicitly with the reviewed SDK source
+  and patched protobuf runtime (see owner-setup.md; do not use upstream setup.py).
+  It is intentionally outside default test filename discovery so the frozen
   core installation does not acquire a mandatory order SDK dependency.
 - `.github/workflows/ibkr-helsinki.yml` runs both real-SDK offline verification and
   the full PostgreSQL regression in fresh isolated environments. Archive mismatch

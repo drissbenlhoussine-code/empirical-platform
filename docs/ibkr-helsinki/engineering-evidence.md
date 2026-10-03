@@ -87,3 +87,13 @@ post-fill zero evidence. Both checks pass locally; current-head CI is authoritat
 
 See `offline-closure.md` for the explicit PROVEN_OFFLINE /
 REQUIRES_REAL_IBKR_PAPER_ACCEPTANCE matrix and prepared deployment/restore steps.
+
+The separate optional-SDK dependency audit subsequently found PYSEC-2026-1805 in
+upstream's protobuf 5.29.5 pin; the earlier audit covered the core environment and
+did not prove this optional dependency safe. Inspected official 10.51.1 retains
+the same pin. The integration now explicitly pins protobuf 5.29.6 and imports the
+hash-verified unchanged 10.50.2 source without executing upstream setup.py. The
+actual runtime is checked before a session opens. Real SDK serialization plus
+callback/setup/runtime-refusal tests: 23 passed locally with the patched runtime;
+its isolated dependency audit reports no known vulnerabilities. The optional CI
+job adds dependency consistency and vulnerability checks without suppressions.

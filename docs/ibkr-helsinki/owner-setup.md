@@ -37,8 +37,9 @@ and [official SDK download](https://interactivebrokers.github.io/).
 ## Isolated Python setup and read-only probe
 
 Use a new Python 3.13 environment in this branch's worktree, not the existing
-Alpaca release environment. Install the core with persistence dependencies,
-`integrations/ibkr`, and the Python client from the official TWS API distribution.
+Alpaca release environment. Install the core with persistence dependencies and
+`integrations/ibkr` (which pins patched protobuf 5.29.6). Load the hash-verified
+official Python client source through the isolated environment's PYTHONPATH.
 Do not substitute an unrelated PyPI package named ibapi.
 
 From the isolated worktree/environment:
@@ -46,7 +47,11 @@ From the isolated worktree/environment:
 ```powershell
 python -m pip install -e '.[persistence]'
 python -m pip install -e ./integrations/ibkr
-# Install the official distribution's source/pythonclient directory separately.
+# Verify the downloaded SDK archive, then extract it into a dedicated SDK directory.
+python tools/verify_ibkr_sdk_archive.py 'C:\path\to\twsapi_macunix.1050.02.zip'
+# Set the actual extracted path for this isolated shell; do not run SDK setup.py.
+$env:PYTHONPATH='C:\path\to\IBJts\source\pythonclient'
+python -m pip check
 python -m empirical_platform.entrypoints.ibkr_owner_setup --account <YOUR_DU_ACCOUNT> --client-id 71 --port 7497 --symbol NOKIA
 ```
 
@@ -71,6 +76,18 @@ and final-gate refusal are checked before any frame is encoded. The dedicated CI
 digest before extraction and executes this check without broker credentials.
 Callback and lifecycle tests use explicit fakes. The SDK is
 not vendored, and its successful serialization does not establish broker acceptance.
+
+**Dependency correction:** upstream SDK 10.50.2 and inspected 10.51.1 setup.py pin
+protobuf 5.29.5, affected by [PYSEC-2026-1805](https://osv.dev/vulnerability/PYSEC-2026-1805).
+Do not invoke their installer, which would downgrade the reviewed runtime. Use the
+unchanged verified 10.50.2 source with protobuf 5.29.6 as above. This is an explicit
+application runtime override, not an upstream SDK fix. The SDK's generated Python
+code is compatible with the later patch runtime under the
+[Protobuf compatibility policy](https://protobuf.dev/support/cross-version-runtime-guarantee/),
+and the real SDK encoding tests pass with that runtime. Session startup checks the
+actually imported protobuf version before SDK client construction or sockets.
+The optional-integration CI job runs pip check and dependency audit; no vulnerability
+suppression is used. Local audit of 5.29.6 found no known vulnerabilities.
 
 ## Deployment boundary after read-only connectivity
 
