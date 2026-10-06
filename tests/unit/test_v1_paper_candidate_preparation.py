@@ -336,7 +336,7 @@ class TestPrepareButtonStaysAvailableAllDay:
             extended_hours="No",
             currency="USD",
             notional="332.78",
-            fingerprint_short="abc123def456",
+            fingerprint_short="test-fingerprint",
         )
         return OpportunityCard(
             proposal_id="PRP-089-PAPER-TEST",
