@@ -63,6 +63,7 @@ from empirical_platform.decision_candidate.approved_plan import (
 from empirical_platform.decision_candidate.approved_plan_repositories import (
     ApprovedPlanRepository,
 )
+from empirical_platform.decision_candidate.market_access_ports import ApprovedExitCycle
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
     PaperMarketDataPort,
@@ -95,6 +96,7 @@ from empirical_platform.usecases.position_exit import (
 )
 
 __all__ = [
+    "ApprovedExitCycle",
     "DEFAULT_POLL_INTERVAL_SECONDS",
     "ApprovedPlanRepository",
     "PlanEvaluationOutcome",
@@ -156,6 +158,7 @@ class PositionPlanManager:
         "_authorize_handler",
         "_submit_handler",
         "_reconcile_handler",
+        "_market_exit_cycles",
     )
 
     def __init__(
@@ -175,8 +178,10 @@ class PositionPlanManager:
         configurations: OperatorTradingConfigurationRepository,
         environment: str,
         time_source: PaperTimeSource | None = None,
+        market_exit_cycles: tuple[ApprovedExitCycle, ...] = (),
     ) -> None:
         self._plans = plans
+        self._market_exit_cycles = market_exit_cycles
         self._previews = previews
         self._authorizations = authorizations
         self._attempts = exit_attempts
@@ -239,6 +244,19 @@ class PositionPlanManager:
             outcomes.append(self._evaluate_unclaimed(plan, now=now))
         for plan in self._list_claimed_unresolved(limit=500):
             outcomes.append(self._resume_claimed(plan, now=now))
+        for cycle in self._market_exit_cycles:
+            for detail in cycle.manage_exits_once(now=now):
+                plan_id, _, status = detail.partition(":")
+                outcomes.append(
+                    PlanEvaluationOutcome(
+                        plan_id,
+                        "",
+                        PlanOutcomeKind.NEEDS_ATTENTION
+                        if status == "NEEDS_ATTENTION"
+                        else PlanOutcomeKind.MONITORING,
+                        detail,
+                    )
+                )
         return tuple(outcomes)
 
     # -- unclaimed plans: decide whether a trigger fires ------------------------------

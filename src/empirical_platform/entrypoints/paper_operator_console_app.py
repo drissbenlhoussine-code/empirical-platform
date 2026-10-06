@@ -47,6 +47,7 @@ from empirical_platform.entrypoints._paper_operator_console_composition import (
 )
 from empirical_platform.entrypoints.operator_console_app import build_application
 from empirical_platform.usecases.full_plan_approval import approve_full_plan
+from empirical_platform.usecases.market_console import MarketReviewService
 from empirical_platform.usecases.operator_console import (
     CapabilityRefusedError,
     ConsoleRefusalError,
@@ -168,9 +169,15 @@ def history_plan_cell_for_row(
 
 
 def build_paper_application(
-    backend: PaperConsoleBackend, *, security: SecuritySession | None = None
+    backend: PaperConsoleBackend,
+    *,
+    security: SecuritySession | None = None,
+    market_reviews: MarketReviewService | None = None,
 ) -> Router:
     router = build_application(backend, security=security)
+    from empirical_platform.entrypoints._market_console_routes import register_market_routes
+
+    register_market_routes(router, market_reviews)
     service = backend.service
 
     def label() -> str:

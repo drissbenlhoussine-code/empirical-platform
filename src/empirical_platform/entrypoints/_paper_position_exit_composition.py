@@ -71,7 +71,7 @@ from empirical_platform.usecases.operator_console import (
     OperatorConsoleService,
 )
 from empirical_platform.usecases.operator_console_exits import ExitRepositories, PositionExitConsole
-from empirical_platform.usecases.position_plan_manager import PositionPlanManager
+from empirical_platform.usecases.position_plan_manager import ApprovedExitCycle, PositionPlanManager
 
 __all__ = [
     "PAPER_EXIT_DATABASE_VARIABLE",
@@ -100,7 +100,10 @@ def resolve_paper_exit_postgres_config(
 
 
 @contextmanager
-def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
+def paper_operator_console_with_exit_runtime(
+    *,
+    market_exit_cycles: tuple[ApprovedExitCycle, ...] = (),
+) -> Iterator[PaperConsoleBackend]:
     """Own Store B's AND Store C's persistence services for the console's lifetime.
 
     Requires Store B proven compatible with the integrated v1 runtime (via
@@ -176,6 +179,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
             # repositories the Owner's own manual exit already uses -- never a parallel
             # broker-submission path (see `usecases.position_plan_manager`'s own docstring).
             plan_manager = PositionPlanManager(
+                market_exit_cycles=market_exit_cycles,
                 plans=plans,
                 intents=repositories.intents,
                 entry_attempts=repositories.attempts,
