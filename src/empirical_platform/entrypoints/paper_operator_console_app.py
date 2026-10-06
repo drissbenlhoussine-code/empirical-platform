@@ -57,7 +57,9 @@ from empirical_platform.usecases.operator_console import (
 from empirical_platform.usecases.paper_execution import PaperExecutionRefusedError
 from empirical_platform.usecases.paper_operator_console import (
     PaperCandidateBlockedError,
+    V1PaperCandidateRefusedError,
     paper_health,
+    prepare_v1_paper_candidate,
 )
 from empirical_platform.usecases.v1_management_status import (
     ApprovedPlan,
@@ -206,6 +208,58 @@ def build_paper_application(
     def prepare_candidate_route(request: Request, csrf: str) -> Response:
         del csrf
         refuse_requested_environment(request.form)
+        # RELEASE v1 Release Blocker (in-console Owner gate): the exit-capable composition
+        # (`backend._plans is not None`) prepares under the Owner's real CFG-089-PAPER
+        # configuration with real live Alpaca evidence -- never M088's synthetic acceptance
+        # quote. M088's own plain PAPER composition (`backend._plans is None`) is completely
+        # untouched: it still calls `backend.prepare_candidate()` exactly as before.
+        if backend._plans is not None:
+            try:
+                prepared = prepare_v1_paper_candidate(
+                    configurations=backend._repositories.configurations,
+                    contexts=backend._repositories.contexts,
+                    proposals=backend._repositories.proposals,
+                    watermarks=backend._watermarks,
+                    time_bases=backend._repositories.time_bases,
+                    broker=backend._broker,
+                    market_data=backend._market_data,
+                    bars=backend._market_data,
+                    time_source=backend._time_source,
+                    now=datetime.now(UTC),
+                )
+            except V1PaperCandidateRefusedError as error:
+                return html_response(
+                    html.message_page(
+                        title="Candidate not prepared",
+                        message=f"{error}. Nothing was persisted. Prepare again when ready; "
+                        "nothing is retried automatically.",
+                        capability_label=label(),
+                        kill_switch_engaged=False,
+                        back="/today",
+                        tone="warn",
+                    )
+                )
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            proposal_id = prepared.proposal.proposal_governance_id
+            return html_response(
+                html.message_page(
+                    title="Candidate prepared",
+                    message=(
+                        f"{prepared.proposal.symbol} live bid {prepared.quote_bid} / "
+                        f"ask {prepared.quote_ask}, captured "
+                        f"{prepared.quote_captured_at.isoformat()}. Proposal {proposal_id}. "
+                        "Review the complete plan before approving."
+                    ),
+                    capability_label=label(),
+                    kill_switch_engaged=False,
+                    back=f"/opportunity?id={proposal_id}",
+                    tone="info",
+                )
+            )
         try:
             backend.prepare_candidate()
         except _REFUSED as error:

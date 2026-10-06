@@ -15,6 +15,7 @@ from html import escape
 from types import MappingProxyType
 
 from empirical_platform.usecases.operator_console import (
+    NOT_AVAILABLE,
     ActionOutcome,
     ConfirmationView,
     ExecutionSummary,
@@ -100,6 +101,14 @@ def _chip(state: HumanState) -> str:
     return f'<span class="{_CHIP_CLASS[state]}">{_e(state.value)}</span>'
 
 
+def _env_badge_class(label: str) -> str:
+    """RELEASE v1: PAPER gets its own persistent, visually distinct badge color -- the
+    exact Owner mistake this answers is mistaking the always-running SIMULATION console
+    (teal) for the real-Alpaca-endpoint PAPER one, because both showed the same color and
+    differed only in text a small mobile screen makes easy to miss."""
+    return "env-badge env-badge-paper" if label.strip().upper() == "PAPER" else "env-badge"
+
+
 def _layout(
     *,
     title: str,
@@ -152,7 +161,7 @@ def _layout(
         f"<title>{_e(title)} — Operator Console</title>"
         '<link rel="stylesheet" href="/static/console.css"></head>'
         '<body><header class="top"><div class="brand"><span class="brand-name">Operator Console</span>'
-        f'<span class="env-badge">{_e(capability_label.upper())}</span></div>'
+        f'<span class="{_env_badge_class(capability_label)}">{_e(capability_label.upper())}</span></div>'
         f'<nav class="nav" aria-label="Primary">{nav}</nav></header>'
         f'<main class="page">{stop}{flash_html}{body}</main>'
         f'<footer class="foot">{_e(footer_note)}</footer>'
@@ -193,26 +202,35 @@ def today_page(view: TodayView, csrf: str, flash: ActionOutcome | None = None) -
         f'<div class="stat"><span class="stat-label">Positions</span><span class="stat-value">{view.active_positions_count}</span></div>'
         "</section>"
     )
+    # RELEASE v1 Release Blocker (in-console Owner gate): the Prepare action is appended
+    # after the cards, not only shown when the list is empty. `prepare_v1_paper_candidate`
+    # is explicitly NOT day-idempotent -- the whole in-console acceptance workflow proved
+    # today needs a fresh live-priced candidate each time one expires or is refused, which
+    # the OLD "only when nothing exists yet" placement made impossible after the first one.
+    prepare_form = ""
+    if view.capability.capability.value == "PAPER":
+        prepare_form = (
+            '<section class="prepare">'
+            "<p>Prepare a fresh bounded Paper candidate: the engine re-reads the live market, "
+            "the account and your configuration fresh, right now. Nothing is sent until you "
+            "explicitly approve and confirm it.</p>"
+            f'<form method="post" action="/prepare-candidate">{_csrf(csrf)}'
+            '<button class="btn btn-primary" type="submit">Prepare a fresh Paper candidate</button></form>'
+            "</section>"
+        )
     if view.opportunities:
         cards = (
             '<section class="cards">'
             + "".join(_card(c, csrf) for c in view.opportunities)
             + "</section>"
-        )
+        ) + prepare_form
     elif view.capability.capability.value == "PAPER":
-        # MILESTONE-088: PAPER has no opportunity-scanning engine yet (mission scope). The
-        # ONE candidate available is the explicit, Owner-triggered, bounded action below --
-        # same symbol/notional/limit-price safety envelope as the real M085 Paper Acceptance
-        # run. It never runs on page load; nothing exists until this button is pressed.
+        # MILESTONE-088: PAPER has no opportunity-scanning engine yet (mission scope).
         cards = (
             '<section class="empty"><h2>No opportunities today</h2>'
-            "<p>PAPER has no opportunity-scanning engine in this milestone. You can prepare "
-            "one bounded candidate -- the same safety envelope the real M085 Paper Acceptance "
-            "run used -- and review it below. Nothing is sent until you explicitly approve "
-            "and confirm it.</p>"
-            f'<form method="post" action="/prepare-candidate">{_csrf(csrf)}'
-            '<button class="btn btn-primary" type="submit">Prepare today\N{RIGHT SINGLE QUOTATION MARK}s Paper candidate</button></form></section>'
-        )
+            "<p>PAPER has no opportunity-scanning engine in this milestone.</p>"
+            "</section>"
+        ) + prepare_form
     else:
         cards = (
             '<section class="empty"><h2>No opportunities today</h2>'
@@ -386,11 +404,19 @@ def confirmation_page(view: ConfirmationView, csrf: str, capability_label: str) 
             ("Evaluated planned loss", view.planned_loss),
             ("Configured maximum shares", view.maximum_quantity_shares),
             ("Configured maximum planned loss", view.maximum_planned_loss),
+            ("Target gain", view.target_gain),
+            ("Reward:risk", view.reward_risk_ratio),
+            (
+                "Mandatory exit",
+                _when(view.mandatory_exit) if view.mandatory_exit else NOT_AVAILABLE,
+            ),
             ("Time in force", t.time_in_force),
             ("Extended hours", t.extended_hours),
             ("Environment", view.environment),
             ("Account", view.account),
             ("Reference", t.fingerprint_short),
+            ("Configuration", f"{view.configuration_governance_id} v{view.configuration_version}"),
+            ("Plan fingerprint", view.fingerprint_full),
             ("Notional", f"{t.notional} {t.currency}"),
             ("Proposal expires", _when(view.proposal_expires_at)),
             ("Approval expires", _when(view.approval_expires_at)),
@@ -404,7 +430,7 @@ def confirmation_page(view: ConfirmationView, csrf: str, capability_label: str) 
     )
     body = (
         f'<a class="back" href="/today">← Today</a>'
-        f'<section class="confirm"><div class="env-badge env-badge-large">{_e(view.environment)}</div>'
+        f'<section class="confirm"><div class="{_env_badge_class(view.environment)} env-badge-large">{_e(view.environment)}</div>'
         f'<h1>{heading}</h1><p class="lead">{_e(intro)}</p>{warning}'
         f'<div class="terms">{terms}</div>'
         f'<form method="post" action="{action}" class="confirm-form">{_csrf(csrf)}'
@@ -772,7 +798,7 @@ def exit_review_page(view: ExitReviewView, csrf: str, capability_label: str) -> 
     )
     body = (
         f'<a class="back" href="/execution?intent={_e(view.intent_id)}">← Execution</a>'
-        f'<section class="confirm"><div class="env-badge env-badge-large">{_e(view.environment)}</div>'
+        f'<section class="confirm"><div class="{_env_badge_class(view.environment)} env-badge-large">{_e(view.environment)}</div>'
         "<h1>Review exit</h1>"
         '<p class="lead">You are about to authorize exactly these terms: one SELL TO CLOSE of the '
         "whole verified position. Nothing has been sent. The engine re-reads the position, the "
@@ -988,7 +1014,7 @@ def safety_page(view: SafetyView, csrf: str, flash: ActionOutcome | None) -> str
     )
     body = (
         "<h1>Safety</h1>"
-        f'<section class="card env-card"><div class="env-badge env-badge-large">{_e(view.active_capability.capability.value)}</div>'
+        f'<section class="card env-card"><div class="{_env_badge_class(view.active_capability.capability.value)} env-badge-large">{_e(view.active_capability.capability.value)}</div>'
         f'<p class="lead">{_e(view.active_capability.note)}</p><ul class="caps">{capabilities}</ul></section>'
         f"{v1_statements}"
         f"{switch}"
@@ -1121,7 +1147,8 @@ def loaded_day_page(
 STYLESHEET = """
 :root{--bg:#f6f7f9;--surface:#ffffff;--ink:#1c2430;--muted:#5b6573;--line:#e3e7ec;--accent:#1f5fbf;
 --accent-ink:#ffffff;--good:#1d7a4d;--good-bg:#e6f4ec;--warn:#8a5a00;--warn-bg:#fff4dc;--danger:#b3261e;
---danger-bg:#fde8e6;--info:#1f5fbf;--info-bg:#e7eefb;--progress:#6b4fbb;--progress-bg:#efeafb;--sim:#0b7285;}
+--danger-bg:#fde8e6;--info:#1f5fbf;--info-bg:#e7eefb;--progress:#6b4fbb;--progress-bg:#efeafb;--sim:#0b7285;
+--paper:#9a3412;}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,
 "Helvetica Neue",Arial,sans-serif}
@@ -1129,7 +1156,8 @@ a{color:var(--accent)}
 .top{background:var(--surface);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;
 align-items:center;justify-content:space-between;position:sticky;top:0;z-index:2}
 .brand{display:flex;align-items:center;gap:12px}.brand-name{font-weight:700;font-size:18px;letter-spacing:.2px}
-.env-badge{background:var(--sim);color:#fff;font-weight:800;letter-spacing:.12em;padding:6px 12px;border-radius:8px;font-size:13px}
+.env-badge{background:var(--sim);color:#fff;font-weight:800;letter-spacing:.12em;padding:7px 14px;border-radius:8px;font-size:14px}
+.env-badge-paper{background:var(--paper);box-shadow:0 0 0 2px #fff,0 0 0 4px var(--paper)}
 .env-badge-large{display:inline-block;font-size:18px;padding:10px 18px;margin-bottom:12px}
 .nav{display:flex;gap:4px;flex-wrap:wrap}.nav-link{padding:8px 12px;border-radius:8px;text-decoration:none;color:var(--ink);font-weight:600}
 .nav-link:hover{background:var(--bg)}.nav-active{background:var(--accent);color:var(--accent-ink)}
