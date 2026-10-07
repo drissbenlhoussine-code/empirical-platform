@@ -96,6 +96,8 @@ def active_plan_block_for_row(
     plan: ApprovedPlan | None,
     attempt: PositionExitAttempt | None,
     quote_bid: str | None,
+    *,
+    base_path: str = "",
 ) -> str | None:
     """The APPROVED PLAN block HTML for one Active-trade row, or `None` if this row has no
     managed plan. Pulled out of the route handler so the per-row computation (unrealized
@@ -127,7 +129,9 @@ def active_plan_block_for_row(
         max_loss=max_loss,
         management_status=management_status(plan, attempt),
         review_manual_exit_url=(
-            f"/exit/review?intent={row.intent_id}" if row.can_review_exit else None
+            html.url_for(base_path, f"/exit/review?intent={row.intent_id}")
+            if row.can_review_exit
+            else None
         ),
     )
 
@@ -168,9 +172,13 @@ def history_plan_cell_for_row(
 
 
 def build_paper_application(
-    backend: PaperConsoleBackend, *, security: SecuritySession | None = None
+    backend: PaperConsoleBackend, *, security: SecuritySession | None = None, base_path: str = ""
 ) -> Router:
-    router = build_application(backend, security=security)
+    # RELEASE v1 Release Blocker (/paper base-path escape): validated again here (not just
+    # inside `build_application`) because this function also uses it directly below, before
+    # any route built on it runs.
+    base_path = html.validate_base_path(base_path)
+    router = build_application(backend, security=security, base_path=base_path)
     service = backend.service
 
     def label() -> str:
@@ -186,6 +194,7 @@ def build_paper_application(
                 kill_switch_engaged=False,
                 back="/safety",
                 tone="danger" if isinstance(error, CapabilityRefusedError) else "warn",
+                base_path=base_path,
             ),
             status,
         )
@@ -203,7 +212,9 @@ def build_paper_application(
         except Exception as error:  # noqa: BLE001 - never a traceback to the browser
             print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
             return refusal(error, "500 Internal Server Error")
-        return html_response(html.paper_health_page(view, capability_label=label()))
+        return html_response(
+            html.paper_health_page(view, capability_label=label(), base_path=base_path)
+        )
 
     def prepare_candidate_route(request: Request, csrf: str) -> Response:
         del csrf
@@ -237,6 +248,7 @@ def build_paper_application(
                         kill_switch_engaged=False,
                         back="/today",
                         tone="warn",
+                        base_path=base_path,
                     )
                 )
             except _REFUSED as error:
@@ -258,6 +270,7 @@ def build_paper_application(
                     kill_switch_engaged=False,
                     back=f"/opportunity?id={proposal_id}",
                     tone="info",
+                    base_path=base_path,
                 )
             )
         try:
@@ -267,7 +280,7 @@ def build_paper_application(
         except Exception as error:  # noqa: BLE001 - never a traceback to the browser
             print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
             return refusal(error, "500 Internal Server Error")
-        return redirect("/today")
+        return redirect(html.url_for(base_path, "/today"))
 
     router.get("/health", paper_health_route)
     router.post("/prepare-candidate", prepare_candidate_route)
@@ -307,7 +320,7 @@ def build_paper_application(
                     f"{'created' if result.plan_created_now else 'already existed'}",
                     file=sys.stderr,
                 )
-            return redirect(f"/opportunity?id={proposal}")
+            return redirect(html.url_for(base_path, f"/opportunity?id={proposal}"))
 
         router.post("/confirm-approval", confirm_approval_with_plan)
 
@@ -329,7 +342,11 @@ def build_paper_application(
                     attempt = backend._exits.attempts.active_for_entry(row.intent_id)
                     quote = backend._market_data.fetch_quote(row.symbol)
                     block = active_plan_block_for_row(
-                        row, plan, attempt, quote.bid if quote is not None else None
+                        row,
+                        plan,
+                        attempt,
+                        quote.bid if quote is not None else None,
+                        base_path=base_path,
                     )
                     if block is not None:
                         plan_blocks[row.intent_id] = block
@@ -339,7 +356,9 @@ def build_paper_application(
                 print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
                 return refusal(error, "500 Internal Server Error")
             return html_response(
-                html.active_page(rows, csrf, label(), False, None, plan_blocks=plan_blocks)
+                html.active_page(
+                    rows, csrf, label(), False, None, plan_blocks=plan_blocks, base_path=base_path
+                )
             )
 
         def history_with_plan(request: Request, csrf: str) -> Response:
@@ -381,6 +400,7 @@ def build_paper_application(
                     capability_label=label(),
                     kill_switch_engaged=False,
                     plan_cells=plan_cells,
+                    base_path=base_path,
                 )
             )
 

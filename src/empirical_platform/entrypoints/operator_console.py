@@ -38,6 +38,7 @@ from collections.abc import Callable, Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 
+from empirical_platform.entrypoints import _operator_console_html as html
 from empirical_platform.entrypoints._operator_console_web import SecuritySession, serve
 from empirical_platform.entrypoints._paper_operator_console_composition import (
     paper_operator_console_runtime,
@@ -141,6 +142,7 @@ def _serve_with_reconciler(
     reconcile_every: float,
     banner: tuple[str, ...],
     plan_manager: PositionPlanManager | None = None,
+    base_path: str = "",
 ) -> None:
     """Shared by both capabilities: start the reconciler, serve, and shut down in order.
 
@@ -164,11 +166,17 @@ def _serve_with_reconciler(
             manager_thread = PlanManagerThread(plan_manager, now=_utc_now)
             manager_thread.start()
         with serve(application, host=host, port=port) as server:
+            # Direct/local URL is always unprefixed, same reasoning as the Opportunity
+            # Engine's own launcher: this process only ever registers unprefixed routes (a
+            # reverse proxy strips base_path before forwarding here, it never reaches this
+            # process). base_path only shapes the URLs this process generates in its own pages.
             url = f"http://{host}:{server.server_port}/today"
             print("=" * 72)
             for line in banner:
                 print(line)
             print(f"  Open {url}")
+            if base_path:
+                print(f"  Configured base path for a reverse proxy: {base_path}")
             print("  Press Ctrl+C to stop.")
             print("=" * 72, flush=True)
             if not no_browser:
@@ -231,8 +239,20 @@ def main(argv: list[str] | None = None) -> int:
         default=5.0,
         help="seconds between background reconciliation passes (0 disables)",
     )
+    parser.add_argument(
+        "--base-path",
+        default="",
+        help="path prefix this console is reverse-proxied under, e.g. /paper (default: none, "
+        "i.e. root behaviour) -- mirrors the Opportunity Engine's own --base-path exactly. "
+        "Only shapes the URLs this process generates in its own pages; routes always register "
+        "unprefixed because a reverse proxy strips the prefix before forwarding here.",
+    )
     arguments = parser.parse_args(argv)
     host = _loopback(arguments.host)
+    try:
+        base_path = html.validate_base_path(arguments.base_path)
+    except ValueError as error:
+        raise SystemExit(f"REFUSED: {error}") from error
 
     if arguments.capability in ("paper", "paper-exit"):
         if arguments.load_day or arguments.reset_simulation:
@@ -247,7 +267,9 @@ def main(argv: list[str] | None = None) -> int:
             # function opens Store C alongside Store B and wires the exit console; the routes,
             # the app and the banner's first two lines are otherwise identical.
             with paper_operator_console_with_exit_runtime() as backend:
-                application = build_paper_application(backend, security=SecuritySession())
+                application = build_paper_application(
+                    backend, security=SecuritySession(), base_path=base_path
+                )
                 _serve_with_reconciler(
                     application,
                     refresh=backend.service.refresh_executions,
@@ -266,10 +288,13 @@ def main(argv: list[str] | None = None) -> int:
                         "  Live -- not authorized.",
                     ),
                     plan_manager=backend._plan_manager,
+                    base_path=base_path,
                 )
             return 0
         with paper_operator_console_runtime() as backend:
-            application = build_paper_application(backend, security=SecuritySession())
+            application = build_paper_application(
+                backend, security=SecuritySession(), base_path=base_path
+            )
             _serve_with_reconciler(
                 application,
                 refresh=backend.service.refresh_executions,
@@ -283,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
                     "  Not real money. Every submission requires explicit Owner approval.",
                     "  Live -- not authorized.",
                 ),
+                base_path=base_path,
             )
         return 0
 
@@ -299,7 +325,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"{', '.join(report.proposed) or 'nothing'}; already present "
                     f"{', '.join(report.already_present) or 'nothing'}"
                 )
-            application = build_application(runtime, security=SecuritySession())
+            application = build_application(
+                runtime, security=SecuritySession(), base_path=base_path
+            )
             _serve_with_reconciler(
                 application,
                 refresh=runtime.service.refresh_executions,
@@ -311,6 +339,7 @@ def main(argv: list[str] | None = None) -> int:
                     "  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.",
                     "  Paper execution locked -- acceptance pending. Live -- not authorized.",
                 ),
+                base_path=base_path,
             )
     except SimulationStateLockedError as refused:
         print(f"REFUSED: {refused}", file=sys.stderr)
