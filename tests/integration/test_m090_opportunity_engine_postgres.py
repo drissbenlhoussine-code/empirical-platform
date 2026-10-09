@@ -42,7 +42,7 @@ _NOW = datetime(2026, 6, 10, 14, 0, tzinfo=UTC)
 
 @pytest.fixture(scope="module")
 def engine() -> Iterator[Engine]:
-    yield from build_engine()
+    yield from build_engine("head")
 
 
 @pytest.fixture

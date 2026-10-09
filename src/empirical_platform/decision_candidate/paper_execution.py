@@ -60,6 +60,10 @@ from enum import StrEnum
 from types import MappingProxyType
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from empirical_platform.decision_candidate.entry_risk_contract import (
+    EntryRiskContract,
+    validate_limits,
+)
 from empirical_platform.decision_candidate.operator_trading_configuration import (
     OperatorTradingConfiguration,
     OrderType,
@@ -1251,7 +1255,23 @@ class ExecutionPolicy:
     latest_entry_time: clock_time
     operator_timezone: str
 
+    risk_contract_version: int = 1
+    maximum_position_quantity_shares: int | None = None
+    maximum_planned_loss_per_trade: Decimal | None = None
+
     def __post_init__(self) -> None:
+        if type(self.risk_contract_version) is not int:
+            raise ValueError("execution risk version must be an integer")
+        if self.risk_contract_version == 2:
+            validate_limits(
+                self.maximum_position_quantity_shares, self.maximum_planned_loss_per_trade
+            )
+        elif (
+            self.risk_contract_version != 1
+            or self.maximum_position_quantity_shares is not None
+            or self.maximum_planned_loss_per_trade is not None
+        ):
+            raise ValueError("invalid historical execution policy")
         _require_identifier(self.configuration_governance_id, field="configuration_governance_id")
         if isinstance(self.configuration_version, bool) or not isinstance(
             self.configuration_version, int
@@ -1298,6 +1318,17 @@ class ExecutionPolicy:
     def fingerprint(self) -> str:
         return _canonical_digest(
             {
+                **(
+                    {
+                        "risk_contract_version": 2,
+                        "maximum_position_quantity_shares": self.maximum_position_quantity_shares,
+                        "maximum_planned_loss_per_trade": _canonical_decimal(
+                            self.maximum_planned_loss_per_trade
+                        ),
+                    }
+                    if self.risk_contract_version == 2
+                    else {}
+                ),
                 "configuration_governance_id": self.configuration_governance_id,
                 "configuration_version": self.configuration_version,
                 "earliest_entry_time": self.earliest_entry_time.isoformat(),
@@ -1322,6 +1353,9 @@ def execution_policy_from_configuration(
     if not isinstance(configuration, OperatorTradingConfiguration):
         raise ValueError("configuration must be an OperatorTradingConfiguration")
     return ExecutionPolicy(
+        risk_contract_version=configuration.risk_contract_version,
+        maximum_position_quantity_shares=configuration.maximum_position_quantity_shares,
+        maximum_planned_loss_per_trade=configuration.maximum_planned_loss_per_trade,
         configuration_governance_id=configuration.configuration_governance_id,
         configuration_version=configuration.configuration_version,
         maximum_notional=configuration.maximum_capital_per_trade,
@@ -1593,6 +1627,8 @@ class SubmissionPreview:
     refusals: tuple[str, ...]
     created_at: datetime
 
+    entry_risk: EntryRiskContract | None = None
+
     def __post_init__(self) -> None:
         _require_identifier(self.preview_id, field="preview_id")
         _require_identifier(self.intent_governance_id, field="intent_governance_id")
@@ -1625,6 +1661,11 @@ class SubmissionPreview:
         """
         return _canonical_digest(
             {
+                **(
+                    {"entry_risk": self.entry_risk.document()}
+                    if self.entry_risk is not None
+                    else {}
+                ),
                 "account_reference": self.account_reference,
                 "approved_fingerprint": self.approved_fingerprint,
                 "client_order_id": self.order.client_order_id,
@@ -1714,6 +1755,8 @@ class ExecutionAuthorization:
     basis_broker_earliest_at: datetime | None = None
     basis_host_requested_at: datetime | None = None
     basis_broker_latest_at: datetime | None = None
+
+    entry_risk: EntryRiskContract | None = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -1893,6 +1936,7 @@ def authorization_binding_refusal(
     database insert guard asks the same questions of the stored preview row.
     """
     pairs: tuple[tuple[str, object, object], ...] = (
+        ("entry_risk", preview.entry_risk, authorization.entry_risk),
         ("preview_id", preview.preview_id, authorization.preview_id),
         ("preview_version", preview.preview_version, authorization.preview_version),
         ("intent_governance_id", preview.intent_governance_id, authorization.intent_governance_id),
@@ -2685,6 +2729,9 @@ def build_submission_preview(
     if broker_deadline_refusal is not None:
         refusals.append(broker_deadline_refusal)
 
+    risk_refusal = entry_risk_refusal(intent, policy)
+    if risk_refusal is not None:
+        refusals.append(risk_refusal)
     ceiling = order.notional_ceiling
     if ceiling is None:
         refusals.append(
@@ -2711,6 +2758,7 @@ def build_submission_preview(
         refusals.append(quote_problem)
 
     return SubmissionPreview(
+        entry_risk=intent.entry_risk,
         preview_id=preview_id,
         intent_governance_id=intent.intent_governance_id,
         preview_version=preview_version,
@@ -2794,6 +2842,7 @@ def authorize_submission(
         )
 
     authorization = ExecutionAuthorization(
+        entry_risk=preview.entry_risk,
         authorization_id=authorization_id,
         intent_governance_id=preview.intent_governance_id,
         preview_id=preview.preview_id,
@@ -2833,6 +2882,26 @@ def authorize_submission(
     return authorization
 
 
+def entry_risk_refusal(intent: ApprovedOrderIntent, policy: ExecutionPolicy) -> str | None:
+    risk = intent.entry_risk
+    if policy.risk_contract_version == 1:
+        return None if risk is None else "legacy execution policy cannot authorize risk-v2 terms"
+    if risk is None:
+        return "risk-v2 dispatch requires the immutable approved stop and risk evidence"
+    if (
+        risk.maximum_position_quantity_shares != policy.maximum_position_quantity_shares
+        or risk.maximum_planned_loss_per_trade != policy.maximum_planned_loss_per_trade
+    ):
+        return "approved risk limits differ from the immutable configuration policy"
+    if risk.entry_ceiling != intent.limit_price or risk.quantity != intent.quantity:
+        return "entry ceiling or quantity changed after approval"
+    try:
+        risk.__post_init__()
+    except ValueError as error:
+        return str(error)
+    return None
+
+
 def final_send_refusal(
     *,
     intent: ApprovedOrderIntent,
@@ -2861,6 +2930,11 @@ def final_send_refusal(
     _require_aware(host_now, field="host_now")
     if kill_switch_engaged:
         return "the execution kill switch is engaged"
+    risk_refusal = entry_risk_refusal(intent, policy_now)
+    if risk_refusal is not None:
+        return risk_refusal
+    if authorization.entry_risk != intent.entry_risk:
+        return "approved stop or risk evidence changed after authorization"
     if (
         intent.configuration_governance_id != policy_now.configuration_governance_id
         or intent.configuration_version != policy_now.configuration_version

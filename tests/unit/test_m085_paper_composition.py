@@ -37,9 +37,18 @@ from empirical_platform.shared.brokerage.alpaca_paper import (
 )
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.entry_risk_schema import (
+    V1_RISK_CONTRACT,
+)
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    _M085_REQUIRED_TABLES,
     M085_SCHEMA_HEAD,
-    PaperSchemaHeadError,
+    V1_INTEGRATED_SCHEMA_HEAD,
+    SchemaCompatibilityError,
+)
+from empirical_platform.shared.persistence.postgres_repositories.paper_schema_contract import (
+    M085_CONTRACT,
+    M085_CONTRACT_SELECT,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,10 +58,21 @@ _M084_HEAD = "".join(("a3f7c2", "1d9b04"))
 
 
 class _HeadWork:
-    """A unit of work that answers only the schema-revision query."""
+    """A unit of work that answers the schema-revision and table-existence queries.
 
-    def __init__(self, rows: list[dict[str, object]], failure: Exception | None) -> None:
-        self._rows = rows
+    RELEASE v1's `require_v1_integrated_schema_compatibility` issues TWO statements
+    where the old `require_exact_m085_schema_head` issued one, so this fake dispatches
+    on the statement text rather than always answering the same rows.
+    """
+
+    def __init__(
+        self,
+        head_rows: list[dict[str, object]],
+        table_rows: list[dict[str, object]],
+        failure: Exception | None,
+    ) -> None:
+        self._head_rows = head_rows
+        self._table_rows = table_rows
         self._failure = failure
         self.statements: list[str] = []
 
@@ -67,7 +87,14 @@ class _HeadWork:
         self.statements.append(statement)
         if self._failure is not None:
             raise self._failure
-        return list(self._rows)
+        if statement == M085_CONTRACT_SELECT:
+            return [
+                {"object_key": key, "definition": value}
+                for key, value in (M085_CONTRACT | V1_RISK_CONTRACT).items()
+            ]
+        if "alembic_version" in statement:
+            return list(self._head_rows)
+        return list(self._table_rows)
 
 
 _KEY = "AKTESTKEYVALUE000000"
@@ -119,8 +146,12 @@ class FakeService(PostgresPersistenceService):
     """
 
     instances: list[FakeService] = []
-    #: What `alembic_version` holds. The exact head unless a test says otherwise.
-    head_rows: list[dict[str, object]] = [{"version_num": M085_SCHEMA_HEAD}]
+    #: What `alembic_version` holds. The exact v1 integrated head unless a test says
+    #: otherwise.
+    head_rows: list[dict[str, object]] = [{"version_num": V1_INTEGRATED_SCHEMA_HEAD}]
+    #: What `pg_tables` holds. Every M085 table this runtime depends on, unless a test
+    #: says otherwise.
+    table_rows: list[dict[str, object]] = [{"tablename": t} for t in _M085_REQUIRED_TABLES]
     head_failure: Exception | None = None
 
     def __init__(self, config: PostgreSQLConfigSnapshot) -> None:
@@ -138,7 +169,7 @@ class FakeService(PostgresPersistenceService):
         self.closed = True
 
     def unit_of_work(self) -> Any:  # noqa: ANN401 - stands in for the real unit of work
-        work = _HeadWork(FakeService.head_rows, FakeService.head_failure)
+        work = _HeadWork(FakeService.head_rows, FakeService.table_rows, FakeService.head_failure)
         self.works.append(work)
         return work
 
@@ -160,8 +191,10 @@ def a_config() -> PostgreSQLConfigSnapshot:
 @pytest.fixture
 def composition(monkeypatch: pytest.MonkeyPatch) -> type[FakeService]:
     """Replace the persistence service and supply a credential-bearing environment."""
+    monkeypatch.setattr(_paper_composition, "require_personal_identity", lambda *a, **k: None)
     FakeService.instances = []
-    FakeService.head_rows = [{"version_num": M085_SCHEMA_HEAD}]
+    FakeService.head_rows = [{"version_num": V1_INTEGRATED_SCHEMA_HEAD}]
+    FakeService.table_rows = [{"tablename": t} for t in _M085_REQUIRED_TABLES]
     FakeService.head_failure = None
     monkeypatch.setattr(_paper_composition, "PostgresPersistenceService", FakeService)
     for name, value in _environment().items():
@@ -384,12 +417,26 @@ class TestTheRuntimeLifecycle:
 
 
 class TestTheSchemaHeadIsExact:
-    """Corrective pass (item 4): nothing runs against a schema this code was not written for."""
+    """Corrective pass (item 4), then RELEASE v1: nothing runs against an unproven schema.
 
-    def test_the_pinned_head_is_the_m085_revision_and_the_repository_head_descends_from_it(
+    `paper_execution_runtime` calls `require_v1_integrated_schema_compatibility`, not
+    `require_exact_m085_schema_head` -- the real deployment database is the SAME physical
+    database M090's and v1's own migrations additively stack onto, so a database correctly
+    migrated to serve those later milestones can never simultaneously sit at the literal
+    M085 revision the old guard demanded (see that function's own docstring in
+    `paper_execution_repositories.py` for the full why). `require_exact_m085_schema_head`
+    itself is UNCHANGED and still exercised directly by `test_m087_schema_head.py` (its own
+    negative cases) and by the SIMULATION console's composition
+    (`test_m087_position_exit_postgres.py`). `require_v1_integrated_schema_compatibility`'s
+    own full negative-test suite -- exact head, ancestry proof, required-table proof --
+    lives in `test_v1_integrated_schema_compatibility.py`. These tests prove only that THIS
+    composition root wires the new guard in correctly.
+    """
+
+    def test_the_pinned_m085_head_is_unchanged_and_the_repository_head_descends_from_it(
         self,
     ) -> None:
-        """STACKED-MILESTONE TEST EVOLUTION (M087).
+        """STACKED-MILESTONE TEST EVOLUTION (M087, then RELEASE v1).
 
         Until M087 this asserted that the pinned M085 head IS the repository-global Alembic
         head. Once a later additive milestone exists that can no longer be a universal
@@ -421,6 +468,9 @@ class TestTheSchemaHeadIsExact:
         # The M085 revision's own down-revision is the M085 corrective revision, as reviewed.
         pinned = script.get_revision(M085_SCHEMA_HEAD)
         assert pinned is not None and pinned.down_revision == "".join(("9c4b2e", "7d5a18"))
+        # The repository head IS the one reviewed v1 integrated head this composition now
+        # requires -- not an unreviewed later revision.
+        assert head == V1_INTEGRATED_SCHEMA_HEAD
 
     def test_the_exact_head_is_accepted_and_actually_read(
         self, composition: type[FakeService], a_config: PostgreSQLConfigSnapshot
@@ -428,17 +478,22 @@ class TestTheSchemaHeadIsExact:
         with paper_execution_runtime(a_config) as context:
             assert context.broker.endpoint_host == "paper-api.alpaca.markets"
         (work,) = FakeService.instances[-1].works
-        assert work.statements == ["SELECT version_num FROM public.alembic_version"]
+        assert work.statements == [
+            "SELECT version_num FROM public.alembic_version",
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'",
+            M085_CONTRACT_SELECT,
+        ]
 
     @pytest.mark.parametrize(
         "rows",
         [
             pytest.param([], id="no-revision"),
+            pytest.param([{"version_num": M085_SCHEMA_HEAD}], id="the-reported-production-bug"),
             pytest.param([{"version_num": _OLDER_HEAD}], id="older-m085-head"),
             pytest.param([{"version_num": _M084_HEAD}], id="m084-head"),
             pytest.param([{"version_num": "ffff00000000"}], id="unknown-newer-head"),
             pytest.param(
-                [{"version_num": M085_SCHEMA_HEAD}, {"version_num": _OLDER_HEAD}],
+                [{"version_num": V1_INTEGRATED_SCHEMA_HEAD}, {"version_num": M085_SCHEMA_HEAD}],
                 id="two-heads",
             ),
         ],
@@ -450,22 +505,35 @@ class TestTheSchemaHeadIsExact:
         rows: list[dict[str, object]],
     ) -> None:
         FakeService.head_rows = rows
-        with pytest.raises(PaperSchemaHeadError, match=M085_SCHEMA_HEAD):
+        with pytest.raises(SchemaCompatibilityError, match=V1_INTEGRATED_SCHEMA_HEAD):
             with paper_execution_runtime(a_config):
                 pytest.fail("the body must not run against a mismatched schema")
+        assert FakeService.instances[-1].closed is True
+
+    def test_a_missing_required_m085_table_refuses_before_the_body_runs(
+        self, composition: type[FakeService], a_config: PostgreSQLConfigSnapshot
+    ) -> None:
+        # The revision is exactly right, but a required M085 table is absent: the
+        # table-existence proof catches what the revision check alone cannot.
+        FakeService.table_rows = [
+            row for row in FakeService.table_rows if row["tablename"] != "paper_execution_attempt"
+        ]
+        with pytest.raises(SchemaCompatibilityError, match="paper_execution_attempt"):
+            with paper_execution_runtime(a_config):
+                pytest.fail("the body must not run against an incomplete schema")
         assert FakeService.instances[-1].closed is True
 
     def test_an_unreadable_revision_refuses(
         self, composition: type[FakeService], a_config: PostgreSQLConfigSnapshot
     ) -> None:
         FakeService.head_failure = RuntimeError("relation alembic_version does not exist")
-        with pytest.raises(PaperSchemaHeadError, match="could not be read"):
+        with pytest.raises(SchemaCompatibilityError, match="could not be read"):
             with paper_execution_runtime(a_config):
                 pytest.fail("unreachable")
         assert FakeService.instances[-1].closed is True
 
     def test_the_refusal_renders_as_an_operator_refusal(self) -> None:
-        assert issubclass(PaperSchemaHeadError, ValueError)
+        assert issubclass(SchemaCompatibilityError, ValueError)
 
 
 def test_composition_provides_an_injectable_time_source(

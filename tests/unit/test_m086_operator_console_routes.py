@@ -176,8 +176,20 @@ def test_today_shows_every_card_state_word_from_the_closed_vocabulary(
     body = client.get("/today").body
     assert body.count('class="card"') == 12
     assert "Needs decision" in body
-    assert "Approve</a>" in body and "Reject</a>" in body
-    for word in ("Entry (limit)", "Quantity", "Notional", "Max capital", "Stop", "Target", "Risk"):
+    # RELEASE v1: "Approve" was renamed to "REVIEW PLAN" on the Research Candidate card.
+    assert "REVIEW PLAN</a>" in body and "Reject</a>" in body
+    for word in (
+        "Entry",
+        "Quantity",
+        "Notional",
+        "Max capital",
+        "Stop",
+        "Target",
+        "Max Loss",
+        "Target Gain",
+        "R:R",
+        "Mandatory Exit",
+    ):
         assert word in body
     assert "Not available" not in body  # every staged field is present for the staged day
     assert "Staged simulation behaviour" in body  # behind Details

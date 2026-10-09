@@ -528,10 +528,9 @@ class AuthorizePositionExitHandler:
             raise PositionExitRefusedError(
                 "the exit review page is too old; open the review again to see current terms"
             )
-        if self._kill_switch.is_engaged():
-            raise PositionExitRefusedError(
-                "the execution kill switch is engaged; release it before a close can be authorized"
-            )
+        # RELEASE v1: the kill switch blocks NEW ENTRIES only (see `paper_execution.py`); it
+        # must never trap an already-open position, so a position-reducing exit authorization
+        # is never refused for the kill switch being engaged. See `docs/operations/kill-switch.md`.
         validity = min(int(command.validity_seconds), MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS)
         if validity <= 0:
             raise PositionExitRefusedError("an exit authorization needs a positive validity")
@@ -690,13 +689,10 @@ class SubmitAuthorizedPositionExitHandler:
         if binding is not None:
             raise PositionExitRefusedError(f"this exit is not authorized: {binding}")
 
-        # THE KILL SWITCH FIRST. An engaged stop blocks a new outbound exit; the Owner must
-        # release it before a close can be submitted (nothing is reinterpreted).
-        if self._kill_switch.is_engaged():
-            raise PositionExitRefusedError(
-                "the execution kill switch is engaged; release it on the Safety page before a "
-                "close can be submitted"
-            )
+        # RELEASE v1: the kill switch blocks NEW ENTRIES only. A position-reducing exit
+        # (stop, target, mandatory liquidation, or an Owner's manual SELL_TO_CLOSE) is never
+        # blocked by it -- the engaged state must never silently trap an open position. See
+        # `docs/operations/kill-switch.md`.
 
         timing = PaperTimeWindow(self._time)
         # The broker clock, so the authorization can be judged on the broker's timeline.
@@ -821,10 +817,8 @@ class SubmitAuthorizedPositionExitHandler:
                     ),
                     timing.last_safe_at,
                 )
-                if self._kill_switch.is_engaged():
-                    raise PositionExitRefusedError(
-                        "the execution kill switch was engaged before the exit was sent"
-                    )
+                # RELEASE v1: the kill switch does not gate the send boundary either -- see
+                # the handler docstring and `docs/operations/kill-switch.md`.
                 final = authorization.refusal_against(
                     request_fingerprint_now=fingerprint_now,
                     account_reference_now=account_reference,

@@ -104,4 +104,9 @@ def test_the_pages_carry_no_script_and_no_external_asset() -> None:
     text = (ROOT / "entrypoints" / "_operator_console_html.py").read_text(encoding="utf-8")
     assert "<script" not in text
     assert "https://" not in text and "http://" not in text
-    assert 'href="/static/console.css"' in text
+    # RELEASE v1 Release Blocker (/paper base-path escape): the stylesheet link is no longer
+    # a literal "/static/console.css" href -- it is generated through `url_for`, the ONE
+    # place that prefixes it for a reverse proxy (see that function's own module docstring).
+    # The served path itself, "/static/console.css", is still the sole literal this module
+    # names, it is just passed through `url_for` before being written into the page.
+    assert 'url_for(base_path, "/static/console.css")' in text
