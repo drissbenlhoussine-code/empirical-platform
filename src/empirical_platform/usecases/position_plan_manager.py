@@ -80,7 +80,10 @@ from empirical_platform.decision_candidate.product_repositories import (
     ApprovedOrderIntentRepository,
     OperatorTradingConfigurationRepository,
 )
-from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
+from empirical_platform.shared.brokerage.paper_time import (
+    PaperTimeSource,
+    PaperTimeUncertainError,
+)
 from empirical_platform.usecases.position_exit import (
     AssessPositionExitHandler,
     AuthorizePositionExitCommand,
@@ -339,7 +342,17 @@ class PositionPlanManager:
                     at=now,
                 )
             )
-        except PositionExitRefusedError as error:
+        except (PositionExitRefusedError, PaperTimeUncertainError) as error:
+            # `PaperTimeUncertainError` (paper_time.py) is a sibling `ValueError` subclass,
+            # not a `PositionExitRefusedError` -- `AuthorizePositionExitHandler` and
+            # `SubmitAuthorizedPositionExitHandler` both raise it directly when a fresh
+            # broker-clock reading disagrees with the instant this tick was handed. Left
+            # out of this except clause, it escaped to `PlanManagerThread._run`'s blanket
+            # `except Exception` instead, which only logs and keeps the thread alive --
+            # the claimed trigger was never resolved to NEEDS_ATTENTION, so every later
+            # tick repeated the identical failure forever with no owner-visible status.
+            # `SubmitAuthorizedPositionExitHandler.handle` already treats the two
+            # exceptions as one refusal vocabulary (position_exit.py); this mirrors that.
             message = str(error)
             if (
                 "already in progress" in message
