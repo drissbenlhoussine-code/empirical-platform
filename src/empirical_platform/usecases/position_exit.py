@@ -700,6 +700,22 @@ class SubmitAuthorizedPositionExitHandler:
         clock = self._broker.fetch_clock()
         timing.observe_broker_clock(clock.timestamp, sent, timing.read_monotonic())
 
+        # RELEASE v1 RECOVERY HARDENING: a position-reducing exit is still fail-closed outside
+        # regular trading hours. `clock.is_open` is the SAME broker-reported regular-session
+        # flag `_measure_broker_now`'s caller already paid for above -- no new broker call.
+        # This blocks BOTH dispatch paths that reach this one handler alike: a manual Owner
+        # confirm (`operator_console_exits.PositionExitConsole.confirm`) and the automatic
+        # manager (`position_plan_manager.PositionPlanManager._attempt_exit`), including an
+        # overdue mandatory-exit trigger claimed while the market was shut. It never widens
+        # anything: every existing refusal/freshness/authorization check below still runs in
+        # full once the market is open; this only adds one more gate, never removes one.
+        if not clock.is_open:
+            raise PositionExitRefusedError(
+                POSITION_NEEDS_ATTENTION + " The market is not in a regular trading session; "
+                "exits are not dispatched outside regular hours. Nothing was sent; this attempt "
+                "will be retried the next time the plan is evaluated."
+            )
+
         # THE POSITION, RE-VERIFIED NOW. Same entry, same quantity, same broker position, no
         # competing lot, no other exit: the digest must be the one the human confirmed.
         assessment = self._assess.handle(command.entry_intent_governance_id, at=timing.now())

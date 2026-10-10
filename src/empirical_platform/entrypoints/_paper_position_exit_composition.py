@@ -100,7 +100,9 @@ def resolve_paper_exit_postgres_config(
 
 
 @contextmanager
-def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
+def paper_operator_console_with_exit_runtime(
+    *, recovery_mode: bool = False
+) -> Iterator[PaperConsoleBackend]:
     """Own Store B's AND Store C's persistence services for the console's lifetime.
 
     Requires Store B proven compatible with the integrated v1 runtime (via
@@ -111,6 +113,17 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
     but the schema check itself, and before any credential is used to build the broker
     clients. Store C is opened INSIDE Store B's context and closed before it, so a Store-C
     failure never leaves Store B's connection dangling and Store B's guard always runs first.
+
+    RELEASE v1 RECOVERY HARDENING: `recovery_mode=True` (`empirical-platform-operator-console
+    --capability paper-exit --recovery-mode`) is a fail-closed, read-only startup. Both
+    Stores open and every read (`review`, `assess`, `refresh`, `/safety`) works exactly as
+    before -- the Owner can see the real broker position, open orders and the overdue plan
+    immediately. Two things, and only two, are withheld: no `PositionPlanManager` is built at
+    all (`_plan_manager=None` below, so `operator_console.py` has nothing to start a
+    `PlanManagerThread` from), and `PositionExitConsole.confirm` refuses before touching any
+    state (see its own docstring). Nothing else about this composition changes: the SAME
+    durable preview/authorization/attempt rows a normal restart would resume from are read
+    and displayed, never recreated or cleared.
     """
     with paper_execution_runtime() as store_b:
         store_a_config = resolve_foundation_config().postgresql
@@ -162,6 +175,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 time_source=store_b.time_source,
                 clock=_utc_now,
                 environment=PAPER_CAPABILITY.capability.value,
+                recovery_mode=recovery_mode,
             )
             service = OperatorConsoleService(
                 repositories=repositories,
@@ -175,21 +189,27 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
             # RELEASE v1: the automatic position-plan manager, over the SAME Store B/Store C
             # repositories the Owner's own manual exit already uses -- never a parallel
             # broker-submission path (see `usecases.position_plan_manager`'s own docstring).
-            plan_manager = PositionPlanManager(
-                plans=plans,
-                intents=repositories.intents,
-                entry_attempts=repositories.attempts,
-                exit_attempts=exits.attempts,
-                previews=exits.previews,
-                authorizations=exits.authorizations,
-                acknowledgements=exits.acknowledgements,
-                events=exits.events,
-                rounds=exits.rounds,
-                broker=store_b.broker,
-                market_data=store_b.market_data,
-                configurations=repositories.configurations,
-                environment=PAPER_CAPABILITY.capability.value,
-                time_source=store_b.time_source,
+            # RECOVERY HARDENING: in `recovery_mode`, it is never built at all -- not built and
+            # disarmed, simply absent -- so nothing in this process can start it.
+            plan_manager = (
+                None
+                if recovery_mode
+                else PositionPlanManager(
+                    plans=plans,
+                    intents=repositories.intents,
+                    entry_attempts=repositories.attempts,
+                    exit_attempts=exits.attempts,
+                    previews=exits.previews,
+                    authorizations=exits.authorizations,
+                    acknowledgements=exits.acknowledgements,
+                    events=exits.events,
+                    rounds=exits.rounds,
+                    broker=store_b.broker,
+                    market_data=store_b.market_data,
+                    configurations=repositories.configurations,
+                    environment=PAPER_CAPABILITY.capability.value,
+                    time_source=store_b.time_source,
+                )
             )
             yield PaperConsoleBackend(
                 service=service,

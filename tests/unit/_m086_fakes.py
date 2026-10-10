@@ -250,8 +250,14 @@ class World:
     def proposal_id(self, symbol: str) -> str:
         return f"PRP-086-{self.clock.utc.strftime('%Y%m%d')}-{symbol}"
 
-    def restart(self, *, new_secret: bool = True) -> World:
-        """A fresh process over the SAME durable state: repositories, store file, clock."""
+    def restart(self, *, new_secret: bool = True, recovery_mode: bool = False) -> World:
+        """A fresh process over the SAME durable state: repositories, store file, clock.
+
+        `recovery_mode=True` mirrors `empirical-platform-operator-console --capability
+        paper-exit --recovery-mode`: the SAME exit console over the SAME durable records,
+        but `confirm` refuses before touching anything -- see `PositionExitConsole`'s own
+        docstring on `_recovery_mode`.
+        """
         store = SimulationStore(self.store.path)
         broker = SimulatedPaperBroker(store, clock=self.clock)
         market = SimulatedMarketData(store, clock=self.clock)
@@ -264,6 +270,7 @@ class World:
             signer,
             self.clock,
             store,
+            recovery_mode=recovery_mode,
         )
         return World(
             clock=self.clock,
@@ -287,6 +294,8 @@ def _service(
     signer: HmacSigner,
     clock: TestClock,
     store: SimulationStore,
+    *,
+    recovery_mode: bool = False,
 ) -> OperatorConsoleService:
     exit_console = (
         None
@@ -303,6 +312,7 @@ def _service(
             time_source=clock,
             clock=clock,
             environment=ExecutionCapability.SIMULATION.value,
+            recovery_mode=recovery_mode,
         )
     )
     return OperatorConsoleService(
