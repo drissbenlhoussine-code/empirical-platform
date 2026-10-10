@@ -55,7 +55,7 @@ from empirical_platform.decision_candidate.product_repositories import (
     OperatorTradingConfigurationRepository,
 )
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
-from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
+from empirical_platform.shared.brokerage.paper_time import PaperTimeSource, PaperTimeUncertainError
 from empirical_platform.usecases.decision_to_approval import NotFoundError
 from empirical_platform.usecases.operator_console import (
     NOT_AVAILABLE,
@@ -293,6 +293,7 @@ class PositionExitConsole:
         clock: Callable[[], datetime],
         environment: str,
         operator_identity: str = "owner",
+        recovery_mode: bool = False,
     ) -> None:
         self._x = exits
         self._intents = intents
@@ -306,6 +307,12 @@ class PositionExitConsole:
         self._clock = clock
         self._environment = environment
         self._operator = operator_identity
+        #: RELEASE v1 RECOVERY HARDENING. When set, `confirm` refuses before touching any
+        #: state: a fail-closed, read-only startup mode must dispatch nothing, automatically
+        #: or manually, while still leaving `review`/`assess`/`refresh`/`summary` (Paper
+        #: review, broker reconciliation and safety visibility) fully working. See
+        #: `entrypoints.operator_console --recovery-mode`.
+        self._recovery_mode = recovery_mode
 
     # -- reads -------------------------------------------------------------------------
 
@@ -588,6 +595,14 @@ class PositionExitConsole:
     # -- confirm ----------------------------------------------------------------------
 
     def confirm(self, intent_id: str, token: str) -> ActionOutcome:
+        if self._recovery_mode:
+            raise ConsoleRefusalError(
+                "Recovery mode active",
+                "This console was started in read-only recovery mode: Paper review, broker "
+                "reconciliation and safety visibility all work, but no exit may be confirmed "
+                "or sent -- automatically or manually. Nothing was sent. Restart without "
+                "--recovery-mode, with the Owner present, to resume exits.",
+            )
         now = self._clock()
         ticket = ConfirmationTicket.decode(token, signer=self._signer, now=now)
         if ticket.action != EXIT_ACTION or ticket.proposal_id != intent_id:
@@ -632,7 +647,13 @@ class PositionExitConsole:
                         authorized_at=now,
                     )
                 )
-            except PositionExitRefusedError as error:
+            except (PositionExitRefusedError, PaperTimeUncertainError) as error:
+                # `PaperTimeUncertainError` (paper_time.py) is a sibling `ValueError`
+                # subclass, not a `PositionExitRefusedError` -- `AuthorizePositionExitHandler`
+                # raises it directly on an uncertain broker-clock reading. Mirrors the SAME
+                # catch `position_plan_manager.PositionPlanManager._attempt_exit` already
+                # uses for the automatic path, so a transient clock disagreement produces a
+                # clear "review again" refusal here too, never an uncaught exception.
                 raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         try:
             result = SubmitAuthorizedPositionExitHandler(
@@ -654,7 +675,7 @@ class PositionExitConsole:
                     at=self._clock(),
                 )
             )
-        except PositionExitRefusedError as error:
+        except (PositionExitRefusedError, PaperTimeUncertainError) as error:
             raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         # Not dispatched because another request won the claim: report THAT exit, create nothing.
         lost_race = not result.dispatched and result.attempt.attempt_id != (

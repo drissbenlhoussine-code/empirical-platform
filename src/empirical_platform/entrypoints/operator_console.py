@@ -240,6 +240,15 @@ def main(argv: list[str] | None = None) -> int:
         help="seconds between background reconciliation passes (0 disables)",
     )
     parser.add_argument(
+        "--recovery-mode",
+        action="store_true",
+        help="--capability paper-exit only: fail-closed, read-only startup. Paper review, "
+        "broker reconciliation and safety visibility all work exactly as normal; the "
+        "automatic Plan Manager is never built and no exit -- automatic or manual -- can be "
+        "confirmed or sent. Restart without this flag, with the Owner present, to resume "
+        "exits.",
+    )
+    parser.add_argument(
         "--base-path",
         default="",
         help="path prefix this console is reverse-proxied under, e.g. /paper (default: none, "
@@ -254,6 +263,14 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as error:
         raise SystemExit(f"REFUSED: {error}") from error
 
+    if arguments.recovery_mode and arguments.capability != "paper-exit":
+        print(
+            "REFUSED: --recovery-mode only has meaning for --capability paper-exit. Nothing "
+            "was started.",
+            file=sys.stderr,
+        )
+        return 2
+
     if arguments.capability in ("paper", "paper-exit"):
         if arguments.load_day or arguments.reset_simulation:
             print(
@@ -266,18 +283,24 @@ def main(argv: list[str] | None = None) -> int:
             # MILESTONE-089: the ONLY difference from --capability paper is which composition
             # function opens Store C alongside Store B and wires the exit console; the routes,
             # the app and the banner's first two lines are otherwise identical.
-            with paper_operator_console_with_exit_runtime() as backend:
+            with paper_operator_console_with_exit_runtime(
+                recovery_mode=arguments.recovery_mode
+            ) as backend:
                 application = build_paper_application(
                     backend, security=SecuritySession(), base_path=base_path
                 )
-                _serve_with_reconciler(
-                    application,
-                    refresh=backend.service.refresh_executions,
-                    host=host,
-                    port=arguments.port,
-                    no_browser=arguments.no_browser,
-                    reconcile_every=arguments.reconcile_every,
-                    banner=(
+                banner = (
+                    (
+                        "  OPERATOR CONSOLE -- PAPER, RECOVERY MODE. Read-only startup: Paper "
+                        "review, reconciliation and safety visibility only.",
+                        "  The automatic Plan Manager is NOT running. No exit can be "
+                        "confirmed or sent, automatically or manually.",
+                        "  Restart WITHOUT --recovery-mode, with the Owner present, to "
+                        "resume exits.",
+                        "  Live -- not authorized.",
+                    )
+                    if arguments.recovery_mode
+                    else (
                         "  OPERATOR CONSOLE -- PAPER. Orders reach the real Alpaca PAPER "
                         "endpoint only.",
                         "  Not real money. Every submission requires explicit Owner approval.",
@@ -286,7 +309,16 @@ def main(argv: list[str] | None = None) -> int:
                         "  RELEASE v1: an Owner-approved full plan is managed automatically "
                         "(stop/target/mandatory exit) -- see /safety.",
                         "  Live -- not authorized.",
-                    ),
+                    )
+                )
+                _serve_with_reconciler(
+                    application,
+                    refresh=backend.service.refresh_executions,
+                    host=host,
+                    port=arguments.port,
+                    no_browser=arguments.no_browser,
+                    reconcile_every=arguments.reconcile_every,
+                    banner=banner,
                     plan_manager=backend._plan_manager,
                     base_path=base_path,
                 )

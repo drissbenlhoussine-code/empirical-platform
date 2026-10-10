@@ -72,7 +72,7 @@ from empirical_platform.shared.persistence.postgres_repositories.paper_position_
     M089_SCHEMA_HEAD,
     PaperExitSchemaHeadError,
 )
-from empirical_platform.usecases.operator_console import OperatorConsoleService
+from empirical_platform.usecases.operator_console import ConsoleRefusalError, OperatorConsoleService
 from empirical_platform.usecases.operator_console_exits import ExitRepositories
 from empirical_platform.usecases.position_plan_manager import (
     PlanManagerThread,
@@ -229,6 +229,34 @@ def test_the_real_integrated_console_boots_against_databases_at_full_head(
         finally:
             manager_thread.stop()
 
+    assert no_broker_network == []
+
+
+def test_recovery_mode_never_builds_a_plan_manager_and_refuses_every_confirm(
+    real_deployment_environment: None,
+    no_broker_network: list[tuple[str, str]],
+    engine: Engine,
+    engine_c: Engine,
+) -> None:
+    """RELEASE v1 RECOVERY HARDENING. `recovery_mode=True` is the fail-closed, read-only
+    startup the deployment investigation asked for: Store A/B/C all open exactly as a
+    normal boot would (Paper review, broker reconciliation and safety visibility all work
+    unchanged), but `_plan_manager` is never constructed at all -- there is nothing for
+    `entrypoints.operator_console` to start a `PlanManagerThread` from, not merely an
+    unstarted one -- and `PositionExitConsole.confirm` refuses before touching any state,
+    before even decoding the ticket.
+    """
+    del engine, engine_c  # already proven at head above; used for fixture ordering only
+    with paper_operator_console_with_exit_runtime(recovery_mode=True) as backend:
+        assert backend.service.exits is not None  # review/assess/refresh still fully composed
+        assert isinstance(backend._plans, PostgresApprovedPlanRepository)  # noqa: SLF001
+        assert backend._plan_manager is None  # noqa: SLF001
+        assert isinstance(backend._exits, ExitRepositories)  # noqa: SLF001
+
+        with pytest.raises(ConsoleRefusalError, match="recovery mode"):
+            backend.service.exits.confirm("INT-does-not-exist", "not-a-real-ticket")
+    # Zero broker calls: no plan-manager tick ever ran, and confirm refused before reading
+    # anything that could have triggered one.
     assert no_broker_network == []
 
 
