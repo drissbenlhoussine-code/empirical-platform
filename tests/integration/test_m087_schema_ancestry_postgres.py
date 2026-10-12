@@ -219,9 +219,11 @@ def test_the_m085_migration_files_are_byte_identical_to_the_published_m085_head(
     )
     added = sorted(set(present) - set(recorded))
     # MILESTONE-090 and RELEASE v1 pinned: their own additive migrations are now also
-    # present beyond the M085 manifest, alongside M087's. All four are KNOWN,
-    # accounted-for additions; nothing else is.
+    # present beyond the M085 manifest, alongside M087's. All five are KNOWN,
+    # accounted-for additions; nothing else is. (RELEASE v1 RECOVERY HARDENING SECURITY
+    # GATE added the fifth: dropping the now-obsolete `system_identity` CHECK constraint.)
     assert added == [
+        "migrations/versions/83e15e6bfae4_drop_v1_approved_plan_system_identity_check.py",
         "migrations/versions/a2b4c6d8e0f2_create_m090_opportunity_engine_schema.py",
         "migrations/versions/b9f2c4d6a8e1_create_v1_approved_plan_schema.py",
         "migrations/versions/c6e2a4f8b901_add_v1_entry_risk_contract.py",

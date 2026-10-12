@@ -4,8 +4,9 @@ Release Blocker 5's real governance acceptance found that `require_exact_m085_sc
 permanently rejected the real deployment database once it was correctly migrated past M085:
 Store A (the main `migrations/` chain, feeding `ApprovedPlan`) and Store B
 (`paper_execution_runtime()`'s own database) are the SAME physical database in real
-deployment, and `alembic upgrade head` on that one chain reaches the v1 head
-(`c6e2a4f8b901`), never the literal, frozen M085 revision the old guard demanded. No prior
+deployment, and `alembic upgrade head` on that one chain reaches the v1 head (whichever
+revision `V1_INTEGRATED_SCHEMA_HEAD` currently pins), never the literal, frozen M085
+revision the old guard demanded. No prior
 test caught this: every Postgres suite pins its own test database to the exact revision ITS
 OWN guard expects (`test_m085_corrective_pass_postgres.py` pins to `M085_SCHEMA_HEAD`,
 `test_m087_position_exit_postgres.py` steps the chain milestone by milestone, and nothing

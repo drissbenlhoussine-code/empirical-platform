@@ -52,7 +52,9 @@ from empirical_platform.decision_candidate.position_exit import (
     EXIT_SEND_BOUNDARY_EVENT_TYPE,
     EXIT_SIDE,
     MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS,
+    OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE,
     OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS,
+    OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX,
     POSITION_CLOSED_VERIFIED_EVENT_TYPE,
     POSITION_NEEDS_ATTENTION,
     POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE,
@@ -108,6 +110,8 @@ __all__ = [
     "AssessPositionExitHandler",
     "AuthorizeOverduePositionRecoveryCommand",
     "AuthorizeOverduePositionRecoveryHandler",
+    "GrantOverduePositionRecoveryApprovalCommand",
+    "GrantOverduePositionRecoveryApprovalHandler",
     "AuthorizePositionExitCommand",
     "AuthorizePositionExitHandler",
     "CancelPositionExitCommand",
@@ -521,6 +525,22 @@ class AuthorizePositionExitHandler:
         self._time = time_source or SystemPaperTimeSource()
 
     def handle(self, command: AuthorizePositionExitCommand) -> PositionExitAuthorization:
+        # RELEASE v1 RECOVERY HARDENING SECURITY GATE. The overdue-position-recovery
+        # identity prefix may ONLY ever be minted by `AuthorizeOverduePositionRecoveryHandler`
+        # itself (which never accepts `authorized_by` from a caller -- it always derives its
+        # own). This handler is the ONE place both a manual `confirm()` (always
+        # `authorized_by=self._operator`, never caller-supplied) and the automatic manager
+        # (always `authorized_by=plan.system_identity`) funnel through, so refusing the
+        # reserved prefix HERE, structurally, closes the forgery question for good: no
+        # future caller of this handler -- today's or tomorrow's -- can ever produce a
+        # normal authorization that `exit_authorization_binding_refusal` would mistake for
+        # a recovery-kind one and judge by the looser recovery rule instead of the normal
+        # one.
+        if command.authorized_by.startswith(OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX):
+            raise PositionExitRefusedError(
+                "authorized_by may not use the overdue-position-recovery identity prefix "
+                "through the normal exit authorization path; nothing was authorized"
+            )
         preview = self._previews.get(command.preview_id)
         if preview is None:
             raise NotFoundError(f"no exit preview {command.preview_id!r} exists")
@@ -596,6 +616,157 @@ class AuthorizePositionExitHandler:
 # ---------------------------------------------------------------------------
 # Overdue-position recovery authorization (RELEASE v1 recovery hardening)
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class GrantOverduePositionRecoveryApprovalCommand:
+    entry_intent_governance_id: str
+    #: A FRESH, explicit Owner approval reference -- never the original plan's own
+    #: `owner_approval_id`, replayed or reused (see the handler's own refusal).
+    recovery_approval_id: str
+    granted_at: datetime
+
+
+class GrantOverduePositionRecoveryApprovalHandler:
+    """Record, durably, ONE fresh and explicit Owner decision to recover an overdue
+    position -- the real, persisted approval `AuthorizeOverduePositionRecoveryHandler`
+    requires to exist before it will authorize anything.
+
+    SECURITY GATE (RELEASE v1 recovery hardening review). A distinct, nonempty
+    `recovery_approval_id` string handed straight to the authorize step is NOT a Owner
+    approval -- it is just a string an HTTP caller typed. This handler is the ONE place
+    that string becomes a real, durable, independently-queryable record: it re-verifies,
+    fresh, right now, that the position is actually overdue, that an approved plan exists,
+    that the new id is genuinely distinct from the original `owner_approval_id` (which it
+    reads only to prove the difference, never rewrites), and that the position is
+    currently eligible to be closed (re-running the SAME `AssessPositionExitHandler` every
+    other exit step uses) -- and only then appends an event recording the EXACT symbol,
+    quantity and account this approval covers. `AuthorizeOverduePositionRecoveryHandler`
+    later requires a grant matching ALL of those fields, not merely a matching id string,
+    before it will authorize anything against the current preview.
+    """
+
+    __slots__ = ("_assess", "_intents", "_plans", "_broker", "_events", "_time")
+
+    def __init__(
+        self,
+        *,
+        intents: ApprovedOrderIntentRepository,
+        entry_attempts: ExecutionAttemptRepository,
+        exit_attempts: PositionExitAttemptRepository,
+        plans: ApprovedPlanRepository,
+        broker: ExitBrokerPort,
+        events: PositionExitEventRepository,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._assess = AssessPositionExitHandler(
+            intents=intents,
+            entry_attempts=entry_attempts,
+            exit_attempts=exit_attempts,
+            broker=broker,
+        )
+        self._intents = intents
+        self._plans = plans
+        self._broker = broker
+        self._events = events
+        self._time = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: GrantOverduePositionRecoveryApprovalCommand) -> PositionExitEvent:
+        intent = self._intents.get(command.entry_intent_governance_id)
+        if intent is None:
+            raise NotFoundError(
+                f"no approved order intent {command.entry_intent_governance_id!r} exists"
+            )
+        # THE NARROW GATE, AT GRANT TIME TOO. The original mandatory deadline
+        # (`intent.mandatory_liquidation_at`) is read here, never altered.
+        if command.granted_at < intent.mandatory_liquidation_at:
+            raise PositionExitRefusedError(
+                "this position is not overdue; the mandatory liquidation deadline has not "
+                "yet passed. Nothing was recorded"
+            )
+        if (
+            not isinstance(command.recovery_approval_id, str)
+            or not command.recovery_approval_id.strip()
+        ):
+            raise PositionExitRefusedError(
+                "an overdue-position-recovery approval requires a fresh, explicit Owner "
+                "approval id; nothing was recorded"
+            )
+        plan = self._plans.for_entry(command.entry_intent_governance_id)
+        if plan is None:
+            raise PositionExitRefusedError(
+                "no approved plan exists for this position; an overdue-position-recovery "
+                "approval requires the original Owner-approved plan"
+            )
+        # THE ORIGINAL APPROVAL IS NEVER REPLAYED OR EXTENDED. `plan.owner_approval_id` is
+        # read-only evidence here -- this handler never writes to `plan` at all.
+        if command.recovery_approval_id == plan.owner_approval_id:
+            raise PositionExitRefusedError(
+                "the recovery approval id must be a NEW, fresh Owner approval, distinct "
+                "from the original plan's own owner_approval_id; the original approval is "
+                "never replayed or extended"
+            )
+        assessment = self._assess.handle(command.entry_intent_governance_id, at=command.granted_at)
+        if not assessment.eligible:
+            raise PositionExitRefusedError(
+                POSITION_NEEDS_ATTENTION
+                + " The position cannot be recovered right now: "
+                + "; ".join(assessment.refusals)
+            )
+        quantity = assessment.snapshot.attributable_quantity
+        assert quantity is not None  # eligibility guarantees it
+        payload = {
+            "recovery_approval_id": command.recovery_approval_id,
+            "entry_intent_governance_id": command.entry_intent_governance_id,
+            "symbol": intent.symbol,
+            "quantity": str(quantity),
+            "account_reference": _account_reference_of(self._broker),
+        }
+        return self._events.append(
+            PositionExitEvent(
+                event_id=_event_id(
+                    command.entry_intent_governance_id,
+                    command.recovery_approval_id,
+                    command.granted_at.isoformat(),
+                    OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE,
+                ),
+                entry_intent_governance_id=command.entry_intent_governance_id,
+                attempt_id=None,
+                event_type=OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE,
+                occurred_at=command.granted_at,
+                detail=json.dumps(payload)[:500],
+            )
+        )
+
+
+def _matching_recovery_grant(
+    *,
+    events: PositionExitEventRepository,
+    entry_intent_governance_id: str,
+    recovery_approval_id: str,
+    symbol: str,
+    quantity: int,
+    account_reference: str,
+) -> PositionExitEvent | None:
+    """The persisted `GrantOverduePositionRecoveryApprovalHandler` record, if any, whose
+    EXACT symbol, quantity and account match -- never just a matching id string alone."""
+    for event in events.for_entry(entry_intent_governance_id):
+        if event.event_type != OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE:
+            continue
+        try:
+            payload = json.loads(event.detail)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if (
+            payload.get("recovery_approval_id") == recovery_approval_id
+            and payload.get("symbol") == symbol
+            and payload.get("quantity") == str(quantity)
+            and payload.get("account_reference") == account_reference
+        ):
+            return event
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -694,12 +865,33 @@ class AuthorizeOverduePositionRecoveryHandler:
                 "authorization requires the original Owner-approved plan"
             )
         # THE ORIGINAL APPROVAL IS NEVER REPLAYED OR EXTENDED. `plan.owner_approval_id` is
-        # read-only evidence here -- this handler never writes to `plan` at all.
+        # read-only evidence here -- this handler never writes to `plan` at all. Redundant
+        # with `GrantOverduePositionRecoveryApprovalHandler`'s OWN identical check at grant
+        # time -- kept here too, deliberately, as defense in depth.
         if command.recovery_approval_id == plan.owner_approval_id:
             raise PositionExitRefusedError(
                 "the recovery approval id must be a NEW, fresh Owner approval, distinct from "
                 "the original plan's own owner_approval_id; the original approval is never "
                 "replayed or extended"
+            )
+        # SECURITY GATE (RELEASE v1 recovery hardening review): a distinct nonempty string
+        # alone is NOT sufficient. A REAL, persisted Owner approval -- recorded by a
+        # SEPARATE, prior `GrantOverduePositionRecoveryApprovalHandler` call -- must exist,
+        # and its exact symbol, quantity and account must match THIS preview's, not merely
+        # its id string.
+        grant = _matching_recovery_grant(
+            events=self._events,
+            entry_intent_governance_id=preview.entry_intent_governance_id,
+            recovery_approval_id=command.recovery_approval_id,
+            symbol=preview.request.symbol,
+            quantity=preview.request.quantity,
+            account_reference=preview.account_reference,
+        )
+        if grant is None:
+            raise PositionExitRefusedError(
+                "no persisted Owner recovery approval matches this exact position, account "
+                "and quantity; grant a fresh overdue-position-recovery approval first. "
+                "Nothing was authorized"
             )
         validity = min(
             int(command.validity_seconds), OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS

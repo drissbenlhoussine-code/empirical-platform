@@ -78,6 +78,8 @@ from empirical_platform.usecases.position_exit import (
     AuthorizePositionExitHandler,
     CancelPositionExitCommand,
     CancelPositionExitHandler,
+    GrantOverduePositionRecoveryApprovalCommand,
+    GrantOverduePositionRecoveryApprovalHandler,
     PositionAssessment,
     PositionExitRefusedError,
     PreviewPositionExitCommand,
@@ -675,6 +677,46 @@ class PositionExitConsole:
         return self._outcome(result.attempt, duplicate=lost_race)
 
     # -- overdue-position recovery (RELEASE v1 recovery hardening) ---------------------
+
+    def grant_overdue_recovery_approval(
+        self, intent_id: str, recovery_approval_id: str
+    ) -> PositionExitEvent:
+        """Durably record ONE fresh, explicit Owner decision to recover an overdue
+        position -- a SEPARATE, prior step from `confirm_overdue_recovery` (SECURITY GATE,
+        RELEASE v1 recovery hardening review): `confirm_overdue_recovery` requires a REAL
+        persisted record matching this exact position, not merely a distinct nonempty
+        string. No ticket is involved -- this is a decision about the POSITION, not about
+        any one preview version, so there is nothing yet to re-confirm against; the
+        position, account and quantity are re-verified fresh, right now, against the
+        broker, by `GrantOverduePositionRecoveryApprovalHandler` itself.
+        """
+        plans = self._plans
+        if plans is None:
+            raise ConsoleRefusalError(
+                "Recovery not available",
+                "Overdue-position recovery is not available in this capability. Nothing "
+                "was recorded.",
+            )
+        try:
+            return GrantOverduePositionRecoveryApprovalHandler(
+                intents=self._intents,
+                entry_attempts=self._entries,
+                exit_attempts=self._x.attempts,
+                plans=plans,
+                broker=self._broker,
+                events=self._x.events,
+                time_source=self._time,
+            ).handle(
+                GrantOverduePositionRecoveryApprovalCommand(
+                    entry_intent_governance_id=intent_id,
+                    recovery_approval_id=recovery_approval_id,
+                    granted_at=self._clock(),
+                )
+            )
+        except PositionExitRefusedError as error:
+            raise ConsoleRefusalError(
+                "Recovery approval refused", f"{error}. Nothing was recorded."
+            ) from error
 
     def confirm_overdue_recovery(
         self, intent_id: str, token: str, recovery_approval_id: str

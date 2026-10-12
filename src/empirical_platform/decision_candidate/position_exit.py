@@ -71,7 +71,9 @@ __all__ = [
     "EXIT_UNSENT_FAILURE_CODES",
     "EXIT_TRANSMITTED_UNCERTAIN_FAILURE_CODES",
     "MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS",
+    "OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE",
     "OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS",
+    "OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX",
     "POSITION_CLOSED_VERIFIED_EVENT_TYPE",
     "POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE",
     "TERMINAL_EXIT_STATES",
@@ -119,6 +121,14 @@ MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS = 300
 #: the sole bound on how long a fresh Owner recovery approval may be acted on before it must
 #: be renewed.
 OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS = 120
+#: RELEASE v1 RECOVERY HARDENING SECURITY GATE. The event type a persisted, explicit Owner
+#: recovery approval is recorded under (see `usecases.position_exit.
+#: GrantOverduePositionRecoveryApprovalHandler`) -- a REAL durable record an Owner action
+#: created, distinct from and prior to the `recovery_approval_id` string a later
+#: `confirm_overdue_recovery` call merely NAMES. `AuthorizeOverduePositionRecoveryHandler`
+#: requires one of these, matching this exact symbol/quantity/account, to exist before it
+#: will authorize anything: a distinct nonempty string alone is never sufficient.
+OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE = "EXIT_OVERDUE_RECOVERY_APPROVAL_GRANTED"
 EXIT_SEND_BOUNDARY_EVENT_TYPE = "EXIT_SEND_BOUNDARY_ENTERED"
 POSITION_CLOSED_VERIFIED_EVENT_TYPE = "POSITION_CLOSED_VERIFIED"
 POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE = "POSITION_NOT_ZERO_AFTER_FILL"
