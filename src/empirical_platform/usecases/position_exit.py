@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 
+from empirical_platform.decision_candidate.approved_plan_repositories import ApprovedPlanRepository
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
@@ -51,6 +52,7 @@ from empirical_platform.decision_candidate.position_exit import (
     EXIT_SEND_BOUNDARY_EVENT_TYPE,
     EXIT_SIDE,
     MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS,
+    OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS,
     POSITION_CLOSED_VERIFIED_EVENT_TYPE,
     POSITION_NEEDS_ATTENTION,
     POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE,
@@ -62,6 +64,7 @@ from empirical_platform.decision_candidate.position_exit import (
     PositionExitState,
     PositionSnapshot,
     derive_exit_client_order_id,
+    derive_overdue_recovery_identity,
     exit_absence_evaluation,
     exit_attempt_may_have_transmitted,
     exit_authorization_binding_refusal,
@@ -103,6 +106,8 @@ from empirical_platform.usecases.paper_execution import _account_reference
 __all__ = [
     "MAXIMUM_EXIT_PREVIEW_AGE_SECONDS",
     "AssessPositionExitHandler",
+    "AuthorizeOverduePositionRecoveryCommand",
+    "AuthorizeOverduePositionRecoveryHandler",
     "AuthorizePositionExitCommand",
     "AuthorizePositionExitHandler",
     "CancelPositionExitCommand",
@@ -582,6 +587,173 @@ class AuthorizePositionExitHandler:
                 detail=(
                     f"{authorization.authorized_by} confirmed exit preview {preview.preview_id}; "
                     f"expires {expires_at.isoformat()}"
+                )[:500],
+            )
+        )
+        return authorization
+
+
+# ---------------------------------------------------------------------------
+# Overdue-position recovery authorization (RELEASE v1 recovery hardening)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizeOverduePositionRecoveryCommand:
+    authorization_id: str
+    preview_id: str
+    expected_request_fingerprint: str
+    #: A FRESH, explicit Owner approval reference for THIS recovery -- never the original
+    #: plan's own `owner_approval_id`, replayed or reused (see the handler's own refusal).
+    recovery_approval_id: str
+    authorized_at: datetime
+    validity_seconds: int = OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS
+
+
+class AuthorizeOverduePositionRecoveryHandler:
+    """Record a fresh, explicit Owner approval to close ONE already-overdue position.
+
+    THE NARROW GATE THIS EXISTS FOR. A normal `AuthorizePositionExitHandler` authorization
+    can never again satisfy `exit_authorization_binding_refusal` once a position's mandatory
+    liquidation deadline has passed: every possible expiry a NEW authorization could carry is,
+    by construction, strictly later than `authorized_at`, which is itself already later than
+    the deadline -- so the ordinary "must not outlive the deadline" rule becomes permanently
+    unsatisfiable, and an overdue position could never be closed again, manually or
+    automatically, by any path. This handler is the ONE place that gap is closed, and it is
+    closed narrowly: it refuses outright unless the position is ALREADY overdue (RELEASE v1
+    recovery hardening's own narrow-scope requirement -- this is never a way to skip the
+    normal path for a position that is not yet overdue), and it requires a FRESH, explicit
+    Owner approval id, distinct from the plan's original `owner_approval_id`, which this
+    handler never reads, rewrites or extends -- it is read ONLY to prove the new id differs
+    from it. Every other safeguard a normal exit relies on is unchanged and shared: the SAME
+    preview freshness check below, the SAME broker-clock uncertainty check below, and --
+    because `SubmitAuthorizedPositionExitHandler` is untouched -- the SAME re-verified
+    position/quote/account/idempotent dispatch-claim at submit time.
+    """
+
+    __slots__ = ("_previews", "_authorizations", "_events", "_plans", "_broker", "_time")
+
+    def __init__(
+        self,
+        *,
+        previews: PositionExitPreviewRepository,
+        authorizations: PositionExitAuthorizationRepository,
+        events: PositionExitEventRepository,
+        plans: ApprovedPlanRepository,
+        broker: ExitBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._previews = previews
+        self._authorizations = authorizations
+        self._events = events
+        self._plans = plans
+        self._broker = broker
+        self._time = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: AuthorizeOverduePositionRecoveryCommand) -> PositionExitAuthorization:
+        preview = self._previews.get(command.preview_id)
+        if preview is None:
+            raise NotFoundError(f"no exit preview {command.preview_id!r} exists")
+        if preview.request_fingerprint != command.expected_request_fingerprint:
+            raise PositionExitRefusedError(
+                "the exit review shown does not match the stored preview; nothing was authorized"
+            )
+        age = (command.authorized_at - preview.created_at).total_seconds()
+        if age < 0 or age > MAXIMUM_EXIT_PREVIEW_AGE_SECONDS:
+            raise PositionExitRefusedError(
+                "the exit review page is too old; open the review again to see current terms"
+            )
+        timing = PaperTimeWindow(self._time)
+        basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        authorized_at = command.authorized_at
+        if authorized_at > basis.host_at:
+            raise PaperTimeUncertainError(
+                "the authorization instant is later than this host's reading of the broker "
+                "basis; nothing was authorized"
+            )
+        # THE NARROW GATE: this path exists ONLY for a position that is ALREADY overdue. The
+        # original mandatory deadline (`preview.liquidation_deadline`) is read here, never
+        # altered -- it is carried unchanged from the original Owner-approved plan.
+        if authorized_at < preview.liquidation_deadline:
+            raise PositionExitRefusedError(
+                "this position is not overdue; the mandatory liquidation deadline has not yet "
+                "passed. Use the normal exit authorization, not overdue-position recovery"
+            )
+        if (
+            not isinstance(command.recovery_approval_id, str)
+            or not command.recovery_approval_id.strip()
+        ):
+            raise PositionExitRefusedError(
+                "an overdue-position-recovery authorization requires a fresh, explicit Owner "
+                "approval id; nothing was authorized"
+            )
+        plan = self._plans.for_entry(preview.entry_intent_governance_id)
+        if plan is None:
+            raise PositionExitRefusedError(
+                "no approved plan exists for this position; an overdue-position-recovery "
+                "authorization requires the original Owner-approved plan"
+            )
+        # THE ORIGINAL APPROVAL IS NEVER REPLAYED OR EXTENDED. `plan.owner_approval_id` is
+        # read-only evidence here -- this handler never writes to `plan` at all.
+        if command.recovery_approval_id == plan.owner_approval_id:
+            raise PositionExitRefusedError(
+                "the recovery approval id must be a NEW, fresh Owner approval, distinct from "
+                "the original plan's own owner_approval_id; the original approval is never "
+                "replayed or extended"
+            )
+        validity = min(
+            int(command.validity_seconds), OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS
+        )
+        if validity <= 0:
+            raise PositionExitRefusedError(
+                "an overdue-position-recovery authorization needs a positive validity"
+            )
+        # No clamp against `preview.liquidation_deadline`: once overdue, that deadline can no
+        # longer bound a NEW authorization's expiry (every possible expiry is already past
+        # it -- see this class's own docstring). The short, fixed
+        # `OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS` ceiling is the sole bound instead.
+        expires_at = authorized_at + timedelta(seconds=validity)
+        authorized_by = derive_overdue_recovery_identity(
+            entry_intent_governance_id=preview.entry_intent_governance_id,
+            recovery_approval_id=command.recovery_approval_id,
+        )
+        authorization = self._authorizations.save(
+            PositionExitAuthorization(
+                authorization_id=command.authorization_id,
+                entry_intent_governance_id=preview.entry_intent_governance_id,
+                preview_id=preview.preview_id,
+                preview_version=preview.preview_version,
+                request_fingerprint=preview.request_fingerprint,
+                preview_binding_fingerprint=preview.binding_fingerprint,
+                account_reference=preview.account_reference,
+                client_order_id=preview.request.client_order_id,
+                symbol=preview.request.symbol,
+                quantity=preview.request.quantity,
+                authorized_by=authorized_by,
+                authorized_at=authorized_at,
+                expires_at=expires_at,
+                basis_host_requested_at=basis.host_requested_at,
+                basis_host_at=basis.host_at,
+                basis_broker_earliest_at=basis.broker_earliest_at,
+                basis_broker_latest_at=basis.broker_latest_at,
+                consumed_at=None,
+                consumed_by_attempt_id=None,
+            )
+        )
+        self._events.append(
+            PositionExitEvent(
+                event_id=_event_id(
+                    authorization.authorization_id, "EXIT_OVERDUE_RECOVERY_AUTHORIZED"
+                ),
+                entry_intent_governance_id=authorization.entry_intent_governance_id,
+                attempt_id=None,
+                event_type="EXIT_OVERDUE_RECOVERY_AUTHORIZED",
+                occurred_at=authorized_at,
+                detail=(
+                    f"OVERDUE RECOVERY authorized by fresh Owner approval "
+                    f"{command.recovery_approval_id!r} (original plan approval "
+                    f"{plan.owner_approval_id!r} preserved, untouched); exit preview "
+                    f"{preview.preview_id}; expires {expires_at.isoformat()}"
                 )[:500],
             )
         )
