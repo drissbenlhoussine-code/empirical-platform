@@ -763,6 +763,17 @@ class PositionExitConsole:
         existing = self._x.attempts.active_for_entry(intent_id)
         if existing is not None:
             return self._outcome(existing, duplicate=True)
+        # RELEASE v1 OVERDUE RECOVERY UI: fail-closed outside a regular trading session.
+        # Scoped to recovery ONLY (unlike the broader, not-yet-merged fix that gates
+        # `SubmitAuthorizedPositionExitHandler` itself for every exit) so normal exit and
+        # automatic Plan Manager behavior are completely unaffected by this change -- this
+        # is an extra refusal that can only ever apply to the recovery escape hatch.
+        if not self._broker.fetch_clock().is_open:
+            raise ConsoleRefusalError(
+                "Market closed",
+                "The market is not in a regular trading session; overdue-recovery exits are "
+                "not dispatched outside regular hours. Nothing was sent.",
+            )
         preview = self._x.previews.get(f"XPV-{intent_id}-{ticket.proposal_version}")
         if preview is None or preview.request_fingerprint != ticket.fingerprint:
             raise ConsoleRefusalError(

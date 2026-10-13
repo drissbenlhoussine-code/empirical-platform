@@ -69,6 +69,7 @@ def _backend(*, market_data: FakeMarketData | None = None) -> PaperConsoleBacken
     )
     signer = HmacSigner(b"x" * 32)
     time_source = SystemPaperTimeSource()
+    plans = FakeApprovedPlans()
     exit_console = PositionExitConsole(
         exits=exits,
         intents=repositories.intents,
@@ -81,6 +82,12 @@ def _backend(*, market_data: FakeMarketData | None = None) -> PaperConsoleBacken
         time_source=time_source,
         clock=_now,
         environment="PAPER",
+        # RELEASE v1 OVERDUE RECOVERY UI: wired exactly like the real composition root
+        # (`_paper_position_exit_composition.py`) so `grant_overdue_recovery_approval` /
+        # `confirm_overdue_recovery` are reachable through this fixture too, not only
+        # `backend._plans` (the separate, console-level repository `/active`/`/history`
+        # already used). The SAME `plans` instance is shared below for both.
+        plans=plans,
     )
     service = OperatorConsoleService(
         repositories=repositories,
@@ -99,7 +106,7 @@ def _backend(*, market_data: FakeMarketData | None = None) -> PaperConsoleBacken
         _broker=broker,  # type: ignore[arg-type]
         _market_data=market_data,  # type: ignore[arg-type]
         _time_source=time_source,
-        _plans=FakeApprovedPlans(),
+        _plans=plans,
         _plan_manager=None,
         _exits=exits,
     )
