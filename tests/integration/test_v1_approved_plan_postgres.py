@@ -21,6 +21,7 @@ from tests.integration._m085_support import build_engine, config, postgres_enabl
 from empirical_platform.decision_candidate.approved_plan import (
     ApprovedPlan,
     ExitTriggerKind,
+    derive_legacy_system_identity,
     derive_system_identity,
 )
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
@@ -286,3 +287,112 @@ def test_the_database_refuses_deleting_a_plan(engine: Engine) -> None:
         connection.execute(
             text("DELETE FROM public.approved_plan WHERE plan_id = :p"), {"p": "PLAN-DEL-1"}
         )
+
+
+# ---------------------------------------------------------------------------
+# RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: the REAL Postgres read path
+# (not just the pure-domain `reconstruct_approved_plan` unit tests) correctly loads a row
+# whose `system_identity` predates the hash-based rewrite -- written directly by raw SQL
+# here (never through `repo.save()`, which always writes the current format, proving a row
+# like this can only arise from history, never from a save going through this release).
+# ---------------------------------------------------------------------------
+
+_REAL_PLAN_ID = "PLAN-INT-PRP-089-PAPER-20261009T172613Z"
+_REAL_OWNER_APPROVAL_ID = "DEC-PRP-089-PAPER-20261009T172613Z"
+_REAL_ENTRY_INTENT_ID = "INT-PRP-089-PAPER-20261009T172613Z"
+
+
+def _insert_legacy_row(engine: Engine, **overrides: object) -> None:
+    system_identity = overrides.pop(
+        "system_identity",
+        derive_legacy_system_identity(
+            plan_id=_REAL_PLAN_ID, owner_approval_id=_REAL_OWNER_APPROVAL_ID
+        ),
+    )
+    fields: dict[str, object] = {
+        "plan_id": _REAL_PLAN_ID,
+        "candidate_id": "PRP-089-PAPER-20261009T172613Z",
+        "entry_intent_governance_id": _REAL_ENTRY_INTENT_ID,
+        "symbol": "AAPL",
+        "approved_quantity": Decimal("1"),
+        "stop_price": Decimal("331.70"),
+        "target_price": Decimal("341.75"),
+        "mandatory_liquidation_at": _NOW - timedelta(hours=1),
+        "owner_approval_id": _REAL_OWNER_APPROVAL_ID,
+        "system_identity": system_identity,
+        "created_at": _NOW - timedelta(days=4),
+    }
+    fields.update(overrides)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO public.approved_plan (plan_id, candidate_id, "
+                "entry_intent_governance_id, symbol, approved_quantity, stop_price, "
+                "target_price, mandatory_liquidation_at, owner_approval_id, system_identity, "
+                "created_at, triggered_exit_kind, triggered_exit_at) "
+                "VALUES (:plan_id, :candidate_id, :entry_intent_governance_id, :symbol, "
+                ":approved_quantity, :stop_price, :target_price, :mandatory_liquidation_at, "
+                ":owner_approval_id, :system_identity, :created_at, NULL, NULL)"
+            ),
+            fields,
+        )
+
+
+def test_a_real_legacy_identity_row_loads_correctly_through_get_and_for_entry(
+    engine: Engine, repo: PostgresApprovedPlanRepository
+) -> None:
+    legacy_identity = derive_legacy_system_identity(
+        plan_id=_REAL_PLAN_ID, owner_approval_id=_REAL_OWNER_APPROVAL_ID
+    )
+    _insert_legacy_row(engine)
+
+    by_id = repo.get(_REAL_PLAN_ID)
+    assert by_id is not None
+    assert by_id.system_identity == legacy_identity
+    assert by_id.plan_id == _REAL_PLAN_ID
+    assert by_id.owner_approval_id == _REAL_OWNER_APPROVAL_ID
+
+    by_entry = repo.for_entry(_REAL_ENTRY_INTENT_ID)
+    assert by_entry is not None
+    assert by_entry.system_identity == legacy_identity
+
+
+def test_a_real_legacy_identity_row_appears_in_list_unclaimed(
+    engine: Engine, repo: PostgresApprovedPlanRepository
+) -> None:
+    _insert_legacy_row(engine)
+    unclaimed = repo.list_unclaimed(limit=10)
+    assert len(unclaimed) == 1
+    assert unclaimed[0].plan_id == _REAL_PLAN_ID
+
+
+def test_claiming_a_legacy_plans_exit_trigger_preserves_its_identity(
+    engine: Engine, repo: PostgresApprovedPlanRepository
+) -> None:
+    """8. The one controlled mutation a plan ever undergoes (the exit-trigger claim) must
+    not disturb a legacy row's preserved, historical identity."""
+    legacy_identity = derive_legacy_system_identity(
+        plan_id=_REAL_PLAN_ID, owner_approval_id=_REAL_OWNER_APPROVAL_ID
+    )
+    _insert_legacy_row(engine)
+    claimed = repo.claim_exit_trigger(
+        _REAL_PLAN_ID, kind=ExitTriggerKind.MANDATORY_EXIT, claimed_at=_NOW
+    )
+    assert claimed is not None
+    assert claimed.is_claimed
+    assert claimed.system_identity == legacy_identity
+
+    reloaded = repo.get(_REAL_PLAN_ID)
+    assert reloaded is not None
+    assert reloaded.triggered_exit_kind is ExitTriggerKind.MANDATORY_EXIT
+    assert reloaded.system_identity == legacy_identity
+
+
+def test_a_forged_legacy_identity_row_is_refused_on_read(
+    engine: Engine, repo: PostgresApprovedPlanRepository
+) -> None:
+    """7. A row whose `system_identity` matches NEITHER formula -- however it got into the
+    database -- fails closed on read, exactly as before this compatibility fix existed."""
+    _insert_legacy_row(engine, system_identity="freeform-forged-value")
+    with pytest.raises(ValueError, match="matches neither"):
+        repo.get(_REAL_PLAN_ID)

@@ -25,7 +25,11 @@ from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 
-from empirical_platform.decision_candidate.approved_plan import ApprovedPlan, ExitTriggerKind
+from empirical_platform.decision_candidate.approved_plan import (
+    ApprovedPlan,
+    ExitTriggerKind,
+    reconstruct_approved_plan,
+)
 from empirical_platform.decision_candidate.approved_plan_repositories import (
     ApprovedPlanAlreadyExistsError,
 )
@@ -132,7 +136,10 @@ def _trigger_kind(row: Mapping[str, Any]) -> ExitTriggerKind | None:
 
 
 def _row_to_plan(row: Mapping[str, Any]) -> ApprovedPlan:
-    return ApprovedPlan(
+    # RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: `reconstruct_approved_plan`
+    # accepts the current format exactly as `ApprovedPlan(...)` always did, and ONLY a
+    # verified pre-rewrite legacy identity in addition -- see its own docstring.
+    return reconstruct_approved_plan(
         plan_id=_str(row, "plan_id"),
         candidate_id=_str(row, "candidate_id"),
         entry_intent_governance_id=_str(row, "entry_intent_governance_id"),

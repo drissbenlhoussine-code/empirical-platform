@@ -45,11 +45,14 @@ from decimal import Decimal
 from enum import StrEnum
 
 __all__ = [
+    "LEGACY_SYSTEM_IDENTITY_PREFIX",
     "SYSTEM_IDENTITY_PREFIX",
     "ApprovedPlan",
     "ExitTriggerKind",
+    "derive_legacy_system_identity",
     "derive_system_identity",
     "evaluate_exit_trigger",
+    "reconstruct_approved_plan",
 ]
 
 _MAXIMUM_IDENTIFIER_LENGTH = 64
@@ -115,6 +118,30 @@ def derive_system_identity(*, plan_id: str, owner_approval_id: str) -> str:
     return SYSTEM_IDENTITY_PREFIX + hashlib.sha256(material.encode("utf-8")).hexdigest()[:40]
 
 
+#: RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY. The PRE-security-gate format
+#: `derive_system_identity` produced before the hash-based rewrite above -- preserved here,
+#: unchanged, ONLY so an already-persisted row written under that format can be recognized
+#: and read. Never used to derive a NEW plan's identity anywhere in this codebase; see
+#: `reconstruct_approved_plan`'s own docstring for the one place this is read.
+LEGACY_SYSTEM_IDENTITY_PREFIX = "system:approved-plan:"
+
+
+def derive_legacy_system_identity(*, plan_id: str, owner_approval_id: str) -> str:
+    """The historical (pre-security-gate) `system_identity` format, for verifying an
+    already-persisted row ONLY -- never for deriving a new plan's identity.
+
+    This is the exact formula `derive_system_identity` used before the hash-based rewrite:
+    a literal concatenation, which is why it could (and for this real incident's own
+    governance ids, did) exceed the 64-character limit `authorized_by` enforces. Kept
+    byte-for-byte so `reconstruct_approved_plan` can recompute it and compare for an exact
+    match -- the same input validation `derive_system_identity` itself applies, so this
+    cannot be satisfied by a forged, truncated or freeform string either.
+    """
+    _require_identifier(plan_id, field="plan_id")
+    _require_identifier(owner_approval_id, field="owner_approval_id")
+    return f"{LEGACY_SYSTEM_IDENTITY_PREFIX}{plan_id}:owner-approval:{owner_approval_id}"
+
+
 @dataclass(frozen=True, slots=True)
 class ApprovedPlan:
     """The complete, immutable terms the Owner approved in ONE action.
@@ -139,6 +166,14 @@ class ApprovedPlan:
     triggered_exit_at: datetime | None = None
 
     def __post_init__(self) -> None:
+        self._validate_structure()
+        self._validate_identity()
+
+    def _validate_structure(self) -> None:
+        """Every invariant EXCEPT the identity check -- shared, unchanged, by both a
+        normal construction (`__post_init__`, below) and `reconstruct_approved_plan`'s
+        legacy-identity path, so a legacy row is held to exactly the same structural
+        standard as any other plan."""
         _require_identifier(self.plan_id, field="plan_id")
         _require_identifier(self.candidate_id, field="candidate_id")
         _require_identifier(self.entry_intent_governance_id, field="entry_intent_governance_id")
@@ -152,6 +187,17 @@ class ApprovedPlan:
             raise ValueError(
                 "stop_price must be strictly below target_price (long-only full close)"
             )
+        if (self.triggered_exit_kind is None) != (self.triggered_exit_at is None):
+            raise ValueError(
+                "triggered_exit_kind and triggered_exit_at must be set, or unset, together"
+            )
+
+    def _validate_identity(self) -> None:
+        """UNCHANGED, unweakened: the ONLY identity a normal construction ever accepts is
+        the CURRENT `derive_system_identity(...)` format. Every plan-creation path
+        (`usecases/full_plan_approval.py`) constructs `ApprovedPlan(...)` directly, so this
+        runs for every new plan exactly as it always has. A legacy row never reaches this
+        method at all -- see `reconstruct_approved_plan`."""
         expected_identity = derive_system_identity(
             plan_id=self.plan_id, owner_approval_id=self.owner_approval_id
         )
@@ -159,10 +205,6 @@ class ApprovedPlan:
             raise ValueError(
                 "system_identity must be exactly derive_system_identity(plan_id, "
                 "owner_approval_id); a plan can never carry a freeform or mismatched identity"
-            )
-        if (self.triggered_exit_kind is None) != (self.triggered_exit_at is None):
-            raise ValueError(
-                "triggered_exit_kind and triggered_exit_at must be set, or unset, together"
             )
 
     @property
@@ -175,6 +217,104 @@ class ApprovedPlan:
         return self.mandatory_liquidation_at - timedelta(
             seconds=MANDATORY_EXIT_SAFETY_BUFFER_SECONDS
         )
+
+
+def reconstruct_approved_plan(
+    *,
+    plan_id: str,
+    candidate_id: str,
+    entry_intent_governance_id: str,
+    symbol: str,
+    approved_quantity: Decimal,
+    stop_price: Decimal,
+    target_price: Decimal,
+    mandatory_liquidation_at: datetime,
+    owner_approval_id: str,
+    system_identity: str,
+    created_at: datetime,
+    triggered_exit_kind: ExitTriggerKind | None = None,
+    triggered_exit_at: datetime | None = None,
+) -> ApprovedPlan:
+    """Reconstruct an `ApprovedPlan` from an ALREADY-PERSISTED row -- the ONE place a
+    pre-hash-rewrite (legacy) `system_identity` is ever accepted for reading.
+
+    RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY. The hash-based
+    `derive_system_identity` rewrite changed the identity FORMAT, but a plan approved
+    before that rewrite still carries the OLD format in storage -- `ApprovedPlan(...)`
+    itself (every creation path) still refuses that unconditionally, which is correct and
+    unchanged, but it also made every READ of that one real, historical, already-approved
+    plan raise, with no way to load it at all.
+
+    This function tries the CURRENT format first (`ApprovedPlan(...)` directly -- the
+    identical path and identical check every plan has always gone through: nothing here
+    weakens it, and the overwhelming majority of calls, every plan approved after the
+    rewrite, take exactly this branch). Only if that fails does it check whether
+    `system_identity` matches the HISTORICAL formula
+    (`derive_legacy_system_identity(plan_id, owner_approval_id)`) EXACTLY -- not a prefix,
+    not a fuzzy match. A value that matches neither is rejected exactly as before: forged,
+    truncated, freeform or otherwise mismatched identities are never accepted, legacy or
+    not. A verified legacy row is reconstructed with every field EXACTLY as persisted
+    (including `system_identity` itself, unrewritten -- the original Owner approval,
+    deadline, trigger claim and execution evidence are never touched) and is still run
+    through `_validate_structure()`, the SAME non-identity checks every other plan must
+    satisfy.
+
+    NEVER used by a plan-creation path: `usecases/full_plan_approval.py` constructs
+    `ApprovedPlan(...)` directly and always derives a fresh, current-format identity, so a
+    brand-new plan can never carry a legacy identity. This function is called ONLY from
+    the Postgres repository's own row-to-domain conversion (`_row_to_plan`).
+
+    THE CONSEQUENCE FOR AUTOMATIC EXITS. A legacy plan's own `system_identity` is still the
+    oversized historical string (the original, independent 64-character `authorized_by`
+    overflow this release already fixed in isolation) -- `position_plan_manager.py`
+    therefore derives `authorized_by` fresh via `derive_system_identity(plan_id=...,
+    owner_approval_id=...)` rather than trusting the plan's own (possibly legacy) stored
+    field, which is always the safe, current, <=64-character form regardless of which
+    format this plan happens to carry.
+    """
+    current_identity = derive_system_identity(plan_id=plan_id, owner_approval_id=owner_approval_id)
+    if system_identity == current_identity:
+        return ApprovedPlan(
+            plan_id=plan_id,
+            candidate_id=candidate_id,
+            entry_intent_governance_id=entry_intent_governance_id,
+            symbol=symbol,
+            approved_quantity=approved_quantity,
+            stop_price=stop_price,
+            target_price=target_price,
+            mandatory_liquidation_at=mandatory_liquidation_at,
+            owner_approval_id=owner_approval_id,
+            system_identity=system_identity,
+            created_at=created_at,
+            triggered_exit_kind=triggered_exit_kind,
+            triggered_exit_at=triggered_exit_at,
+        )
+    legacy_identity = derive_legacy_system_identity(
+        plan_id=plan_id, owner_approval_id=owner_approval_id
+    )
+    if system_identity != legacy_identity:
+        raise ValueError(
+            "system_identity matches neither the current derive_system_identity(plan_id, "
+            "owner_approval_id) nor the historical derive_legacy_system_identity(plan_id, "
+            "owner_approval_id) formula; a plan can never carry a freeform, forged or "
+            "ambiguous identity"
+        )
+    plan = object.__new__(ApprovedPlan)
+    object.__setattr__(plan, "plan_id", plan_id)
+    object.__setattr__(plan, "candidate_id", candidate_id)
+    object.__setattr__(plan, "entry_intent_governance_id", entry_intent_governance_id)
+    object.__setattr__(plan, "symbol", symbol)
+    object.__setattr__(plan, "approved_quantity", approved_quantity)
+    object.__setattr__(plan, "stop_price", stop_price)
+    object.__setattr__(plan, "target_price", target_price)
+    object.__setattr__(plan, "mandatory_liquidation_at", mandatory_liquidation_at)
+    object.__setattr__(plan, "owner_approval_id", owner_approval_id)
+    object.__setattr__(plan, "system_identity", system_identity)
+    object.__setattr__(plan, "created_at", created_at)
+    object.__setattr__(plan, "triggered_exit_kind", triggered_exit_kind)
+    object.__setattr__(plan, "triggered_exit_at", triggered_exit_at)
+    plan._validate_structure()
+    return plan
 
 
 def evaluate_exit_trigger(
