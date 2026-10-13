@@ -32,6 +32,7 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from uuid import uuid4
 
 from empirical_platform.entrypoints import _operator_console_html as html
 from empirical_platform.entrypoints._operator_console_web import (
@@ -406,5 +407,141 @@ def build_paper_application(
 
         router.get("/active", active_with_plan)
         router.get("/history", history_with_plan)
+
+        # RELEASE v1 OVERDUE RECOVERY UI: the two-step Owner action
+        # (grant_overdue_recovery_approval, then confirm_overdue_recovery) exposed through
+        # this console, reusing the SAME signed ticket machinery, CSRF protection and
+        # idempotent-dispatch claim as every other route in this file. Neither new route
+        # replaces or edits `/exit/review` or `/exit/confirm` -- a normal, not-yet-overdue
+        # exit is completely unaffected; these are additional, narrowly-scoped routes only
+        # reachable for a position this console's own domain logic independently proves is
+        # genuinely overdue.
+
+        def recovery_grant_review_route(request: Request, csrf: str) -> Response:
+            refuse_requested_environment(request.query)
+            assert backend._plans is not None
+            intent = request.first("intent")
+            plan = backend._plans.for_entry(intent)
+            if plan is None:
+                return refusal(
+                    ConsoleRefusalError(
+                        "No managed plan",
+                        "This entry has no managed Paper plan. Nothing was done.",
+                    ),
+                    "400 Bad Request",
+                )
+            if datetime.now(UTC) < plan.mandatory_liquidation_at:
+                return html_response(
+                    html.message_page(
+                        title="Not overdue",
+                        message=(
+                            "This position's mandatory liquidation deadline "
+                            f"({plan.mandatory_liquidation_at.isoformat(timespec='minutes')}) "
+                            "has not passed yet. Overdue-position recovery exists only for a "
+                            "position that is genuinely overdue. Nothing was done -- use the "
+                            "normal exit review instead."
+                        ),
+                        capability_label=label(),
+                        kill_switch_engaged=False,
+                        back=f"/exit/review?intent={intent}",
+                        tone="info",
+                        base_path=base_path,
+                    )
+                )
+            return html_response(
+                html.overdue_recovery_grant_page(
+                    intent_id=intent,
+                    symbol=plan.symbol,
+                    mandatory_liquidation_at=plan.mandatory_liquidation_at,
+                    csrf=csrf,
+                    capability_label=label(),
+                    base_path=base_path,
+                )
+            )
+
+        def recovery_grant_route(request: Request, csrf: str) -> Response:
+            del csrf
+            refuse_requested_environment(request.form)
+            exits = service.exits
+            assert exits is not None
+            intent = request.first("intent")
+            # Deliberately NOT built from `intent` (unlike `authorized_by` elsewhere, whose
+            # 64-character overflow for a real, long governance id was an independent defect
+            # fixed in isolation -- see RELEASE v1 RECOVERY HARDENING). The grant event itself
+            # already records `entry_intent_governance_id` separately, so this id only needs
+            # to be fresh and unique, never traceable by concatenation.
+            recovery_approval_id = f"RCV-{uuid4().hex}"
+            try:
+                exits.grant_overdue_recovery_approval(intent, recovery_approval_id)
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return redirect(
+                html.url_for(
+                    base_path,
+                    f"/exit/recovery/review?intent={intent}&recovery={recovery_approval_id}",
+                )
+            )
+
+        def recovery_review_route(request: Request, csrf: str) -> Response:
+            refuse_requested_environment(request.query)
+            exits = service.exits
+            assert exits is not None
+            intent = request.first("intent")
+            recovery_approval_id = request.first("recovery")
+            if not recovery_approval_id:
+                return refusal(
+                    ConsoleRefusalError(
+                        "Recovery approval required",
+                        "No recovery approval id was provided. Nothing was done.",
+                    ),
+                    "400 Bad Request",
+                )
+            try:
+                view = exits.review(intent)
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return html_response(
+                html.overdue_recovery_review_page(
+                    view, recovery_approval_id, csrf, label(), base_path=base_path
+                )
+            )
+
+        def recovery_confirm_route(request: Request, csrf: str) -> Response:
+            del csrf
+            refuse_requested_environment(request.form)
+            exits = service.exits
+            assert exits is not None
+            intent = request.first("intent")
+            try:
+                outcome = exits.confirm_overdue_recovery(
+                    intent, request.first("ticket"), request.first("recovery")
+                )
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return html_response(
+                html.message_page(
+                    title=outcome.title,
+                    message=outcome.message,
+                    capability_label=label(),
+                    kill_switch_engaged=False,
+                    back=f"/execution?intent={intent}",
+                    tone="info" if outcome.ok else "warn",
+                    base_path=base_path,
+                )
+            )
+
+        router.get("/exit/recovery", recovery_grant_review_route)
+        router.post("/exit/recovery/grant", recovery_grant_route)
+        router.get("/exit/recovery/review", recovery_review_route)
+        router.post("/exit/recovery/confirm", recovery_confirm_route)
 
     return router

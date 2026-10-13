@@ -912,6 +912,144 @@ def exit_review_page(
     )
 
 
+def overdue_recovery_grant_page(
+    *,
+    intent_id: str,
+    symbol: str,
+    mandatory_liquidation_at: datetime,
+    csrf: str,
+    capability_label: str,
+    base_path: str = "",
+) -> str:
+    """RELEASE v1 OVERDUE RECOVERY UI -- step 1 of 2. A distinct, clearly-labeled escape
+
+    hatch for a position this console has already independently proven is genuinely
+    overdue (the route that renders this page refuses before this point otherwise). This
+    page submits nothing by itself: it only records a fresh, explicit Owner decision
+    (`grant_overdue_recovery_approval`), re-verified live against the broker. The actual
+    SELL TO CLOSE is a SEPARATE second step (`overdue_recovery_review_page`) with its own
+    confirmation.
+    """
+    review_href = _e(url_for(base_path, f"/exit/review?intent={intent_id}"))
+    body = (
+        f'<a class="back" href="{review_href}">← Exit review</a>'
+        '<section class="confirm"><div class="env-badge env-badge-paper env-badge-large">'
+        "PAPER -- OVERDUE POSITION RECOVERY</div>"
+        "<h1>Overdue position recovery</h1>"
+        '<p class="note note-danger"><strong>This position missed its mandatory liquidation '
+        f"deadline</strong> ({_e(_when(mandatory_liquidation_at))}). A normal exit "
+        "authorization can never again satisfy that deadline once it has passed -- this is "
+        "the ONE narrowly scoped recovery path for exactly that situation.</p>"
+        '<p class="lead">Step 1 of 2: granting records your fresh, explicit decision to '
+        "recover this specific overdue position. It re-verifies the real broker position, "
+        "account and quantity right now, and does not submit anything. Step 2 (review and "
+        "confirm the exact SELL TO CLOSE terms) is separate.</p>"
+        + _kv([("Symbol", symbol), ("Entry intent", intent_id)])
+        + f'<form method="post" action="{_e(url_for(base_path, "/exit/recovery/grant"))}" class="confirm-form">{_csrf(csrf)}'
+        f'<input type="hidden" name="intent" value="{_e(intent_id)}">'
+        '<button class="btn btn-danger btn-big" type="submit">GRANT RECOVERY APPROVAL</button>'
+        f'<a class="btn btn-secondary btn-big" href="{review_href}">Cancel</a></form></section>'
+    )
+    return _layout(
+        title="Overdue position recovery",
+        active="/active",
+        body=body,
+        capability_label=capability_label,
+        kill_switch_engaged=False,
+        base_path=base_path,
+    )
+
+
+def overdue_recovery_review_page(
+    view: ExitReviewView,
+    recovery_approval_id: str,
+    csrf: str,
+    capability_label: str,
+    *,
+    base_path: str = "",
+) -> str:
+    """RELEASE v1 OVERDUE RECOVERY UI -- step 2 of 2, the final confirmation.
+
+    Reuses the SAME `ExitReviewView` (fresh quote, fresh position, signed ticket) `review()`
+    builds for an ordinary exit -- nothing about the terms shown or how they are frozen is
+    special-cased for recovery. Only the form action (`/exit/recovery/confirm`) and the
+    additional `recovery_approval_id` field differ from `exit_review_page`, and this is a
+    SEPARATE page function so that page is completely untouched by this one's existence.
+    """
+    broker_target = (
+        "the simulated broker"
+        if view.environment == "SIMULATION"
+        else "the real Alpaca PAPER endpoint (not real money, not a live-market execution)"
+    )
+    final_action_sentence = (
+        f"Pressing CONFIRM OVERDUE RECOVERY SELL will submit one {view.environment} SELL TO "
+        f"CLOSE for the FULL attributable position in {view.symbol} ({view.exit_quantity} "
+        f"shares) to {broker_target}, under the recovery approval you just granted. This "
+        "cannot be undone, and a second click cannot create a second order."
+    )
+    warning = ""
+    if view.kill_switch_engaged:
+        warning = (
+            '<div class="banner banner-danger">The kill switch is engaged. This exit cannot be '
+            "submitted until it is released on the Safety page. Nothing will be sent.</div>"
+        )
+    terms = _kv(
+        [
+            ("Symbol", view.symbol),
+            ("Action", "SELL TO CLOSE (full close only)"),
+            ("Current verified holding", f"{view.current_holding} shares"),
+            ("Exit quantity", f"{view.exit_quantity} shares (full close)"),
+            ("Side", view.side),
+            ("Order type", view.order_type),
+            ("Limit price", view.limit_price),
+            ("Time in force", "DAY"),
+            ("Extended hours", "No"),
+            ("Environment", view.environment),
+            ("Account", view.account),
+            ("Entry average fill price", view.entry_avg_fill_price),
+            ("Current bid / ask", f"{view.current_bid} / {view.current_ask}"),
+            ("Price evidence captured", _when(view.quote_captured_at)),
+            ("Broker position evidence captured", _when(view.position_captured_at)),
+            ("Exit reference (request fingerprint)", view.fingerprint_short),
+            ("Client order id (deterministic)", view.client_order_id),
+            ("Mandatory liquidation deadline", _when(view.liquidation_deadline)),
+            ("Recovery approval", recovery_approval_id),
+        ]
+    )
+    execution_href = _e(url_for(base_path, f"/execution?intent={view.intent_id}"))
+    body = (
+        f'<a class="back" href="{execution_href}">← Execution</a>'
+        '<section class="confirm"><div class="env-badge env-badge-paper env-badge-large">'
+        "PAPER -- OVERDUE POSITION RECOVERY</div>"
+        "<h1>Review overdue recovery exit</h1>"
+        '<p class="lead">Step 2 of 2. These are the exact, frozen terms your recovery '
+        "approval permits. Nothing has been sent. The engine re-reads the position, the "
+        "entry, the kill switch, the market session and these terms when you confirm, and "
+        "refuses if anything changed.</p>"
+        f'<p class="note note-warn"><strong>Full close.</strong> {_e(view.full_close_warning)}</p>'
+        '<p class="note note-danger"><strong>Overdue recovery.</strong> This authorization '
+        "exists ONLY because the mandatory liquidation deadline already passed; it can never "
+        "be used to open a new position, change quantity, or act on any other plan.</p>"
+        f"{warning}"
+        f'<div class="terms">{terms}</div>'
+        f'<p class="note note-danger"><strong>Final confirmation.</strong> {_e(final_action_sentence)}</p>'
+        f'<form method="post" action="{_e(url_for(base_path, "/exit/recovery/confirm"))}" class="confirm-form">{_csrf(csrf)}'
+        f'<input type="hidden" name="intent" value="{_e(view.intent_id)}">'
+        f'<input type="hidden" name="ticket" value="{_e(view.ticket)}">'
+        f'<input type="hidden" name="recovery" value="{_e(recovery_approval_id)}">'
+        '<button class="btn btn-danger btn-big" type="submit">CONFIRM OVERDUE RECOVERY SELL</button>'
+        f'<a class="btn btn-secondary btn-big" href="{execution_href}">Cancel</a></form></section>'
+    )
+    return _layout(
+        title="Review overdue recovery exit",
+        active="/active",
+        body=body,
+        capability_label=capability_label,
+        kill_switch_engaged=view.kill_switch_engaged,
+        base_path=base_path,
+    )
+
+
 def exit_cancel_confirmation_page(
     summary: ExecutionSummary,
     csrf: str,
