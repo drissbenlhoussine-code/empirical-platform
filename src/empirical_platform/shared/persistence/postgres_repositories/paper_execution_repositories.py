@@ -183,7 +183,10 @@ def require_exact_m085_schema_head(service: PostgresPersistenceService) -> str:
 #: RELEASE v1's own `approved_plan` migration, additively stacked on M090 or M087 or M085
 #: in the SAME `migrations/` chain (Store A). An explicit allowlist of exactly one value --
 #: updating it to a later value is a deliberate, reviewed code change, never automatic.
-V1_INTEGRATED_SCHEMA_HEAD = "c6e2a4f8" + "b901"
+#: RELEASE v1 RECOVERY HARDENING SECURITY GATE: bumped to `83e15e6bfae4`, which drops the
+#: now-obsolete `approved_plan.system_identity` CHECK constraint (see that migration's own
+#: docstring) -- nothing Paper execution reads or writes changed.
+V1_INTEGRATED_SCHEMA_HEAD = "83e15e6b" + "fae4"
 
 #: The M085 tables Paper execution actually reads and writes, proven present by name
 #: before any repository or broker client is built. The SAME enumeration

@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from empirical_platform.decision_candidate.approved_plan_repositories import ApprovedPlanRepository
 from empirical_platform.decision_candidate.paper_execution import ExecutionAttempt
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
@@ -39,6 +40,7 @@ from empirical_platform.decision_candidate.position_exit import (
     PositionExitEvent,
     PositionExitState,
     RealizedResult,
+    is_overdue_recovery_authorization,
     realized_result,
 )
 from empirical_platform.decision_candidate.position_exit_repositories import (
@@ -70,10 +72,14 @@ from empirical_platform.usecases.operator_console import (
 from empirical_platform.usecases.position_exit import (
     POSITION_NEEDS_ATTENTION,
     AssessPositionExitHandler,
+    AuthorizeOverduePositionRecoveryCommand,
+    AuthorizeOverduePositionRecoveryHandler,
     AuthorizePositionExitCommand,
     AuthorizePositionExitHandler,
     CancelPositionExitCommand,
     CancelPositionExitHandler,
+    GrantOverduePositionRecoveryApprovalCommand,
+    GrantOverduePositionRecoveryApprovalHandler,
     PositionAssessment,
     PositionExitRefusedError,
     PreviewPositionExitCommand,
@@ -292,6 +298,13 @@ class PositionExitConsole:
         time_source: PaperTimeSource,
         clock: Callable[[], datetime],
         environment: str,
+        #: RELEASE v1 RECOVERY HARDENING. Read-only here: the ORIGINAL Owner-approved plan,
+        #: consulted ONLY by `confirm_overdue_recovery` to prove a fresh recovery approval id
+        #: is not the original `owner_approval_id` replayed. Never written to by this console.
+        #: `None` for a capability with no full-plan-approval concept at all (SIMULATION);
+        #: `confirm_overdue_recovery` refuses cleanly rather than requiring every composition
+        #: to wire up a plan repository it otherwise has no use for.
+        plans: ApprovedPlanRepository | None = None,
         operator_identity: str = "owner",
     ) -> None:
         self._x = exits
@@ -305,6 +318,7 @@ class PositionExitConsole:
         self._time = time_source
         self._clock = clock
         self._environment = environment
+        self._plans = plans
         self._operator = operator_identity
 
     # -- reads -------------------------------------------------------------------------
@@ -657,6 +671,154 @@ class PositionExitConsole:
         except PositionExitRefusedError as error:
             raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         # Not dispatched because another request won the claim: report THAT exit, create nothing.
+        lost_race = not result.dispatched and result.attempt.attempt_id != (
+            f"XAT-{intent_id}-{preview.preview_version}"
+        )
+        return self._outcome(result.attempt, duplicate=lost_race)
+
+    # -- overdue-position recovery (RELEASE v1 recovery hardening) ---------------------
+
+    def grant_overdue_recovery_approval(
+        self, intent_id: str, recovery_approval_id: str
+    ) -> PositionExitEvent:
+        """Durably record ONE fresh, explicit Owner decision to recover an overdue
+        position -- a SEPARATE, prior step from `confirm_overdue_recovery` (SECURITY GATE,
+        RELEASE v1 recovery hardening review): `confirm_overdue_recovery` requires a REAL
+        persisted record matching this exact position, not merely a distinct nonempty
+        string. No ticket is involved -- this is a decision about the POSITION, not about
+        any one preview version, so there is nothing yet to re-confirm against; the
+        position, account and quantity are re-verified fresh, right now, against the
+        broker, by `GrantOverduePositionRecoveryApprovalHandler` itself.
+        """
+        plans = self._plans
+        if plans is None:
+            raise ConsoleRefusalError(
+                "Recovery not available",
+                "Overdue-position recovery is not available in this capability. Nothing "
+                "was recorded.",
+            )
+        try:
+            return GrantOverduePositionRecoveryApprovalHandler(
+                intents=self._intents,
+                entry_attempts=self._entries,
+                exit_attempts=self._x.attempts,
+                plans=plans,
+                broker=self._broker,
+                events=self._x.events,
+                time_source=self._time,
+            ).handle(
+                GrantOverduePositionRecoveryApprovalCommand(
+                    entry_intent_governance_id=intent_id,
+                    recovery_approval_id=recovery_approval_id,
+                    granted_at=self._clock(),
+                )
+            )
+        except PositionExitRefusedError as error:
+            raise ConsoleRefusalError(
+                "Recovery approval refused", f"{error}. Nothing was recorded."
+            ) from error
+
+    def confirm_overdue_recovery(
+        self, intent_id: str, token: str, recovery_approval_id: str
+    ) -> ActionOutcome:
+        """The ONE escape hatch for a position whose mandatory deadline has already passed.
+
+        Deliberately a SEPARATE method from `confirm()`, not an extra branch inside it: a
+        normal authorization can never again satisfy `exit_authorization_binding_refusal`
+        once a position is overdue (see that function's own docstring), so recovering it
+        needs its own narrowly scoped authority, requiring `recovery_approval_id` -- a FRESH,
+        explicit Owner approval, distinct from the original plan's own `owner_approval_id`,
+        which `AuthorizeOverduePositionRecoveryHandler` never reads except to prove the new
+        id differs from it, and never rewrites or extends. `confirm()` itself, its normal
+        `AuthorizePositionExitHandler` path, and every normal pre-deadline exit are completely
+        unaffected by this method's existence.
+
+        Reuses the SAME `review()`-issued ticket `confirm()` does (the ticket proves which
+        preview the Owner was shown; it carries no opinion about whether the position is
+        overdue), the SAME idempotent-dispatch short-circuit, and the SAME
+        `SubmitAuthorizedPositionExitHandler` -- so the fresh broker position/quantity check,
+        the no-pending-SELL/no-UNKNOWN check, the fresh-quote check and the exactly-once
+        dispatch claim are all identical to a normal exit, unchanged.
+        """
+        plans = self._plans
+        if plans is None:
+            raise ConsoleRefusalError(
+                "Recovery not available",
+                "Overdue-position recovery is not available in this capability. Nothing was sent.",
+            )
+        now = self._clock()
+        ticket = ConfirmationTicket.decode(token, signer=self._signer, now=now)
+        if ticket.action != EXIT_ACTION or ticket.proposal_id != intent_id:
+            raise ConsoleRefusalError(
+                "Out of date",
+                "This confirmation did not come from a current exit review of this console. "
+                "Nothing was sent. Review the exit again.",
+            )
+        if not isinstance(recovery_approval_id, str) or not recovery_approval_id.strip():
+            raise ConsoleRefusalError(
+                "Recovery approval required",
+                "Overdue-position recovery requires a fresh, explicit Owner approval id. "
+                "Nothing was sent.",
+            )
+        existing = self._x.attempts.active_for_entry(intent_id)
+        if existing is not None:
+            return self._outcome(existing, duplicate=True)
+        preview = self._x.previews.get(f"XPV-{intent_id}-{ticket.proposal_version}")
+        if preview is None or preview.request_fingerprint != ticket.fingerprint:
+            raise ConsoleRefusalError(
+                "Terms changed",
+                "The exit terms shown are no longer the current ones. Nothing was sent. Review "
+                "the exit again.",
+            )
+        authorization = self._x.authorizations.latest_for_entry(intent_id)
+        if (
+            authorization is None
+            or authorization.preview_id != preview.preview_id
+            or authorization.is_consumed
+            or authorization.is_expired_at(now)
+            or not is_overdue_recovery_authorization(authorization)
+        ):
+            try:
+                AuthorizeOverduePositionRecoveryHandler(
+                    previews=self._x.previews,
+                    authorizations=self._x.authorizations,
+                    events=self._x.events,
+                    plans=plans,
+                    broker=self._broker,
+                    time_source=self._time,
+                ).handle(
+                    AuthorizeOverduePositionRecoveryCommand(
+                        authorization_id=f"XAU-RECOVERY-{intent_id}-{preview.preview_version}",
+                        preview_id=preview.preview_id,
+                        expected_request_fingerprint=preview.request_fingerprint,
+                        recovery_approval_id=recovery_approval_id,
+                        authorized_at=now,
+                    )
+                )
+            except PositionExitRefusedError as error:
+                raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
+        try:
+            result = SubmitAuthorizedPositionExitHandler(
+                intents=self._intents,
+                entry_attempts=self._entries,
+                previews=self._x.previews,
+                authorizations=self._x.authorizations,
+                attempts=self._x.attempts,
+                acknowledgements=self._x.acknowledgements,
+                events=self._x.events,
+                broker=self._broker,
+                configurations=self._configurations,
+                kill_switch=self._kill_switch,
+                time_source=self._time,
+            ).handle(
+                SubmitAuthorizedPositionExitCommand(
+                    entry_intent_governance_id=intent_id,
+                    attempt_id=f"XAT-{intent_id}-{preview.preview_version}",
+                    at=self._clock(),
+                )
+            )
+        except PositionExitRefusedError as error:
+            raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         lost_race = not result.dispatched and result.attempt.attempt_id != (
             f"XAT-{intent_id}-{preview.preview_version}"
         )

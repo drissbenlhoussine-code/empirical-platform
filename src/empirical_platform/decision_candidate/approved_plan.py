@@ -38,12 +38,14 @@ hold two active attempts for the same entry.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
 __all__ = [
+    "SYSTEM_IDENTITY_PREFIX",
     "ApprovedPlan",
     "ExitTriggerKind",
     "derive_system_identity",
@@ -76,18 +78,41 @@ def _require_identifier(value: str, *, field: str) -> None:
         raise ValueError(f"{field} must be at most {_MAXIMUM_IDENTIFIER_LENGTH} characters")
 
 
+#: RELEASE v1 RECOVERY HARDENING SECURITY GATE (isolated fix). The fixed marker on every
+#: `authorized_by` the automatic manager ever derives -- and the ONLY thing a caller may
+#: trust to recognize one (see `usecases.position_exit.AuthorizePositionExitHandler`'s own
+#: reserved-prefix refusal, which keys off `position_exit.OVERDUE_RECOVERY_AUTHORIZED_BY_
+#: PREFIX`, a sibling, never-colliding reserved prefix, the same way).
+SYSTEM_IDENTITY_PREFIX = "system-approved-plan:"
+
+
 def derive_system_identity(*, plan_id: str, owner_approval_id: str) -> str:
     """The ONLY `authorized_by` string the automatic manager may ever use.
 
     Deterministic, not generated: the same `(plan_id, owner_approval_id)` always produces
     the same identity, so the audit trail can always be walked back to the one human
     approval that authorized it. It is never accepted as a human `authorized_by` value for
-    a MANUAL exit (see `position_plan_manager.py`'s own refusal when a caller tries to pass
-    it from the console) -- it exists only for the automatic manager's own use.
+    a MANUAL exit -- `PositionExitConsole.confirm` never exposes `authorized_by` to a
+    caller at all, always using its own fixed `operator_identity`.
+
+    ISOLATED SECURITY-GATE FIX. Previously this concatenated `plan_id` and
+    `owner_approval_id` in the open (`f"system:approved-plan:{plan_id}:owner-approval:
+    {owner_approval_id}"`), which could, and for a real incident's own governance ids
+    DID, exceed the 64-character limit `PositionExitAuthorization.authorized_by` enforces
+    (`__post_init__`'s `_require_identifier`) -- `ValueError` the instant the automatic
+    manager tried to save the authorization, entirely independent of any deadline logic.
+    Hashing rather than concatenating cannot overflow it, for any input length this
+    function already accepts (each bounded at 64 characters by `_require_identifier`
+    below). The function's own contract -- deterministic, traceable to exactly one
+    `(plan_id, owner_approval_id)` pair, never freeform -- is unchanged; only the
+    representation is. Nothing parses the old concatenated format anywhere in this
+    codebase (`system_identity` is always compared for equality, never destructured), so
+    this change is safe to make in isolation.
     """
     _require_identifier(plan_id, field="plan_id")
     _require_identifier(owner_approval_id, field="owner_approval_id")
-    return f"system:approved-plan:{plan_id}:owner-approval:{owner_approval_id}"
+    material = f"{plan_id}|{owner_approval_id}"
+    return SYSTEM_IDENTITY_PREFIX + hashlib.sha256(material.encode("utf-8")).hexdigest()[:40]
 
 
 @dataclass(frozen=True, slots=True)

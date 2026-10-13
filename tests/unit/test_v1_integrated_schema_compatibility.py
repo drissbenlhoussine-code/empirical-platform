@@ -97,7 +97,7 @@ def _rows(*revisions: str) -> list[dict[str, object]]:
 
 
 def test_the_pin_is_the_reviewed_v1_head() -> None:
-    assert V1_INTEGRATED_SCHEMA_HEAD == "".join(("c6e2a4f8", "b901"))
+    assert V1_INTEGRATED_SCHEMA_HEAD == "".join(("83e15e6b", "fae4"))
     assert V1_INTEGRATED_SCHEMA_HEAD != M085_SCHEMA_HEAD
 
 

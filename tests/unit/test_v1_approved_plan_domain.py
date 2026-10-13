@@ -15,6 +15,7 @@ import pytest
 
 from empirical_platform.decision_candidate.approved_plan import (
     MANDATORY_EXIT_SAFETY_BUFFER_SECONDS,
+    SYSTEM_IDENTITY_PREFIX,
     ApprovedPlan,
     ExitTriggerKind,
     derive_system_identity,
@@ -81,9 +82,20 @@ def test_system_identity_is_deterministic_and_traces_to_the_one_approval() -> No
     a = derive_system_identity(plan_id="PLAN-7", owner_approval_id="OWN-9")
     b = derive_system_identity(plan_id="PLAN-7", owner_approval_id="OWN-9")
     assert a == b
-    assert a == "system:approved-plan:PLAN-7:owner-approval:OWN-9"
+    assert a.startswith(SYSTEM_IDENTITY_PREFIX)
     assert derive_system_identity(plan_id="PLAN-8", owner_approval_id="OWN-9") != a
     assert derive_system_identity(plan_id="PLAN-7", owner_approval_id="OWN-10") != a
+
+
+def test_system_identity_never_overflows_the_64_character_authorized_by_limit() -> None:
+    """ISOLATED SECURITY-GATE FIX. The real incident's own ids (34-40 characters each)
+    produced a 110-character concatenated identity under the old implementation --
+    against `PositionExitAuthorization.authorized_by`'s 64-character limit."""
+    identity = derive_system_identity(
+        plan_id="PLAN-INT-PRP-089-PAPER-20261009T172613Z",
+        owner_approval_id="DEC-PRP-089-PAPER-20261009T172613Z",
+    )
+    assert len(identity) <= 64
 
 
 # ---------------------------------------------------------------------------

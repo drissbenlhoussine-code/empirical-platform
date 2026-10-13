@@ -162,6 +162,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 time_source=store_b.time_source,
                 clock=_utc_now,
                 environment=PAPER_CAPABILITY.capability.value,
+                plans=plans,
             )
             service = OperatorConsoleService(
                 repositories=repositories,

@@ -40,6 +40,9 @@ _M090 = "".join(("a2b4c6d8", "e0f2"))
 #: `approved_plan_repositories.py`) since, unlike M090, it feeds a real-broker safety
 #: decision (the automatic exit manager) -- see that migration's own docstring.
 _V1_APPROVED_PLAN = "".join(("c6e2a4f8", "b901"))
+#: RELEASE v1 RECOVERY HARDENING SECURITY GATE: stacked directly on `_V1_APPROVED_PLAN`,
+#: now the chain's sole head (see that migration's own docstring).
+_V1_RECOVERY_HARDENING = "".join(("83e15e6b", "fae4"))
 _M087 = "".join(("e7c1a9", "d3b5f2"))
 _OLDER = "".join(("9c4b2e", "7d5a18"))
 _UNKNOWN_NEWER = "ffff" + "0" * 8
@@ -162,14 +165,20 @@ def test_the_v1_revision_is_the_sole_head_descending_linearly_from_m085_through_
     """The chain remains a single, linear, non-branching history through RELEASE v1.
 
     Renamed/split again from the pre-v1 test of the same spirit (see the docstring above):
-    the chain's sole head is now the v1 approved-plan revision, which descends directly
-    from M090, which descends directly from M087, which descends directly from M085 --
-    proven the same way, one link further each time.
+    the chain's sole head is now the v1 recovery-hardening revision (RELEASE v1 RECOVERY
+    HARDENING SECURITY GATE: one link further again), which descends directly from the
+    v1 approved-plan revision, which descends directly from M090, which descends directly
+    from M087, which descends directly from M085 -- proven the same way, one link further
+    each time.
     """
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [_V1_APPROVED_PLAN]
+    assert script.get_heads() == [_V1_RECOVERY_HARDENING]
+    recovery_hardening = script.get_revision(_V1_RECOVERY_HARDENING)
+    assert recovery_hardening is not None and recovery_hardening.down_revision == (
+        _V1_APPROVED_PLAN
+    )
     v1 = script.get_revision(_V1_APPROVED_PLAN)
     assert v1 is not None and v1.down_revision == ("b9f2c4d6" + "a8e1")
     approved = script.get_revision("b9f2c4d6" + "a8e1")

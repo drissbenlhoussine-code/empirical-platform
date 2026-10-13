@@ -43,8 +43,11 @@ __all__ = [
 _OPERATION = "v1.approved_plan.row_mapping"
 
 #: The ONE schema revision this code was written against: additive on the M090 head
-#: `a2b4c6d8e0f2`, in the SAME `migrations/` chain (Store A).
-V1_APPROVED_PLAN_SCHEMA_HEAD = "c6e2a4f8" + "b901"
+#: `a2b4c6d8e0f2`, in the SAME `migrations/` chain (Store A). RELEASE v1 RECOVERY
+#: HARDENING SECURITY GATE: bumped to `83e15e6bfae4`, which drops the now-obsolete
+#: `system_identity` CHECK constraint (see that migration's own docstring) -- nothing
+#: else about this table changed.
+V1_APPROVED_PLAN_SCHEMA_HEAD = "83e15e6b" + "fae4"
 _SCHEMA_HEAD_SELECT = "SELECT version_num FROM public.alembic_version"
 
 
