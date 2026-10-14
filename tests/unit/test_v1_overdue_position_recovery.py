@@ -59,7 +59,7 @@ from pathlib import Path
 
 import pytest
 from tests.unit._m086_fakes import World, simulation_world
-from tests.unit._v1_fakes import FakeApprovedPlans
+from tests.unit._v1_fakes import FakeApprovedPlans, FakeExternalPositionClosures
 
 from empirical_platform.decision_candidate.approved_plan import (
     ApprovedPlan,
@@ -167,6 +167,7 @@ def _console(world: World, plans: FakeApprovedPlans | None) -> PositionExitConso
 def _manager(world: World, plans: FakeApprovedPlans) -> PositionPlanManager:
     return PositionPlanManager(
         plans=plans,
+        external_closures=FakeExternalPositionClosures(),
         intents=world.repositories.intents,
         entry_attempts=world.repositories.attempts,
         exit_attempts=world.exits.attempts,

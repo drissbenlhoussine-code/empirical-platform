@@ -64,6 +64,12 @@ from empirical_platform.decision_candidate.approved_plan import (
 from empirical_platform.decision_candidate.approved_plan_repositories import (
     ApprovedPlanRepository,
 )
+from empirical_platform.decision_candidate.external_position_closure import (
+    ExternalPositionClosure,
+)
+from empirical_platform.decision_candidate.external_position_closure_repositories import (
+    ExternalPositionClosureRepository,
+)
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
     PaperMarketDataPort,
@@ -101,6 +107,7 @@ from empirical_platform.usecases.position_exit import (
 __all__ = [
     "DEFAULT_POLL_INTERVAL_SECONDS",
     "ApprovedPlanRepository",
+    "ExternalPositionClosureRepository",
     "PlanEvaluationOutcome",
     "PlanManagerThread",
     "PositionPlanManager",
@@ -123,6 +130,11 @@ class PlanOutcomeKind(StrEnum):
     EXIT_ALREADY_IN_PROGRESS = "EXIT_ALREADY_IN_PROGRESS"
     EXIT_RECONCILED = "EXIT_RECONCILED"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
+    #: RELEASE v1: a durable `ExternalPositionClosure` record exists for this entry (the
+    #: position was closed outside this platform's own exit pipeline -- see
+    #: `usecases.record_external_position_closure`). The manager will never evaluate a
+    #: trigger, claim one, or attempt Preview/Authorize/Submit for this plan again.
+    EXTERNALLY_CLOSED = "EXTERNALLY_CLOSED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +163,7 @@ class PositionPlanManager:
 
     __slots__ = (
         "_plans",
+        "_external_closures",
         "_assess",
         "_previews",
         "_authorizations",
@@ -166,6 +179,7 @@ class PositionPlanManager:
         self,
         *,
         plans: ApprovedPlanRepository,
+        external_closures: ExternalPositionClosureRepository,
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
         exit_attempts: PositionExitAttemptRepository,
@@ -181,6 +195,7 @@ class PositionPlanManager:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._plans = plans
+        self._external_closures = external_closures
         self._previews = previews
         self._authorizations = authorizations
         self._attempts = exit_attempts
@@ -248,6 +263,9 @@ class PositionPlanManager:
     # -- unclaimed plans: decide whether a trigger fires ------------------------------
 
     def _evaluate_unclaimed(self, plan: ApprovedPlan, *, now: datetime) -> PlanEvaluationOutcome:
+        closure = self._external_closures.for_entry(plan.entry_intent_governance_id)
+        if closure is not None:
+            return self._externally_closed_outcome(plan, closure)
         assessment = self._assess.handle(plan.entry_intent_governance_id, at=now)
         if not assessment.eligible:
             return PlanEvaluationOutcome(
@@ -283,6 +301,18 @@ class PositionPlanManager:
             )
         return self._attempt_exit(claimed, now=now, just_claimed=True)
 
+    def _externally_closed_outcome(
+        self, plan: ApprovedPlan, closure: ExternalPositionClosure
+    ) -> PlanEvaluationOutcome:
+        return PlanEvaluationOutcome(
+            plan.plan_id,
+            plan.entry_intent_governance_id,
+            PlanOutcomeKind.EXTERNALLY_CLOSED,
+            f"closed externally under broker order {closure.client_order_id!r} "
+            f"(recorded by {closure.recorded_by!r} at {closure.recorded_at.isoformat()}); "
+            "the automatic manager will not evaluate or act on this plan again",
+        )
+
     # -- claimed plans: resume dispatch/reconciliation ---------------------------------
 
     def _list_claimed_unresolved(self, *, limit: int) -> tuple[ApprovedPlan, ...]:
@@ -295,6 +325,9 @@ class PositionPlanManager:
         return tuple(unresolved)
 
     def _resume_claimed(self, plan: ApprovedPlan, *, now: datetime) -> PlanEvaluationOutcome:
+        closure = self._external_closures.for_entry(plan.entry_intent_governance_id)
+        if closure is not None:
+            return self._externally_closed_outcome(plan, closure)
         attempt = self._attempts.active_for_entry(plan.entry_intent_governance_id)
         if attempt is not None and not attempt.is_terminal:
             reconciled = self._reconcile_handler.handle(

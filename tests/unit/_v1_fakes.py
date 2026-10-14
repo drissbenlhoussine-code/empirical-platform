@@ -1,5 +1,6 @@
-"""RELEASE v1 -- an in-memory `ApprovedPlanRepository` fake, same discipline as the other
-fakes in `_m085_fakes.py`: real invariants (the atomic claim), not a shortcut."""
+"""RELEASE v1 -- in-memory `ApprovedPlanRepository`/`ExternalPositionClosureRepository`
+fakes, same discipline as the other fakes in `_m085_fakes.py`: real invariants (the atomic
+claim, the at-most-one-per-entry uniqueness), not a shortcut."""
 
 from __future__ import annotations
 
@@ -9,6 +10,9 @@ from datetime import datetime
 from empirical_platform.decision_candidate.approved_plan import ApprovedPlan, ExitTriggerKind
 from empirical_platform.decision_candidate.approved_plan_repositories import (
     ApprovedPlanAlreadyExistsError,
+)
+from empirical_platform.decision_candidate.external_position_closure import (
+    ExternalPositionClosure,
 )
 
 
@@ -76,3 +80,32 @@ class FakeApprovedPlans:
             )
             self.rows[plan_id] = claimed
             return claimed
+
+
+class ExternalPositionClosureAlreadyExistsError(ValueError):
+    """Mirrors `ApprovedPlanAlreadyExistsError`'s role for `FakeExternalPositionClosures`."""
+
+
+class FakeExternalPositionClosures:
+    def __init__(self) -> None:
+        self.rows: dict[str, ExternalPositionClosure] = {}
+        self._lock = threading.Lock()
+
+    def save(self, closure: ExternalPositionClosure) -> ExternalPositionClosure:
+        with self._lock:
+            if any(
+                c.entry_intent_governance_id == closure.entry_intent_governance_id
+                for c in self.rows.values()
+            ):
+                raise ExternalPositionClosureAlreadyExistsError(
+                    "an external closure already exists for entry "
+                    f"{closure.entry_intent_governance_id!r}"
+                )
+            self.rows[closure.closure_id] = closure
+            return closure
+
+    def for_entry(self, entry_intent_governance_id: str) -> ExternalPositionClosure | None:
+        for closure in self.rows.values():
+            if closure.entry_intent_governance_id == entry_intent_governance_id:
+                return closure
+        return None

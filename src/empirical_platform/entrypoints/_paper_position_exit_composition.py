@@ -59,6 +59,9 @@ from empirical_platform.shared.persistence.postgres_repositories.approved_plan_r
     PostgresApprovedPlanRepository,
     require_exact_v1_approved_plan_schema_head,
 )
+from empirical_platform.shared.persistence.postgres_repositories.external_position_closure_repositories import (  # noqa: E501
+    PostgresExternalPositionClosureRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.paper_position_exit_schema import (
     require_exact_m089_schema_head,
 )
@@ -125,6 +128,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
             require_personal_identity(store_c, store_c_config, store="C")
             require_exact_m089_schema_head(store_c)
             exit_runtime = PostgresPositionExitRuntime(store_c)
+            external_closures = PostgresExternalPositionClosureRepository(store_c)
             exits = ExitRepositories(
                 previews=exit_runtime.previews,
                 authorizations=exit_runtime.authorizations,
@@ -178,6 +182,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
             # broker-submission path (see `usecases.position_plan_manager`'s own docstring).
             plan_manager = PositionPlanManager(
                 plans=plans,
+                external_closures=external_closures,
                 intents=repositories.intents,
                 entry_attempts=repositories.attempts,
                 exit_attempts=exits.attempts,
@@ -203,6 +208,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 _plans=plans,
                 _plan_manager=plan_manager,
                 _exits=exits,
+                _external_closures=external_closures,
             )
         finally:
             store_c.close()
