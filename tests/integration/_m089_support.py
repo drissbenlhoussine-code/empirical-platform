@@ -33,9 +33,10 @@ from empirical_platform.shared.persistence.database_safety import install_test_c
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-#: The six position_exit_* tables Store C's single migration creates. Identical names to
+#: The six position_exit_* tables Store C's first migration creates. Identical names to
 #: M087's Store-A copy (`test_m087_position_exit_postgres.py`'s `M087_TABLES`) -- same shape,
-#: different database.
+#: different database. RELEASE v1 EXTERNAL POSITION CLOSURE adds the seventh, independent
+#: `external_position_closure` table on top (see that migration's own docstring).
 M089_TABLES = (
     "position_exit_event",
     "position_exit_reconciliation_round",
@@ -43,6 +44,7 @@ M089_TABLES = (
     "position_exit_attempt",
     "position_exit_authorization",
     "position_exit_preview",
+    "external_position_closure",
 )
 
 _DEFAULT_STORE_C_TEST_DATABASE = "missing_explicit_test_database"

@@ -65,6 +65,7 @@ from empirical_platform.usecases.operator_console_fixtures import SimulationDayR
 from empirical_platform.usecases.paper_operator_console import prepare_paper_candidate
 from empirical_platform.usecases.position_plan_manager import (
     ApprovedPlanRepository,
+    ExternalPositionClosureRepository,
     PositionPlanManager,
 )
 
@@ -144,6 +145,11 @@ class PaperConsoleBackend:
     #: read the SAME exit-attempt records the manual exit flow and the automatic manager
     #: both already use -- never a second, parallel read of exit state.
     _exits: ExitRepositories | None = None
+    #: RELEASE v1 EXTERNAL POSITION CLOSURE. `None` here too (see `_exits` above); set
+    #: alongside `_plans`/`_plan_manager`/`_exits` so a narrow CLI tool
+    #: (`entrypoints.record_external_position_closure`) can reuse this SAME verified
+    #: composition instead of opening a separate connection of its own.
+    _external_closures: ExternalPositionClosureRepository | None = None
 
 
 @contextmanager

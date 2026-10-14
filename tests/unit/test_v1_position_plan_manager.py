@@ -12,15 +12,20 @@ from pathlib import Path
 
 import pytest
 from tests.unit._m086_fakes import World, simulation_world
-from tests.unit._v1_fakes import FakeApprovedPlans
+from tests.unit._v1_fakes import FakeApprovedPlans, FakeExternalPositionClosures
 
 from empirical_platform.decision_candidate.approved_plan import (
     ApprovedPlan,
     ExitTriggerKind,
     derive_system_identity,
 )
+from empirical_platform.decision_candidate.external_position_closure import (
+    ExternalPositionClosure,
+    external_position_closure_id,
+)
 from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
 from empirical_platform.shared.brokerage.simulation_paper import (
+    SimulatedOrder,
     default_exit_scenario_table,
     default_scenario_table,
 )
@@ -64,9 +69,45 @@ def _set_quote(world: World, symbol: str, *, bid: str, ask: str) -> None:
     )
 
 
-def _manager(world: World, plans: FakeApprovedPlans) -> PositionPlanManager:
+def _simulate_external_sell(
+    world: World, symbol: str, *, quantity: int, filled_avg_price: str, client_order_id: str
+) -> None:
+    """Simulate a SELL this platform never dispatched -- e.g. a manual broker-dashboard
+    trade. Writes straight into the simulated broker's own order book and position via its
+    PUBLIC seams (`put`/`reduce_position`), bypassing `submit_close_order` and every
+    Preview/Authorize/Submit handler entirely, exactly as a real external fill would."""
+    order = SimulatedOrder(
+        broker_order_id=world.store.next_broker_order_id(),
+        client_order_id=client_order_id,
+        symbol=symbol,
+        side="sell",
+        quantity=str(quantity),
+        order_type="market",
+        limit_price=None,
+        time_in_force="day",
+        extended_hours=False,
+        status="filled",
+        filled_quantity=str(quantity),
+        filled_avg_price=filled_avg_price,
+        scenario="EXIT_FILLED",
+        lookups=0,
+        cancel_requested=False,
+        received_at=world.clock.utc.isoformat(),
+    )
+    world.store.put(order)
+    world.store.reduce_position(symbol, quantity)
+
+
+def _manager(
+    world: World,
+    plans: FakeApprovedPlans,
+    external_closures: FakeExternalPositionClosures | None = None,
+) -> PositionPlanManager:
     return PositionPlanManager(
         plans=plans,
+        external_closures=external_closures
+        if external_closures is not None
+        else (FakeExternalPositionClosures()),
         intents=world.repositories.intents,
         entry_attempts=world.repositories.attempts,
         exit_attempts=world.exits.attempts,
@@ -275,5 +316,95 @@ def test_a_claim_recorded_but_not_yet_dispatched_is_resumed_after_restart(world:
 
     assert any(o.kind is PlanOutcomeKind.EXIT_SUBMITTED for o in outcomes)
     assert world.exits.attempts.for_entry(intent) != ()
+    sells = [o for o in restarted.store.orders() if o.side == "sell"]
+    assert len(sells) == 1
+
+
+# ---------------------------------------------------------------------------
+# External closure: a position closed outside this platform's own exit pipeline
+# ---------------------------------------------------------------------------
+
+
+def _closure(
+    world: World, intent: str, *, client_order_id: str = "EXTERNAL-SELL-1"
+) -> ExternalPositionClosure:
+    return ExternalPositionClosure(
+        closure_id=external_position_closure_id(intent),
+        entry_intent_governance_id=intent,
+        symbol="AAPL",
+        quantity=8,
+        broker_order_id="sim-external-1",
+        client_order_id=client_order_id,
+        filled_avg_price=Decimal("229.00"),
+        recorded_by="owner",
+        recorded_at=world.clock.utc,
+    )
+
+
+def test_a_claimed_plan_with_a_recorded_external_closure_is_never_evaluated_again(
+    world: World,
+) -> None:
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    plans.claim_exit_trigger(plan.plan_id, kind=ExitTriggerKind.STOP, claimed_at=world.clock.utc)
+    _simulate_external_sell(
+        world, "AAPL", quantity=8, filled_avg_price="229.00", client_order_id="EXTERNAL-SELL-1"
+    )
+    closures = FakeExternalPositionClosures()
+    closures.save(_closure(world, intent))
+    manager = _manager(world, plans, closures)
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert len(outcomes) == 1
+    assert outcomes[0].kind is PlanOutcomeKind.EXTERNALLY_CLOSED
+    assert world.exits.attempts.for_entry(intent) == ()
+    sells = [o for o in world.store.orders() if o.side == "sell"]
+    assert len(sells) == 1  # the one EXTERNAL sell already simulated; none dispatched by us
+
+
+def test_an_unclaimed_plan_with_a_recorded_external_closure_is_never_evaluated(
+    world: World,
+) -> None:
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    _simulate_external_sell(
+        world, "AAPL", quantity=8, filled_avg_price="229.00", client_order_id="EXTERNAL-SELL-1"
+    )
+    closures = FakeExternalPositionClosures()
+    closures.save(_closure(world, intent))
+    manager = _manager(world, plans, closures)
+    _set_quote(world, "AAPL", bid="229.00", ask="229.10")  # inside the stop band; would fire
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.EXTERNALLY_CLOSED
+    claimed = plans.get(plan_id="PLAN-1")
+    assert claimed is not None and not claimed.is_claimed  # the ORIGINAL plan row is untouched
+    sells = [o for o in world.store.orders() if o.side == "sell"]
+    assert len(sells) == 1
+
+
+def test_an_external_closure_recorded_after_restart_still_stops_the_plan(world: World) -> None:
+    """Restart recovery for the NEW outcome: a fresh manager instance, reading the SAME
+    durable closure record, must never resume Preview/Authorize/Submit for this plan."""
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    plans.claim_exit_trigger(plan.plan_id, kind=ExitTriggerKind.STOP, claimed_at=world.clock.utc)
+    _simulate_external_sell(
+        world, "AAPL", quantity=8, filled_avg_price="229.00", client_order_id="EXTERNAL-SELL-1"
+    )
+    closures = FakeExternalPositionClosures()
+    closures.save(_closure(world, intent))
+
+    restarted = world.restart()
+    manager = _manager(restarted, plans, closures)
+    outcomes = manager.evaluate_once(now=restarted.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.EXTERNALLY_CLOSED
+    assert restarted.exits.attempts.for_entry(intent) == ()
     sells = [o for o in restarted.store.orders() if o.side == "sell"]
     assert len(sells) == 1
