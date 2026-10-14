@@ -58,6 +58,7 @@ from enum import StrEnum
 from empirical_platform.decision_candidate.approved_plan import (
     ApprovedPlan,
     ExitTriggerKind,
+    derive_system_identity,
     evaluate_exit_trigger,
 )
 from empirical_platform.decision_candidate.approved_plan_repositories import (
@@ -331,7 +332,15 @@ class PositionPlanManager:
                         authorization_id=_authorization_id(plan, kind),
                         preview_id=preview.preview_id,
                         expected_request_fingerprint=preview.request_fingerprint,
-                        authorized_by=plan.system_identity,
+                        # RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: derived
+                        # fresh, never `plan.system_identity` directly. A legacy plan's OWN
+                        # stored identity is still the oversized pre-rewrite string (the
+                        # original 64-character authorized_by overflow); deriving fresh is a
+                        # no-op for every current-format plan (its stored value already
+                        # equals this) and the fix for a legacy one.
+                        authorized_by=derive_system_identity(
+                            plan_id=plan.plan_id, owner_approval_id=plan.owner_approval_id
+                        ),
                         authorized_at=now,
                     )
                 )

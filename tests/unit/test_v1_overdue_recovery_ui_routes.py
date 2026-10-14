@@ -28,6 +28,10 @@ from tests.unit.test_m088_paper_operator_console import (
 )
 from tests.unit.test_v1_paper_console_app_routes import _backend, _now
 
+from empirical_platform.decision_candidate.approved_plan import (
+    derive_legacy_system_identity,
+    reconstruct_approved_plan,
+)
 from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
 from empirical_platform.entrypoints._operator_console_web import SecuritySession
 from empirical_platform.entrypoints._paper_operator_console_composition import PaperConsoleBackend
@@ -378,3 +382,81 @@ def test_recovery_flow_stays_under_the_configured_base_path() -> None:
     review = client.get(location.removeprefix("/paper"))
     assert review.code == 200
     assert 'action="/paper/exit/recovery/confirm"' in review.body
+
+
+# ---------------------------------------------------------------------------
+# RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: the full recovery flow
+# against a legitimate, already-persisted legacy-identity plan (requirement 11 of the
+# mission -- see tests/unit/test_v1_legacy_approved_plan_identity.py for the pure-domain
+# proof this route-level test builds on).
+# ---------------------------------------------------------------------------
+
+
+def test_recovery_flow_works_end_to_end_against_a_legitimate_legacy_identity_plan() -> None:
+    """The one real historical plan is stored under the PRE-rewrite identity format.
+    Rewriting it in place here (test-only, isolated fakes) to the verified legacy format
+    reproduces exactly that -- `_backend()`'s `plans` repository never does this on its
+    own, only a test deliberately simulating the real incident's stored shape does."""
+    backend, client, intent_id = _approved_overdue_backend()
+    plans = backend._plans
+    assert plans is not None
+    plan = plans.for_entry(intent_id)  # type: ignore[attr-defined]
+    assert plan is not None
+    legacy_identity = derive_legacy_system_identity(
+        plan_id=plan.plan_id, owner_approval_id=plan.owner_approval_id
+    )
+    legacy_plan = reconstruct_approved_plan(
+        plan_id=plan.plan_id,
+        candidate_id=plan.candidate_id,
+        entry_intent_governance_id=plan.entry_intent_governance_id,
+        symbol=plan.symbol,
+        approved_quantity=plan.approved_quantity,
+        stop_price=plan.stop_price,
+        target_price=plan.target_price,
+        mandatory_liquidation_at=plan.mandatory_liquidation_at,
+        owner_approval_id=plan.owner_approval_id,
+        system_identity=legacy_identity,
+        created_at=plan.created_at,
+        triggered_exit_kind=plan.triggered_exit_kind,
+        triggered_exit_at=plan.triggered_exit_at,
+    )
+    plans.rows[plan.plan_id] = legacy_plan  # type: ignore[attr-defined]
+
+    # /active no longer 400s (the exact regression this mission closes).
+    active = client.get("/active")
+    assert active.code == 200
+    assert "Approved plan" in active.body
+
+    # The full grant -> review -> confirm flow succeeds against this legacy plan.
+    csrf = _csrf_of(client.get(f"/exit/recovery?intent={intent_id}"))
+    grant = client.post("/exit/recovery/grant", form={"intent": intent_id, "csrf_token": csrf})
+    assert grant.code == 303, grant.body
+    review = client.get(grant.headers["location"])
+    assert review.code == 200
+    ticket = re.search(r'name="ticket" value="([^"]+)"', review.body)
+    recovery = re.search(r'name="recovery" value="([^"]+)"', review.body)
+    confirm_csrf = re.search(r'name="csrf_token" value="([^"]+)"', review.body)
+    assert ticket and recovery and confirm_csrf, review.body
+    form = {
+        "intent": intent_id,
+        "ticket": ticket.group(1),
+        "recovery": recovery.group(1),
+        "csrf_token": confirm_csrf.group(1),
+    }
+
+    first = client.post("/exit/recovery/confirm", form=form)
+    assert first.code == 200, first.body
+
+    # 12. No duplicate SELL on a second click -- exactly one attempt ever exists. No BUY,
+    # no short (SELL_TO_CLOSE only, unchanged), no Live (this whole composition is PAPER).
+    second = client.post("/exit/recovery/confirm", form=form)
+    assert second.code == 200, second.body
+    attempts = backend._exits.attempts  # type: ignore[attr-defined]
+    dispatched = [a for a in attempts.rows.values() if a.entry_intent_governance_id == intent_id]
+    assert len(dispatched) == 1
+    assert all(a.quantity > 0 for a in dispatched)  # SELL_TO_CLOSE only, never a short
+
+    # The plan's own stored identity is untouched by any of this -- preserved exactly.
+    untouched = plans.for_entry(intent_id)  # type: ignore[attr-defined]
+    assert untouched is not None
+    assert untouched.system_identity == legacy_identity
