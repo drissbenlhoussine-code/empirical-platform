@@ -403,6 +403,13 @@ class OpportunityCard:
     target_price: str
     risk_amount: str
     risk_percent: str
+    #: RELEASE v1 Research Candidate fields: maximum dollar gain if the target is reached,
+    #: the reward:risk ratio, and the mandatory-liquidation deadline this candidate would
+    #: carry if approved. All three are derived from the SAME proposal fields `risk_amount`
+    #: already uses -- no new data source, no new freshness question.
+    target_gain: str
+    reward_risk_ratio: str
+    mandatory_exit: datetime
     reason: str
     evidence: tuple[str, ...]
     created_at: datetime
@@ -414,6 +421,9 @@ class OpportunityCard:
     intent_id: str | None
     execution: ExecutionSummary | None
     scenario: str | None
+
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
 
     def state_is_settled(self) -> bool:
         """Whether this card has nothing left for the operator to see on Today."""
@@ -504,6 +514,21 @@ class ConfirmationView:
     approval_expires_at: datetime | None
     ticket: str
     kill_switch_engaged: bool
+
+    stop_price: str = "Historical: not specified"
+    target_price: str = "Historical: not specified"
+    planned_loss: str = "Historical: not specified"
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
+    #: RELEASE v1 Owner Gate: the Owner must see the complete plan on THIS screen, the one
+    #: bound to the ticket they are about to confirm -- not only on the Today card, which is
+    #: a separate read of the same proposal and is never what `confirm_approval` re-reads.
+    target_gain: str = NOT_AVAILABLE
+    reward_risk_ratio: str = NOT_AVAILABLE
+    mandatory_exit: datetime | None = None
+    configuration_governance_id: str = NOT_AVAILABLE
+    configuration_version: str = NOT_AVAILABLE
+    fingerprint_full: str = NOT_AVAILABLE
 
 
 @dataclass(frozen=True, slots=True)
@@ -828,6 +853,36 @@ class OperatorConsoleService:
             raise NotFoundError(f"no trade proposal {proposal_id!r} exists")
         return self._card(proposal, self._clock(), self._r.kill_switch.is_engaged())
 
+    def _risk_reward(
+        self, proposal: TradeProposal
+    ) -> tuple[Decimal | None, Decimal | None, Decimal | None, Decimal | None]:
+        """Risk amount, risk percent, target gain and reward:risk -- ONE computation, shared
+        by the Today card and the Owner Gate confirmation screen, so the numbers an Owner
+        approves are never derived twice by two slightly different formulas."""
+        risk_amount = (
+            (proposal.limit_price - proposal.stop_loss_price) * Decimal(proposal.quantity)
+            if proposal.limit_price is not None
+            else None
+        )
+        if proposal.entry_risk is not None:
+            risk_amount = proposal.entry_risk.planned_loss
+        risk_percent = (
+            (risk_amount / proposal.estimated_total_cash_required * Decimal(100))
+            if risk_amount is not None and proposal.estimated_total_cash_required > 0
+            else None
+        )
+        target_gain = (
+            (proposal.profit_exit_price - proposal.limit_price) * Decimal(proposal.quantity)
+            if proposal.limit_price is not None
+            else None
+        )
+        reward_risk_ratio = (
+            (target_gain / risk_amount)
+            if target_gain is not None and risk_amount is not None and risk_amount > 0
+            else None
+        )
+        return risk_amount, risk_percent, target_gain, reward_risk_ratio
+
     def _card(self, proposal: TradeProposal, now: datetime, engaged: bool) -> OpportunityCard:
         decision, intent, attempt = self._execution_for(proposal)
         execution = None if intent is None else self._summary(proposal, decision, intent, attempt)
@@ -841,17 +896,18 @@ class OperatorConsoleService:
         strategy = context.strategy_version if context is not None else NOT_AVAILABLE
         scenario = self._staged_scenarios().get(proposal.symbol)
         evidence = tuple(f"{c.check_id}: {c.detail}" for c in proposal.risk_checks[:6])
-        risk_amount = (
-            (proposal.limit_price - proposal.stop_loss_price) * Decimal(proposal.quantity)
-            if proposal.limit_price is not None
-            else None
-        )
-        risk_percent = (
-            (risk_amount / proposal.estimated_total_cash_required * Decimal(100))
-            if risk_amount is not None and proposal.estimated_total_cash_required > 0
-            else None
-        )
+        risk_amount, risk_percent, target_gain, reward_risk_ratio = self._risk_reward(proposal)
         return OpportunityCard(
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
             symbol=proposal.symbol,
@@ -865,6 +921,11 @@ class OperatorConsoleService:
             target_price=_money(proposal.profit_exit_price),
             risk_amount=_money(risk_amount),
             risk_percent=(f"{risk_percent:.2f}%" if risk_percent is not None else NOT_AVAILABLE),
+            target_gain=_money(target_gain),
+            reward_risk_ratio=(
+                f"{reward_risk_ratio:.2f}:1" if reward_risk_ratio is not None else NOT_AVAILABLE
+            ),
+            mandatory_exit=proposal.mandatory_liquidation_at,
             reason=(
                 f"Proposed by strategy {strategy}: {len(passed)} of {len(proposal.risk_checks)} "
                 f"risk checks passed" + ("" if not failed else f", {len(failed)} not passed")
@@ -966,7 +1027,25 @@ class OperatorConsoleService:
             fingerprint=proposal.content_fingerprint,
             issued_at=now,
         )
+        _, _, target_gain, reward_risk_ratio = self._risk_reward(proposal)
         return ConfirmationView(
+            stop_price=_money(proposal.stop_loss_price),
+            target_price=_money(proposal.profit_exit_price),
+            planned_loss=(
+                str(proposal.entry_risk.planned_loss)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             action=action,
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
@@ -977,6 +1056,14 @@ class OperatorConsoleService:
             approval_expires_at=approval_expires,
             ticket=ticket.encode(self._signer),
             kill_switch_engaged=self._r.kill_switch.is_engaged(),
+            target_gain=_money(target_gain) if target_gain is not None else NOT_AVAILABLE,
+            reward_risk_ratio=(
+                f"{reward_risk_ratio:.2f}:1" if reward_risk_ratio is not None else NOT_AVAILABLE
+            ),
+            mandatory_exit=proposal.mandatory_liquidation_at,
+            configuration_governance_id=proposal.configuration_governance_id,
+            configuration_version=str(proposal.configuration_version),
+            fingerprint_full=proposal.content_fingerprint,
         )
 
     def _authoritative(self, ticket: ConfirmationTicket, now: datetime) -> TradeProposal:

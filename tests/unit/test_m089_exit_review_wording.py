@@ -87,7 +87,9 @@ def test_exit_review_page_shows_the_broker_position_evidence_timestamp_and_clien
     assert view.full_close_warning in page
     # MILESTONE-089 REGRESSION GUARD: the badge used to be hardcoded "Simulation" regardless
     # of the capability actually composed; it must reflect what the caller passed.
-    assert '<span class="env-badge">PAPER</span>' in page
+    # RELEASE v1: PAPER also carries its own distinct badge class (`env-badge-paper`), so the
+    # always-running SIMULATION console and the real-Alpaca PAPER one are never color-twins.
+    assert '<span class="env-badge env-badge-paper">PAPER</span>' in page
     assert "Simulation" not in page.split("<footer")[0]
 
 

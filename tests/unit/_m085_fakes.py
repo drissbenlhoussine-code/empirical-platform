@@ -780,6 +780,18 @@ class FakeQuote:
     source = "alpaca-iex"
 
 
+class FakeBar:
+    """RELEASE v1: a single real-shaped minute bar, for `fetch_minute_bars` fakes."""
+
+    symbol = "AAPL"
+    timestamp = _NOW - timedelta(minutes=1)
+    open = "299.50"
+    high = "299.90"
+    low = "299.40"
+    close = "299.65"
+    volume = 1_000_000
+
+
 #: Distinguishes "the caller said nothing" from "the caller said None". Several
 #: fakes must be able to answer with None, so None cannot double as the default.
 _UNSET = object()
@@ -948,12 +960,37 @@ class FakeBroker:
 class FakeMarketData:
     endpoint_host = "data.alpaca.markets"
 
-    def __init__(self, *, quote: object | None = _UNSET) -> None:  # type: ignore[assignment]
+    def __init__(
+        self,
+        *,
+        quote: object | None = _UNSET,  # type: ignore[assignment]
+        bars: tuple[object, ...] | None = None,
+        bars_sequence: list[tuple[object, ...]] | None = None,
+    ) -> None:
         # A sentinel, not None: `quote=None` must mean "the feed returned nothing",
         # which is a case under test. Defaulting None to a quote would have made
         # test_an_absent_quote_refuses_on_freshness pass against a present quote.
         self._quote = FakeQuote() if quote is _UNSET else quote
+        # RELEASE v1: one real-shaped bar by default (ample volume), so a test that never
+        # mentions bars still exercises `fetch_minute_bars` honestly rather than silently.
+        self._bars: tuple[object, ...] = (FakeBar(),) if bars is None else bars
+        # RELEASE v1: `prepare_v1_paper_candidate` calls `fetch_minute_bars` twice (a recent
+        # window for the last-trade proxy, then the previous session for liquidity) and a
+        # test may need those two calls to answer differently -- e.g. real recent trades but
+        # no liquidity evidence. Consumed in call order; `self._bars` answers every call once
+        # this is exhausted (or when it was never given).
+        self._bars_sequence: list[tuple[object, ...]] | None = (
+            list(bars_sequence) if bars_sequence is not None else None
+        )
 
     def fetch_quote(self, symbol: str) -> object | None:
         del symbol
         return self._quote
+
+    def fetch_minute_bars(
+        self, symbol: str, *, start: object, end: object, limit: int = 100
+    ) -> tuple[object, ...]:
+        del symbol, start, end, limit
+        if self._bars_sequence:
+            return self._bars_sequence.pop(0)
+        return self._bars

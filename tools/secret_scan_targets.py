@@ -47,6 +47,12 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     #: the same public, non-credential SHA-256 as `EXPECTED_FROZEN_FINGERPRINT_V2` above,
     #: cleared by exact JSON key rather than by Python constant name.
     re.compile(r'^[+-]?\s*"frozen_fingerprint": "[0-9a-f]{64}",?$'),
+    #: RELEASE v1's approved-plan migration test downgrading to M090's own 12-hex revision
+    #: id (a public Alembic revision identifier, not a credential) to prove the schema-head
+    #: guard refuses it -- same exact-call-site discipline as the patterns above, matched by
+    #: the literal `alembic_command.downgrade(cfg, "...")` call shape, not a blanket
+    #: "any 12-hex string is fine" rule.
+    re.compile(r'^[+-]?\s*alembic_command\.downgrade\(cfg, "[0-9a-f]{12}"\)$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the
@@ -258,7 +264,37 @@ def _is_a_recorded_blob_id(line: str, tracked: dict[str, str]) -> bool:
     match = _BLOB_ID_MANIFEST_ENTRY.match(line)
     if match is None:
         return False
-    return tracked.get(match["path"]) == match["blob"]
+    if tracked.get(match["path"]) == match["blob"]:
+        return True
+    # Owner-authorized safety supersession retains this tool's ORIGINAL digest.
+    # Prove it against the archived Git blob; never clear by name/hex shape alone.
+    archives = {
+        "src/empirical_platform/decision_candidate/operator_trading_configuration.py": (
+            "external-review/RELEASE-V1/risk-governance/original-operator_trading_configu"
+            "ration.py.txt"
+        ),
+        "src/empirical_platform/decision_candidate/trade_proposal.py": (
+            "external-review/RELEASE-V1/risk-governance/original-trade_proposal.py.txt"
+        ),
+        "src/empirical_platform/decision_candidate/trade_approval.py": (
+            "external-review/RELEASE-V1/risk-governance/original-trade_approval.py.txt"
+        ),
+        (
+            "src/empirical_platform/shared/persistence/postgres_repositories/decision_to_appr"
+            "oval_repositories.py"
+        ): (
+            "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_rep"
+            "ositories.py.txt"
+        ),
+        "src/empirical_platform/usecases/decision_to_approval_io.py": (
+            "external-review/RELEASE-V1/risk-governance/original-decision_to_approval_io.py.txt"
+        ),
+        "tools/m084_mutation_campaign.py": (
+            "external-review/RELEASE-V1/database-safety/original-tool.py.txt"
+        ),
+    }
+    archived = archives.get(match["path"])
+    return archived is not None and tracked.get(archived) == match["blob"]
 
 
 def _is_known_benign_secret_finding(

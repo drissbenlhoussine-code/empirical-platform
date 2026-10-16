@@ -71,6 +71,9 @@ __all__ = [
     "EXIT_UNSENT_FAILURE_CODES",
     "EXIT_TRANSMITTED_UNCERTAIN_FAILURE_CODES",
     "MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS",
+    "OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE",
+    "OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS",
+    "OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX",
     "POSITION_CLOSED_VERIFIED_EVENT_TYPE",
     "POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE",
     "TERMINAL_EXIT_STATES",
@@ -87,6 +90,7 @@ __all__ = [
     "ReconciliationRound",
     "ReconciliationRoundOutcome",
     "derive_exit_client_order_id",
+    "derive_overdue_recovery_identity",
     "exit_absence_evaluation",
     "exit_attempt_may_have_transmitted",
     "exit_authorization_binding_refusal",
@@ -95,6 +99,7 @@ __all__ = [
     "exit_request_fingerprint",
     "exit_send_boundary_binding",
     "is_exit_transition_allowed",
+    "is_overdue_recovery_authorization",
     "realized_result",
 ]
 
@@ -108,6 +113,22 @@ ALLOWED_EXIT_ENVIRONMENTS: frozenset[str] = frozenset({"SIMULATION", "PAPER"})
 #: The longest a human exit authorization stays valid, in seconds. The mandatory
 #: liquidation deadline always bounds it as well.
 MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS = 300
+#: RELEASE v1 RECOVERY HARDENING (OVERDUE_POSITION_RECOVERY). The longest an
+#: overdue-position-recovery authorization stays valid, in seconds -- deliberately much
+#: shorter than the normal ceiling above. The mandatory liquidation deadline cannot bound
+#: this one (it has, by definition, already passed -- see `exit_authorization_binding_refusal`
+#: and `derive_overdue_recovery_identity`'s own docstrings), so this fixed, short ceiling is
+#: the sole bound on how long a fresh Owner recovery approval may be acted on before it must
+#: be renewed.
+OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS = 120
+#: RELEASE v1 RECOVERY HARDENING SECURITY GATE. The event type a persisted, explicit Owner
+#: recovery approval is recorded under (see `usecases.position_exit.
+#: GrantOverduePositionRecoveryApprovalHandler`) -- a REAL durable record an Owner action
+#: created, distinct from and prior to the `recovery_approval_id` string a later
+#: `confirm_overdue_recovery` call merely NAMES. `AuthorizeOverduePositionRecoveryHandler`
+#: requires one of these, matching this exact symbol/quantity/account, to exist before it
+#: will authorize anything: a distinct nonempty string alone is never sufficient.
+OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE = "EXIT_OVERDUE_RECOVERY_APPROVAL_GRANTED"
 EXIT_SEND_BOUNDARY_EVENT_TYPE = "EXIT_SEND_BOUNDARY_ENTERED"
 POSITION_CLOSED_VERIFIED_EVENT_TYPE = "POSITION_CLOSED_VERIFIED"
 POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE = "POSITION_NOT_ZERO_AFTER_FILL"
@@ -563,6 +584,50 @@ def derive_exit_client_order_id(
     return EXIT_CLIENT_ORDER_ID_PREFIX + hashlib.sha256(material.encode("utf-8")).hexdigest()[:40]
 
 
+#: RELEASE v1 RECOVERY HARDENING. The fixed marker on every `authorized_by` this module ever
+#: derives for an overdue-position-recovery authorization -- and the ONLY thing
+#: `is_overdue_recovery_authorization` trusts to tell one apart from a plain human "owner"
+#: string or the automatic manager's own `derive_system_identity` prefix. Never present on an
+#: authorization built by the normal manual or automatic path.
+OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX = "recovery-overdue-exit:"
+
+
+def derive_overdue_recovery_identity(
+    *, entry_intent_governance_id: str, recovery_approval_id: str
+) -> str:
+    """The ONLY `authorized_by` an overdue-position-recovery authorization may ever carry.
+
+    DERIVED, like `derive_exit_client_order_id`, from a short digest rather than the raw
+    identifiers themselves: `entry_intent_governance_id` and `recovery_approval_id` are each
+    bounded only by the ordinary 64-character identifier limit, and concatenating them in the
+    open (as `derive_system_identity` in `approved_plan.py` does for its own, unrelated
+    `system_identity` field) can exceed the SAME 64-character limit this very string must
+    satisfy as `PositionExitAuthorization.authorized_by` -- a digest cannot overflow it. Two
+    different `recovery_approval_id` values for the same position are two different
+    identities, so a replayed or reused approval id is always visible in the audit trail
+    (the real approval id itself is recorded separately, in the `EXIT_OVERDUE_RECOVERY_AUTHORIZED`
+    event -- see `AuthorizeOverduePositionRecoveryHandler`).
+    """
+    _require_identifier(entry_intent_governance_id, field="entry_intent_governance_id")
+    _require_identifier(recovery_approval_id, field="recovery_approval_id")
+    material = f"{entry_intent_governance_id}|{recovery_approval_id}"
+    return (
+        OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX
+        + hashlib.sha256(material.encode("utf-8")).hexdigest()[:40]
+    )
+
+
+def is_overdue_recovery_authorization(authorization: PositionExitAuthorization) -> bool:
+    """Whether `authorization` was granted through the overdue-position-recovery path.
+
+    Decided purely from its `authorized_by` prefix -- never from timing, state, or any
+    other field -- so it is exactly as trustworthy as `authorized_by` itself: a normal
+    manual or automatic authorization can never produce this prefix (see
+    `derive_overdue_recovery_identity`'s own docstring), and nothing else sets it.
+    """
+    return authorization.authorized_by.startswith(OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX)
+
+
 def exit_request_fingerprint(
     *,
     request: PositionExitRequest,
@@ -840,6 +905,29 @@ def exit_authorization_binding_refusal(
             + ", ".join(mismatched)
             + "); it permits nothing"
         )
+    if is_overdue_recovery_authorization(authorization):
+        # RELEASE v1 RECOVERY HARDENING (OVERDUE_POSITION_RECOVERY). A distinct, narrowly
+        # scoped authorization kind, identifiable ONLY by its `derive_overdue_recovery_identity`
+        # prefix -- never produced by a normal manual confirm or by the automatic manager (see
+        # that function's own docstring). It is legitimate ONLY when it was itself granted at
+        # or after the deadline had already passed; `AuthorizeOverduePositionRecoveryHandler`
+        # already refuses to grant one any earlier, so this is defense in depth against a
+        # corrupted or hand-crafted row, never the primary gate. The NORMAL rule just below is
+        # for an ordinary authorization and would be unsatisfiable for ANY authorization
+        # granted after an already-overdue deadline (every expiry is, by construction, later
+        # than `authorized_at`, which is itself already past the deadline) -- it must never be
+        # applied to a recovery-kind authorization, which is exactly why this branch returns
+        # before reaching it.
+        if authorization.authorized_at < preview.liquidation_deadline:
+            return (
+                "an overdue-position-recovery authorization was granted before the mandatory "
+                "liquidation deadline; this position is not actually overdue"
+            )
+        return None
+    # THE NORMAL CASE, UNCHANGED (RELEASE v1 recovery-hardening review confirmed this exact
+    # condition and message are untouched): an ordinary authorization, granted before its
+    # deadline, must not promise a permission window reaching past the moment the position
+    # was required to already be closed.
     if authorization.expires_at > preview.liquidation_deadline:
         return "the exit authorization outlives the mandatory liquidation deadline"
     return None

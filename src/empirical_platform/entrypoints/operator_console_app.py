@@ -81,8 +81,11 @@ class _Flash:
 
 
 def build_application(
-    backend: ConsoleBackend, *, security: SecuritySession | None = None
+    backend: ConsoleBackend, *, security: SecuritySession | None = None, base_path: str = ""
 ) -> Router:
+    # RELEASE v1 Release Blocker (/paper base-path escape): fail closed at composition time,
+    # not per-request -- exactly `_opportunity_engine_html.validate_base_path`'s own contract.
+    base_path = html.validate_base_path(base_path)
     security = security or SecuritySession()
     router = Router(security)
     flash = _Flash()
@@ -110,6 +113,7 @@ def build_application(
                 kill_switch_engaged=engaged(),
                 back="/today",
                 tone="danger" if isinstance(error, CapabilityRefusedError) else "warn",
+                base_path=base_path,
             ),
             status,
         )
@@ -147,16 +151,25 @@ def build_application(
 
     def home(request: Request, csrf: str) -> Response:
         del request, csrf
-        return redirect("/today")
+        return redirect(html.url_for(base_path, "/today"))
 
     def today(request: Request, csrf: str) -> Response:
         view = service.today()
-        return html_response(html.today_page(view, csrf, flash.take(session_of(request))))
+        return html_response(
+            html.today_page(view, csrf, flash.take(session_of(request)), base_path=base_path)
+        )
 
     def opportunity(request: Request, csrf: str) -> Response:
         card = service.opportunity(request.first("id"))
         return html_response(
-            html.opportunity_page(card, csrf, label(), engaged(), flash.take(session_of(request)))
+            html.opportunity_page(
+                card,
+                csrf,
+                label(),
+                engaged(),
+                flash.take(session_of(request)),
+                base_path=base_path,
+            )
         )
 
     def confirm(request: Request, csrf: str) -> Response:
@@ -171,7 +184,7 @@ def build_application(
             raise ConsoleRefusalError(
                 "Unknown action", "That action does not exist. Nothing was done."
             )
-        return html_response(html.confirmation_page(view, csrf, label()))
+        return html_response(html.confirmation_page(view, csrf, label(), base_path=base_path))
 
     def confirm_approval(request: Request, csrf: str) -> Response:
         del csrf
@@ -179,7 +192,7 @@ def build_application(
         proposal = request.first("proposal")
         outcome = service.confirm_approval(proposal, request.first("ticket"))
         flash.put(session_of(request), outcome)
-        return redirect(f"/opportunity?id={proposal}")
+        return redirect(html.url_for(base_path, f"/opportunity?id={proposal}"))
 
     def confirm_rejection(request: Request, csrf: str) -> Response:
         del csrf
@@ -187,12 +200,14 @@ def build_application(
         proposal = request.first("proposal")
         outcome = service.confirm_rejection(proposal, request.first("ticket"))
         flash.put(session_of(request), outcome)
-        return redirect(f"/opportunity?id={proposal}")
+        return redirect(html.url_for(base_path, f"/opportunity?id={proposal}"))
 
     def active(request: Request, csrf: str) -> Response:
         rows = service.active_trades()
         return html_response(
-            html.active_page(rows, csrf, label(), engaged(), flash.take(session_of(request)))
+            html.active_page(
+                rows, csrf, label(), engaged(), flash.take(session_of(request)), base_path=base_path
+            )
         )
 
     def refresh(request: Request, csrf: str) -> Response:
@@ -215,17 +230,26 @@ def build_application(
                 "none",
             ),
         )
-        return redirect("/active")
+        return redirect(html.url_for(base_path, "/active"))
 
     def execution(request: Request, csrf: str) -> Response:
         summary = service.execution(request.first("intent"))
         return html_response(
-            html.execution_page(summary, csrf, label(), engaged(), flash.take(session_of(request)))
+            html.execution_page(
+                summary,
+                csrf,
+                label(),
+                engaged(),
+                flash.take(session_of(request)),
+                base_path=base_path,
+            )
         )
 
     def cancel(request: Request, csrf: str) -> Response:
         summary = service.execution(request.first("intent"))
-        return html_response(html.cancel_confirmation_page(summary, csrf, label(), engaged()))
+        return html_response(
+            html.cancel_confirmation_page(summary, csrf, label(), engaged(), base_path=base_path)
+        )
 
     def confirm_cancel(request: Request, csrf: str) -> Response:
         del csrf
@@ -233,7 +257,7 @@ def build_application(
         intent = request.first("intent")
         outcome = service.cancel_execution(intent)
         flash.put(session_of(request), outcome)
-        return redirect(f"/execution?intent={intent}")
+        return redirect(html.url_for(base_path, f"/execution?intent={intent}"))
 
     # -- MILESTONE-087: exits --------------------------------------------------------
 
@@ -249,7 +273,7 @@ def build_application(
         refuse_requested_environment(request.query)
         exits = exits_or_refuse()
         view = exits.review(request.first("intent"))  # type: ignore[attr-defined]
-        return html_response(html.exit_review_page(view, csrf, label()))
+        return html_response(html.exit_review_page(view, csrf, label(), base_path=base_path))
 
     def exit_confirm(request: Request, csrf: str) -> Response:
         del csrf
@@ -258,7 +282,7 @@ def build_application(
         intent = request.first("intent")
         outcome = exits.confirm(intent, request.first("ticket"))  # type: ignore[attr-defined]
         flash.put(session_of(request), outcome)
-        return redirect(f"/execution?intent={intent}")
+        return redirect(html.url_for(base_path, f"/execution?intent={intent}"))
 
     def exit_cancel(request: Request, csrf: str) -> Response:
         exits_or_refuse()
@@ -270,7 +294,11 @@ def build_application(
         ]
         if not rows:
             raise NotFoundError(f"no exit {attempt!r} is active")
-        return html_response(html.exit_cancel_confirmation_page(rows[0], csrf, label(), engaged()))
+        return html_response(
+            html.exit_cancel_confirmation_page(
+                rows[0], csrf, label(), engaged(), base_path=base_path
+            )
+        )
 
     def exit_confirm_cancel(request: Request, csrf: str) -> Response:
         del csrf
@@ -278,7 +306,7 @@ def build_application(
         exits = exits_or_refuse()
         outcome = exits.cancel(request.first("attempt"))  # type: ignore[attr-defined]
         flash.put(session_of(request), outcome)
-        return redirect(f"/execution?intent={request.first('intent')}")
+        return redirect(html.url_for(base_path, f"/execution?intent={request.first('intent')}"))
 
     def history(request: Request, csrf: str) -> Response:
         del csrf
@@ -295,13 +323,19 @@ def build_application(
         )
         return html_response(
             html.history_page(
-                rows, filters=filters, capability_label=label(), kill_switch_engaged=engaged()
+                rows,
+                filters=filters,
+                capability_label=label(),
+                kill_switch_engaged=engaged(),
+                base_path=base_path,
             )
         )
 
     def safety(request: Request, csrf: str) -> Response:
         view = service.safety(backend.configuration_id)
-        return html_response(html.safety_page(view, csrf, flash.take(session_of(request))))
+        return html_response(
+            html.safety_page(view, csrf, flash.take(session_of(request)), base_path=base_path)
+        )
 
     def kill_switch_form(request: Request, csrf: str) -> Response:
         action = request.first("action")
@@ -315,6 +349,7 @@ def build_application(
                 csrf=csrf,
                 capability_label=label(),
                 kill_switch_engaged=engaged(),
+                base_path=base_path,
             )
         )
 
@@ -330,13 +365,13 @@ def build_application(
             engaged=action == "engage", reason=request.first("reason")
         )
         flash.put(session_of(request), outcome)
-        return redirect("/safety")
+        return redirect(html.url_for(base_path, "/safety"))
 
     def load_day(request: Request, csrf: str) -> Response:
         del csrf
         refuse_requested_environment(request.form)
         report = backend.load_day()
-        return html_response(html.loaded_day_page(report, label(), engaged()))
+        return html_response(html.loaded_day_page(report, label(), engaged(), base_path=base_path))
 
     def not_found(request: Request) -> Response:
         del request
@@ -346,6 +381,7 @@ def build_application(
                 message="There is no such page. Nothing was done.",
                 capability_label=label(),
                 kill_switch_engaged=engaged(),
+                base_path=base_path,
             ),
             "404 Not Found",
         )
@@ -359,6 +395,7 @@ def build_application(
                 capability_label=label(),
                 kill_switch_engaged=engaged(),
                 tone="danger",
+                base_path=base_path,
             ),
             "403 Forbidden",
         )

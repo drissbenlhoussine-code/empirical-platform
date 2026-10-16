@@ -58,9 +58,16 @@ def run_migrations_online() -> None:
     store_c = postgres_config.model_copy(
         update={"database": os.environ.get(_DATABASE_VARIABLE, _DEFAULT_DATABASE)}
     )
+    from empirical_platform.shared.persistence.database_safety import (
+        refuse_unplanned_personal_migration,
+        require_migration_connection,
+    )
+
+    refuse_unplanned_personal_migration(store_c)
     connectable = create_engine(store_c.sqlalchemy_url())
 
     with connectable.connect() as connection:
+        require_migration_connection(connection)
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

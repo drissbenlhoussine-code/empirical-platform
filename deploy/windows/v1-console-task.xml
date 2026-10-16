@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-16"?>
+<!--
+RELEASE v1 -- Windows Task Scheduler definition for autostarting the Paper console
+(currently `run-v1-console.ps1`, which wraps the existing M088/M089 console -- see that
+script's header for exactly what "v1 console" means today vs. what remains to be built).
+
+THIS FILE IS A COMMITTED ARTIFACT ONLY. It is NOT registered against this machine by any
+engineering step in this release -- registering a Windows autostart task is an Owner
+action, taken deliberately, never something a coding agent does to a live machine on its
+own initiative.
+
+To register it (Owner action, do this manually):
+  1. Edit the <Command> and <WorkingDirectory> values below if this repo is not at
+     C:\Users\LuxSy\Documents\trading.
+  2. Open Task Scheduler -> Action -> Import Task... -> select this file.
+  3. On the General tab, set "Run whether user is logged on or not" if you want it to
+     survive a logoff, and enter your Windows account credentials when prompted.
+  4. Confirm the trigger is "At log on" (or add an "At startup" trigger instead, if you
+     want it before any sign-in).
+
+To remove it: Task Scheduler -> find "EmpiricalPlatformV1Console" -> Delete.
+-->
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Autostarts the Empirical Platform personal Paper console (loopback-only; exposed to the Owner's iPhone only via the existing private Tailscale mapping, never Funnel).</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>-NoProfile -ExecutionPolicy Bypass -File "C:\Users\LuxSy\Documents\trading\deploy\windows\run-v1-console.ps1"</Arguments>
+      <WorkingDirectory>C:\Users\LuxSy\Documents\trading</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
