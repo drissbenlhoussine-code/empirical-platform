@@ -16,7 +16,7 @@ from empirical_platform.decision_candidate.external_position_closure import (
     ExternalPositionClosure,
 )
 
-__all__ = ["ExternalPositionClosureRepository"]
+__all__ = ["ExternalPositionClosureRepository", "NullExternalPositionClosureRepository"]
 
 
 class ExternalPositionClosureRepository(Protocol):
@@ -27,3 +27,22 @@ class ExternalPositionClosureRepository(Protocol):
         ...
 
     def for_entry(self, entry_intent_governance_id: str) -> ExternalPositionClosure | None: ...
+
+
+class NullExternalPositionClosureRepository:
+    """No entry ever has an external closure. EXPLICIT, at the composition root, for a
+    capability with no external-closure concept at all (MILESTONE-087 SIMULATION) --
+    never a silent default hidden inside a handler. `AssessPositionExitHandler` and its
+    callers require a real `ExternalPositionClosureRepository`; this is the one a
+    composition root hands them when it has nothing durable to back it with."""
+
+    __slots__ = ()
+
+    def save(self, closure: ExternalPositionClosure) -> ExternalPositionClosure:
+        raise NotImplementedError(
+            "external position closures are not supported in this capability; nothing was recorded"
+        )
+
+    def for_entry(self, entry_intent_governance_id: str) -> ExternalPositionClosure | None:
+        del entry_intent_governance_id
+        return None

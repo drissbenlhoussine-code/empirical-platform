@@ -204,12 +204,14 @@ class PositionPlanManager:
             intents=intents,
             entry_attempts=entry_attempts,
             exit_attempts=exit_attempts,
+            external_closures=external_closures,
             broker=broker,
         )
         self._preview_handler = PreviewPositionExitHandler(
             intents=intents,
             entry_attempts=entry_attempts,
             exit_attempts=exit_attempts,
+            external_closures=external_closures,
             previews=previews,
             events=events,
             broker=broker,
@@ -232,6 +234,7 @@ class PositionPlanManager:
             previews=previews,
             authorizations=authorizations,
             attempts=exit_attempts,
+            external_closures=external_closures,
             acknowledgements=acknowledgements,
             events=events,
             broker=broker,

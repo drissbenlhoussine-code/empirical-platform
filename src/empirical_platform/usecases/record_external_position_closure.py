@@ -124,6 +124,7 @@ class RecordExternalPositionClosureHandler:
             intents=intents,
             entry_attempts=entry_attempts,
             exit_attempts=exit_attempts,
+            external_closures=closures,
             broker=broker,
         )
         self._closures = closures

@@ -152,6 +152,7 @@ def _console(world: World, plans: FakeApprovedPlans | None) -> PositionExitConso
         exits=world.exits,
         intents=world.repositories.intents,
         entry_attempts=world.repositories.attempts,
+        external_closures=world.external_closures,
         configurations=world.repositories.configurations,
         kill_switch=world.repositories.kill_switch,
         broker=world.broker,

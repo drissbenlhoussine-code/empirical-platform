@@ -47,6 +47,9 @@ from tests.integration._m089_support import (
 )
 from tests.unit._m085_fakes import a_provenance
 
+from empirical_platform.decision_candidate.external_position_closure_repositories import (
+    NullExternalPositionClosureRepository,
+)
 from empirical_platform.decision_candidate.paper_execution import (
     PAPER_ENDPOINT_HOST,
     ExecutionAuthorization,
@@ -357,6 +360,7 @@ def _prepare_and_confirm_exit(world: dict[str, object], *, intent_id: str) -> ob
         intents=world["intents"],  # type: ignore[arg-type]
         entry_attempts=world["paper"].execution_attempts,  # type: ignore[attr-defined]
         exit_attempts=world["exits"].attempts,  # type: ignore[attr-defined]
+        external_closures=NullExternalPositionClosureRepository(),
         previews=world["exits"].previews,  # type: ignore[attr-defined]
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]
@@ -393,6 +397,7 @@ def _prepare_and_confirm_exit(world: dict[str, object], *, intent_id: str) -> ob
         previews=world["exits"].previews,  # type: ignore[attr-defined]
         authorizations=world["exits"].authorizations,  # type: ignore[attr-defined]
         attempts=world["exits"].attempts,  # type: ignore[attr-defined]
+        external_closures=NullExternalPositionClosureRepository(),
         acknowledgements=world["exits"].acknowledgements,  # type: ignore[attr-defined]
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]
@@ -428,6 +433,7 @@ def test_the_cross_database_round_trip_closes_the_position(world: dict[str, obje
         intents=world["intents"],  # type: ignore[arg-type]
         entry_attempts=paper.execution_attempts,
         exit_attempts=world["exits"].attempts,  # type: ignore[attr-defined]
+        external_closures=NullExternalPositionClosureRepository(),
         broker=broker,
     ).handle(intent_id, at=world["clock"]())  # type: ignore[operator]
     assert assessment.eligible, assessment.refusals
@@ -512,6 +518,7 @@ def test_a_preview_names_an_entry_attempt_that_exists_only_in_store_b(
         intents=world["intents"],  # type: ignore[arg-type]
         entry_attempts=paper.execution_attempts,
         exit_attempts=world["exits"].attempts,  # type: ignore[attr-defined]
+        external_closures=NullExternalPositionClosureRepository(),
         previews=world["exits"].previews,  # type: ignore[attr-defined]
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=broker,
@@ -564,6 +571,7 @@ def test_the_preview_environment_check_accepts_only_paper(
         intents=world["intents"],  # type: ignore[arg-type]
         entry_attempts=paper.execution_attempts,
         exit_attempts=world["exits"].attempts,  # type: ignore[attr-defined]
+        external_closures=NullExternalPositionClosureRepository(),
         previews=world["exits"].previews,  # type: ignore[attr-defined]
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]
@@ -630,6 +638,7 @@ def test_the_preview_table_is_append_only_and_client_order_id_keeps_the_m087_pre
         intents=world["intents"],  # type: ignore[arg-type]
         entry_attempts=paper.execution_attempts,
         exit_attempts=world["exits"].attempts,  # type: ignore[attr-defined]
+        external_closures=NullExternalPositionClosureRepository(),
         previews=world["exits"].previews,  # type: ignore[attr-defined]
         events=world["exits"].events,  # type: ignore[attr-defined]
         broker=world["broker"],  # type: ignore[arg-type]

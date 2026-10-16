@@ -26,6 +26,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from empirical_platform.decision_candidate.approved_plan_repositories import ApprovedPlanRepository
+from empirical_platform.decision_candidate.external_position_closure_repositories import (
+    ExternalPositionClosureRepository,
+    NullExternalPositionClosureRepository,
+)
 from empirical_platform.decision_candidate.paper_execution import ExecutionAttempt
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
@@ -92,6 +96,8 @@ from empirical_platform.usecases.position_exit import (
 
 __all__ = [
     "CATEGORY_EXIT_IN_PROGRESS",
+    "CATEGORY_EXPIRED_UNSUBMITTED",
+    "CATEGORY_EXTERNALLY_CLOSED",
     "CATEGORY_NEEDS_ATTENTION",
     "CATEGORY_OPEN_POSITION",
     "CATEGORY_POSITION_CLOSED",
@@ -101,6 +107,7 @@ __all__ = [
     "ExitRepositories",
     "ExitReviewView",
     "ExitSummary",
+    "NullExternalPositionClosureRepository",
     "PositionExitConsole",
     "deadline_status",
     "human_state_for_exit",
@@ -112,6 +119,19 @@ CATEGORY_OPEN_POSITION = "Open position"
 CATEGORY_EXIT_IN_PROGRESS = "Exit in progress"
 CATEGORY_NEEDS_ATTENTION = "Needs attention"
 CATEGORY_POSITION_CLOSED = "Position closed"
+#: RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX. A durable `ExternalPositionClosure`
+#: exists for this entry: its position was closed OUTSIDE this platform's own exit pipeline
+#: (an Owner's manual broker-dashboard sale), independently of whether a `PositionExitAttempt`
+#: was ever dispatched for it (usually none was -- that is exactly why this category exists).
+#: Distinct from `CATEGORY_POSITION_CLOSED`, which means a platform-dispatched exit was
+#: VERIFIED closed: callers must not conflate the two, since only the latter has a
+#: `PositionExitAttempt` to show realized P&L for.
+CATEGORY_EXTERNALLY_CLOSED = "Closed externally"
+#: RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX. Zero entry attempts were ever
+#: dispatched for this intent AND its `ApprovedOrderIntent.expires_at` has already passed:
+#: this was never a live working order and never will be one. Distinct from
+#: `CATEGORY_WORKING_ENTRY`, which means a fresh, still-live intent may yet be dispatched.
+CATEGORY_EXPIRED_UNSUBMITTED = "Expired — never submitted"
 DEADLINE_MISSED_TRUTH = "Position remains open — Owner action was not completed."
 _DEADLINE_MISSED_EVENT = "LIQUIDATION_DEADLINE_PASSED_POSITION_OPEN"
 _URGENCY_WINDOW = timedelta(minutes=30)
@@ -290,6 +310,7 @@ class PositionExitConsole:
         exits: ExitRepositories,
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         configurations: OperatorTradingConfigurationRepository,
         kill_switch: ExecutionKillSwitchRepository,
         broker: ExitBrokerPort,
@@ -310,6 +331,7 @@ class PositionExitConsole:
         self._x = exits
         self._intents = intents
         self._entries = entry_attempts
+        self._external_closures = external_closures
         self._configurations = configurations
         self._kill_switch = kill_switch
         self._broker = broker
@@ -328,6 +350,7 @@ class PositionExitConsole:
             intents=self._intents,
             entry_attempts=self._entries,
             exit_attempts=self._x.attempts,
+            external_closures=self._external_closures,
             broker=self._broker,
         ).handle(intent_id, at=self._clock())
 
@@ -343,8 +366,24 @@ class PositionExitConsole:
         return active is not None and active.position_closed
 
     def category(
-        self, entry: ExecutionAttempt | None, exit_attempt: PositionExitAttempt | None
+        self,
+        intent: ApprovedOrderIntent,
+        entry: ExecutionAttempt | None,
+        exit_attempt: PositionExitAttempt | None,
+        *,
+        now: datetime | None = None,
     ) -> str:
+        """RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX. Consults
+        `ExternalPositionClosureRepository` FIRST, regardless of whether a platform
+        `PositionExitAttempt` exists at all -- an externally-closed entry usually has NONE
+        (that is exactly the incident this closes: the Oct 9 entry showed as "Open position"
+        because its only evidence of closure was never a `PositionExitAttempt`). Also
+        distinguishes a genuinely still-live, not-yet-submitted intent from one that expired
+        with zero entry attempts and will never be dispatched -- neither may ever display as
+        "Open position" or "Working entry order".
+        """
+        if self._external_closures.for_entry(intent.intent_governance_id) is not None:
+            return CATEGORY_EXTERNALLY_CLOSED
         if exit_attempt is not None and exit_attempt.position_closed:
             return CATEGORY_POSITION_CLOSED
         if exit_attempt is not None and exit_attempt.state not in {
@@ -356,6 +395,9 @@ class PositionExitConsole:
                 return CATEGORY_NEEDS_ATTENTION
             return CATEGORY_EXIT_IN_PROGRESS
         if entry is None:
+            moment = now if now is not None else self._clock()
+            if intent.submission_state.value == "NOT_SUBMITTED" and moment >= intent.expires_at:
+                return CATEGORY_EXPIRED_UNSUBMITTED
             return CATEGORY_WORKING_ENTRY
         if not entry.outcome_is_known:
             return CATEGORY_NEEDS_ATTENTION
@@ -533,6 +575,7 @@ class PositionExitConsole:
                 intents=self._intents,
                 entry_attempts=self._entries,
                 exit_attempts=self._x.attempts,
+                external_closures=self._external_closures,
                 previews=self._x.previews,
                 events=self._x.events,
                 broker=self._broker,
@@ -655,6 +698,7 @@ class PositionExitConsole:
                 previews=self._x.previews,
                 authorizations=self._x.authorizations,
                 attempts=self._x.attempts,
+                external_closures=self._external_closures,
                 acknowledgements=self._x.acknowledgements,
                 events=self._x.events,
                 broker=self._broker,
@@ -702,6 +746,7 @@ class PositionExitConsole:
                 intents=self._intents,
                 entry_attempts=self._entries,
                 exit_attempts=self._x.attempts,
+                external_closures=self._external_closures,
                 plans=plans,
                 broker=self._broker,
                 events=self._x.events,
@@ -815,6 +860,7 @@ class PositionExitConsole:
                 previews=self._x.previews,
                 authorizations=self._x.authorizations,
                 attempts=self._x.attempts,
+                external_closures=self._external_closures,
                 acknowledgements=self._x.acknowledgements,
                 events=self._x.events,
                 broker=self._broker,

@@ -33,10 +33,14 @@ from tests.unit._m087_fakes import (
     FakeExitPreviews,
     FakeExitRounds,
 )
+from tests.unit._v1_fakes import FakeExternalPositionClosures
 
 from empirical_platform.decision_candidate.evaluation_context import EvaluationContext
 from empirical_platform.decision_candidate.evaluation_evidence_watermark import (
     EvaluationEvidenceWatermark,
+)
+from empirical_platform.decision_candidate.external_position_closure_repositories import (
+    ExternalPositionClosureRepository,
 )
 from empirical_platform.decision_candidate.operator_trading_configuration import (
     OperatorTradingConfiguration,
@@ -222,6 +226,7 @@ class World:
     service: OperatorConsoleService
     kill_switch: FakeKillSwitch
     exits: ExitRepositories
+    external_closures: ExternalPositionClosureRepository
 
     def load_day(
         self,
@@ -259,6 +264,7 @@ class World:
         service = _service(
             self.repositories,
             self.exits if self.service.exits is not None else None,
+            self.external_closures,
             broker,
             market,
             signer,
@@ -276,12 +282,14 @@ class World:
             service=service,
             kill_switch=self.kill_switch,
             exits=self.exits,
+            external_closures=self.external_closures,
         )
 
 
 def _service(
     repositories: ConsoleRepositories,
     exits: ExitRepositories | None,
+    external_closures: ExternalPositionClosureRepository,
     broker: SimulatedPaperBroker,
     market: SimulatedMarketData,
     signer: HmacSigner,
@@ -295,6 +303,7 @@ def _service(
             exits=exits,
             intents=repositories.intents,
             entry_attempts=repositories.attempts,
+            external_closures=external_closures,
             configurations=repositories.configurations,
             kill_switch=repositories.kill_switch,
             broker=broker,
@@ -359,8 +368,16 @@ def simulation_world(tmp_path: Path, *, start: datetime = START, exits: bool = F
     broker = SimulatedPaperBroker(store, clock=clock)
     market = SimulatedMarketData(store, clock=clock)
     signer = HmacSigner(b"test-process-secret")
+    external_closures = FakeExternalPositionClosures()
     service = _service(
-        repositories, exits if exits_enabled else None, broker, market, signer, clock, store
+        repositories,
+        exits if exits_enabled else None,
+        external_closures,
+        broker,
+        market,
+        signer,
+        clock,
+        store,
     )
     return World(
         clock=clock,
@@ -373,4 +390,5 @@ def simulation_world(tmp_path: Path, *, start: datetime = START, exits: bool = F
         service=service,
         kill_switch=kill_switch,
         exits=exits,
+        external_closures=external_closures,
     )

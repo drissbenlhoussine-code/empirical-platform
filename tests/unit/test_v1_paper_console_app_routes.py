@@ -27,7 +27,7 @@ from tests.unit._m087_fakes import (
     FakeExitPreviews,
     FakeExitRounds,
 )
-from tests.unit._v1_fakes import FakeApprovedPlans
+from tests.unit._v1_fakes import FakeApprovedPlans, FakeExternalPositionClosures
 from tests.unit.test_m086_operator_console_routes import Client
 from tests.unit.test_m088_paper_operator_console import (
     APPROVED_SYMBOL,
@@ -74,6 +74,7 @@ def _backend(*, market_data: FakeMarketData | None = None) -> PaperConsoleBacken
         exits=exits,
         intents=repositories.intents,
         entry_attempts=repositories.attempts,
+        external_closures=FakeExternalPositionClosures(),
         configurations=repositories.configurations,
         kill_switch=repositories.kill_switch,
         broker=broker,  # type: ignore[arg-type]

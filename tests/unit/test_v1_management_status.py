@@ -110,3 +110,32 @@ def test_an_ambiguous_submission_needs_attention() -> None:
     plan = _plan(triggered_exit_kind=ExitTriggerKind.STOP, triggered_exit_at=_NOW)
     attempt = _attempt(PositionExitState.SUBMISSION_UNKNOWN)
     assert management_status(plan, attempt) == "Needs attention"
+
+
+# ---------------------------------------------------------------------------
+# RELEASE v1 VISIBILITY FIX: a blocked-but-untriggered plan is never falsely "Monitoring"
+# ---------------------------------------------------------------------------
+
+
+def test_an_untriggered_plan_whose_assessment_is_blocked_needs_attention() -> None:
+    """The live-incident fix: `AssessPositionExitHandler` returning NOT_ELIGIBLE (e.g. a
+    competing entry's attribution refusal) for this plan's entry, with no trigger fired yet,
+    must never read as healthy "Monitoring" -- the automatic manager can never act on it."""
+    plan = _plan()
+    refusals = (
+        "another entry in the same symbol also holds shares (ATT-9); attribution is ambiguous",
+    )
+    assert management_status(plan, None, assessment_refusals=refusals) == "Needs attention"
+
+
+def test_an_untriggered_plan_with_no_refusals_is_still_monitoring() -> None:
+    plan = _plan()
+    assert management_status(plan, None, assessment_refusals=()) == "Monitoring"
+
+
+def test_assessment_refusals_are_irrelevant_once_a_trigger_has_fired() -> None:
+    """Refusals are only consulted for the PRE-trigger "Monitoring" decision -- once a
+    trigger has fired, the existing trigger/attempt-driven status words are unchanged."""
+    plan = _plan(triggered_exit_kind=ExitTriggerKind.STOP, triggered_exit_at=_NOW)
+    refusals = ("the entry order's outcome is unknown; the position cannot be attributed",)
+    assert management_status(plan, None, assessment_refusals=refusals) == "Stop triggered"
