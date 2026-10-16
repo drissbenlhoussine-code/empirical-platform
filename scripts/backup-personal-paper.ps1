@@ -11,6 +11,12 @@ foreach ($name in @('HOST','PORT','DATABASE','USER','PASSWORD')) {
     if ($null -ne $value) { [Environment]::SetEnvironmentVariable($key, $value, 'Process') }
 }
 [Environment]::SetEnvironmentVariable('EMPIRICAL_PLATFORM_DATABASE_MODE', 'PERSONAL_PAPER', 'Process')
+# The shared .venv's editable install resolves to the main checkout's src, not this
+# worktree's -- without this, `tools\personal_paper_backup.py` fails with
+# ModuleNotFoundError when run from a worktree (e.g. via Scheduled Tasks, which start a
+# fresh process with no inherited PYTHONPATH). Process-scoped only; never touches User/
+# Machine environment or any other worktree's runs.
+$env:PYTHONPATH = Join-Path $Repository 'src'
 $python = Join-Path $Repository '.venv\Scripts\python.exe'
 $program = Join-Path $Repository 'tools\personal_paper_backup.py'
 $statusDirectory = Join-Path $env:LOCALAPPDATA 'EmpiricalPlatform\safety'
