@@ -60,6 +60,7 @@ from empirical_platform.usecases.operator_console import (
 )
 from empirical_platform.usecases.operator_console_exits import (
     ExitRepositories,
+    NullExternalPositionClosureRepository,
     PositionExitConsole,
 )
 from empirical_platform.usecases.operator_console_fixtures import (
@@ -210,6 +211,10 @@ def _compose_verified_console(
             exits=exits,
             intents=repositories.intents,
             entry_attempts=repositories.attempts,
+            # SIMULATION has no `ExternalPositionClosureRepository` at all (that concept was
+            # introduced for RELEASE v1 PAPER's own incident recovery): an explicit null
+            # object at the composition root, never a silent default inside the handler.
+            external_closures=NullExternalPositionClosureRepository(),
             configurations=repositories.configurations,
             kill_switch=repositories.kill_switch,
             broker=broker,

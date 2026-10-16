@@ -30,6 +30,9 @@ from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 
 from empirical_platform.decision_candidate.approved_plan_repositories import ApprovedPlanRepository
+from empirical_platform.decision_candidate.external_position_closure_repositories import (
+    ExternalPositionClosureRepository,
+)
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
@@ -264,7 +267,7 @@ class PositionAssessment:
 class AssessPositionExitHandler:
     """Judge whether an entry's position can be closed now. Reads only; writes nothing."""
 
-    __slots__ = ("_intents", "_entry_attempts", "_exit_attempts", "_broker")
+    __slots__ = ("_intents", "_entry_attempts", "_exit_attempts", "_external_closures", "_broker")
 
     def __init__(
         self,
@@ -272,11 +275,13 @@ class AssessPositionExitHandler:
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
         exit_attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         broker: ExitBrokerPort,
     ) -> None:
         self._intents = intents
         self._entry_attempts = entry_attempts
         self._exit_attempts = exit_attempts
+        self._external_closures = external_closures
         self._broker = broker
 
     def handle(self, entry_intent_governance_id: str, *, at: datetime) -> PositionAssessment:
@@ -288,6 +293,7 @@ class AssessPositionExitHandler:
         sold = sum((x.filled_quantity or Decimal(0)) for x in exits)
         existing = self._exit_attempts.active_for_entry(entry_intent_governance_id)
         position = self._broker.fetch_position(intent.symbol)
+        own_closure = self._external_closures.for_entry(entry_intent_governance_id)
         snapshot = PositionSnapshot(
             symbol=intent.symbol,
             entry_intent_governance_id=entry_intent_governance_id,
@@ -299,6 +305,7 @@ class AssessPositionExitHandler:
             broker_position_quantity=0 if position is None else int(position.quantity),
             competing_entry_attempt_ids=self._competitors(intent, entry),
             captured_at=at,
+            external_closure_id=None if own_closure is None else own_closure.closure_id,
         )
         return PositionAssessment(
             entry_intent=intent,
@@ -311,7 +318,19 @@ class AssessPositionExitHandler:
     def _competitors(
         self, intent: ApprovedOrderIntent, entry: ExecutionAttempt | None
     ) -> tuple[str, ...]:
-        """Other entry attempts in the same symbol still holding shares (not closed by an exit)."""
+        """Other entry attempts in the same symbol still holding shares (not closed by an
+        exit, and not proven closed by an independent `ExternalPositionClosure`).
+
+        RELEASE v1 EXTERNAL POSITION CLOSURE ATTRIBUTION FIX. A same-symbol entry that this
+        platform never dispatched an exit for is NOT necessarily still open: an Owner may
+        have closed it directly at the broker, and `RecordExternalPositionClosureHandler`
+        durably recorded that fact. Such an entry's PROVEN-closed position must never block
+        a DIFFERENT entry's attribution -- that was the live-incident bug (Oct 9 entry,
+        externally closed, with zero platform exit attempts, blocking the Oct 16 entry's own
+        exit). A `PositionExitAttempt` that exists but is non-terminal, unresolved, or
+        `SUBMISSION_UNKNOWN` still counts as a competitor exactly as before: only a
+        `position_closed` platform exit OR a recorded `ExternalPositionClosure` excludes.
+        """
         found: list[str] = []
         for other in self._entry_attempts.list_recent(500):
             if entry is not None and other.attempt_id == entry.attempt_id:
@@ -325,6 +344,8 @@ class AssessPositionExitHandler:
                 continue
             closer = self._exit_attempts.active_for_entry(other.intent_governance_id)
             if closer is not None and closer.position_closed:
+                continue
+            if self._external_closures.for_entry(other.intent_governance_id) is not None:
                 continue
             found.append(other.attempt_id)
         return tuple(sorted(found))
@@ -376,6 +397,7 @@ class PreviewPositionExitHandler:
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
         exit_attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         previews: PositionExitPreviewRepository,
         events: PositionExitEventRepository,
         broker: ExitBrokerPort,
@@ -388,6 +410,7 @@ class PreviewPositionExitHandler:
             intents=intents,
             entry_attempts=entry_attempts,
             exit_attempts=exit_attempts,
+            external_closures=external_closures,
             broker=broker,
         )
         self._previews = previews
@@ -654,6 +677,7 @@ class GrantOverduePositionRecoveryApprovalHandler:
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
         exit_attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         plans: ApprovedPlanRepository,
         broker: ExitBrokerPort,
         events: PositionExitEventRepository,
@@ -663,6 +687,7 @@ class GrantOverduePositionRecoveryApprovalHandler:
             intents=intents,
             entry_attempts=entry_attempts,
             exit_attempts=exit_attempts,
+            external_closures=external_closures,
             broker=broker,
         )
         self._intents = intents
@@ -1006,6 +1031,7 @@ class SubmitAuthorizedPositionExitHandler:
         previews: PositionExitPreviewRepository,
         authorizations: PositionExitAuthorizationRepository,
         attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         acknowledgements: PositionExitAcknowledgementRepository,
         events: PositionExitEventRepository,
         broker: ExitBrokerPort,
@@ -1014,7 +1040,11 @@ class SubmitAuthorizedPositionExitHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._assess = AssessPositionExitHandler(
-            intents=intents, entry_attempts=entry_attempts, exit_attempts=attempts, broker=broker
+            intents=intents,
+            entry_attempts=entry_attempts,
+            exit_attempts=attempts,
+            external_closures=external_closures,
+            broker=broker,
         )
         self._previews = previews
         self._authorizations = authorizations
