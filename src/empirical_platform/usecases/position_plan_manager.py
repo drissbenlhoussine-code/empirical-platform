@@ -108,9 +108,11 @@ __all__ = [
     "DEFAULT_POLL_INTERVAL_SECONDS",
     "ApprovedPlanRepository",
     "ExternalPositionClosureRepository",
+    "ManagerHeartbeat",
     "PlanEvaluationOutcome",
     "PlanManagerThread",
     "PositionPlanManager",
+    "manager_liveness_alert",
 ]
 
 _LOG = logging.getLogger("empirical_platform.position_plan_manager")
@@ -459,6 +461,69 @@ class _NeverEngagedKillSwitch:
         raise NotImplementedError("the automatic manager never disengages the kill switch")
 
 
+@dataclass(frozen=True, slots=True)
+class ManagerHeartbeat:
+    """A point-in-time snapshot of `PlanManagerThread`'s own liveness -- RELEASE v1 SAFETY
+    ALERT ADDITION. Safe to read from any thread (`PlanManagerThread.heartbeat()` copies it
+    out under a lock; this object itself is immutable once returned).
+
+    `last_tick_at`/`last_tick_error` are set after EVERY tick ATTEMPT, successful or not --
+    `last_tick_at` is `None` only before the thread has completed its first tick at all,
+    distinct from a tick that ran and failed (which still advances `last_tick_at`, with
+    `last_tick_error` naming what went wrong). `ticks_completed` counts attempts, not
+    successes, so a manager wedged on the SAME failing tick forever is still visibly
+    advancing this counter (it is `last_tick_error`, not a stalled counter, that reveals
+    that case) while a manager that has stopped running entirely leaves BOTH frozen.
+    """
+
+    started_at: datetime
+    last_tick_at: datetime | None
+    last_tick_error: str | None
+    ticks_completed: int
+
+
+def manager_liveness_alert(
+    heartbeat: ManagerHeartbeat | None,
+    *,
+    now: datetime,
+    has_open_positions: bool,
+    max_staleness_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS * 4,
+) -> str | None:
+    """RELEASE v1 SAFETY ALERT: "background manager failure or stopped manager while a
+    position is open" (the one gap the Phase 4 safety-alert review found with no existing
+    coverage -- every other required alert category was already produced by
+    `blocked_exit_alert`, `deadline_status`, `ExitSummary.pending_reason`,
+    `PositionExitConsole.category`, or `PlanOutcomeKind`).
+
+    Pure and read-only: never executes anything, never starts or stops the manager, never
+    drops or paraphrases the recorded tick error. Returns `None` whenever there is nothing
+    to escalate: no heartbeat object at all (this capability composed no automatic manager
+    -- e.g. `--recovery-mode`, or a console with no exit path -- which is a DIFFERENT,
+    already-visible state this alert must never duplicate or contradict), no open position
+    depends on the manager right now, or the manager is both ticking recently AND its most
+    recent tick did not fail.
+    """
+    if heartbeat is None or not has_open_positions:
+        return None
+    reference = heartbeat.last_tick_at or heartbeat.started_at
+    staleness = (now - reference).total_seconds()
+    if staleness > max_staleness_seconds:
+        since = "its first tick" if heartbeat.last_tick_at is None else "its last completed tick"
+        return (
+            f"The automatic position manager has not completed a tick in {int(staleness)}s "
+            f"since {since} (expected at least every {DEFAULT_POLL_INTERVAL_SECONDS}s) while "
+            "a position depends on it. STOP/TARGET/MANDATORY_EXIT will not be dispatched "
+            "automatically until it resumes -- review the console process and /safety."
+        )
+    if heartbeat.last_tick_error is not None:
+        return (
+            "The automatic position manager's most recent tick failed while a position is "
+            f"open: {heartbeat.last_tick_error}. It will keep retrying on its own schedule, "
+            "but review /safety if this repeats."
+        )
+    return None
+
+
 class PlanManagerThread:
     """Runs `PositionPlanManager.evaluate_once` on a fixed interval, inside THIS process.
 
@@ -466,6 +531,13 @@ class PlanManagerThread:
     `entrypoints/_v1_console_composition.py`) -- never a second process -- and stoppable
     for a clean shutdown. Exceptions from one tick are logged and never kill the loop: a
     manager that stops polling after one bad tick is worse than one that keeps trying.
+
+    RELEASE v1 SAFETY ALERT ADDITION: `heartbeat()` exposes a `ManagerHeartbeat` snapshot
+    for `manager_liveness_alert` (or any other read-only caller) to detect a stalled or
+    silently-dead thread -- see that function's own docstring. Guarded by `self._lock`
+    because it is written from `_run` (the background thread) and read from whatever
+    thread serves a console request; the GIL alone would make a single attribute write
+    safe, but a lock makes the read-modify-write of `ticks_completed` unambiguous too.
     """
 
     def __init__(
@@ -480,10 +552,23 @@ class PlanManagerThread:
         self._interval = interval_seconds
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._heartbeat: ManagerHeartbeat | None = None
+
+    def heartbeat(self) -> ManagerHeartbeat | None:
+        """`None` before `start()` has ever been called. Thereafter, always set -- the
+        FIRST tick's own attempt sets it before `_run`'s loop can wait on anything, so
+        there is no window where the thread is running but this returns `None`."""
+        with self._lock:
+            return self._heartbeat
 
     def start(self) -> None:
         if self._thread is not None:
             return
+        with self._lock:
+            self._heartbeat = ManagerHeartbeat(
+                started_at=self._now(), last_tick_at=None, last_tick_error=None, ticks_completed=0
+            )
         self._thread = threading.Thread(target=self._run, name="position-plan-manager", daemon=True)
         self._thread.start()
 
@@ -494,8 +579,18 @@ class PlanManagerThread:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            error: str | None = None
             try:
                 self._manager.evaluate_once(now=self._now())
-            except Exception:  # noqa: BLE001 - one bad tick must never stop the loop
+            except Exception as exc:  # noqa: BLE001 - one bad tick must never stop the loop
                 _LOG.exception("position plan manager tick failed")
+                error = f"{type(exc).__name__}: {exc}"
+            with self._lock:
+                previous = self._heartbeat
+                self._heartbeat = ManagerHeartbeat(
+                    started_at=previous.started_at if previous is not None else self._now(),
+                    last_tick_at=self._now(),
+                    last_tick_error=error,
+                    ticks_completed=(previous.ticks_completed if previous is not None else 0) + 1,
+                )
             self._stop.wait(self._interval)
