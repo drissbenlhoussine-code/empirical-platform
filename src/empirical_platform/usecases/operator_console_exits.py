@@ -837,7 +837,26 @@ class PositionExitConsole:
         `SubmitAuthorizedPositionExitHandler` -- so the fresh broker position/quantity check,
         the no-pending-SELL/no-UNKNOWN check, the fresh-quote check and the exactly-once
         dispatch claim are all identical to a normal exit, unchanged.
+
+        RELEASE v1 RECOVERY HARDENING RECONCILIATION: gated by `self._recovery_mode` exactly
+        like `confirm()` -- this method did not exist yet when that flag was introduced, so
+        without this check a console started `--recovery-mode` (fail-closed, read-only) could
+        still dispatch a real SELL through this escape hatch, defeating the whole point of
+        recovery mode. `grant_overdue_recovery_approval` is deliberately NOT gated: it only
+        durably records the Owner's decision (never touches the broker), and whatever it
+        records stays inert until a LATER `confirm_overdue_recovery` call, which always
+        re-verifies broker position/quote/hours fresh at that time regardless of when the
+        grant was made -- so granting during recovery mode is safe, only sending is refused.
         """
+        if self._recovery_mode:
+            raise ConsoleRefusalError(
+                "Recovery mode active",
+                "This console was started in read-only recovery mode: Paper review, broker "
+                "reconciliation and safety visibility all work, but no exit may be confirmed "
+                "or sent -- automatically or manually, including the overdue-recovery escape "
+                "hatch. Nothing was sent. Restart without --recovery-mode, with the Owner "
+                "present, to resume exits.",
+            )
         plans = self._plans
         if plans is None:
             raise ConsoleRefusalError(
@@ -904,7 +923,12 @@ class PositionExitConsole:
                         authorized_at=now,
                     )
                 )
-            except PositionExitRefusedError as error:
+            # RELEASE v1 RECOVERY HARDENING RECONCILIATION:
+            # `AuthorizeOverduePositionRecoveryHandler` measures the broker clock basis the
+            # same way `AuthorizePositionExitHandler` does and can raise
+            # `PaperTimeUncertainError` directly -- mirrors the catch `confirm()` already
+            # has for its own, pre-existing, equivalent call.
+            except (PositionExitRefusedError, PaperTimeUncertainError) as error:
                 raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         try:
             result = SubmitAuthorizedPositionExitHandler(
@@ -927,7 +951,10 @@ class PositionExitConsole:
                     at=self._clock(),
                 )
             )
-        except PositionExitRefusedError as error:
+        # RELEASE v1 RECOVERY HARDENING RECONCILIATION: same reasoning as above -- this call
+        # reaches the identical `observe_broker_clock`/hours-gate code `confirm()` already
+        # guards against.
+        except (PositionExitRefusedError, PaperTimeUncertainError) as error:
             raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         lost_race = not result.dispatched and result.attempt.attempt_id != (
             f"XAT-{intent_id}-{preview.preview_version}"

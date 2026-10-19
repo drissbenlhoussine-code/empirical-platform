@@ -79,6 +79,7 @@ def _open_position(world: World, symbol: str = "AAPL") -> str:
 def _manager(world: World, plans: FakeApprovedPlans) -> PositionPlanManager:
     return PositionPlanManager(
         plans=plans,
+        external_closures=world.external_closures,
         intents=world.repositories.intents,
         entry_attempts=world.repositories.attempts,
         exit_attempts=world.exits.attempts,
@@ -227,6 +228,7 @@ def test_manual_confirm_during_a_clock_disagreement_is_a_clear_refusal_not_a_cra
         exits=world.exits,
         intents=world.repositories.intents,
         entry_attempts=world.repositories.attempts,
+        external_closures=world.external_closures,
         configurations=world.repositories.configurations,
         kill_switch=world.repositories.kill_switch,
         broker=world.broker,
