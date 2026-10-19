@@ -55,6 +55,7 @@ from empirical_platform.usecases.operator_console import (
     describe_failure,
     refuse_requested_environment,
 )
+from empirical_platform.usecases.operator_console_exits import blocked_exit_alert
 from empirical_platform.usecases.paper_execution import PaperExecutionRefusedError
 from empirical_platform.usecases.paper_operator_console import (
     PaperCandidateBlockedError,
@@ -130,6 +131,11 @@ def active_plan_block_for_row(
         mandatory_exit=plan.mandatory_liquidation_at.isoformat(timespec="minutes"),
         max_loss=max_loss,
         management_status=management_status(plan, attempt, assessment_refusals=assessment_refusals),
+        blocked_exit_alert=blocked_exit_alert(
+            deadline_tone=row.deadline_tone,
+            assessment_refusals=assessment_refusals,
+            position_open=row.position_open,
+        ),
         review_manual_exit_url=(
             html.url_for(base_path, f"/exit/review?intent={row.intent_id}")
             if row.can_review_exit

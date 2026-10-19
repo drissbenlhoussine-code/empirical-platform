@@ -109,6 +109,7 @@ __all__ = [
     "ExitSummary",
     "NullExternalPositionClosureRepository",
     "PositionExitConsole",
+    "blocked_exit_alert",
     "deadline_status",
     "human_state_for_exit",
 ]
@@ -229,6 +230,37 @@ def deadline_status(
             "must review and confirm the exit; nothing closes by itself.",
         )
     return "info", f"Mandatory liquidation deadline {when}. Only the Owner can close the position."
+
+
+def blocked_exit_alert(
+    *, deadline_tone: str, assessment_refusals: tuple[str, ...], position_open: bool
+) -> str | None:
+    """An explicit, visible escalation for the one gap RELEASE v1's own incident review
+    found in the existing visibility: `deadline_status` already warns as the mandatory
+    liquidation deadline nears (`deadline_tone` "warn") or shouts once it has passed
+    ("danger"), and `AssessPositionExitHandler.handle(...).refusals` already says WHY the
+    automatic manager cannot act -- but nothing today says BOTH at once. An Owner who sees
+    only the deadline banner's "review and confirm the exit" has no way to know a manual
+    confirm would ALSO be refused for the identical reason the automatic manager is stuck
+    on (the live incident: a competing-entry attribution refusal silently stalled the
+    automatic MANDATORY_EXIT with no owner-visible status at all).
+
+    Returns `None` whenever there is nothing to escalate: the position is not open, no
+    refusal is on record for it, or the deadline is not yet inside its own urgency window
+    (`deadline_tone` is still "info"). Pure and read-only -- it never executes anything,
+    never authorizes anything, and never drops or paraphrases a refusal: the exact refusal
+    text `AssessPositionExitHandler` already produced is always included verbatim.
+    """
+    if not position_open or not assessment_refusals or deadline_tone == "info":
+        return None
+    when = "already past" if deadline_tone == "danger" else "approaching"
+    reason = "; ".join(assessment_refusals)
+    return (
+        f"The mandatory liquidation deadline is {when}, and the automatic exit cannot act "
+        f"on this position right now: {reason}. A manual confirm will be refused for the "
+        "same reason until this is resolved -- Owner review of the underlying block is "
+        "required."
+    )
 
 
 @dataclass(frozen=True, slots=True)

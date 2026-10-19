@@ -7,6 +7,7 @@ credentials.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -172,6 +173,53 @@ def test_a_verified_closed_attempt_shows_closed_and_no_manual_exit_link() -> Non
     block = active_plan_block_for_row(summary, plan, attempt, "95.00")
     assert block is not None
     assert "Closed" in block
+
+
+# ---------------------------------------------------------------------------
+# RELEASE v1 VISIBILITY FIX: active_plan_block_for_row surfaces an explicit,
+# visible alert when the mandatory deadline is urgent AND the automatic exit is blocked.
+# ---------------------------------------------------------------------------
+
+_A_REFUSAL = (
+    "another entry in the same symbol also holds shares (ATT-OCT9); attribution is ambiguous",
+)
+
+
+def test_a_refusal_with_no_urgent_deadline_shows_no_alert() -> None:
+    summary = _summary()  # deadline_tone defaults to "info"
+    block = active_plan_block_for_row(
+        summary, _plan(), None, "105.00", assessment_refusals=_A_REFUSAL
+    )
+    assert block is not None
+    assert "note-danger" not in block
+
+
+def test_an_urgent_deadline_with_no_refusal_shows_no_alert() -> None:
+    summary = replace(_summary(), deadline_tone="warn")
+    block = active_plan_block_for_row(summary, _plan(), None, "105.00", assessment_refusals=())
+    assert block is not None
+    assert "note-danger" not in block
+
+
+def test_an_urgent_deadline_with_a_refusal_shows_the_explicit_alert() -> None:
+    summary = replace(_summary(), deadline_tone="warn")
+    block = active_plan_block_for_row(
+        summary, _plan(), None, "105.00", assessment_refusals=_A_REFUSAL
+    )
+    assert block is not None
+    assert "note-danger" in block
+    assert _A_REFUSAL[0] in block
+    assert "approaching" in block
+
+
+def test_a_missed_deadline_with_a_refusal_says_the_deadline_already_passed() -> None:
+    summary = replace(_summary(), deadline_tone="danger")
+    block = active_plan_block_for_row(
+        summary, _plan(), None, "105.00", assessment_refusals=_A_REFUSAL
+    )
+    assert block is not None
+    assert "note-danger" in block
+    assert "already past" in block
 
 
 # ---------------------------------------------------------------------------
