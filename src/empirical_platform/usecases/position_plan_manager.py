@@ -109,10 +109,15 @@ __all__ = [
     "ApprovedPlanRepository",
     "ExternalPositionClosureRepository",
     "ManagerHeartbeat",
+    "ManagerStatus",
+    "ManagerStatusView",
+    "ManagerThreadHandle",
     "PlanEvaluationOutcome",
     "PlanManagerThread",
     "PositionPlanManager",
     "manager_liveness_alert",
+    "manager_status",
+    "manager_status_detail",
 ]
 
 _LOG = logging.getLogger("empirical_platform.position_plan_manager")
@@ -594,3 +599,177 @@ class PlanManagerThread:
                     ticks_completed=(previous.ticks_completed if previous is not None else 0) + 1,
                 )
             self._stop.wait(self._interval)
+
+
+class ManagerThreadHandle:
+    """RELEASE v1 SAFETY VISIBILITY. A late-bound, mutable reference to this process's
+    `PlanManagerThread` -- read-only from every caller's point of view.
+
+    WHY THIS EXISTS. `PaperConsoleBackend` (`entrypoints._paper_position_exit_composition`)
+    is an immutable (`frozen=True`) dataclass built BEFORE the real `PlanManagerThread` is
+    constructed: the thread is only started inside `entrypoints.operator_console.main`'s
+    `_serve_with_reconciler`, after the backend (and every HTTP route closed over it) already
+    exists. A frozen dataclass cannot grow a new attribute later, so the composition hands
+    out this ONE mutable box instead -- `operator_console.py` sets `.thread` once the real
+    thread starts; the `/safety` route reads `.heartbeat()` on every request, always getting
+    the CURRENT thread's live state, never a stale snapshot captured at startup.
+
+    `.thread` is `None` until the owning process actually starts a `PlanManagerThread` (never
+    true for `--recovery-mode`, which builds no `PositionPlanManager` at all -- see
+    `_paper_position_exit_composition.paper_operator_console_with_exit_runtime`) -- this is
+    exactly the "automatic management is supposed to exist, but nothing has started it"
+    evidence `manager_status`'s `STOPPED` state reads. A console capability with NO
+    plan-manager concept at all (SIMULATION, or plain PAPER without the exit path) never
+    constructs one of these at all -- `PaperConsoleBackend._manager_thread_handle` stays
+    `None` there, which `manager_status` reads as `manager_supported=False` -> `UNKNOWN`.
+    """
+
+    __slots__ = ("thread",)
+
+    def __init__(self) -> None:
+        self.thread: PlanManagerThread | None = None
+
+    def heartbeat(self) -> ManagerHeartbeat | None:
+        return None if self.thread is None else self.thread.heartbeat()
+
+
+class ManagerStatus(StrEnum):
+    """RELEASE v1 SAFETY VISIBILITY: the Owner-facing truth-state for `/safety`'s automatic
+    position manager field. Exactly five states, deliberately -- see `manager_status`'s own
+    docstring for why each one is truthful and when it applies. `UNKNOWN` is the fallback
+    whenever the evidence does not clearly support one of the other four; this field must
+    NEVER read `HEALTHY` without positive, fresh, error-free tick evidence."""
+
+    RECOVERY_MODE = "RECOVERY_MODE"
+    HEALTHY = "HEALTHY"
+    STALE = "STALE"
+    STOPPED = "STOPPED"
+    UNKNOWN = "UNKNOWN"
+
+
+@dataclass(frozen=True, slots=True)
+class ManagerStatusView:
+    """What `/safety` renders: the state plus the plain-language, actionable text for it.
+    See `manager_status`/`manager_status_detail` -- this is just their paired output, built
+    once per request so the route and the HTML layer agree on exactly one `now`."""
+
+    status: ManagerStatus
+    detail: str
+
+
+def manager_status(
+    heartbeat: ManagerHeartbeat | None,
+    *,
+    now: datetime,
+    recovery_mode: bool,
+    manager_supported: bool,
+    max_staleness_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS * 4,
+) -> ManagerStatus:
+    """RELEASE v1 SAFETY VISIBILITY: the pure classification behind `/safety`'s manager-status
+    field (see `ManagerStatus`). Reads ONLY the real `ManagerHeartbeat` the evaluation loop
+    itself maintains (`PlanManagerThread._run`) -- never "the HTTP server answered this
+    request" or "the process is alive", neither of which says anything about whether the
+    BACKGROUND loop is still ticking.
+
+    Precedence, each one answering a different question the Owner needs kept apart:
+
+    1. `recovery_mode` -> `RECOVERY_MODE`. Checked FIRST and unconditionally: a deliberate,
+       read-only `--recovery-mode` startup never builds a `PositionPlanManager` at all (see
+       `paper_operator_console_with_exit_runtime`'s own docstring), so `heartbeat` is always
+       `None` here anyway -- but this state must never be confused with a REAL failure
+       (`STOPPED`), which is exactly why it is checked ahead of, not folded into, the
+       no-heartbeat case below.
+    2. `not manager_supported` -> `UNKNOWN`. This capability's composition has no plan-manager
+       concept at all (SIMULATION, or plain PAPER without the exit path -- see
+       `ManagerThreadHandle`'s own docstring) or cannot safely expose one. There is nothing to
+       assert here, positive or negative -- not "stopped" (nothing was ever supposed to run),
+       just genuinely unknown to this page.
+    3. `heartbeat is None` -> `STOPPED`. Supported and not in recovery mode, yet no heartbeat
+       object exists at all: `PlanManagerThread.start()` was never called (or the thread
+       object itself is gone). Per `PlanManagerThread.heartbeat`'s own docstring, ONCE
+       `start()` runs, a heartbeat is set before the background thread can do anything else --
+       so `None` here can only mean the thread never started, never "it ticked and then
+       disappeared" (that is `STALE`, below).
+    4. A heartbeat exists but is stale (`last_tick_at`, or `started_at` if it has never
+       ticked, is older than `max_staleness_seconds`) OR its most recent tick recorded an
+       error -> `STALE`. Both are folded into the SAME state (there is no sixth name for
+       "ticking, but the last tick just failed"): a fresh heartbeat with a recorded error is
+       not stale BY TIMESTAMP, but it is equally not evidence of a working manager, and
+       requirement 7 forbids ever reporting `HEALTHY` without full, no-error evidence.
+       `manager_status_detail` tells the two cases apart in its own wording.
+    5. Otherwise (a heartbeat exists, is fresh, and its last tick did not error) -> `HEALTHY`.
+       The ONLY state this function will return without a stale-or-erroring heartbeat check
+       having already passed -- the "never HEALTHY without evidence" rule in one sentence.
+    """
+    if recovery_mode:
+        return ManagerStatus.RECOVERY_MODE
+    if not manager_supported:
+        return ManagerStatus.UNKNOWN
+    if heartbeat is None:
+        return ManagerStatus.STOPPED
+    reference = heartbeat.last_tick_at or heartbeat.started_at
+    staleness = (now - reference).total_seconds()
+    if staleness > max_staleness_seconds or heartbeat.last_tick_error is not None:
+        return ManagerStatus.STALE
+    return ManagerStatus.HEALTHY
+
+
+def manager_status_detail(
+    status: ManagerStatus,
+    heartbeat: ManagerHeartbeat | None,
+    *,
+    now: datetime,
+    max_staleness_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS * 4,
+) -> str:
+    """Plain-language, actionable text for `ManagerStatus` -- same tone and pattern as
+    `operator_console_exits.blocked_exit_alert` and the `--recovery-mode` startup banner
+    (`entrypoints.operator_console.main`): say what is actually true, say plainly that
+    nothing is failing silently, and never alarm for the intentional `RECOVERY_MODE` case.
+    """
+    if status is ManagerStatus.RECOVERY_MODE:
+        return (
+            "This console was started with --recovery-mode: a deliberate, read-only, "
+            "fail-closed startup. The automatic position manager was never built -- not "
+            "failed, not stopped, simply not started on purpose. No exit, automatic or "
+            "manual, can be confirmed or sent while this holds. Restart without "
+            "--recovery-mode, with the Owner present, to resume automatic management."
+        )
+    if status is ManagerStatus.UNKNOWN:
+        return (
+            "This console's composition does not expose automatic-manager status -- either "
+            "it has no plan-manager concept at all, or the wiring to read one safely is not "
+            "in place. This is not a claim that management is healthy; it is a gap in what "
+            "this page can currently prove, and should be treated as unproven, not fine."
+        )
+    if status is ManagerStatus.STOPPED:
+        return (
+            "This console expects an automatic position manager, but none has ever started "
+            "ticking -- no heartbeat exists at all. STOP/TARGET/MANDATORY_EXIT will not be "
+            "dispatched automatically until it does. This is not a silent failure: restart "
+            "the console process, with the Owner present, to resume automatic management."
+        )
+    assert heartbeat is not None  # STALE and HEALTHY both require real heartbeat evidence
+    if status is ManagerStatus.STALE:
+        reference = heartbeat.last_tick_at or heartbeat.started_at
+        staleness = int((now - reference).total_seconds())
+        if staleness > max_staleness_seconds:
+            since = (
+                "its first tick" if heartbeat.last_tick_at is None else "its last completed tick"
+            )
+            return (
+                f"The automatic position manager has not completed a tick in {staleness}s "
+                f"since {since} (expected at least every {DEFAULT_POLL_INTERVAL_SECONDS}s). It "
+                "may have hung or crashed without exiting. STOP/TARGET/MANDATORY_EXIT will not "
+                "be dispatched automatically until it resumes -- review the console process."
+            )
+        assert heartbeat.last_tick_error is not None  # the only other way into STALE
+        return (
+            "The automatic position manager's most recent tick failed: "
+            f"{heartbeat.last_tick_error}. It is still running and will keep retrying on its "
+            "own schedule, but review this if it repeats."
+        )
+    ticks_ago = int((now - (heartbeat.last_tick_at or heartbeat.started_at)).total_seconds())
+    return (
+        f"The automatic position manager is running: {heartbeat.ticks_completed} tick(s) "
+        f"completed, most recently {ticks_ago}s ago, with no error."
+    )

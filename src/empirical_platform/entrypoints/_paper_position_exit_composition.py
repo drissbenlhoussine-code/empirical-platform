@@ -74,7 +74,10 @@ from empirical_platform.usecases.operator_console import (
     OperatorConsoleService,
 )
 from empirical_platform.usecases.operator_console_exits import ExitRepositories, PositionExitConsole
-from empirical_platform.usecases.position_plan_manager import PositionPlanManager
+from empirical_platform.usecases.position_plan_manager import (
+    ManagerThreadHandle,
+    PositionPlanManager,
+)
 
 __all__ = [
     "PAPER_EXIT_DATABASE_VARIABLE",
@@ -218,6 +221,15 @@ def paper_operator_console_with_exit_runtime(
                     time_source=store_b.time_source,
                 )
             )
+            # RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). ALWAYS created,
+            # even in `recovery_mode` -- this console genuinely supports plan management (as
+            # opposed to M088's plain PAPER composition, which has no such concept and never
+            # builds one of these at all). `.thread` is filled in later, by
+            # `entrypoints.operator_console.main`, once the real `PlanManagerThread` actually
+            # starts; in `recovery_mode` nothing ever sets it (no `PositionPlanManager` is
+            # built above), so `.heartbeat()` stays `None` forever here -- but `manager_status`
+            # never reaches that check for `recovery_mode=True`, which it tests FIRST.
+            manager_thread_handle = ManagerThreadHandle()
             yield PaperConsoleBackend(
                 service=service,
                 configuration_id="CFG-089-PAPER",
@@ -230,6 +242,8 @@ def paper_operator_console_with_exit_runtime(
                 _plan_manager=plan_manager,
                 _exits=exits,
                 _external_closures=external_closures,
+                _manager_thread_handle=manager_thread_handle,
+                _recovery_mode=recovery_mode,
             )
         finally:
             store_c.close()

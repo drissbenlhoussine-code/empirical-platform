@@ -63,6 +63,11 @@ from empirical_platform.usecases.paper_operator_console import (
     paper_health,
     prepare_v1_paper_candidate,
 )
+from empirical_platform.usecases.position_plan_manager import (
+    ManagerStatusView,
+    manager_status,
+    manager_status_detail,
+)
 from empirical_platform.usecases.v1_management_status import (
     ApprovedPlan,
     PositionExitAttempt,
@@ -179,6 +184,27 @@ def history_plan_cell_for_row(
     )
 
 
+def _manager_status_view(backend: PaperConsoleBackend) -> ManagerStatusView:
+    """RELEASE v1 SAFETY VISIBILITY: built fresh on every `/safety` request (never cached),
+    reading the REAL, live `ManagerHeartbeat` through `backend._manager_thread_handle` -- see
+    that handle's own docstring for why it exists instead of a direct attribute. Never reads
+    anything about whether the HTTP server itself is alive (it obviously is, or this handler
+    would not be running); the only evidence this looks at is the background evaluation
+    loop's own heartbeat."""
+    handle = backend._manager_thread_handle
+    heartbeat = None if handle is None else handle.heartbeat()
+    now = datetime.now(UTC)
+    status = manager_status(
+        heartbeat,
+        now=now,
+        recovery_mode=backend._recovery_mode,
+        manager_supported=handle is not None,
+    )
+    return ManagerStatusView(
+        status=status, detail=manager_status_detail(status, heartbeat, now=now)
+    )
+
+
 def build_paper_application(
     backend: PaperConsoleBackend, *, security: SecuritySession | None = None, base_path: str = ""
 ) -> Router:
@@ -186,7 +212,23 @@ def build_paper_application(
     # inside `build_application`) because this function also uses it directly below, before
     # any route built on it runs.
     base_path = html.validate_base_path(base_path)
-    router = build_application(backend, security=security, base_path=base_path)
+    # RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). `None` for M088's plain
+    # PAPER composition (`backend._manager_thread_handle is None` -- it has no plan-manager
+    # concept at all), so `/safety` renders exactly as before this field existed. Only the
+    # exit-capable composition (`paper_operator_console_with_exit_runtime`) ever sets a real
+    # handle, recovery mode included -- `manager_status` itself tells RECOVERY_MODE apart from
+    # a genuine STOPPED/STALE problem.
+    manager_status_provider = (
+        (lambda: _manager_status_view(backend))
+        if backend._manager_thread_handle is not None
+        else None
+    )
+    router = build_application(
+        backend,
+        security=security,
+        base_path=base_path,
+        manager_status_provider=manager_status_provider,
+    )
     service = backend.service
 
     def label() -> str:

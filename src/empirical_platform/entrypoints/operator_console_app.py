@@ -38,6 +38,7 @@ from empirical_platform.usecases.operator_console import (
 )
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
 from empirical_platform.usecases.paper_execution import PaperExecutionRefusedError
+from empirical_platform.usecases.position_plan_manager import ManagerStatusView
 
 __all__ = ["ConsoleBackend", "build_application"]
 
@@ -81,7 +82,17 @@ class _Flash:
 
 
 def build_application(
-    backend: ConsoleBackend, *, security: SecuritySession | None = None, base_path: str = ""
+    backend: ConsoleBackend,
+    *,
+    security: SecuritySession | None = None,
+    base_path: str = "",
+    #: RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). `None` for every
+    #: capability with no plan-manager concept at all (SIMULATION, M088's plain PAPER) --
+    #: `/safety` then shows nothing new, exactly as before this field existed. Only
+    #: `paper_operator_console_app.build_paper_application` (the exit-capable composition)
+    #: ever supplies one; it is called fresh per request so the status always reflects the
+    #: CURRENT `ManagerHeartbeat`, never one captured at startup.
+    manager_status_provider: Callable[[], ManagerStatusView] | None = None,
 ) -> Router:
     # RELEASE v1 Release Blocker (/paper base-path escape): fail closed at composition time,
     # not per-request -- exactly `_opportunity_engine_html.validate_base_path`'s own contract.
@@ -333,8 +344,17 @@ def build_application(
 
     def safety(request: Request, csrf: str) -> Response:
         view = service.safety(backend.configuration_id)
+        manager_status_view = (
+            manager_status_provider() if manager_status_provider is not None else None
+        )
         return html_response(
-            html.safety_page(view, csrf, flash.take(session_of(request)), base_path=base_path)
+            html.safety_page(
+                view,
+                csrf,
+                flash.take(session_of(request)),
+                manager_status=manager_status_view,
+                base_path=base_path,
+            )
         )
 
     def kill_switch_form(request: Request, csrf: str) -> Response:

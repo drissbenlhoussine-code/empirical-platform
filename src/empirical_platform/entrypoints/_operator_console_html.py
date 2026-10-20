@@ -29,6 +29,7 @@ from empirical_platform.usecases.operator_console import (
 from empirical_platform.usecases.operator_console_exits import ExitReviewView, ExitSummary
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
 from empirical_platform.usecases.paper_operator_console import PaperHealthView
+from empirical_platform.usecases.position_plan_manager import ManagerStatus, ManagerStatusView
 
 __all__ = [
     "STYLESHEET",
@@ -40,6 +41,7 @@ __all__ = [
     "history_page",
     "kill_switch_confirmation_page",
     "loaded_day_page",
+    "manager_status_card",
     "message_page",
     "opportunity_page",
     "paper_health_page",
@@ -1217,8 +1219,43 @@ def history_page(
 # ---------------------------------------------------------------------------
 
 
+#: RELEASE v1 SAFETY VISIBILITY. Visual tone per `ManagerStatus` -- `RECOVERY_MODE` is
+#: deliberately "info" (neutral/blue), never "danger"/"warn", so it reads as intentional,
+#: not as a problem (requirement: distinguishable from a real failure). `UNKNOWN` is "warn"
+#: (caution -- this page cannot currently prove anything, good or bad) rather than "danger"
+#: (which would overclaim a known problem) or "good"/"info" (which would underclaim the
+#: uncertainty). `STALE` and `STOPPED` are both "danger": both mean automatic management is
+#: not demonstrably protecting an open position right now.
+_MANAGER_STATUS_TONE: dict[ManagerStatus, str] = {
+    ManagerStatus.HEALTHY: "good",
+    ManagerStatus.RECOVERY_MODE: "info",
+    ManagerStatus.UNKNOWN: "warn",
+    ManagerStatus.STALE: "danger",
+    ManagerStatus.STOPPED: "danger",
+}
+
+
+def manager_status_card(view: ManagerStatusView) -> str:
+    """RELEASE v1 SAFETY VISIBILITY: the Owner-facing `/safety` counterpart to
+    `ManagerHeartbeat` -- see `usecases.position_plan_manager.manager_status`/
+    `manager_status_detail`. Only ever called by `safety_page` when a `ManagerStatusView` was
+    actually supplied (`None` for a capability with no plan-manager concept at all -- see
+    `operator_console_app.build_application`'s own `manager_status_provider` docstring)."""
+    tone = _MANAGER_STATUS_TONE[view.status]
+    return (
+        '<section class="card"><h2>Automatic position manager</h2>'
+        f'<div class="banner banner-{tone}"><strong>{_e(view.status.value)}</strong></div>'
+        f'<p class="muted">{_e(view.detail)}</p></section>'
+    )
+
+
 def safety_page(
-    view: SafetyView, csrf: str, flash: ActionOutcome | None, *, base_path: str = ""
+    view: SafetyView,
+    csrf: str,
+    flash: ActionOutcome | None,
+    *,
+    manager_status: ManagerStatusView | None = None,
+    base_path: str = "",
 ) -> str:
     capabilities = "".join(
         f'<li class="cap {"cap-on" if c.enabled else "cap-off"}"><span class="cap-label">{_e(c.label)}</span>'
@@ -1270,12 +1307,14 @@ def safety_page(
         "<li>overnight intention</li>"
         "</ul></section>"
     )
+    manager_card = manager_status_card(manager_status) if manager_status is not None else ""
     body = (
         "<h1>Safety</h1>"
         f'<section class="card env-card"><div class="{_env_badge_class(view.active_capability.capability.value)} env-badge-large">{_e(view.active_capability.capability.value)}</div>'
         f'<p class="lead">{_e(view.active_capability.note)}</p><ul class="caps">{capabilities}</ul></section>'
         f"{v1_statements}"
         f"{switch}"
+        f"{manager_card}"
         f'<section class="card"><h2>Trading rules</h2><p class="muted">From configuration {_e(view.configuration_id)} '
         f"version {_e(view.configuration_version)}. Read-only.</p>{rules}</section>"
         f"{paper_link}"
@@ -1476,6 +1515,7 @@ cursor:pointer;font-size:15px;line-height:1.2}
 .banner{padding:12px 16px;border-radius:12px;margin-bottom:16px;font-size:15px}
 .banner-danger{background:var(--danger-bg);color:var(--danger);border:1px solid var(--danger)}
 .banner-warn{background:var(--warn-bg);color:var(--warn)}.banner-good{background:var(--good-bg);color:var(--good)}
+.banner-info{background:var(--info-bg);color:var(--info)}
 .confirm{max-width:560px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px}
 .lead{font-size:17px}.terms{background:var(--bg);border-radius:12px;padding:6px 14px;margin:14px 0}
 .confirm-form{display:flex;flex-direction:column;gap:12px}.field{display:flex;flex-direction:column;gap:6px;font-weight:600}
