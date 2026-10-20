@@ -52,13 +52,13 @@ prevents a duplicate SELL.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from tests.unit._m086_fakes import World, simulation_world
+from tests.unit._m086_fakes import TestClock, World, simulation_world
 from tests.unit._v1_fakes import FakeApprovedPlans, FakeExternalPositionClosures
 
 from empirical_platform.decision_candidate.approved_plan import (
@@ -74,6 +74,7 @@ from empirical_platform.decision_candidate.position_exit import (
     exit_authorization_binding_refusal,
     is_overdue_recovery_authorization,
 )
+from empirical_platform.shared.brokerage.paper_time import PaperTimeReading
 from empirical_platform.usecases.operator_console import ConsoleRefusalError
 from empirical_platform.usecases.operator_console_exits import PositionExitConsole
 from empirical_platform.usecases.position_exit import (
@@ -678,3 +679,112 @@ def test_automatic_mandatory_exit_dispatch_end_to_end_with_realistic_production_
     assert authorization.authorized_by == plan.system_identity
     sells = [o for o in world.store.orders() if o.side == "sell"]
     assert len(sells) == 1, "exactly one SELL_TO_CLOSE, never a duplicate"
+
+
+# ---------------------------------------------------------------------------
+# RECONCILIATION (RELEASE v1 recovery-mode + hours-gate hardening, merged with this
+# OVERDUE_POSITION_RECOVERY path): `confirm_overdue_recovery` did not exist yet when
+# `recovery_mode` and the manual `PaperTimeUncertainError` catch were designed, so neither
+# protection originally covered this escape hatch. Both gaps are closed here.
+# ---------------------------------------------------------------------------
+
+
+def test_recovery_mode_also_refuses_the_overdue_recovery_escape_hatch(world: World) -> None:
+    """A console started `--recovery-mode` (fail-closed, read-only) must refuse EVERY exit
+    dispatch, not just the normal `confirm()` path -- otherwise the overdue-recovery escape
+    hatch would let a SELL through during what is supposed to be a read-only startup,
+    defeating the whole point of recovery mode. `grant_overdue_recovery_approval` itself
+    stays available (it only records a decision, never touches the broker): granting during
+    recovery mode is proven harmless here because the SAME grant is still refused at confirm
+    time while recovery mode is active."""
+    intent = _open_position(world)
+    _advance_past_deadline(world, intent)
+    plans = FakeApprovedPlans()
+    plans.save(_mandatory_exit_plan(world, intent))
+    console = _console(world, plans)
+    console.grant_overdue_recovery_approval(intent, "RECOVERY-APPROVAL-DURING-REVIEW")
+    view = console.review(intent)
+
+    recovery_console = PositionExitConsole(
+        exits=world.exits,
+        intents=world.repositories.intents,
+        entry_attempts=world.repositories.attempts,
+        external_closures=world.external_closures,
+        configurations=world.repositories.configurations,
+        kill_switch=world.repositories.kill_switch,
+        broker=world.broker,
+        market_data=world.market_data,
+        signer=world.signer,
+        time_source=world.clock,
+        clock=world.clock,
+        environment="PAPER",
+        plans=plans,
+        recovery_mode=True,
+    )
+
+    with pytest.raises(ConsoleRefusalError, match="read-only recovery mode"):
+        recovery_console.confirm_overdue_recovery(
+            intent, view.ticket, "RECOVERY-APPROVAL-DURING-REVIEW"
+        )
+
+    assert world.exits.attempts.for_entry(intent) == (), "nothing was dispatched"
+    assert world.exits.authorizations.latest_for_entry(intent) is None, (
+        "the refusal happened before any authorization was even attempted"
+    )
+
+
+@dataclass
+class _LaggingTimeSource:
+    """The SAME clock as `inner`, but every `read()` reports a timestamp `lag_seconds`
+    BEHIND it. Mirrors `test_v1_recovery_mode_and_hours_gate.py`'s own helper of the same
+    name for the normal `confirm()` path -- `confirm_overdue_recovery` reaches the identical
+    `PaperTimeWindow.measure_broker_basis`/`observe_broker_clock` code and must handle the
+    SAME disagreement the same way."""
+
+    inner: TestClock
+    lag_seconds: float
+
+    def read(self) -> PaperTimeReading:
+        reading = self.inner.read()
+        lagged = reading.utc - timedelta(seconds=self.lag_seconds)
+        return PaperTimeReading(lagged, reading.monotonic)
+
+
+def test_overdue_recovery_confirm_during_a_clock_disagreement_is_a_clear_refusal_not_a_crash(
+    world: World,
+) -> None:
+    """Before this reconciliation fix, `confirm_overdue_recovery` caught only
+    `PositionExitRefusedError` at both its call sites -- `AuthorizeOverduePositionRecoveryHandler`
+    and `SubmitAuthorizedPositionExitHandler` both raise `PaperTimeUncertainError` directly on
+    an uncertain broker-clock reading, which would have propagated uncaught into a generic
+    500 instead of this clear, recoverable refusal."""
+    intent = _open_position(world)
+    _advance_past_deadline(world, intent)
+    plans = FakeApprovedPlans()
+    plans.save(_mandatory_exit_plan(world, intent))
+    console = _console(world, plans)
+    console.grant_overdue_recovery_approval(intent, "RECOVERY-APPROVAL-CLOCK-SKEW")
+    view = console.review(intent)
+
+    lagging_console = PositionExitConsole(
+        exits=world.exits,
+        intents=world.repositories.intents,
+        entry_attempts=world.repositories.attempts,
+        external_closures=world.external_closures,
+        configurations=world.repositories.configurations,
+        kill_switch=world.repositories.kill_switch,
+        broker=world.broker,
+        market_data=world.market_data,
+        signer=world.signer,
+        time_source=_LaggingTimeSource(world.clock, lag_seconds=5),
+        clock=world.clock,
+        environment="PAPER",
+        plans=plans,
+    )
+
+    with pytest.raises(ConsoleRefusalError, match="later than this host's reading"):
+        lagging_console.confirm_overdue_recovery(
+            intent, view.ticket, "RECOVERY-APPROVAL-CLOCK-SKEW"
+        )
+
+    assert world.exits.attempts.for_entry(intent) == (), "nothing was dispatched"
