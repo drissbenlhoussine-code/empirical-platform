@@ -208,8 +208,7 @@ class ApprovedPlan:
         )
         if any(f is None for f in quote_fields) and any(f is not None for f in quote_fields):
             raise ValueError(
-                "triggered_exit_quote_bid/ask/captured_at/source must be set, or unset, "
-                "together"
+                "triggered_exit_quote_bid/ask/captured_at/source must be set, or unset, together"
             )
         if self.triggered_exit_kind is ExitTriggerKind.MANDATORY_EXIT and any(
             f is not None for f in quote_fields
@@ -350,9 +349,7 @@ def reconstruct_approved_plan(
     object.__setattr__(plan, "triggered_exit_at", triggered_exit_at)
     object.__setattr__(plan, "triggered_exit_quote_bid", triggered_exit_quote_bid)
     object.__setattr__(plan, "triggered_exit_quote_ask", triggered_exit_quote_ask)
-    object.__setattr__(
-        plan, "triggered_exit_quote_captured_at", triggered_exit_quote_captured_at
-    )
+    object.__setattr__(plan, "triggered_exit_quote_captured_at", triggered_exit_quote_captured_at)
     object.__setattr__(plan, "triggered_exit_quote_source", triggered_exit_quote_source)
     plan._validate_structure()
     return plan

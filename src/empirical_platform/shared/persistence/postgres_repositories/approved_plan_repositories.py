@@ -166,9 +166,7 @@ def _row_to_plan(row: Mapping[str, Any]) -> ApprovedPlan:
         triggered_exit_at=_optional_instant(row, "triggered_exit_at"),
         triggered_exit_quote_bid=_optional_decimal(row, "triggered_exit_quote_bid"),
         triggered_exit_quote_ask=_optional_decimal(row, "triggered_exit_quote_ask"),
-        triggered_exit_quote_captured_at=_optional_instant(
-            row, "triggered_exit_quote_captured_at"
-        ),
+        triggered_exit_quote_captured_at=_optional_instant(row, "triggered_exit_quote_captured_at"),
         triggered_exit_quote_source=_optional_str(row, "triggered_exit_quote_source"),
     )
 

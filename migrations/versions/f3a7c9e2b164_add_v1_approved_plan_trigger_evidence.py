@@ -154,17 +154,11 @@ SET search_path = pg_catalog, public
 
 
 def upgrade() -> None:
-    op.add_column(
-        _TABLE, sa.Column("triggered_exit_quote_bid", sa.Numeric(20, 8), nullable=True)
-    )
-    op.add_column(
-        _TABLE, sa.Column("triggered_exit_quote_ask", sa.Numeric(20, 8), nullable=True)
-    )
+    op.add_column(_TABLE, sa.Column("triggered_exit_quote_bid", sa.Numeric(20, 8), nullable=True))
+    op.add_column(_TABLE, sa.Column("triggered_exit_quote_ask", sa.Numeric(20, 8), nullable=True))
     op.add_column(
         _TABLE,
-        sa.Column(
-            "triggered_exit_quote_captured_at", sa.DateTime(timezone=True), nullable=True
-        ),
+        sa.Column("triggered_exit_quote_captured_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.add_column(
         _TABLE, sa.Column("triggered_exit_quote_source", sa.String(length=32), nullable=True)
@@ -179,8 +173,7 @@ def upgrade() -> None:
     op.create_check_constraint(
         "ck_approved_plan_trigger_quote_not_mandatory_exit",
         _TABLE,
-        "triggered_exit_kind IS DISTINCT FROM 'MANDATORY_EXIT' "
-        "OR triggered_exit_quote_bid IS NULL",
+        "triggered_exit_kind IS DISTINCT FROM 'MANDATORY_EXIT' OR triggered_exit_quote_bid IS NULL",
     )
     op.execute(_GUARD_UPDATE_FUNCTION)
 

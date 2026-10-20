@@ -181,9 +181,7 @@ def test_the_forensic_audit_revision_is_the_sole_head_descending_linearly_from_m
     script = ScriptDirectory.from_config(config)
     assert script.get_heads() == [_FORENSIC_AUDIT]
     forensic_audit = script.get_revision(_FORENSIC_AUDIT)
-    assert forensic_audit is not None and forensic_audit.down_revision == (
-        _V1_RECOVERY_HARDENING
-    )
+    assert forensic_audit is not None and forensic_audit.down_revision == (_V1_RECOVERY_HARDENING)
     recovery_hardening = script.get_revision(_V1_RECOVERY_HARDENING)
     assert recovery_hardening is not None and recovery_hardening.down_revision == (
         _V1_APPROVED_PLAN

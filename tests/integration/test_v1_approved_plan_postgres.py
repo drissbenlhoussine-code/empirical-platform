@@ -301,9 +301,7 @@ def test_the_database_refuses_changing_quote_evidence_after_it_is_claimed(
 
     with engine.begin() as connection, pytest.raises(sa.exc.DatabaseError):
         connection.execute(
-            text(
-                "UPDATE public.approved_plan SET triggered_exit_quote_bid = 1 WHERE plan_id = :p"
-            ),
+            text("UPDATE public.approved_plan SET triggered_exit_quote_bid = 1 WHERE plan_id = :p"),
             {"p": "PLAN-EVIDENCE-IMM-1"},
         )
 
