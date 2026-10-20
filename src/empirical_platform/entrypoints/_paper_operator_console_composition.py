@@ -66,6 +66,7 @@ from empirical_platform.usecases.paper_operator_console import prepare_paper_can
 from empirical_platform.usecases.position_plan_manager import (
     ApprovedPlanRepository,
     ExternalPositionClosureRepository,
+    ManagerThreadHandle,
     PositionPlanManager,
 )
 
@@ -150,6 +151,19 @@ class PaperConsoleBackend:
     #: (`entrypoints.record_external_position_closure`) can reuse this SAME verified
     #: composition instead of opening a separate connection of its own.
     _external_closures: ExternalPositionClosureRepository | None = None
+    #: RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). `None` here: this plain
+    #: PAPER composition (M088) has no plan-manager concept at all -- see
+    #: `ManagerThreadHandle`'s own docstring. `build_paper_application`
+    #: (`paper_operator_console_app.py`) reads "is this `None`?" as this capability's
+    #: `manager_supported=False`, which `usecases.position_plan_manager.manager_status` reads
+    #: as `UNKNOWN`, never a false `STOPPED`/`HEALTHY` claim about a capability that never had
+    #: this concept to begin with. Only the SEPARATE exit-capable composition module (the one
+    #: that can actually close a position) ever sets this to a real, non-`None` handle.
+    _manager_thread_handle: ManagerThreadHandle | None = None
+    #: RELEASE v1 SAFETY VISIBILITY. `False` here -- this composition has no `--recovery-mode`
+    #: concept either. Set from the real `--recovery-mode` flag only by
+    #: `paper_operator_console_with_exit_runtime`.
+    _recovery_mode: bool = False
 
 
 @contextmanager

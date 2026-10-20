@@ -52,7 +52,11 @@ from empirical_platform.entrypoints._position_exit_composition import (
 from empirical_platform.entrypoints.operator_console_app import build_application
 from empirical_platform.entrypoints.paper_operator_console_app import build_paper_application
 from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
-from empirical_platform.usecases.position_plan_manager import PlanManagerThread, PositionPlanManager
+from empirical_platform.usecases.position_plan_manager import (
+    ManagerThreadHandle,
+    PlanManagerThread,
+    PositionPlanManager,
+)
 
 __all__ = ["main"]
 
@@ -142,6 +146,7 @@ def _serve_with_reconciler(
     reconcile_every: float,
     banner: tuple[str, ...],
     plan_manager: PositionPlanManager | None = None,
+    manager_thread_handle: ManagerThreadHandle | None = None,
     base_path: str = "",
 ) -> None:
     """Shared by both capabilities: start the reconciler, serve, and shut down in order.
@@ -155,6 +160,13 @@ def _serve_with_reconciler(
     builds one), its `PlanManagerThread` starts and stops alongside the reconciler, inside
     THIS SAME process -- never a second process -- so any `ApprovedPlan` the Owner approves
     begins being monitored immediately, with no separate manual step.
+
+    RELEASE v1 SAFETY VISIBILITY: when `manager_thread_handle` is also given, the REAL
+    `PlanManagerThread` just started is published onto it immediately -- see
+    `usecases.position_plan_manager.ManagerThreadHandle`'s own docstring for why the backend
+    (built earlier, immutably, by the composition function) could not simply hold this
+    reference itself. The `/safety` route reads `manager_thread_handle.heartbeat()` on every
+    request, so this is the ONLY place a real, running thread becomes visible to it.
     """
     reconciler: _Reconciler | None = None
     manager_thread: PlanManagerThread | None = None
@@ -165,6 +177,8 @@ def _serve_with_reconciler(
         if plan_manager is not None:
             manager_thread = PlanManagerThread(plan_manager, now=_utc_now)
             manager_thread.start()
+            if manager_thread_handle is not None:
+                manager_thread_handle.thread = manager_thread
         with serve(application, host=host, port=port) as server:
             # Direct/local URL is always unprefixed, same reasoning as the Opportunity
             # Engine's own launcher: this process only ever registers unprefixed routes (a
@@ -320,6 +334,7 @@ def main(argv: list[str] | None = None) -> int:
                     reconcile_every=arguments.reconcile_every,
                     banner=banner,
                     plan_manager=backend._plan_manager,
+                    manager_thread_handle=backend._manager_thread_handle,
                     base_path=base_path,
                 )
             return 0
