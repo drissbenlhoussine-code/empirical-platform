@@ -652,12 +652,19 @@ def approved_plan_block(
     max_loss: str,
     management_status: str,
     review_manual_exit_url: str | None,
+    blocked_exit_alert: str | None = None,
 ) -> str:
     """RELEASE v1 -- the APPROVED PLAN block on an Active Trade card.
 
     Pure string rendering: every value is already computed by the caller (route layer),
     which is where `ApprovedPlan`/`PositionExitAttempt` data actually lives -- this module
     never imports `decision_candidate` directly (entrypoints may only import usecases).
+
+    `blocked_exit_alert` (RELEASE v1 VISIBILITY FIX, `usecases.operator_console_exits
+    .blocked_exit_alert`) is `None` on every card unaffected by it -- rendered as nothing,
+    exactly as before this field existed -- and otherwise an explicit "note-danger" banner
+    ABOVE the routine plan numbers, because an approaching-or-passed mandatory deadline the
+    automatic manager cannot act on is more urgent than any fact this card already shows.
     """
     manual_exit = (
         f'<p class="muted"><a href="{_e(review_manual_exit_url)}">REVIEW MANUAL EXIT</a> '
@@ -666,9 +673,13 @@ def approved_plan_block(
         if review_manual_exit_url
         else ""
     )
+    alert = (
+        f'<p class="note note-danger">{_e(blocked_exit_alert)}</p>' if blocked_exit_alert else ""
+    )
     return (
         '<section class="card plan-card">'
         f'<h3>Approved plan <span class="chip">{_e(management_status)}</span></h3>'
+        f"{alert}"
         '<p class="note note-info">Automatic management is limited to the Owner-approved '
         "Paper plan.</p>"
         '<div class="numbers">'

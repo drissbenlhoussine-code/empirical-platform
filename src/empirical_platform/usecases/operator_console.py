@@ -1467,14 +1467,31 @@ class OperatorConsoleService:
             now = self._clock()
             exit_summary = self._exits.summary(intent, attempt, now)
             latest_exit = self._exits.latest_exit(intent.intent_governance_id)
-            category = self._exits.category(attempt, latest_exit)
+            category = self._exits.category(intent, attempt, latest_exit, now=now)
             closed = latest_exit is not None and latest_exit.position_closed
             held = category == "Open position"
             # "Review exit" is offered for every held position; the review page itself shows
             # an engaged kill switch, and the confirmation refuses while it is engaged.
             can_review = held
+            from empirical_platform.usecases.operator_console_exits import (
+                CATEGORY_EXPIRED_UNSUBMITTED,
+                CATEGORY_EXTERNALLY_CLOSED,
+                deadline_status,
+            )
+
             if closed:
                 exit_status = "Position closed — verified at the broker."
+                position_open = False
+            elif category == CATEGORY_EXTERNALLY_CLOSED:
+                # RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX: a durable closure
+                # record exists, independent of whether any `PositionExitAttempt` ever ran.
+                exit_status = (
+                    "Position closed externally — verified by an Owner-recorded broker "
+                    "order this platform never dispatched."
+                )
+                position_open = False
+            elif category == CATEGORY_EXPIRED_UNSUBMITTED:
+                exit_status = "Expired before it was ever sent to the broker."
                 position_open = False
             elif category == "Exit in progress":
                 exit_status = (
@@ -1487,7 +1504,6 @@ class OperatorConsoleService:
                 position_open = True
             if attempt is not None and attempt.state is PaperExecutionState.FILLED and held:
                 pending = OPEN_POSITION_REVIEWABLE_STATUS
-            from empirical_platform.usecases.operator_console_exits import deadline_status
 
             tone, note = deadline_status(
                 deadline=intent.mandatory_liquidation_at,

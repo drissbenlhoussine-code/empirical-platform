@@ -382,6 +382,15 @@ class PositionSnapshot:
     broker_position_quantity: int
     competing_entry_attempt_ids: tuple[str, ...]
     captured_at: datetime
+    #: RELEASE v1 EXTERNAL POSITION CLOSURE ATTRIBUTION FIX. The durable
+    #: `ExternalPositionClosure.closure_id` recorded for THIS SAME entry
+    #: (`entry_intent_governance_id`), or `None` when no such record exists. `None` by
+    #: default so every pre-existing direct construction of a `PositionSnapshot` (tests, the
+    #: Postgres row mapper reconstructing a HISTORICAL preview) keeps working unchanged: a
+    #: historical snapshot never had this evidence and must not silently gain it. When set,
+    #: `exit_eligibility` refuses this entry's own exit UNCONDITIONALLY, before any other
+    #: check -- see that function's own docstring for why this field is checked first.
+    external_closure_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.symbol or self.symbol != self.symbol.strip().upper():
@@ -394,6 +403,8 @@ class PositionSnapshot:
         if not isinstance(self.exits_filled_quantity, Decimal) or self.exits_filled_quantity < 0:
             raise ValueError("exits_filled_quantity must be a non-negative Decimal")
         _require_aware(self.captured_at, field="captured_at")
+        if self.external_closure_id is not None:
+            _require_identifier(self.external_closure_id, field="external_closure_id")
 
     @property
     def attributable_quantity(self) -> int | None:
@@ -423,6 +434,7 @@ class PositionSnapshot:
                 "exits_filled_quantity": _canonical_decimal(self.exits_filled_quantity),
                 "broker_position_quantity": self.broker_position_quantity,
                 "competing_entry_attempt_ids": list(self.competing_entry_attempt_ids),
+                "external_closure_id": self.external_closure_id,
                 # `captured_at` is evidence, not identity: the SAME position observed again
                 # later must produce the same digest, or the dispatch-time re-check could
                 # never match the fingerprint the human confirmed.
@@ -449,7 +461,21 @@ def exit_eligibility(
     no other entry in the symbol also holds shares, and no exit for it is already in flight
     or filled. Anything the evidence cannot prove is a refusal, never a guess about which
     shares belong to this system.
+
+    CHECKED FIRST, UNCONDITIONALLY: `snapshot.external_closure_id`. RELEASE v1 EXTERNAL
+    POSITION CLOSURE ATTRIBUTION FIX. Once THIS entry's own position has a durably recorded
+    `ExternalPositionClosure`, it is refused for exit FOREVER -- before the broker-quantity
+    or attribution math runs at all -- because that math can otherwise be spuriously
+    satisfied by a DIFFERENT, later entry's live position in the same symbol (the exact
+    live-incident failure mode this fix closes: a newer entry's shares must never be
+    attributed to an older, already-externally-closed entry).
     """
+    if snapshot.external_closure_id is not None:
+        return (
+            "this entry's position was already closed externally (closure "
+            f"{snapshot.external_closure_id!r}); it can never be exited again through this "
+            "platform",
+        )
     refusals: list[str] = []
     if snapshot.entry_attempt_id is None or snapshot.entry_state is None:
         refusals.append("no entry execution is on record for this position")

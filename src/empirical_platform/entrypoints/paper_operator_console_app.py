@@ -55,6 +55,7 @@ from empirical_platform.usecases.operator_console import (
     describe_failure,
     refuse_requested_environment,
 )
+from empirical_platform.usecases.operator_console_exits import blocked_exit_alert
 from empirical_platform.usecases.paper_execution import PaperExecutionRefusedError
 from empirical_platform.usecases.paper_operator_console import (
     PaperCandidateBlockedError,
@@ -98,6 +99,7 @@ def active_plan_block_for_row(
     attempt: PositionExitAttempt | None,
     quote_bid: str | None,
     *,
+    assessment_refusals: tuple[str, ...] = (),
     base_path: str = "",
 ) -> str | None:
     """The APPROVED PLAN block HTML for one Active-trade row, or `None` if this row has no
@@ -128,7 +130,12 @@ def active_plan_block_for_row(
         target_price=_money(plan.target_price),
         mandatory_exit=plan.mandatory_liquidation_at.isoformat(timespec="minutes"),
         max_loss=max_loss,
-        management_status=management_status(plan, attempt),
+        management_status=management_status(plan, attempt, assessment_refusals=assessment_refusals),
+        blocked_exit_alert=blocked_exit_alert(
+            deadline_tone=row.deadline_tone,
+            assessment_refusals=assessment_refusals,
+            position_open=row.position_open,
+        ),
         review_manual_exit_url=(
             html.url_for(base_path, f"/exit/review?intent={row.intent_id}")
             if row.can_review_exit
@@ -342,11 +349,26 @@ def build_paper_application(
                         continue
                     attempt = backend._exits.attempts.active_for_entry(row.intent_id)
                     quote = backend._market_data.fetch_quote(row.symbol)
+                    # RELEASE v1 VISIBILITY FIX: the SAME assessment
+                    # `AssessPositionExitHandler` would reach for this entry right now --
+                    # computed here, once, from the already-composed exit console. Only
+                    # while the entry is actually FILLED: before that, "no entry execution
+                    # is on record" is the NORMAL, expected, transient wait-for-fill state
+                    # every new plan passes through, never a reason to alarm the Owner, and
+                    # skipping the call then also avoids an extra broker round trip for a
+                    # row that could not possibly be eligible yet.
+                    assert backend.service.exits is not None
+                    refusals = (
+                        backend.service.exits.assess(row.intent_id).refusals
+                        if row.raw_state == "FILLED"
+                        else ()
+                    )
                     block = active_plan_block_for_row(
                         row,
                         plan,
                         attempt,
                         quote.bid if quote is not None else None,
+                        assessment_refusals=refusals,
                         base_path=base_path,
                     )
                     if block is not None:
