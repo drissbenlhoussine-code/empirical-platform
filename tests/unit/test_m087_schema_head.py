@@ -43,6 +43,9 @@ _V1_APPROVED_PLAN = "".join(("c6e2a4f8", "b901"))
 #: RELEASE v1 RECOVERY HARDENING SECURITY GATE: stacked directly on `_V1_APPROVED_PLAN`,
 #: now the chain's sole head (see that migration's own docstring).
 _V1_RECOVERY_HARDENING = "".join(("83e15e6b", "fae4"))
+#: FORENSIC AUDIT FOLLOW-UP: stacked directly on `_V1_RECOVERY_HARDENING`, now the chain's
+#: sole head (see that migration's own docstring).
+_FORENSIC_AUDIT = "".join(("f3a7c9e2", "b164"))
 _M087 = "".join(("e7c1a9", "d3b5f2"))
 _OLDER = "".join(("9c4b2e", "7d5a18"))
 _UNKNOWN_NEWER = "ffff" + "0" * 8
@@ -161,20 +164,26 @@ def test_the_m087_revision_descends_directly_from_the_m085_revision() -> None:
     assert above == [M087_SCHEMA_HEAD]
 
 
-def test_the_v1_revision_is_the_sole_head_descending_linearly_from_m085_through_m090() -> None:
+def test_the_forensic_audit_revision_is_the_sole_head_descending_linearly_from_m085_through_m090() -> (  # noqa: E501
+    None
+):
     """The chain remains a single, linear, non-branching history through RELEASE v1.
 
     Renamed/split again from the pre-v1 test of the same spirit (see the docstring above):
-    the chain's sole head is now the v1 recovery-hardening revision (RELEASE v1 RECOVERY
-    HARDENING SECURITY GATE: one link further again), which descends directly from the
-    v1 approved-plan revision, which descends directly from M090, which descends directly
-    from M087, which descends directly from M085 -- proven the same way, one link further
-    each time.
+    the chain's sole head is now the forensic-audit trigger-evidence revision (one link
+    further again), which descends directly from the v1 recovery-hardening revision, which
+    descends directly from the v1 approved-plan revision, which descends directly from
+    M090, which descends directly from M087, which descends directly from M085 -- proven
+    the same way, one link further each time.
     """
     config = Config(str(_REPO_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(_REPO_ROOT / "migrations"))
     script = ScriptDirectory.from_config(config)
-    assert script.get_heads() == [_V1_RECOVERY_HARDENING]
+    assert script.get_heads() == [_FORENSIC_AUDIT]
+    forensic_audit = script.get_revision(_FORENSIC_AUDIT)
+    assert forensic_audit is not None and forensic_audit.down_revision == (
+        _V1_RECOVERY_HARDENING
+    )
     recovery_hardening = script.get_revision(_V1_RECOVERY_HARDENING)
     assert recovery_hardening is not None and recovery_hardening.down_revision == (
         _V1_APPROVED_PLAN

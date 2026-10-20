@@ -50,8 +50,10 @@ _OPERATION = "v1.approved_plan.row_mapping"
 #: `a2b4c6d8e0f2`, in the SAME `migrations/` chain (Store A). RELEASE v1 RECOVERY
 #: HARDENING SECURITY GATE: bumped to `83e15e6bfae4`, which drops the now-obsolete
 #: `system_identity` CHECK constraint (see that migration's own docstring) -- nothing
-#: else about this table changed.
-V1_APPROVED_PLAN_SCHEMA_HEAD = "83e15e6b" + "fae4"
+#: else about this table changed. FORENSIC AUDIT FOLLOW-UP: bumped to `f3a7c9e2b164`,
+#: which adds the four nullable `triggered_exit_quote_*` evidence columns (see that
+#: migration's own docstring) -- purely additive, no existing column's semantics changed.
+V1_APPROVED_PLAN_SCHEMA_HEAD = "f3a7c9e2" + "b164"
 _SCHEMA_HEAD_SELECT = "SELECT version_num FROM public.alembic_version"
 
 
@@ -135,6 +137,15 @@ def _trigger_kind(row: Mapping[str, Any]) -> ExitTriggerKind | None:
         raise _fail("triggered_exit_kind", raw, "a valid ExitTriggerKind") from error
 
 
+def _optional_decimal(row: Mapping[str, Any], field: str) -> Decimal | None:
+    value = row[field]
+    if value is None:
+        return None
+    if not isinstance(value, Decimal):
+        raise _fail(field, value, "Decimal or NULL")
+    return value
+
+
 def _row_to_plan(row: Mapping[str, Any]) -> ApprovedPlan:
     # RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: `reconstruct_approved_plan`
     # accepts the current format exactly as `ApprovedPlan(...)` always did, and ONLY a
@@ -153,6 +164,12 @@ def _row_to_plan(row: Mapping[str, Any]) -> ApprovedPlan:
         created_at=_instant(row, "created_at"),
         triggered_exit_kind=_trigger_kind(row),
         triggered_exit_at=_optional_instant(row, "triggered_exit_at"),
+        triggered_exit_quote_bid=_optional_decimal(row, "triggered_exit_quote_bid"),
+        triggered_exit_quote_ask=_optional_decimal(row, "triggered_exit_quote_ask"),
+        triggered_exit_quote_captured_at=_optional_instant(
+            row, "triggered_exit_quote_captured_at"
+        ),
+        triggered_exit_quote_source=_optional_str(row, "triggered_exit_quote_source"),
     )
 
 
@@ -163,49 +180,63 @@ def _row_to_plan(row: Mapping[str, Any]) -> ApprovedPlan:
 _RETURNING_COLUMNS = (
     "RETURNING plan_id, candidate_id, entry_intent_governance_id, symbol, "
     "approved_quantity, stop_price, target_price, mandatory_liquidation_at, "
-    "owner_approval_id, system_identity, created_at, triggered_exit_kind, triggered_exit_at"
+    "owner_approval_id, system_identity, created_at, triggered_exit_kind, triggered_exit_at, "
+    "triggered_exit_quote_bid, triggered_exit_quote_ask, triggered_exit_quote_captured_at, "
+    "triggered_exit_quote_source"
 )
 
 _INSERT = (
     "INSERT INTO public.approved_plan (plan_id, candidate_id, entry_intent_governance_id, "
     "symbol, approved_quantity, stop_price, target_price, mandatory_liquidation_at, "
-    "owner_approval_id, system_identity, created_at, triggered_exit_kind, triggered_exit_at) "
+    "owner_approval_id, system_identity, created_at, triggered_exit_kind, triggered_exit_at, "
+    "triggered_exit_quote_bid, triggered_exit_quote_ask, triggered_exit_quote_captured_at, "
+    "triggered_exit_quote_source) "
     "VALUES (:plan_id, :candidate_id, :entry_intent_governance_id, :symbol, "
     ":approved_quantity, :stop_price, :target_price, :mandatory_liquidation_at, "
-    ":owner_approval_id, :system_identity, :created_at, NULL, NULL) " + _RETURNING_COLUMNS
+    ":owner_approval_id, :system_identity, :created_at, NULL, NULL, NULL, NULL, NULL, NULL) "
+    + _RETURNING_COLUMNS
 )
 
 _BY_ID = (
     "SELECT plan_id, candidate_id, entry_intent_governance_id, symbol, approved_quantity, "
     "stop_price, target_price, mandatory_liquidation_at, owner_approval_id, system_identity, "
-    "created_at, triggered_exit_kind, triggered_exit_at "
+    "created_at, triggered_exit_kind, triggered_exit_at, triggered_exit_quote_bid, "
+    "triggered_exit_quote_ask, triggered_exit_quote_captured_at, triggered_exit_quote_source "
     "FROM public.approved_plan WHERE plan_id = :plan_id"
 )
 
 _BY_ENTRY = (
     "SELECT plan_id, candidate_id, entry_intent_governance_id, symbol, approved_quantity, "
     "stop_price, target_price, mandatory_liquidation_at, owner_approval_id, system_identity, "
-    "created_at, triggered_exit_kind, triggered_exit_at "
+    "created_at, triggered_exit_kind, triggered_exit_at, triggered_exit_quote_bid, "
+    "triggered_exit_quote_ask, triggered_exit_quote_captured_at, triggered_exit_quote_source "
     "FROM public.approved_plan WHERE entry_intent_governance_id = :entry_intent_governance_id"
 )
 
 _UNCLAIMED = (
     "SELECT plan_id, candidate_id, entry_intent_governance_id, symbol, approved_quantity, "
     "stop_price, target_price, mandatory_liquidation_at, owner_approval_id, system_identity, "
-    "created_at, triggered_exit_kind, triggered_exit_at FROM public.approved_plan "
-    "WHERE triggered_exit_kind IS NULL ORDER BY created_at ASC LIMIT :limit"
+    "created_at, triggered_exit_kind, triggered_exit_at, triggered_exit_quote_bid, "
+    "triggered_exit_quote_ask, triggered_exit_quote_captured_at, triggered_exit_quote_source "
+    "FROM public.approved_plan WHERE triggered_exit_kind IS NULL ORDER BY created_at ASC "
+    "LIMIT :limit"
 )
 
 _CLAIMED = (
     "SELECT plan_id, candidate_id, entry_intent_governance_id, symbol, approved_quantity, "
     "stop_price, target_price, mandatory_liquidation_at, owner_approval_id, system_identity, "
-    "created_at, triggered_exit_kind, triggered_exit_at FROM public.approved_plan "
-    "WHERE triggered_exit_kind IS NOT NULL ORDER BY triggered_exit_at ASC LIMIT :limit"
+    "created_at, triggered_exit_kind, triggered_exit_at, triggered_exit_quote_bid, "
+    "triggered_exit_quote_ask, triggered_exit_quote_captured_at, triggered_exit_quote_source "
+    "FROM public.approved_plan WHERE triggered_exit_kind IS NOT NULL "
+    "ORDER BY triggered_exit_at ASC LIMIT :limit"
 )
 
 _CLAIM = (
     "UPDATE public.approved_plan "
-    "SET triggered_exit_kind = :kind, triggered_exit_at = :claimed_at "
+    "SET triggered_exit_kind = :kind, triggered_exit_at = :claimed_at, "
+    "triggered_exit_quote_bid = :quote_bid, triggered_exit_quote_ask = :quote_ask, "
+    "triggered_exit_quote_captured_at = :quote_captured_at, "
+    "triggered_exit_quote_source = :quote_source "
     "WHERE plan_id = :plan_id AND triggered_exit_kind IS NULL " + _RETURNING_COLUMNS
 )
 
@@ -272,12 +303,29 @@ class PostgresApprovedPlanRepository:
         return tuple(_row_to_plan(row) for row in rows)
 
     def claim_exit_trigger(
-        self, plan_id: str, *, kind: ExitTriggerKind, claimed_at: datetime
+        self,
+        plan_id: str,
+        *,
+        kind: ExitTriggerKind,
+        claimed_at: datetime,
+        quote_bid: Decimal | None = None,
+        quote_ask: Decimal | None = None,
+        quote_captured_at: datetime | None = None,
+        quote_source: str | None = None,
     ) -> ApprovedPlan | None:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    _CLAIM, {"plan_id": plan_id, "kind": kind.value, "claimed_at": claimed_at}
+                    _CLAIM,
+                    {
+                        "plan_id": plan_id,
+                        "kind": kind.value,
+                        "claimed_at": claimed_at,
+                        "quote_bid": quote_bid,
+                        "quote_ask": quote_ask,
+                        "quote_captured_at": quote_captured_at,
+                        "quote_source": quote_source,
+                    },
                 )
             )
         return _row_to_plan(rows[0]) if rows else None

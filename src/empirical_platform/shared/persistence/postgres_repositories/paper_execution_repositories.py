@@ -185,8 +185,11 @@ def require_exact_m085_schema_head(service: PostgresPersistenceService) -> str:
 #: updating it to a later value is a deliberate, reviewed code change, never automatic.
 #: RELEASE v1 RECOVERY HARDENING SECURITY GATE: bumped to `83e15e6bfae4`, which drops the
 #: now-obsolete `approved_plan.system_identity` CHECK constraint (see that migration's own
-#: docstring) -- nothing Paper execution reads or writes changed.
-V1_INTEGRATED_SCHEMA_HEAD = "83e15e6b" + "fae4"
+#: docstring) -- nothing Paper execution reads or writes changed. FORENSIC AUDIT FOLLOW-UP:
+#: bumped to `f3a7c9e2b164`, which adds the four nullable `approved_plan.triggered_exit_quote_*`
+#: evidence columns (see that migration's own docstring) -- purely additive, nothing Paper
+#: execution reads or writes changed.
+V1_INTEGRATED_SCHEMA_HEAD = "f3a7c9e2" + "b164"
 
 #: The M085 tables Paper execution actually reads and writes, proven present by name
 #: before any repository or broker client is built. The SAME enumeration

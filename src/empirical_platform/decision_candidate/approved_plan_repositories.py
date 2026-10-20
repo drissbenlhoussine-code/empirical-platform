@@ -12,6 +12,7 @@ exception and never the other caller's claim silently overwritten.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Protocol
 
 from empirical_platform.decision_candidate.approved_plan import ApprovedPlan, ExitTriggerKind
@@ -62,11 +63,26 @@ class ApprovedPlanRepository(Protocol):
         ...
 
     def claim_exit_trigger(
-        self, plan_id: str, *, kind: ExitTriggerKind, claimed_at: datetime
+        self,
+        plan_id: str,
+        *,
+        kind: ExitTriggerKind,
+        claimed_at: datetime,
+        quote_bid: Decimal | None = None,
+        quote_ask: Decimal | None = None,
+        quote_captured_at: datetime | None = None,
+        quote_source: str | None = None,
     ) -> ApprovedPlan | None:
         """Atomically claim the right to submit this plan's exit.
 
         Returns the updated plan on a win, or `None` if another caller already claimed it
         (`EXIT_ALREADY_CLAIMED`) -- the caller must submit nothing in that case.
+
+        FORENSIC AUDIT FOLLOW-UP: for a STOP/TARGET claim, the caller must also pass the
+        exact quote (`quote_bid`/`quote_ask`/`quote_captured_at`/`quote_source`) that
+        `evaluate_exit_trigger` was given to decide this -- durable evidence of what price
+        actually drove an irreversible SELL_TO_CLOSE, so a future incident never again
+        requires pulling the broker's historical quotes after the fact to reconstruct it.
+        A MANDATORY_EXIT claim passes none of them (it fires on time alone).
         """
         ...

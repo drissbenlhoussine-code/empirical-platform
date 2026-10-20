@@ -164,6 +164,15 @@ class ApprovedPlan:
     created_at: datetime
     triggered_exit_kind: ExitTriggerKind | None = None
     triggered_exit_at: datetime | None = None
+    #: FORENSIC AUDIT FOLLOW-UP (2026-10-20 early-STOP incident): the quote that drove a
+    #: STOP/TARGET claim, so a future incident is reconstructible from this row alone
+    #: instead of needing to pull the broker's historical quotes after the fact. Always
+    #: NULL together (see `_validate_structure`); never set for MANDATORY_EXIT, which
+    #: fires on time alone and never consults a quote.
+    triggered_exit_quote_bid: Decimal | None = None
+    triggered_exit_quote_ask: Decimal | None = None
+    triggered_exit_quote_captured_at: datetime | None = None
+    triggered_exit_quote_source: str | None = None
 
     def __post_init__(self) -> None:
         self._validate_structure()
@@ -190,6 +199,24 @@ class ApprovedPlan:
         if (self.triggered_exit_kind is None) != (self.triggered_exit_at is None):
             raise ValueError(
                 "triggered_exit_kind and triggered_exit_at must be set, or unset, together"
+            )
+        quote_fields = (
+            self.triggered_exit_quote_bid,
+            self.triggered_exit_quote_ask,
+            self.triggered_exit_quote_captured_at,
+            self.triggered_exit_quote_source,
+        )
+        if any(f is None for f in quote_fields) and any(f is not None for f in quote_fields):
+            raise ValueError(
+                "triggered_exit_quote_bid/ask/captured_at/source must be set, or unset, "
+                "together"
+            )
+        if self.triggered_exit_kind is ExitTriggerKind.MANDATORY_EXIT and any(
+            f is not None for f in quote_fields
+        ):
+            raise ValueError(
+                "quote evidence may only be set for a STOP/TARGET claim; "
+                "MANDATORY_EXIT never consults a quote"
             )
 
     def _validate_identity(self) -> None:
@@ -234,6 +261,10 @@ def reconstruct_approved_plan(
     created_at: datetime,
     triggered_exit_kind: ExitTriggerKind | None = None,
     triggered_exit_at: datetime | None = None,
+    triggered_exit_quote_bid: Decimal | None = None,
+    triggered_exit_quote_ask: Decimal | None = None,
+    triggered_exit_quote_captured_at: datetime | None = None,
+    triggered_exit_quote_source: str | None = None,
 ) -> ApprovedPlan:
     """Reconstruct an `ApprovedPlan` from an ALREADY-PERSISTED row -- the ONE place a
     pre-hash-rewrite (legacy) `system_identity` is ever accepted for reading.
@@ -288,6 +319,10 @@ def reconstruct_approved_plan(
             created_at=created_at,
             triggered_exit_kind=triggered_exit_kind,
             triggered_exit_at=triggered_exit_at,
+            triggered_exit_quote_bid=triggered_exit_quote_bid,
+            triggered_exit_quote_ask=triggered_exit_quote_ask,
+            triggered_exit_quote_captured_at=triggered_exit_quote_captured_at,
+            triggered_exit_quote_source=triggered_exit_quote_source,
         )
     legacy_identity = derive_legacy_system_identity(
         plan_id=plan_id, owner_approval_id=owner_approval_id
@@ -313,6 +348,12 @@ def reconstruct_approved_plan(
     object.__setattr__(plan, "created_at", created_at)
     object.__setattr__(plan, "triggered_exit_kind", triggered_exit_kind)
     object.__setattr__(plan, "triggered_exit_at", triggered_exit_at)
+    object.__setattr__(plan, "triggered_exit_quote_bid", triggered_exit_quote_bid)
+    object.__setattr__(plan, "triggered_exit_quote_ask", triggered_exit_quote_ask)
+    object.__setattr__(
+        plan, "triggered_exit_quote_captured_at", triggered_exit_quote_captured_at
+    )
+    object.__setattr__(plan, "triggered_exit_quote_source", triggered_exit_quote_source)
     plan._validate_structure()
     return plan
 
