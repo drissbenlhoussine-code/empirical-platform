@@ -16,6 +16,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -545,6 +546,13 @@ def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter, fixed script this test wrote
         [sys.executable, str(script_path), str(port)], creationflags=creationflags
     )
+    # This test IS the dummy console's real OS parent, which real production is not (the
+    # deploy script discovers an already-running console's PID; it never forks it). On POSIX,
+    # an exited-but-unreaped child is a zombie that still answers `kill(pid, 0)` successfully
+    # until its parent calls wait() -- which would make `is_running()` see it as running
+    # forever. A background reaper thread, not a `RealProcessPort` change, is the right fix:
+    # it's this TEST's parent/child relationship causing the artifact, not the port's logic.
+    threading.Thread(target=process.wait, daemon=True).start()
     placeholder_db_config = PostgreSQLConfigSnapshot(
         host="localhost", port=55555, database="placeholder_test", user="empirical"
     )
