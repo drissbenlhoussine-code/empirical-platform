@@ -40,3 +40,14 @@ tests/fixtures/m063_robustness_study/synthetic_broad_robustness_dataset_bundle.j
 external-review/MILESTONE-085/*.md text eol=lf
 external-review/MILESTONE-085/*.json text eol=lf
 external-review/MILESTONE-085/*.txt text eol=lf
+
+# V1 personal-paper deployment migration SQL (hash-pinned).
+#
+# `tools/personal_paper_deploy_migration_f3a7c9e2b164.sql` is committed as LF and
+# its sha256 is pinned as a literal constant in tools/personal_paper_deploy.py,
+# checked by test_pinned_migration_sql_file_matches_its_pinned_hash. Without this
+# rule, a fresh Windows checkout materializes CRLF (core.autocrlf), producing a
+# different hash and failing that test on Windows CI -- exactly the same failure
+# mode the *.py rule above exists to prevent, just for a non-Python file the
+# ruff-format rule doesn't cover.
+tools/personal_paper_deploy_migration_f3a7c9e2b164.sql text eol=lf
