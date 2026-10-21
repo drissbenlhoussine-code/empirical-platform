@@ -25,6 +25,7 @@ from empirical_platform.decision_candidate.external_position_closure import (
 )
 from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
 from empirical_platform.shared.brokerage.simulation_paper import (
+    SimulatedMarketData,
     SimulatedOrder,
     SimulatedQuoteView,
     default_exit_scenario_table,
@@ -413,6 +414,97 @@ def test_a_target_trigger_submits_a_sell_to_close(world: World) -> None:
     assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.TARGET
 
 
+def test_a_flickering_target_spike_is_not_claimed_on_a_single_outlier_tick(world: World) -> None:
+    """ADVERSARIAL REVIEW (PR #41, 2026-10-21): the gate is symmetric by construction
+    (`_price_trigger_corroboration` handles STOP and TARGET identically), but nothing had
+    exercised the TARGET side with inconsistent evidence until this test. A thin,
+    momentarily high bid can claim a false TARGET exactly as a thin, momentarily low bid
+    claimed the false 2026-10-20 STOP -- the same 50/50 flicker shape, mirrored above the
+    target instead of below the stop."""
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("200"), target=Decimal("228")))
+    manager = _manager(world, plans)
+    _set_quote(world, "AAPL", bid="229.00", ask="229.10")  # outlier spike above target
+    outlier = world.market_data.fetch_quote("AAPL")
+    assert outlier is not None
+    normal = SimulatedQuoteView(
+        symbol="AAPL", bid="220.00", ask="220.10", captured_at=outlier.captured_at
+    )
+    world.market_data.stage_recent_quotes("AAPL", [outlier, normal] * 6)
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and not claimed.is_claimed
+    sells = [o for o in world.store.orders() if o.side == "sell"]
+    assert sells == []
+
+
+# ---------------------------------------------------------------------------
+# A failing recent-quotes call fails OPEN, never blocking a protective exit
+# ---------------------------------------------------------------------------
+
+
+class _RecentQuotesAlwaysFail:
+    """ADVERSARIAL REVIEW (PR #41): wraps a real `SimulatedMarketData` but makes
+    `fetch_recent_quotes` raise, simulating an Alpaca historical-quotes outage that is
+    independent of `fetch_quote` (the primary snapshot) still working fine -- exactly the
+    asymmetric-failure shape a real outage could take."""
+
+    def __init__(self, inner: SimulatedMarketData) -> None:
+        self._inner = inner
+
+    @property
+    def endpoint_host(self) -> str:
+        return self._inner.endpoint_host
+
+    def fetch_quote(self, symbol: str) -> SimulatedQuoteView | None:
+        return self._inner.fetch_quote(symbol)
+
+    def fetch_recent_quotes(
+        self, symbol: str, *, start: datetime, end: datetime, limit: int = 1000
+    ) -> tuple[SimulatedQuoteView, ...]:
+        raise ConnectionError("simulated Alpaca historical-quotes outage")
+
+
+def test_a_failing_recent_quotes_call_still_claims_a_genuine_stop(world: World) -> None:
+    """ADVERSARIAL REVIEW (PR #41, 2026-10-21): a `fetch_recent_quotes` failure (network
+    error, timeout) must fail OPEN exactly like an empty/thin result does -- never
+    propagate and abort the entire tick (every other plan `evaluate_once` was about to
+    evaluate too) over a failure in a check that is, by this gate's own design, allowed
+    to be unavailable. `_corroborate_price_trigger` catches it and falls back to trusting
+    the single latest quote, same as the thin-sample case."""
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    _set_quote(world, "AAPL", bid="229.00", ask="229.10")
+    broken_manager = PositionPlanManager(
+        plans=plans,
+        external_closures=FakeExternalPositionClosures(),
+        intents=world.repositories.intents,
+        entry_attempts=world.repositories.attempts,
+        exit_attempts=world.exits.attempts,
+        previews=world.exits.previews,
+        authorizations=world.exits.authorizations,
+        acknowledgements=world.exits.acknowledgements,
+        events=world.exits.events,
+        rounds=world.exits.rounds,
+        broker=world.broker,
+        market_data=_RecentQuotesAlwaysFail(world.market_data),
+        configurations=world.repositories.configurations,
+        environment="SIMULATION",
+        time_source=world.clock,
+    )
+
+    outcomes = broken_manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.EXIT_CLAIMED, outcomes[0].detail
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.STOP
+
+
 # ---------------------------------------------------------------------------
 # Mandatory exit fires on time alone, even inside the stop/target band
 # ---------------------------------------------------------------------------
@@ -447,6 +539,63 @@ def test_the_mandatory_exit_fires_on_time_alone(world: World) -> None:
     assert claimed.triggered_exit_quote_ask is None
     assert claimed.triggered_exit_quote_captured_at is None
     assert claimed.triggered_exit_quote_source is None
+
+
+def test_an_uncertain_stop_candidate_past_the_mandatory_deadline_still_claims_mandatory_exit(
+    world: World,
+) -> None:
+    """ADVERSARIAL REVIEW (PR #41, 2026-10-21): `evaluate_exit_trigger` has ALWAYS
+    prioritized STOP over MANDATORY_EXIT when both conditions are simultaneously true
+    (`decision_candidate/approved_plan.py`'s own docstring: "a price that has already
+    crossed the stop is the more urgent risk-bounding fact"). Before the quality gate,
+    this never mattered in practice: whichever branch `evaluate_exit_trigger` picked was
+    claimed immediately, so SOME exit happened right away regardless of which kind won.
+
+    The quality gate breaks that property: if the price condition is ALSO met but its
+    evidence is uncertain, `_evaluate_unclaimed` used to return `TRIGGER_EVIDENCE_UNCERTAIN`
+    and claim NOTHING -- not STOP (uncertain), and not MANDATORY_EXIT either, because
+    `evaluate_exit_trigger` already returned STOP before ever examining the deadline. A
+    plan already past its mandatory liquidation deadline, with a flickering price also
+    sitting at the stop, would sit completely unclaimed -- directly contradicting the
+    mission's own requirement: "A poor-quality quote must not silently prevent timely
+    mandatory exit." This proves the fix: MANDATORY_EXIT is independently re-checked and
+    still claims on this exact tick.
+    """
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    deadline = world.clock.utc + timedelta(minutes=5)
+    plans.save(
+        _plan(
+            world,
+            intent,
+            stop=Decimal("230"),
+            target=Decimal("260"),
+            mandatory_liquidation_at=deadline,
+        )
+    )
+    manager = _manager(world, plans)
+    world.clock.advance(int(timedelta(minutes=5).total_seconds()) - 60)  # past the deadline
+    _set_quote(world, "AAPL", bid="229.00", ask="229.10")  # ALSO below the stop
+    outlier = world.market_data.fetch_quote("AAPL")
+    assert outlier is not None
+    normal = SimulatedQuoteView(
+        symbol="AAPL", bid="240.00", ask="240.10", captured_at=outlier.captured_at
+    )
+    world.market_data.stage_recent_quotes(
+        "AAPL",
+        [outlier, normal] * 6,  # 50/50 split -- the STOP price condition is uncertain
+    )
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.EXIT_CLAIMED
+    claimed = plans.get(plan_id="PLAN-1")
+    assert claimed is not None
+    assert claimed.triggered_exit_kind is ExitTriggerKind.MANDATORY_EXIT
+    # A time-based claim never consults a quote -- it must never carry quote evidence,
+    # exactly like `test_the_mandatory_exit_fires_on_time_alone` above.
+    assert claimed.triggered_exit_quote_bid is None
+    assert world.exits.attempts.for_entry(intent) != ()
 
 
 # ---------------------------------------------------------------------------

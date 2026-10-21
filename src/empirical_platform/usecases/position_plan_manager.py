@@ -350,15 +350,28 @@ class PositionPlanManager:
         if is_price_trigger:
             corroborated, detail = self._corroborate_price_trigger(trigger, plan=plan, now=now)
             if not corroborated:
-                return PlanEvaluationOutcome(
-                    plan.plan_id,
-                    plan.entry_intent_governance_id,
-                    PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
-                    f"trigger={trigger.value} candidate last_price={last_price} "
-                    f"stop={plan.stop_price} target={plan.target_price}: {detail}; not "
-                    "claimed, re-evaluating next tick -- MANDATORY_EXIT is unaffected and "
-                    "remains independently time-driven",
-                )
+                # ADVERSARIAL REVIEW FOLLOW-UP (PR #41, 2026-10-21): `evaluate_exit_trigger`
+                # prioritizes a price trigger over MANDATORY_EXIT even when the deadline has
+                # ALSO already passed (its own docstring: STOP/TARGET is "the more urgent
+                # risk-bounding fact") -- so it never even evaluated the deadline branch once
+                # it returned `trigger` here. Before this check, an uncertain price trigger
+                # therefore left the plan completely unclaimed on a tick where MANDATORY_EXIT
+                # was independently and unconditionally due -- the exact "poor-quality quote
+                # silently prevents timely mandatory exit" case the mission forbids. Re-check
+                # the deadline directly: it needs no quote and is immune to this gate.
+                if now >= plan.mandatory_exit_deadline:
+                    trigger = ExitTriggerKind.MANDATORY_EXIT
+                    is_price_trigger = False
+                else:
+                    return PlanEvaluationOutcome(
+                        plan.plan_id,
+                        plan.entry_intent_governance_id,
+                        PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
+                        f"trigger={trigger.value} candidate last_price={last_price} "
+                        f"stop={plan.stop_price} target={plan.target_price}: {detail}; not "
+                        "claimed, re-evaluating next tick -- MANDATORY_EXIT is unaffected and "
+                        "remains independently time-driven",
+                    )
         claimed = self._plans.claim_exit_trigger(
             plan.plan_id,
             kind=trigger,
@@ -383,12 +396,29 @@ class PositionPlanManager:
         """EXIT SIGNAL QUALITY GATE: does a short recent window of independent IEX quote
         ticks agree with the single latest one that produced `kind`? Re-fetches fresh from
         the broker every call (see `fetch_recent_quotes`) -- nothing here is remembered in
-        RAM between ticks, matching every other durability property this manager has."""
-        recent = self._market_data.fetch_recent_quotes(
-            plan.symbol,
-            start=now - timedelta(seconds=EXIT_QUOTE_CORROBORATION_WINDOW_SECONDS),
-            end=now,
-        )
+        RAM between ticks, matching every other durability property this manager has.
+
+        ADVERSARIAL REVIEW FOLLOW-UP (PR #41, 2026-10-21): a `fetch_recent_quotes` failure
+        (network error, timeout, malformed response the adapter could not swallow itself)
+        must fail OPEN exactly like an empty/thin result does -- not propagate and abort
+        the ENTIRE tick (every other plan `evaluate_once` was about to evaluate too) over a
+        failure in a check that is, by this gate's own design, allowed to be unavailable.
+        """
+        try:
+            recent = self._market_data.fetch_recent_quotes(
+                plan.symbol,
+                start=now - timedelta(seconds=EXIT_QUOTE_CORROBORATION_WINDOW_SECONDS),
+                end=now,
+            )
+        except Exception as error:  # noqa: BLE001 - a corroboration failure must fail OPEN
+            _LOG.warning(
+                "plan %s: fetch_recent_quotes failed (%s: %s); falling back to trusting "
+                "the single latest quote",
+                plan.plan_id,
+                type(error).__name__,
+                error,
+            )
+            return True, f"fetch_recent_quotes raised {type(error).__name__}: {error}"
         return _price_trigger_corroboration(kind, plan=plan, recent=recent)
 
     def _externally_closed_outcome(
