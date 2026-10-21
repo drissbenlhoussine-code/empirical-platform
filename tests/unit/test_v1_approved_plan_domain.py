@@ -78,6 +78,63 @@ def test_a_plan_cannot_claim_kind_without_claim_time_or_vice_versa() -> None:
         _plan(triggered_exit_kind=None, triggered_exit_at=_NOW)
 
 
+# ---------------------------------------------------------------------------
+# FORENSIC AUDIT FOLLOW-UP (2026-10-20 early-STOP incident): trigger-evidence fields
+# ---------------------------------------------------------------------------
+
+
+def test_a_claimed_stop_may_carry_its_full_quote_evidence() -> None:
+    plan = _plan(
+        stop_price=Decimal("95"),
+        triggered_exit_kind=ExitTriggerKind.STOP,
+        triggered_exit_at=_NOW,
+        triggered_exit_quote_bid=Decimal("94.50"),
+        triggered_exit_quote_ask=Decimal("94.60"),
+        triggered_exit_quote_captured_at=_NOW,
+        triggered_exit_quote_source="alpaca-iex",
+    )
+    assert plan.triggered_exit_quote_bid == Decimal("94.50")
+    assert plan.triggered_exit_quote_source == "alpaca-iex"
+
+
+def test_a_claimed_stop_without_quote_evidence_is_still_valid() -> None:
+    """NOT required -- see the migration's own docstring for why. A direct claim with no
+    quote in scope (restart-recovery resumption, a concurrency-race test, a legacy row)
+    remains exactly as valid as before this field existed."""
+    plan = _plan(
+        stop_price=Decimal("95"),
+        triggered_exit_kind=ExitTriggerKind.STOP,
+        triggered_exit_at=_NOW,
+    )
+    assert plan.triggered_exit_quote_bid is None
+
+
+def test_quote_evidence_fields_must_be_set_or_unset_together() -> None:
+    with pytest.raises(ValueError, match="must be set, or unset, together"):
+        _plan(
+            triggered_exit_kind=ExitTriggerKind.STOP,
+            triggered_exit_at=_NOW,
+            triggered_exit_quote_bid=Decimal("94.50"),
+            triggered_exit_quote_ask=None,
+            triggered_exit_quote_captured_at=_NOW,
+            triggered_exit_quote_source="alpaca-iex",
+        )
+
+
+def test_a_mandatory_exit_claim_can_never_carry_quote_evidence() -> None:
+    """A time-based trigger never consults a quote (see `evaluate_exit_trigger`) -- it
+    must never be able to carry evidence implying one was used."""
+    with pytest.raises(ValueError, match="MANDATORY_EXIT never consults a quote"):
+        _plan(
+            triggered_exit_kind=ExitTriggerKind.MANDATORY_EXIT,
+            triggered_exit_at=_NOW,
+            triggered_exit_quote_bid=Decimal("94.50"),
+            triggered_exit_quote_ask=Decimal("94.60"),
+            triggered_exit_quote_captured_at=_NOW,
+            triggered_exit_quote_source="alpaca-iex",
+        )
+
+
 def test_system_identity_is_deterministic_and_traces_to_the_one_approval() -> None:
     a = derive_system_identity(plan_id="PLAN-7", owner_approval_id="OWN-9")
     b = derive_system_identity(plan_id="PLAN-7", owner_approval_id="OWN-9")

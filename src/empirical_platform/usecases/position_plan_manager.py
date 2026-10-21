@@ -301,7 +301,20 @@ class PositionPlanManager:
                 PlanOutcomeKind.MONITORING,
                 f"last_price={last_price} stop={plan.stop_price} target={plan.target_price}",
             )
-        claimed = self._plans.claim_exit_trigger(plan.plan_id, kind=trigger, claimed_at=now)
+        # FORENSIC AUDIT FOLLOW-UP (2026-10-20 early-STOP incident): persist the exact
+        # quote that drove a price-based (STOP/TARGET) claim -- bid, ask, the quote's OWN
+        # timestamp, and its feed/source -- so a future incident is reconstructible from
+        # this row alone. MANDATORY_EXIT fires on time alone and never consults a quote.
+        is_price_trigger = trigger in (ExitTriggerKind.STOP, ExitTriggerKind.TARGET)
+        claimed = self._plans.claim_exit_trigger(
+            plan.plan_id,
+            kind=trigger,
+            claimed_at=now,
+            quote_bid=last_price if is_price_trigger else None,
+            quote_ask=_ask_as_decimal(quote) if is_price_trigger else None,
+            quote_captured_at=getattr(quote, "captured_at", None) if is_price_trigger else None,
+            quote_source=getattr(quote, "source", None) if is_price_trigger else None,
+        )
         if claimed is None:
             return PlanEvaluationOutcome(
                 plan.plan_id,
@@ -442,6 +455,19 @@ def _bid_as_decimal(quote: object) -> Decimal | None:
         return None
     try:
         return Decimal(str(bid))
+    except InvalidOperation:
+        return None
+
+
+def _ask_as_decimal(quote: object) -> Decimal | None:
+    """FORENSIC AUDIT FOLLOW-UP: the ask alongside the bid `evaluate_exit_trigger` actually
+    used, persisted purely as evidence -- never consulted by the trigger decision itself,
+    which (unchanged) depends only on the bid (see `evaluate_exit_trigger`)."""
+    ask = getattr(quote, "ask", None)
+    if ask is None:
+        return None
+    try:
+        return Decimal(str(ask))
     except InvalidOperation:
         return None
 

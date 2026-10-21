@@ -196,6 +196,100 @@ def test_a_stop_trigger_submits_the_same_sell_to_close_a_human_would(world: Worl
     assert len(sells) == 1
 
 
+def test_a_stop_trigger_persists_the_exact_quote_evidence_that_drove_it(world: World) -> None:
+    """FORENSIC AUDIT FOLLOW-UP (2026-10-20 early-STOP incident, entry
+    INT-PRP-089-PAPER-20261020T145108Z): reconstructing what actually triggered that STOP
+    required pulling Alpaca's historical quotes after the fact -- nothing in the database
+    recorded the bid/ask/timestamp/feed that drove it. This proves the fix: the claimed
+    plan row now carries that evidence directly."""
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    manager = _manager(world, plans)
+    _set_quote(world, "AAPL", bid="229.00", ask="229.10")
+
+    manager.evaluate_once(now=world.clock.utc)
+
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.STOP
+    assert claimed.triggered_exit_quote_bid == Decimal("229.00")
+    assert claimed.triggered_exit_quote_ask == Decimal("229.10")
+    assert claimed.triggered_exit_quote_captured_at is not None
+    assert claimed.triggered_exit_quote_source is not None
+
+
+def test_a_thin_quote_bid_claims_the_trigger_with_zero_cross_check(world: World) -> None:
+    """Item 9 reproduction: the exact mechanism behind the 2026-10-20 incident.
+
+    `evaluate_exit_trigger` (`decision_candidate/approved_plan.py`) fires STOP whenever
+    `last_price <= plan.stop_price`, where `last_price` is nothing but the raw bid
+    `_bid_as_decimal` pulled off the quote. `_evaluate_unclaimed` claims this trigger via
+    `claim_exit_trigger` -- the ONE irreversible action (`ApprovedPlan.is_claimed` then
+    refuses the trigger forever, see `evaluate_exit_trigger`'s first line) -- WITHOUT ever
+    checking the ask, the quote's own staleness, or any other corroborating source. Real
+    production: Alpaca's IEX-only single-venue feed showed a genuine, several-seconds-stable
+    bid of 335.72 while the consolidated tape traded 339.85-340.87 throughout, with zero
+    trade ever printing at or near 335.72 -- i.e. a bid that bears no demonstrated
+    relationship to the broader market can still win this irreversible claim. This test
+    reproduces that: a bid inside the stop band with a realistic, narrow spread (so it is
+    NOT caught by the separate, later, narrower spread-sanity check the preview/pricing
+    stage applies -- see the next test for that boundary) claims and dispatches cleanly,
+    proving the claim step itself performs no cross-check of any kind. This is TODAY's
+    real, intentionally UNCHANGED behavior -- see the PR description for why adding a
+    rejection check here is a separate, larger decision for the Owner to make explicitly.
+    """
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    manager = _manager(world, plans)
+    _set_quote(world, "AAPL", bid="229.00", ask="229.10")
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.EXIT_CLAIMED
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.STOP
+    # Unlike the real incident, this bid -- which never had to justify itself against
+    # anything else -- is no longer silently discarded: it is now durable evidence.
+    assert claimed.triggered_exit_quote_bid == Decimal("229.00")
+    assert claimed.triggered_exit_quote_ask == Decimal("229.10")
+
+
+def test_an_extreme_spread_claims_the_trigger_but_then_sticks_in_needs_attention(
+    world: World,
+) -> None:
+    """The boundary discovered while writing the item 9 reproduction above: there IS a
+    spread-sanity check in this codebase (a 1% limit), but it lives in the PREVIEW/pricing
+    stage (`PreviewPositionExitHandler`), which runs AFTER `claim_exit_trigger` has already
+    irreversibly consumed the one-shot trigger. An extreme spread therefore cannot be
+    cross-checked away before the claim -- it can only block the DISPATCH of a trigger
+    that is now permanently claimed, surfacing as `NEEDS_ATTENTION` instead of a silent bad
+    fill. The plan is NOT stuck forever: `_resume_claimed` retries `_attempt_exit` with a
+    FRESH quote on every later tick (this is why the real 2026-10-20 incident still
+    resolved cleanly roughly a minute later, once the anomalous bid had already cleared by
+    the time its own preview fetched a fresh quote) -- but until a fresh quote clears the
+    1% bound, the claimed trigger cannot be reassigned, cancelled, or re-evaluated against
+    a different kind, and the quote evidence that caused the stall is exactly what this
+    PR's persistence change makes visible without needing operator log archaeology.
+    """
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    manager = _manager(world, plans)
+    _set_quote(world, "AAPL", bid="229.00", ask="500.00")
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.NEEDS_ATTENTION
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.STOP
+    assert claimed.is_claimed  # irreversible: the trigger was consumed before the refusal
+    assert claimed.triggered_exit_quote_bid == Decimal("229.00")
+    assert claimed.triggered_exit_quote_ask == Decimal("500.00")
+    sells = [o for o in world.store.orders() if o.side == "sell"]
+    assert sells == []  # nothing was actually dispatched
+
+
 def test_a_second_tick_after_the_stop_fired_does_not_resubmit(world: World) -> None:
     intent = _open_position(world)
     plans = FakeApprovedPlans()
@@ -258,6 +352,16 @@ def test_the_mandatory_exit_fires_on_time_alone(world: World) -> None:
     outcomes = manager.evaluate_once(now=world.clock.utc)
     assert outcomes[0].kind is PlanOutcomeKind.EXIT_CLAIMED
     assert world.exits.attempts.for_entry(intent) != ()
+
+    # FORENSIC AUDIT FOLLOW-UP: a time-based claim never consults a quote, so it must
+    # never carry quote evidence either (enforced by both `ApprovedPlan.__post_init__`
+    # and the database guard -- see migration f3a7c9e2b164).
+    claimed = plans.get(plan_id="PLAN-1")
+    assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.MANDATORY_EXIT
+    assert claimed.triggered_exit_quote_bid is None
+    assert claimed.triggered_exit_quote_ask is None
+    assert claimed.triggered_exit_quote_captured_at is None
+    assert claimed.triggered_exit_quote_source is None
 
 
 # ---------------------------------------------------------------------------

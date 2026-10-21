@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime
+from decimal import Decimal
 
 from empirical_platform.decision_candidate.approved_plan import ApprovedPlan, ExitTriggerKind
 from empirical_platform.decision_candidate.approved_plan_repositories import (
@@ -55,7 +56,15 @@ class FakeApprovedPlans:
         return tuple(claimed[:limit])
 
     def claim_exit_trigger(
-        self, plan_id: str, *, kind: ExitTriggerKind, claimed_at: datetime
+        self,
+        plan_id: str,
+        *,
+        kind: ExitTriggerKind,
+        claimed_at: datetime,
+        quote_bid: Decimal | None = None,
+        quote_ask: Decimal | None = None,
+        quote_captured_at: datetime | None = None,
+        quote_source: str | None = None,
     ) -> ApprovedPlan | None:
         with self._lock:
             current = self.rows.get(plan_id)
@@ -77,6 +86,10 @@ class FakeApprovedPlans:
                 created_at=current.created_at,
                 triggered_exit_kind=kind,
                 triggered_exit_at=claimed_at,
+                triggered_exit_quote_bid=quote_bid,
+                triggered_exit_quote_ask=quote_ask,
+                triggered_exit_quote_captured_at=quote_captured_at,
+                triggered_exit_quote_source=quote_source,
             )
             self.rows[plan_id] = claimed
             return claimed

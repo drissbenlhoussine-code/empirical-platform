@@ -157,6 +157,155 @@ def test_list_unclaimed_and_list_claimed_partition_correctly(
     assert {p.plan_id for p in repo.list_claimed(10)} == {"PLAN-U-1"}
 
 
+def test_claiming_a_stop_or_target_persists_the_quote_evidence_that_drove_it(
+    repo: PostgresApprovedPlanRepository,
+) -> None:
+    """FORENSIC AUDIT FOLLOW-UP (2026-10-20 early-STOP incident): proves the real
+    PostgreSQL round trip for migration f3a7c9e2b164's four new columns, not just the
+    in-memory fake."""
+    plan = repo.save(
+        _plan("PLAN-EVIDENCE-1", entry="INT-EVIDENCE-1", stop=Decimal("95"), target=Decimal("110"))
+    )
+    claimed = repo.claim_exit_trigger(
+        plan.plan_id,
+        kind=ExitTriggerKind.STOP,
+        claimed_at=_NOW,
+        quote_bid=Decimal("94.50"),
+        quote_ask=Decimal("94.60"),
+        quote_captured_at=_NOW - timedelta(seconds=1),
+        quote_source="alpaca-iex",
+    )
+    assert claimed is not None
+    assert claimed.triggered_exit_quote_bid == Decimal("94.50")
+    assert claimed.triggered_exit_quote_ask == Decimal("94.60")
+    assert claimed.triggered_exit_quote_captured_at == _NOW - timedelta(seconds=1)
+    assert claimed.triggered_exit_quote_source == "alpaca-iex"
+
+    reloaded = repo.get(plan.plan_id)
+    assert reloaded is not None
+    assert reloaded.triggered_exit_quote_bid == Decimal("94.50")
+    assert reloaded.triggered_exit_quote_source == "alpaca-iex"
+
+
+def test_claiming_without_quote_evidence_remains_valid(
+    repo: PostgresApprovedPlanRepository,
+) -> None:
+    """NOT required -- a direct claim with no quote in scope (restart-recovery resumption,
+    a concurrency race, MANDATORY_EXIT) is exactly as valid as before this migration."""
+    plan = repo.save(
+        _plan(
+            "PLAN-NO-EVIDENCE-1",
+            entry="INT-NO-EVIDENCE-1",
+            stop=Decimal("95"),
+            target=Decimal("110"),
+        )
+    )
+    claimed = repo.claim_exit_trigger(
+        plan.plan_id, kind=ExitTriggerKind.MANDATORY_EXIT, claimed_at=_NOW
+    )
+    assert claimed is not None
+    assert claimed.triggered_exit_quote_bid is None
+    assert claimed.triggered_exit_quote_ask is None
+    assert claimed.triggered_exit_quote_captured_at is None
+    assert claimed.triggered_exit_quote_source is None
+
+
+def test_the_database_refuses_a_mandatory_exit_claim_carrying_quote_evidence(
+    engine: Engine,
+) -> None:
+    """The database's OWN guard (not just `ApprovedPlan.__post_init__`) refuses a
+    MANDATORY_EXIT claim that tries to carry quote evidence -- a time-based trigger never
+    consults a quote, so it must never be able to assert that one drove it."""
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE public.{_TABLE}"))
+    with engine.begin() as connection, pytest.raises(sa.exc.DatabaseError):
+        connection.execute(
+            text(
+                "INSERT INTO public.approved_plan (plan_id, candidate_id, "
+                "entry_intent_governance_id, symbol, approved_quantity, stop_price, "
+                "target_price, mandatory_liquidation_at, owner_approval_id, system_identity, "
+                "created_at, triggered_exit_kind, triggered_exit_at, triggered_exit_quote_bid, "
+                "triggered_exit_quote_ask, triggered_exit_quote_captured_at, "
+                "triggered_exit_quote_source) "
+                "VALUES ('PLAN-BAD-EVIDENCE', 'CAND-1', 'INT-BAD-EVIDENCE', 'AAPL', 5, 95, 110, "
+                ":deadline, 'OWN-1', :identity, :now, 'MANDATORY_EXIT', :now, 94.50, 94.60, "
+                ":now, 'alpaca-iex')"
+            ),
+            {
+                "deadline": _NOW + timedelta(hours=2),
+                "identity": derive_system_identity(
+                    plan_id="PLAN-BAD-EVIDENCE", owner_approval_id="OWN-1"
+                ),
+                "now": _NOW,
+            },
+        )
+
+
+def test_the_database_refuses_partial_quote_evidence(engine: Engine) -> None:
+    """The quote-evidence columns are all-or-nothing at the database layer too."""
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE public.{_TABLE}"))
+    service = PostgresPersistenceService(config("v1-partial-evidence-check"))
+    service.initialize()
+    try:
+        repo = PostgresApprovedPlanRepository(service)
+        repo.save(
+            _plan(
+                "PLAN-PARTIAL-1", entry="INT-PARTIAL-1", stop=Decimal("95"), target=Decimal("110")
+            )
+        )
+    finally:
+        service.close()
+
+    with engine.begin() as connection, pytest.raises(sa.exc.DatabaseError):
+        connection.execute(
+            text(
+                "UPDATE public.approved_plan SET triggered_exit_kind = 'STOP', "
+                "triggered_exit_at = :now, triggered_exit_quote_bid = 94.50 "
+                "WHERE plan_id = :p"
+            ),
+            {"p": "PLAN-PARTIAL-1", "now": _NOW},
+        )
+
+
+def test_the_database_refuses_changing_quote_evidence_after_it_is_claimed(
+    engine: Engine,
+) -> None:
+    """Append-only, matching `triggered_exit_kind` itself: once a STOP/TARGET claim has
+    recorded its quote evidence, that evidence can never be altered."""
+    with engine.begin() as connection:
+        connection.execute(text(f"TRUNCATE public.{_TABLE}"))
+    service = PostgresPersistenceService(config("v1-evidence-immutable-check"))
+    service.initialize()
+    try:
+        repo = PostgresApprovedPlanRepository(service)
+        plan = repo.save(
+            _plan(
+                "PLAN-EVIDENCE-IMM-1",
+                entry="INT-EVIDENCE-IMM-1",
+                stop=Decimal("95"),
+                target=Decimal("110"),
+            )
+        )
+        repo.claim_exit_trigger(
+            plan.plan_id,
+            kind=ExitTriggerKind.STOP,
+            claimed_at=_NOW,
+            quote_bid=Decimal("94.50"),
+            quote_ask=Decimal("94.60"),
+            quote_captured_at=_NOW,
+            quote_source="alpaca-iex",
+        )
+    finally:
+        service.close()
+
+    with engine.begin() as connection, pytest.raises(sa.exc.DatabaseError):
+        connection.execute(
+            text("UPDATE public.approved_plan SET triggered_exit_quote_bid = 1 WHERE plan_id = :p"),
+            {"p": "PLAN-EVIDENCE-IMM-1"},
+        )
+
+
 def test_claiming_an_already_claimed_plan_returns_none_not_an_error(
     repo: PostgresApprovedPlanRepository,
 ) -> None:
