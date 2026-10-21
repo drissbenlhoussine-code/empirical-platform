@@ -709,6 +709,102 @@ def test_resume_false_re_runs_every_step_even_if_previously_completed(
 
 
 # ---------------------------------------------------------------------------------------
+# main()'s production-targeting guard. Regression coverage for the adversarial-review
+# finding: the guard must key off the ACTUAL resolved Store B/C database names (via the
+# same `PERSONAL_DATABASES` frozenset database_safety.py itself uses), not only off
+# --manifest-path -- a decoy manifest path with the ambient environment still pointed at
+# a real protected database must still be refused without --confirm-production.
+# ---------------------------------------------------------------------------------------
+
+
+def _main_args(tmp_path: Path, manifest_path: Path, *, confirm_production: bool) -> list[str]:
+    args = [
+        "--repo-path",
+        str(tmp_path),
+        "--expected-release-head",
+        "deadbeef",
+        "--manifest-path",
+        str(manifest_path),
+        "--backup-root",
+        str(tmp_path / "backups"),
+        "--pg-bin",
+        str(tmp_path),
+        "--journal-path",
+        str(tmp_path / "journal.json"),
+    ]
+    if confirm_production:
+        args.append("--confirm-production")
+    return args
+
+
+def test_main_refuses_a_decoy_manifest_path_when_the_real_database_is_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The exact bug an independent review found: a non-production --manifest-path must
+    NOT be enough to bypass --confirm-production if the ambient environment's Store B/C
+    database names are the real, protected ones."""
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "empirical_platform_paper")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv(
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE", "empirical_platform_paper_exit"
+    )
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_PASSWORD", "x")
+    decoy_manifest = tmp_path / "decoy-manifest.json"
+    exit_code = deploy.main(_main_args(tmp_path, decoy_manifest, confirm_production=False))
+    assert exit_code == 2
+
+
+def test_main_accepts_the_real_database_once_confirmed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With --confirm-production given, the same real-database environment is accepted by
+    the guard (and only fails later, at the unrelated Alpaca-credential check)."""
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "empirical_platform_paper")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv(
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE", "empirical_platform_paper_exit"
+    )
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_PASSWORD", "x")
+    monkeypatch.delenv("EMPIRICAL_ALPACA_PAPER_API_KEY", raising=False)
+    monkeypatch.delenv("EMPIRICAL_ALPACA_PAPER_SECRET_KEY", raising=False)
+    decoy_manifest = tmp_path / "decoy-manifest.json"
+    exit_code = deploy.main(_main_args(tmp_path, decoy_manifest, confirm_production=True))
+    assert exit_code == 2  # past the production guard; refused only for missing Alpaca creds
+
+
+def test_main_refuses_confirm_production_against_a_genuinely_disposable_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "some_disposable_test_db")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv(
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE", "some_other_disposable_test_db"
+    )
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_PASSWORD", "x")
+    decoy_manifest = tmp_path / "decoy-manifest.json"
+    exit_code = deploy.main(_main_args(tmp_path, decoy_manifest, confirm_production=True))
+    assert exit_code == 2
+
+
+def test_main_refuses_disposable_targets_silently_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fully disposable target (not the real manifest path, not a real database name)
+    needs no --confirm-production at all, and proceeds past the guard."""
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "some_disposable_test_db")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv(
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE", "some_other_disposable_test_db"
+    )
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_PASSWORD", "x")
+    monkeypatch.delenv("EMPIRICAL_ALPACA_PAPER_API_KEY", raising=False)
+    monkeypatch.delenv("EMPIRICAL_ALPACA_PAPER_SECRET_KEY", raising=False)
+    decoy_manifest = tmp_path / "decoy-manifest.json"
+    exit_code = deploy.main(_main_args(tmp_path, decoy_manifest, confirm_production=False))
+    assert exit_code == 2  # past the production guard; refused only for missing Alpaca creds
+
+
+# ---------------------------------------------------------------------------------------
 # Config stub helper
 # ---------------------------------------------------------------------------------------
 

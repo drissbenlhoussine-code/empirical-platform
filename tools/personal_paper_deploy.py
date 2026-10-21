@@ -34,7 +34,7 @@ SAFETY BY CONSTRUCTION, NOT BY CONVENTION.
     a broker order through this script even by mistake.
   - Every DB write in this module names its target database/host/port explicitly, verifies
     the PERSONAL_PAPER identity comment and the exact expected pre-image head before writing,
-    and refuses (fails closed) on any mismatch. See `_require_identity_and_head`.
+    and refuses (fails closed) on any mismatch. See `_identity_and_head` and `_manifest_identity`.
   - The migration step never runs `alembic upgrade` online (see WHY above); it runs exactly
     the hash-pinned SQL file via `psql -f`, inside one transaction the file itself opens and
     closes.
@@ -73,6 +73,7 @@ from sqlalchemy.engine import Engine
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.database_safety import (
     IDENTITY_QUERY,
+    PERSONAL_DATABASES,
     DatabaseSafetyError,
     read_manifest,
 )
@@ -430,7 +431,7 @@ class RealProcessPort:
             # window-close message at all, so `taskkill` without `/F` silently does
             # nothing to it. CTRL_BREAK_EVENT is what Windows actually delivers to such a
             # process as a graceful, catchable signal (Python maps it to `SIGBREAK`).
-            os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+            os.kill(pid, signal.CTRL_BREAK_EVENT)
             return
         os.kill(pid, signal.SIGTERM)
 
@@ -525,20 +526,6 @@ def _identity_and_head(config: PostgreSQLConfigSnapshot) -> tuple[str | None, st
             return identity, head
     finally:
         engine.dispose()
-
-
-def _require_identity_and_head(
-    step: str, config: PostgreSQLConfigSnapshot, *, expected_identity: str, expected_head: str
-) -> None:
-    identity, head = _identity_and_head(config)
-    if identity != expected_identity:
-        raise DeploymentBlockedError(
-            step, f"database identity mismatch: expected {expected_identity!r}, found {identity!r}"
-        )
-    if head != expected_head:
-        raise DeploymentBlockedError(
-            step, f"schema head mismatch: expected {expected_head!r}, found {head!r}"
-        )
 
 
 def _row_count(config: PostgreSQLConfigSnapshot, table: str) -> int:
@@ -1178,18 +1165,32 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
 
-    targets_production = arguments.manifest_path.resolve() == _REAL_MANIFEST_PATH.resolve()
+    store_b_config = _env_config("EMPIRICAL_PLATFORM_POSTGRES", os.environ)
+    store_c_config = _env_config("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES", os.environ)
+
+    # ADVERSARIAL REVIEW FOLLOW-UP: the guard must key off every real-world thing that could
+    # make this touch production, not just the manifest path. A decoy --manifest-path with
+    # the ambient environment still pointed at the real Store B/C would otherwise sail through
+    # the manifest-only check below. `PERSONAL_DATABASES` is the SAME frozenset
+    # `database_safety.py` itself uses to decide what counts as a protected database.
+    targets_production = (
+        arguments.manifest_path.resolve() == _REAL_MANIFEST_PATH.resolve()
+        or store_b_config.database in PERSONAL_DATABASES
+        or store_c_config.database in PERSONAL_DATABASES
+    )
     if targets_production and not arguments.confirm_production:
         print(
-            "REFUSED: --manifest-path is the real PERSONAL_PAPER manifest path but "
+            "REFUSED: --manifest-path is the real PERSONAL_PAPER manifest path, or the "
+            "configured Store B/C database is a real protected database, but "
             "--confirm-production was not given. Nothing was touched.",
             file=sys.stderr,
         )
         return 2
     if arguments.confirm_production and not targets_production:
         print(
-            "REFUSED: --confirm-production was given but --manifest-path is not the real "
-            f"production manifest path ({_REAL_MANIFEST_PATH}). Nothing was touched.",
+            "REFUSED: --confirm-production was given but neither --manifest-path nor the "
+            f"configured Store B/C database ({_REAL_MANIFEST_PATH}; {PERSONAL_DATABASES!r}) "
+            "is actually a real production target. Nothing was touched.",
             file=sys.stderr,
         )
         return 2
@@ -1208,8 +1209,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest_path=arguments.manifest_path,
         backup_root=arguments.backup_root,
         pg_bin=arguments.pg_bin,
-        store_b_config=_env_config("EMPIRICAL_PLATFORM_POSTGRES", os.environ),
-        store_c_config=_env_config("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES", os.environ),
+        store_b_config=store_b_config,
+        store_c_config=store_c_config,
         migration_sql_path=arguments.repo_path / "tools" / MIGRATION_SQL_FILENAME,
         console_host=arguments.console_host,
         console_port=arguments.console_port,
