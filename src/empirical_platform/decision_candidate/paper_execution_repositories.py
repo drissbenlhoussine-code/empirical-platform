@@ -430,3 +430,12 @@ class PaperMarketDataPort(Protocol):
     def endpoint_host(self) -> str: ...
 
     def fetch_quote(self, symbol: str) -> BrokerQuoteView | None: ...
+
+    def fetch_recent_quotes(
+        self, symbol: str, *, start: datetime, end: datetime, limit: int = 1000
+    ) -> tuple[BrokerQuoteView, ...]:
+        """EXIT SIGNAL QUALITY GATE (2026-10-21): a short recent window of independent
+        quote ticks to corroborate a single `fetch_quote` snapshot against. See
+        `AlpacaPaperMarketDataClient.fetch_recent_quotes` for the real implementation and
+        `usecases.position_plan_manager` for how it is used."""
+        ...

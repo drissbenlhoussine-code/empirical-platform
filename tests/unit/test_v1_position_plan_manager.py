@@ -26,6 +26,7 @@ from empirical_platform.decision_candidate.external_position_closure import (
 from empirical_platform.decision_candidate.paper_execution import PaperExecutionState
 from empirical_platform.shared.brokerage.simulation_paper import (
     SimulatedOrder,
+    SimulatedQuoteView,
     default_exit_scenario_table,
     default_scenario_table,
 )
@@ -218,25 +219,18 @@ def test_a_stop_trigger_persists_the_exact_quote_evidence_that_drove_it(world: W
     assert claimed.triggered_exit_quote_source is not None
 
 
-def test_a_thin_quote_bid_claims_the_trigger_with_zero_cross_check(world: World) -> None:
-    """Item 9 reproduction: the exact mechanism behind the 2026-10-20 incident.
+def test_a_consistent_thin_quote_bid_still_claims_cleanly(world: World) -> None:
+    """EXIT SIGNAL QUALITY GATE follow-up to item 9's original reproduction (history below).
 
-    `evaluate_exit_trigger` (`decision_candidate/approved_plan.py`) fires STOP whenever
-    `last_price <= plan.stop_price`, where `last_price` is nothing but the raw bid
-    `_bid_as_decimal` pulled off the quote. `_evaluate_unclaimed` claims this trigger via
-    `claim_exit_trigger` -- the ONE irreversible action (`ApprovedPlan.is_claimed` then
-    refuses the trigger forever, see `evaluate_exit_trigger`'s first line) -- WITHOUT ever
-    checking the ask, the quote's own staleness, or any other corroborating source. Real
-    production: Alpaca's IEX-only single-venue feed showed a genuine, several-seconds-stable
-    bid of 335.72 while the consolidated tape traded 339.85-340.87 throughout, with zero
-    trade ever printing at or near 335.72 -- i.e. a bid that bears no demonstrated
-    relationship to the broader market can still win this irreversible claim. This test
-    reproduces that: a bid inside the stop band with a realistic, narrow spread (so it is
-    NOT caught by the separate, later, narrower spread-sanity check the preview/pricing
-    stage applies -- see the next test for that boundary) claims and dispatches cleanly,
-    proving the claim step itself performs no cross-check of any kind. This is TODAY's
-    real, intentionally UNCHANGED behavior -- see the PR description for why adding a
-    rejection check here is a separate, larger decision for the Owner to make explicitly.
+    `evaluate_exit_trigger` fires STOP whenever `last_price <= plan.stop_price`; this bid
+    is nothing but the raw `_bid_as_decimal` pulled off a single quote. Before the quality
+    gate below, `_evaluate_unclaimed` claimed this irreversibly with no cross-check of any
+    kind -- see `test_the_2026_10_20_incident_is_no_longer_claimed_on_a_single_outlier_tick`
+    for the actual flickering-evidence case this gate now catches. THIS test proves the
+    gate does not add friction when there is nothing to catch: a bid with no staged recent
+    history gets the simulation's default self-consistent window (see
+    `SimulatedMarketData.fetch_recent_quotes`), agrees with itself 100% of the time, and
+    claims on the SAME tick exactly as before -- a real, sustained STOP must never wait.
     """
     intent = _open_position(world)
     plans = FakeApprovedPlans()
@@ -249,10 +243,101 @@ def test_a_thin_quote_bid_claims_the_trigger_with_zero_cross_check(world: World)
     assert outcomes[0].kind is PlanOutcomeKind.EXIT_CLAIMED
     claimed = plans.get(plan.plan_id)
     assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.STOP
-    # Unlike the real incident, this bid -- which never had to justify itself against
-    # anything else -- is no longer silently discarded: it is now durable evidence.
     assert claimed.triggered_exit_quote_bid == Decimal("229.00")
     assert claimed.triggered_exit_quote_ask == Decimal("229.10")
+
+
+def test_the_2026_10_20_incident_is_no_longer_claimed_on_a_single_outlier_tick(
+    world: World,
+) -> None:
+    """EXIT SIGNAL QUALITY GATE (2026-10-21 hardening): the actual reproduction.
+
+    Retrieving Alpaca's own historical IEX quote ticks for the 15 seconds preceding the
+    real 2026-10-20 claim showed only 360 of 664 ticks (54%) actually crossed stop_price --
+    a coin flip, not a sustained move; the ask stayed anchored near the real trading price
+    throughout. This stages that exact shape: a 50/50 split between an outlier low bid and
+    a normal high bid over a 15-second window, with the single LATEST tick happening to be
+    the outlier (as it genuinely was in production). The plan must NOT be claimed -- it is
+    left to re-evaluate next tick -- and no SELL is dispatched.
+    """
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("338.40"), target=Decimal("400")))
+    manager = _manager(world, plans)
+    _set_quote(world, "AAPL", bid="335.72", ask="340.11")
+    outlier = world.market_data.fetch_quote("AAPL")
+    assert outlier is not None
+    normal = SimulatedQuoteView(
+        symbol="AAPL", bid="340.25", ask="340.52", captured_at=outlier.captured_at
+    )
+    world.market_data.stage_recent_quotes(
+        "AAPL",
+        [outlier, normal] * 6,  # 12 ticks, 50% crossing stop_price -- below 90%
+    )
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN
+    assert "sample_size=12" in outcomes[0].detail
+    assert "fraction=0.50" in outcomes[0].detail
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and not claimed.is_claimed
+    sells = [o for o in world.store.orders() if o.side == "sell"]
+    assert sells == []
+
+
+def test_a_genuine_sustained_stop_still_claims_on_the_same_tick(world: World) -> None:
+    """Fast-market check: a genuine, sustained move must NOT be delayed even one tick. A
+    real gap-down's recent quote history moves together -- it does not oscillate back to
+    the old level -- so every tick in the lookback window agrees, and the gate claims
+    immediately, same as before this hardening existed."""
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    manager = _manager(world, plans)
+    _set_quote(world, "AAPL", bid="228.50", ask="228.60")
+    primary = world.market_data.fetch_quote("AAPL")
+    assert primary is not None
+    captured_at = primary.captured_at
+    world.market_data.stage_recent_quotes(
+        "AAPL",
+        [
+            SimulatedQuoteView(symbol="AAPL", bid=bid, ask=ask, captured_at=captured_at)
+            for bid, ask in (
+                ("229.80", "229.90"),
+                ("229.40", "229.50"),
+                ("229.10", "229.20"),
+                ("228.90", "229.00"),
+                ("228.70", "228.80"),
+                ("228.50", "228.60"),
+            )
+        ],
+    )
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.EXIT_CLAIMED
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.STOP
+
+
+def test_a_thin_sample_falls_back_to_trusting_the_single_quote(world: World) -> None:
+    """Below `EXIT_QUOTE_CORROBORATION_MINIMUM_SAMPLE`, agreement cannot be meaningfully
+    assessed at all (an illiquid stretch may simply not produce enough ticks in 15s). The
+    gate deliberately fails OPEN toward the pre-hardening behavior here, never toward
+    silently blocking a protective exit -- see the PR description's residual risks."""
+    intent = _open_position(world)
+    plans = FakeApprovedPlans()
+    plan = plans.save(_plan(world, intent, stop=Decimal("230"), target=Decimal("260")))
+    manager = _manager(world, plans)
+    _set_quote(world, "AAPL", bid="229.00", ask="229.10")
+    world.market_data.stage_recent_quotes("AAPL", [])  # thinner than any real market
+
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+
+    assert outcomes[0].kind is PlanOutcomeKind.EXIT_CLAIMED
+    claimed = plans.get(plan.plan_id)
+    assert claimed is not None and claimed.triggered_exit_kind is ExitTriggerKind.STOP
 
 
 def test_an_extreme_spread_claims_the_trigger_but_then_sticks_in_needs_attention(
