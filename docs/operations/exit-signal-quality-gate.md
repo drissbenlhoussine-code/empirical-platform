@@ -214,11 +214,19 @@ point, not as numbers an Owner can treat as proven:
 - **One additional Alpaca API call per STOP/TARGET candidate tick.** Only
   when a trigger candidate exists (rare), not on every poll — bounded,
   same-order latency as the existing `fetch_quote`/`fetch_minute_bars` calls.
-  Not evaluated under real rate-limit pressure. It also widens the surface
-  for the pre-existing "one exception aborts the whole tick" property of
-  `PlanManagerThread._run` (now mitigated specifically for this call by the
-  fail-open fix above, but `fetch_quote`'s own failure mode is unchanged and
-  out of this PR's scope).
+  Alpaca's free/paper market-data tier is commonly reported at ~200
+  requests/minute (not found stated in the currently fetched official docs;
+  sourced from Alpaca staff forum replies, so treated as indicative, not
+  authoritative). A single position near its stop/target adds at most one
+  extra call per `DEFAULT_POLL_INTERVAL_SECONDS` (15s) — a small fraction of
+  that budget for one position, but this has NOT been evaluated against many
+  simultaneously open positions all near their trigger at once (e.g. a
+  market-wide selloff), which could plausibly multiply this call volume
+  exactly when `fetch_quote` traffic is also elevated. It also widens the
+  surface for the pre-existing "one exception aborts the whole tick" property
+  of `PlanManagerThread._run` (now mitigated specifically for this call by
+  the fail-open fix above, but `fetch_quote`'s own failure mode is unchanged
+  and out of this PR's scope).
 - Tests use mock/simulated quote windows that are crude compared to a live
   feed's actual flicker statistics; the 2026-10-20 reproduction stages the
   observed 54%/100% split directly from real retrieved evidence, but no
