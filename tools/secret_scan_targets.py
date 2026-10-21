@@ -53,6 +53,27 @@ _BENIGN_HIGH_ENTROPY_LINE_PATTERNS = (
     #: the literal `alembic_command.downgrade(cfg, "...")` call shape, not a blanket
     #: "any 12-hex string is fine" rule.
     re.compile(r'^[+-]?\s*alembic_command\.downgrade\(cfg, "[0-9a-f]{12}"\)$'),
+    #: V1 personal-paper deployment script's pinned migration identifiers: public
+    #: Alembic revision ids (`MIGRATION_PRE_HEAD`/`MIGRATION_POST_HEAD`/`STORE_C_HEAD`)
+    #: and the public sha256 of the reviewed, checked-in migration SQL file
+    #: (`MIGRATION_SQL_SHA256`) -- not credentials. Matched by exact constant name,
+    #: same discipline as every pattern above.
+    re.compile(r'^[+-]?MIGRATION_PRE_HEAD: Final = "[0-9a-f]{12}"$'),
+    re.compile(r'^[+-]?MIGRATION_POST_HEAD: Final = "[0-9a-f]{12}"$'),
+    re.compile(r'^[+-]?MIGRATION_SQL_SHA256: Final = "[0-9a-f]{64}"$'),
+    re.compile(r'^[+-]?STORE_C_HEAD: Final = "[0-9a-f]{12}"\s*(#.*)?$'),
+    #: The same migration's pinned SQL file itself: alembic's own generated
+    #: `UPDATE alembic_version SET version_num=...` statement, naming the same two
+    #: public revision ids as the constants above, not a credential.
+    re.compile(
+        r"^[+-]?UPDATE alembic_version SET version_num='[0-9a-f]{12}' "
+        r"WHERE alembic_version\.version_num = '[0-9a-f]{12}';$"
+    ),
+    #: The deployment script's own tests, exercising the same public revision ids
+    #: above as literal fixture values (manifest `head` field) rather than through
+    #: the named constants.
+    re.compile(r'^[+-]?\s*_write_manifest\(cfg\.manifest_path, head="[0-9a-f]{12}"\)$'),
+    re.compile(r'^[+-]?\s*"head": "[0-9a-f]{12}",?$'),
 )
 
 #: The one file whose lines may be cleared by a path-scoped rule instead of the
