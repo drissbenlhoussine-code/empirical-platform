@@ -1,0 +1,84 @@
+name: V1 Personal Paper deployment procedure
+
+# PR #40/#41 deployment automation (tools/personal_paper_deploy.py) against a REAL, disposable
+# PostgreSQL server -- rebuilt from the real migration chains, never hand-fabricated -- and a
+# real, harmless dummy console subprocess for the graceful-shutdown/recovery-start steps' OS
+# process and TCP port mechanics. No real Alpaca credential exists in this job and no external
+# endpoint is contacted.
+#
+# THIS JOB RUNS THE INTEGRATION FILE ALONE, IN ITS OWN PYTEST INVOCATION. `tests/conftest.py`
+# installs a session-wide guard (once EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1 is set) requiring
+# every TEST-shaped database's identity comment to be the literal `EMPIRICAL:TEST` for the
+# whole process -- running this file alongside other Postgres suites in the same pytest process
+# would be fine for THEM, but this file's own tests fake the identity half of one internal
+# function specifically to work around that guard (see the file's own module docstring), and
+# depend on no earlier test in the same process having already exercised real schema-building
+# migrations against these exact databases in a way this file's fixtures don't expect.
+#
+# tests/unit/test_v1_personal_paper_deploy.py (fakes only, no Postgres) already runs in the
+# `verify` job via the repository-wide `python -m pytest`.
+
+on:
+  push:
+    branches: [feat/v1-exit-signal-quality-gate, release/v1-personal-paper]
+  pull_request:
+    paths:
+      - '.github/workflows/v1-personal-paper-deploy.yml'
+      - 'tools/personal_paper_deploy.py'
+      - 'tools/personal_paper_deploy_migration_f3a7c9e2b164.sql'
+      - 'tools/personal_paper_backup.py'
+      - 'tools/mark_test_database.py'
+      - 'src/empirical_platform/shared/persistence/database_safety.py'
+      - 'migrations/versions/f3a7c9e2b164_add_v1_approved_plan_trigger_evidence.py'
+      - 'migrations_paper_exit/**'
+      - 'tests/unit/test_v1_personal_paper_deploy.py'
+      - 'tests/integration/test_v1_personal_paper_deploy_postgres.py'
+      - 'tests/integration/_m085_support.py'
+      - 'tests/integration/_m089_support.py'
+
+permissions:
+  contents: read
+
+jobs:
+  personal-paper-deploy-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: empirical
+          POSTGRES_DB: empirical_platform_v1_deploy_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U empirical -d empirical_platform_v1_deploy_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS: '1'
+      EMPIRICAL_PLATFORM_DATABASE_MODE: TEST
+      EMPIRICAL_PLATFORM_POSTGRES_HOST: localhost
+      EMPIRICAL_PLATFORM_POSTGRES_PORT: '5432'
+      EMPIRICAL_PLATFORM_POSTGRES_DATABASE: empirical_platform_v1_deploy_test
+      EMPIRICAL_PLATFORM_POSTGRES_USER: empirical
+      EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE: empirical_platform_v1_deploy_paper_exit_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -e '.[persistence,object-storage,test]'
+      - name: Set isolated database placeholder
+        run: echo "EMPIRICAL_PLATFORM_POSTGRES_PASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER" >> "$GITHUB_ENV"
+      - name: Create Store C's database on the throwaway server
+        run: >-
+          PGPASSWORD=$EMPIRICAL_PLATFORM_POSTGRES_USER
+          psql -h localhost -U empirical -d empirical_platform_v1_deploy_test
+          -c "CREATE DATABASE $EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE"
+      - name: Mark explicitly isolated empty test databases
+        run: python tools/mark_test_database.py
+      - name: Deployment procedure -- real, disposable Postgres + real dummy console process
+        run: >-
+          python -m pytest --no-cov -v --no-header -p no:cacheprovider
+          tests/integration/test_v1_personal_paper_deploy_postgres.py
