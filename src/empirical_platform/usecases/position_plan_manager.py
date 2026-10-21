@@ -49,9 +49,9 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
@@ -126,6 +126,41 @@ _LOG = logging.getLogger("empirical_platform.position_plan_manager")
 #: a mandatory exit is not at the mercy of a single poll landing exactly on the deadline.
 DEFAULT_POLL_INTERVAL_SECONDS = 15
 
+#: EXIT SIGNAL QUALITY GATE (2026-10-21 hardening, FORENSIC AUDIT follow-up). The 2026-10-20
+#: early-STOP incident: an IEX bid of 335.72 claimed a STOP against stop_price=338.40 while
+#: the SAME feed's ask stayed anchored at ~340.11-340.52 throughout -- the bid was a thin,
+#: flickering single-venue print, not a genuine move. Retrieving Alpaca's own historical IEX
+#: quote ticks for the 15 seconds preceding that claim shows why a single snapshot is not
+#: enough evidence: of 664 ticks in that window, only 360 (54%) crossed stop_price -- a coin
+#: flip. A comparable window around a GENUINE, sustained move crosses at ~100%, because real
+#: price deterioration persists tick to tick; it does not oscillate back to the old level.
+#:
+#: This is deliberately NOT a new price or spread threshold: it reuses the EXACT comparison
+#: `evaluate_exit_trigger` already makes (`bid <= stop_price` / `bid >= target_price`), just
+#: requires it to hold across a short recent window of independent IEX prints, not only the
+#: single latest one. It is also deliberately separate from, and does not duplicate, the
+#: EXISTING M085 freshness/spread gate (`paper_execution.quote_refusal`, reused unchanged by
+#: `PreviewPositionExitHandler`/`SubmitAuthorizedPositionExitHandler`) -- that gate already
+#: protects EXECUTION quality at preview/submit time using a LATER quote; it ran against a
+#: calmer, later snapshot during the actual incident and so never refused, because the
+#: problem was never execution quality -- it was trusting the single snapshot that claimed
+#: the trigger in the first place. See `docs/operations/exit-signal-quality-gate.md`.
+EXIT_QUOTE_CORROBORATION_WINDOW_SECONDS = DEFAULT_POLL_INTERVAL_SECONDS
+
+#: Below this many independent ticks in the lookback window, agreement cannot be assessed
+#: at all (a market can be too thin to produce enough prints in 15s). The gate then falls
+#: back to trusting the single latest quote exactly as it did before this hardening -- it
+#: fails OPEN toward the pre-existing, Owner-accepted behavior, never toward silently
+#: blocking a protective exit the Owner is relying on. This is a deliberate policy choice,
+#: not an oversight: see the PR description's "residual risks" for the alternative
+#: considered and rejected (refusing to claim at all when data is thin).
+EXIT_QUOTE_CORROBORATION_MINIMUM_SAMPLE = 5
+
+#: Evidence-grounded (see the constant above this one), not invented: 90% is comfortably
+#: separated from both the incident's 54% and a genuine move's ~100%, with margin for a
+#: single stray tick in either direction.
+EXIT_QUOTE_CORROBORATION_MINIMUM_FRACTION = Decimal("0.90")
+
 
 class PlanOutcomeKind(StrEnum):
     MONITORING = "MONITORING"
@@ -137,6 +172,12 @@ class PlanOutcomeKind(StrEnum):
     EXIT_ALREADY_IN_PROGRESS = "EXIT_ALREADY_IN_PROGRESS"
     EXIT_RECONCILED = "EXIT_RECONCILED"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
+    #: EXIT SIGNAL QUALITY GATE (2026-10-21): a STOP/TARGET candidate's own single quote
+    #: snapshot is NOT corroborated by its short recent quote history (see
+    #: `EXIT_QUOTE_CORROBORATION_MINIMUM_FRACTION`). The plan is left unclaimed -- this is
+    #: a `MONITORING`-family outcome, re-evaluated fresh next tick, never a terminal state.
+    #: `MANDATORY_EXIT` never produces this: it is time-only and never consults a quote.
+    TRIGGER_EVIDENCE_UNCERTAIN = "TRIGGER_EVIDENCE_UNCERTAIN"
     #: RELEASE v1: a durable `ExternalPositionClosure` record exists for this entry (the
     #: position was closed outside this platform's own exit pipeline -- see
     #: `usecases.record_external_position_closure`). The manager will never evaluate a
@@ -306,6 +347,31 @@ class PositionPlanManager:
         # timestamp, and its feed/source -- so a future incident is reconstructible from
         # this row alone. MANDATORY_EXIT fires on time alone and never consults a quote.
         is_price_trigger = trigger in (ExitTriggerKind.STOP, ExitTriggerKind.TARGET)
+        if is_price_trigger:
+            corroborated, detail = self._corroborate_price_trigger(trigger, plan=plan, now=now)
+            if not corroborated:
+                # ADVERSARIAL REVIEW FOLLOW-UP (PR #41, 2026-10-21): `evaluate_exit_trigger`
+                # prioritizes a price trigger over MANDATORY_EXIT even when the deadline has
+                # ALSO already passed (its own docstring: STOP/TARGET is "the more urgent
+                # risk-bounding fact") -- so it never even evaluated the deadline branch once
+                # it returned `trigger` here. Before this check, an uncertain price trigger
+                # therefore left the plan completely unclaimed on a tick where MANDATORY_EXIT
+                # was independently and unconditionally due -- the exact "poor-quality quote
+                # silently prevents timely mandatory exit" case the mission forbids. Re-check
+                # the deadline directly: it needs no quote and is immune to this gate.
+                if now >= plan.mandatory_exit_deadline:
+                    trigger = ExitTriggerKind.MANDATORY_EXIT
+                    is_price_trigger = False
+                else:
+                    return PlanEvaluationOutcome(
+                        plan.plan_id,
+                        plan.entry_intent_governance_id,
+                        PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
+                        f"trigger={trigger.value} candidate last_price={last_price} "
+                        f"stop={plan.stop_price} target={plan.target_price}: {detail}; not "
+                        "claimed, re-evaluating next tick -- MANDATORY_EXIT is unaffected and "
+                        "remains independently time-driven",
+                    )
         claimed = self._plans.claim_exit_trigger(
             plan.plan_id,
             kind=trigger,
@@ -323,6 +389,37 @@ class PositionPlanManager:
                 "another evaluation already claimed this plan's exit trigger",
             )
         return self._attempt_exit(claimed, now=now, just_claimed=True)
+
+    def _corroborate_price_trigger(
+        self, kind: ExitTriggerKind, *, plan: ApprovedPlan, now: datetime
+    ) -> tuple[bool, str]:
+        """EXIT SIGNAL QUALITY GATE: does a short recent window of independent IEX quote
+        ticks agree with the single latest one that produced `kind`? Re-fetches fresh from
+        the broker every call (see `fetch_recent_quotes`) -- nothing here is remembered in
+        RAM between ticks, matching every other durability property this manager has.
+
+        ADVERSARIAL REVIEW FOLLOW-UP (PR #41, 2026-10-21): a `fetch_recent_quotes` failure
+        (network error, timeout, malformed response the adapter could not swallow itself)
+        must fail OPEN exactly like an empty/thin result does -- not propagate and abort
+        the ENTIRE tick (every other plan `evaluate_once` was about to evaluate too) over a
+        failure in a check that is, by this gate's own design, allowed to be unavailable.
+        """
+        try:
+            recent = self._market_data.fetch_recent_quotes(
+                plan.symbol,
+                start=now - timedelta(seconds=EXIT_QUOTE_CORROBORATION_WINDOW_SECONDS),
+                end=now,
+            )
+        except Exception as error:  # noqa: BLE001 - a corroboration failure must fail OPEN
+            _LOG.warning(
+                "plan %s: fetch_recent_quotes failed (%s: %s); falling back to trusting "
+                "the single latest quote",
+                plan.plan_id,
+                type(error).__name__,
+                error,
+            )
+            return True, f"fetch_recent_quotes raised {type(error).__name__}: {error}"
+        return _price_trigger_corroboration(kind, plan=plan, recent=recent)
 
     def _externally_closed_outcome(
         self, plan: ApprovedPlan, closure: ExternalPositionClosure
@@ -472,6 +569,41 @@ def _ask_as_decimal(quote: object) -> Decimal | None:
         return None
 
 
+def _price_trigger_corroboration(
+    kind: ExitTriggerKind, *, plan: ApprovedPlan, recent: Sequence[object]
+) -> tuple[bool, str]:
+    """EXIT SIGNAL QUALITY GATE, pure and re-derivable: does `recent` -- independent IEX
+    quote ticks from the seconds just before `now` -- agree with the single latest tick
+    that produced a STOP/TARGET candidate `kind`? See
+    `EXIT_QUOTE_CORROBORATION_MINIMUM_FRACTION`'s own docstring for the evidence behind
+    this design and why it is not a new price or spread threshold.
+
+    `detail` is always returned, corroborated or not, so the EXACT evidence behind every
+    decision -- sample size and agreement fraction, or the thin-sample fallback -- is
+    available to log/persist (Phase 3 requirement: "record the actual evidence used").
+    """
+    sample = [bid for q in recent if (bid := _bid_as_decimal(q)) is not None]
+    if len(sample) < EXIT_QUOTE_CORROBORATION_MINIMUM_SAMPLE:
+        return (
+            True,
+            f"sample_size={len(sample)} below the minimum of "
+            f"{EXIT_QUOTE_CORROBORATION_MINIMUM_SAMPLE} to assess agreement; falling back "
+            "to trusting the single latest quote (pre-hardening behavior)",
+        )
+    if kind is ExitTriggerKind.STOP:
+        agreeing = sum(1 for bid in sample if bid <= plan.stop_price)
+    elif kind is ExitTriggerKind.TARGET:
+        agreeing = sum(1 for bid in sample if bid >= plan.target_price)
+    else:
+        raise ValueError(
+            f"{kind!r} is not a price-based trigger; MANDATORY_EXIT never reaches here"
+        )
+    fraction = Decimal(agreeing) / Decimal(len(sample))
+    rounded = fraction.quantize(Decimal("0.01"))
+    detail = f"sample_size={len(sample)} agreeing={agreeing} fraction={rounded}"
+    return fraction >= EXIT_QUOTE_CORROBORATION_MINIMUM_FRACTION, detail
+
+
 class _NeverEngagedKillSwitch:
     """RELEASE v1: the kill switch never blocks a position-reducing exit (see
     `docs/operations/kill-switch.md`). `AuthorizePositionExitHandler`/
@@ -612,7 +744,31 @@ class PlanManagerThread:
         while not self._stop.is_set():
             error: str | None = None
             try:
-                self._manager.evaluate_once(now=self._now())
+                outcomes = self._manager.evaluate_once(now=self._now())
+                # EXIT SIGNAL QUALITY GATE / Phase 3 observability requirement (2026-10-21):
+                # the 2026-10-20 incident's own trigger evidence (the exact bid that claimed
+                # it) was never logged anywhere -- `evaluate_once`'s return value used to be
+                # discarded here entirely. Every outcome is now logged, routine ones at INFO
+                # and anything requiring attention at WARNING, so a future incident is
+                # reconstructible from the process log even before touching Postgres.
+                for outcome in outcomes:
+                    level = (
+                        logging.WARNING
+                        if outcome.kind
+                        in (
+                            PlanOutcomeKind.NEEDS_ATTENTION,
+                            PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
+                        )
+                        else logging.INFO
+                    )
+                    _LOG.log(
+                        level,
+                        "plan %s [%s] %s: %s",
+                        outcome.plan_id,
+                        outcome.entry_intent_governance_id,
+                        outcome.kind.value,
+                        outcome.detail,
+                    )
             except Exception as exc:  # noqa: BLE001 - one bad tick must never stop the loop
                 _LOG.exception("position plan manager tick failed")
                 error = f"{type(exc).__name__}: {exc}"
