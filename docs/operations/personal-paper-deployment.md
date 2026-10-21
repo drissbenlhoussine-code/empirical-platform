@@ -70,11 +70,17 @@ python tools/personal_paper_deploy.py \
 `EMPIRICAL_ALPACA_PAPER_API_KEY`/`_SECRET_KEY`, `EMPIRICAL_PLATFORM_POSTGRES_*` and
 `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` are read from the environment, fresh, never logged.
 
-**`--confirm-production` is required, and only accepted, when `--manifest-path` resolves to
-the real default production manifest path** (`%LOCALAPPDATA%\EmpiricalPlatform\safety\personal-paper.json`).
-Any other combination -- the flag without the real path, or the real path without the flag --
-is refused before anything is touched. There is no flag combination that silently targets
-production.
+**`--confirm-production` is required, and only accepted, when EITHER `--manifest-path`
+resolves to the real default production manifest path**
+(`%LOCALAPPDATA%\EmpiricalPlatform\safety\personal-paper.json`) **OR the resolved Store B/C
+database (from the ambient `EMPIRICAL_PLATFORM_POSTGRES_*`/`EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*`
+environment) is one of the real, protected databases** -- the same `PERSONAL_DATABASES`
+frozenset `database_safety.py` itself uses. An earlier version of this guard checked only the
+manifest path; an independent review found that a decoy `--manifest-path` with the ambient
+environment still pointed at the real databases would have bypassed it entirely. Any
+mismatched combination -- the flag without either real target, or either real target without
+the flag -- is refused before anything is touched. There is no flag combination that silently
+targets production.
 
 ## Journal and resumability
 
@@ -134,3 +140,13 @@ suite works around this by faking only the identity half of the one internal fun
 reads it (see that file's module docstring) -- the real production check this exercises was
 already independently verified read-only against the live Store B/C identities during the Oct
 21 deployment preflight.
+
+**Step 4's backup topology assumption (pre-existing, not introduced here):**
+`tools/personal_paper_backup.py::backup()` derives its Postgres connection via
+`resolve_foundation_config().postgresql` -- a config-resolution path independent of this
+script's own `store_b_config`/`store_c_config` -- and reuses that SAME host/user/password for
+both stores, only swapping the `database` field for Store C. This is correct for the real
+PERSONAL_PAPER topology (confirmed read-only during the Oct 21 preflight: Store B and Store C
+share the same host and port, `127.0.0.1:55433`), but would silently back up Store C with the
+wrong credentials if the two stores were ever split across different Postgres servers. Not a
+gap this PR introduces or fixes; flagged here because an independent review raised it.
