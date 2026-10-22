@@ -16,6 +16,9 @@ from pathlib import Path
 import pytest
 from tools import personal_paper_deploy as deploy
 
+from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
+from empirical_platform.shared.persistence.database_safety import DatabaseSafetyError
+
 # ---------------------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------------------
@@ -820,8 +823,6 @@ def deploy_config_stub(
     startup_timeout_seconds: float = 5.0,
     migration_sql_path: Path | None = None,
 ) -> deploy.DeployConfig:
-    from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
-
     placeholder = PostgreSQLConfigSnapshot(
         host="localhost", port=55555, database="placeholder_test", user="empirical"
     )
@@ -840,3 +841,143 @@ def deploy_config_stub(
         shutdown_timeout_seconds=shutdown_timeout_seconds,
         startup_timeout_seconds=startup_timeout_seconds,
     )
+
+
+# ---------------------------------------------------------------------------------------
+# M096: Store C connectivity must match the real console entrypoint's resolution
+# (`_paper_position_exit_composition.resolve_paper_exit_postgres_config`) -- one real
+# Postgres server, two databases, Store C reusing Store B's host/port/user/password. The
+# real environment never sets EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST/_PORT/_USER/
+# _PASSWORD; an earlier version of `_store_c_config` always required them, which crashed
+# with an unhandled KeyError against the real environment (found during the 2026-10-22
+# read-only preflight, before any step of a real deployment ever ran).
+# ---------------------------------------------------------------------------------------
+
+_REAL_STORE_B_CONFIG = PostgreSQLConfigSnapshot(
+    host="localhost", port=55433, database="empirical_platform_paper", user="empirical"
+)
+
+
+def test_store_c_config_falls_back_to_store_b_connection_when_host_is_not_set() -> None:
+    """The real shape today: no EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_* at all."""
+    resolved = deploy._store_c_config(_REAL_STORE_B_CONFIG, {})
+    assert resolved.host == _REAL_STORE_B_CONFIG.host
+    assert resolved.port == _REAL_STORE_B_CONFIG.port
+    assert resolved.user == _REAL_STORE_B_CONFIG.user
+    assert resolved.password == _REAL_STORE_B_CONFIG.password
+    assert resolved.database == "empirical_platform_paper_exit"
+
+
+def test_store_c_config_fallback_preserves_store_bs_real_port_55433() -> None:
+    """The exact bug this fix closes: the old code defaulted an unset Store C port to
+    5432, silently wrong for the real server at 55433."""
+    resolved = deploy._store_c_config(_REAL_STORE_B_CONFIG, {})
+    assert resolved.port == 55433
+    assert resolved.port != 5432
+
+
+def test_store_c_config_fallback_honors_an_explicit_database_name_override() -> None:
+    """EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE alone (no _HOST) still only swaps
+    the database name -- matching the real console entrypoint's own precedence."""
+    resolved = deploy._store_c_config(
+        _REAL_STORE_B_CONFIG, {"EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE": "custom_db"}
+    )
+    assert resolved.database == "custom_db"
+    assert resolved.host == _REAL_STORE_B_CONFIG.host
+    assert resolved.port == _REAL_STORE_B_CONFIG.port
+
+
+def test_store_c_config_uses_independent_settings_when_host_is_explicitly_set() -> None:
+    """A future split-server topology: EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST set
+    switches to the fully independent form, never mixing in Store B's values."""
+    environ = {
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST": "other-server",
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_PORT": "6543",
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE": "empirical_platform_paper_exit",
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_USER": "other_user",
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_PASSWORD": "x",
+    }
+    resolved = deploy._store_c_config(_REAL_STORE_B_CONFIG, environ)
+    assert resolved.host == "other-server"
+    assert resolved.port == 6543
+    assert resolved.user == "other_user"
+    assert resolved.password is not None
+    assert resolved.password.get_secret_value() == "x"
+
+
+def test_store_c_config_independent_mode_still_requires_database_and_password() -> None:
+    """Independent mode is the ORIGINAL, always-fully-specified form -- setting _HOST
+    without _DATABASE/_PASSWORD must still refuse, not silently fall back."""
+    environ = {"EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST": "other-server"}
+    with pytest.raises(KeyError):
+        deploy._store_c_config(_REAL_STORE_B_CONFIG, environ)
+
+
+@pytest.mark.parametrize("partial_field", ["PORT", "USER", "PASSWORD"])
+def test_store_c_config_refuses_partial_override_without_host(partial_field: str) -> None:
+    """_PORT/_USER/_PASSWORD without _HOST is ambiguous -- refused before touching
+    anything, never silently mixed with Store B's values."""
+    environ = {f"EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_{partial_field}": "something"}
+    with pytest.raises(DatabaseSafetyError):
+        deploy._store_c_config(_REAL_STORE_B_CONFIG, environ)
+
+
+def test_store_c_fallback_constants_match_the_real_console_entrypoint() -> None:
+    """Drift guard: if the real console entrypoint's env var name or default database
+    name ever changes, this test fails loudly instead of the two silently diverging."""
+    from empirical_platform.entrypoints import _paper_position_exit_composition as real
+
+    assert deploy._PAPER_EXIT_DATABASE_VARIABLE == real.PAPER_EXIT_DATABASE_VARIABLE
+    assert deploy._DEFAULT_STORE_C_DATABASE == real._DEFAULT_STORE_C_DATABASE
+
+
+def test_main_refuses_cleanly_before_touching_anything_when_store_c_is_partially_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fail-safe BEFORE any step runs: an ambiguous Store C override must refuse cleanly
+    (exit 2, no traceback) and never create the journal file -- proof nothing ran."""
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "some_disposable_test_db")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_USER", "someone")
+    monkeypatch.delenv("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST", raising=False)
+    journal_path = tmp_path / "journal.json"
+    args = _main_args(tmp_path, tmp_path / "decoy-manifest.json", confirm_production=False)
+    exit_code = deploy.main(args)
+    assert exit_code == 2
+    assert not journal_path.exists()
+
+
+def test_main_uses_store_c_fallback_against_a_disposable_target_without_independent_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """main() itself, end to end through the config-resolution fix: a disposable Store B
+    target with NO independent Store C env vars at all must still pass the config-
+    resolution step cleanly (refused only later, at the unrelated Alpaca-credential
+    check) -- proving main() no longer hard-requires EMPIRICAL_PLATFORM_PAPER_EXIT_
+    POSTGRES_DATABASE/_PASSWORD."""
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "some_disposable_test_db")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_PASSWORD", "x")
+    for suffix in ("HOST", "PORT", "DATABASE", "USER", "PASSWORD"):
+        monkeypatch.delenv(f"EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_{suffix}", raising=False)
+    monkeypatch.delenv("EMPIRICAL_ALPACA_PAPER_API_KEY", raising=False)
+    monkeypatch.delenv("EMPIRICAL_ALPACA_PAPER_SECRET_KEY", raising=False)
+    args = _main_args(tmp_path, tmp_path / "decoy-manifest.json", confirm_production=False)
+    exit_code = deploy.main(args)
+    assert exit_code == 2  # past Store B/C config resolution; refused only for Alpaca creds
+
+
+def test_main_triggers_production_guard_via_store_c_fallback_database_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Database-identity check, through the fallback path: Store B is fully disposable,
+    Store C has no independent _HOST, but its fallback-resolved database name alone
+    equals a real, protected database -- --confirm-production must still be required."""
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_DATABASE", "some_disposable_test_db")
+    monkeypatch.setenv("EMPIRICAL_PLATFORM_POSTGRES_PASSWORD", "x")
+    monkeypatch.setenv(
+        "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE", "empirical_platform_paper_exit"
+    )
+    monkeypatch.delenv("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST", raising=False)
+    decoy_manifest = tmp_path / "decoy-manifest.json"
+    exit_code = deploy.main(_main_args(tmp_path, decoy_manifest, confirm_production=False))
+    assert exit_code == 2
