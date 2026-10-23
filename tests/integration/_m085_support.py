@@ -73,7 +73,9 @@ from empirical_platform.shared.brokerage.paper_time import (
     PaperTimeSource,
 )
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
+from empirical_platform.shared.persistence.database_safety import install_test_connection_guard
 from empirical_platform.shared.persistence.postgres_repositories.paper_execution_repositories import (  # noqa: E501
+    M085_SCHEMA_HEAD,
     PostgresPaperExecutionRuntime,
 )
 from empirical_platform.shared.persistence.postgres_repositories.runtime import (
@@ -164,7 +166,7 @@ def alembic_config() -> Config:
     return cfg
 
 
-def build_engine(revision: str = "head") -> Iterator[Engine]:
+def build_engine(revision: str = M085_SCHEMA_HEAD) -> Iterator[Engine]:
     """A database at `revision`, rebuilt from the complete migration history.
 
     Dropping and recreating `public` rather than truncating means every run
@@ -179,6 +181,7 @@ def build_engine(revision: str = "head") -> Iterator[Engine]:
     """
     if not postgres_enabled():
         pytest.skip("PostgreSQL integration tests require explicit opt-in")
+    install_test_connection_guard()
     engine = sa.create_engine(config().sqlalchemy_url())
     with engine.begin() as connection:
         connection.execute(text("DROP SCHEMA public CASCADE"))

@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import sys
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
+from uuid import uuid4
 
 from empirical_platform.entrypoints import _operator_console_html as html
 from empirical_platform.entrypoints._operator_console_web import (
@@ -45,19 +47,46 @@ from empirical_platform.entrypoints._paper_operator_console_composition import (
     PaperConsoleBackend,
 )
 from empirical_platform.entrypoints.operator_console_app import build_application
+from empirical_platform.usecases.full_plan_approval import approve_full_plan
 from empirical_platform.usecases.operator_console import (
     CapabilityRefusedError,
     ConsoleRefusalError,
+    ExecutionSummary,
     describe_failure,
     refuse_requested_environment,
 )
+from empirical_platform.usecases.operator_console_exits import blocked_exit_alert
 from empirical_platform.usecases.paper_execution import PaperExecutionRefusedError
 from empirical_platform.usecases.paper_operator_console import (
     PaperCandidateBlockedError,
+    V1PaperCandidateRefusedError,
     paper_health,
+    prepare_v1_paper_candidate,
+)
+from empirical_platform.usecases.position_plan_manager import (
+    ManagerStatusView,
+    manager_status,
+    manager_status_detail,
+)
+from empirical_platform.usecases.v1_management_status import (
+    ApprovedPlan,
+    PositionExitAttempt,
+    management_status,
 )
 
 __all__ = ["build_paper_application"]
+
+
+def _decimal(value: str) -> Decimal | None:
+    try:
+        return Decimal(value)
+    except (InvalidOperation, TypeError):
+        return None
+
+
+def _money(value: Decimal | None) -> str:
+    return "Not available" if value is None else f"{value:,.2f}"
+
 
 _REFUSED = (
     ConsoleRefusalError,
@@ -69,10 +98,137 @@ _REFUSED = (
 )
 
 
+def active_plan_block_for_row(
+    row: ExecutionSummary,
+    plan: ApprovedPlan | None,
+    attempt: PositionExitAttempt | None,
+    quote_bid: str | None,
+    *,
+    assessment_refusals: tuple[str, ...] = (),
+    base_path: str = "",
+) -> str | None:
+    """The APPROVED PLAN block HTML for one Active-trade row, or `None` if this row has no
+    managed plan. Pulled out of the route handler so the per-row computation (unrealized
+    P&L, max loss, management status) is directly unit-testable without a WSGI client or a
+    real PAPER backend."""
+    if plan is None:
+        return None
+    entry_avg = _decimal(row.filled_avg_price)
+    current = _decimal(quote_bid) if quote_bid else None
+    filled_qty = _decimal(row.filled_quantity)
+    unrealized = (
+        (current - entry_avg) * filled_qty
+        if entry_avg is not None and current is not None and filled_qty is not None
+        else None
+    )
+    max_loss = (
+        _money(plan.approved_quantity * (entry_avg - plan.stop_price))
+        if entry_avg is not None
+        else "Not available"
+    )
+    return html.approved_plan_block(
+        quantity=str(plan.approved_quantity),
+        entry_avg_fill=row.filled_avg_price,
+        current_price=_money(current),
+        unrealized_pnl=_money(unrealized),
+        stop_price=_money(plan.stop_price),
+        target_price=_money(plan.target_price),
+        mandatory_exit=plan.mandatory_liquidation_at.isoformat(timespec="minutes"),
+        max_loss=max_loss,
+        management_status=management_status(plan, attempt, assessment_refusals=assessment_refusals),
+        blocked_exit_alert=blocked_exit_alert(
+            deadline_tone=row.deadline_tone,
+            assessment_refusals=assessment_refusals,
+            position_open=row.position_open,
+        ),
+        review_manual_exit_url=(
+            html.url_for(base_path, f"/exit/review?intent={row.intent_id}")
+            if row.can_review_exit
+            else None
+        ),
+    )
+
+
+def history_plan_cell_for_row(
+    plan: ApprovedPlan | None,
+    attempt: PositionExitAttempt | None,
+    entry_price: str,
+) -> str | None:
+    """The History "Plan" column cell HTML for one row, or `None` if this row has no managed
+    plan. Pulled out of the route handler for the same reason as `active_plan_block_for_row`.
+    """
+    if plan is None:
+        return None
+    trigger = plan.triggered_exit_kind.value if plan.triggered_exit_kind else "—"
+    verified = "Yes" if attempt is not None and attempt.position_closed else "No"
+    exit_order = attempt.broker_order_id if attempt is not None and attempt.broker_order_id else "—"
+    exit_fill = (
+        f"{attempt.filled_quantity} @ {attempt.filled_avg_price}"
+        if attempt is not None and attempt.filled_quantity is not None
+        else "Not filled"
+    )
+    gross_pnl = "Not available"
+    entry_avg = _decimal(entry_price)
+    if (
+        attempt is not None
+        and attempt.filled_avg_price is not None
+        and attempt.filled_quantity is not None
+        and entry_avg is not None
+    ):
+        gross_pnl = _money((attempt.filled_avg_price - entry_avg) * attempt.filled_quantity)
+    return (
+        f"Candidate {plan.candidate_id}<br>Owner {plan.owner_approval_id}"
+        f"<br>Trigger {trigger}<br>Exit order {exit_order}"
+        f"<br>Exit fill {exit_fill}<br>Zero-verified {verified}"
+        f"<br>Gross P&amp;L {gross_pnl}"
+    )
+
+
+def _manager_status_view(backend: PaperConsoleBackend) -> ManagerStatusView:
+    """RELEASE v1 SAFETY VISIBILITY: built fresh on every `/safety` request (never cached),
+    reading the REAL, live `ManagerHeartbeat` through `backend._manager_thread_handle` -- see
+    that handle's own docstring for why it exists instead of a direct attribute. Never reads
+    anything about whether the HTTP server itself is alive (it obviously is, or this handler
+    would not be running); the only evidence this looks at is the background evaluation
+    loop's own heartbeat."""
+    handle = backend._manager_thread_handle
+    heartbeat = None if handle is None else handle.heartbeat()
+    now = datetime.now(UTC)
+    status = manager_status(
+        heartbeat,
+        now=now,
+        recovery_mode=backend._recovery_mode,
+        manager_supported=handle is not None,
+    )
+    return ManagerStatusView(
+        status=status, detail=manager_status_detail(status, heartbeat, now=now)
+    )
+
+
 def build_paper_application(
-    backend: PaperConsoleBackend, *, security: SecuritySession | None = None
+    backend: PaperConsoleBackend, *, security: SecuritySession | None = None, base_path: str = ""
 ) -> Router:
-    router = build_application(backend, security=security)
+    # RELEASE v1 Release Blocker (/paper base-path escape): validated again here (not just
+    # inside `build_application`) because this function also uses it directly below, before
+    # any route built on it runs.
+    base_path = html.validate_base_path(base_path)
+    # RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). `None` for M088's plain
+    # PAPER composition (`backend._manager_thread_handle is None` -- it has no plan-manager
+    # concept at all), so `/safety` renders exactly as before this field existed. Only the
+    # exit-capable composition (`paper_operator_console_with_exit_runtime`) ever sets a real
+    # handle, recovery mode included -- `manager_status` itself tells RECOVERY_MODE apart from
+    # a genuine STOPPED/STALE problem.
+    manager_status_provider = (
+        (lambda: _manager_status_view(backend))
+        if backend._manager_thread_handle is not None
+        else None
+    )
+    router = build_application(
+        backend,
+        security=security,
+        base_path=base_path,
+        manager_status_provider=manager_status_provider,
+    )
     service = backend.service
 
     def label() -> str:
@@ -88,6 +244,7 @@ def build_paper_application(
                 kill_switch_engaged=False,
                 back="/safety",
                 tone="danger" if isinstance(error, CapabilityRefusedError) else "warn",
+                base_path=base_path,
             ),
             status,
         )
@@ -105,11 +262,67 @@ def build_paper_application(
         except Exception as error:  # noqa: BLE001 - never a traceback to the browser
             print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
             return refusal(error, "500 Internal Server Error")
-        return html_response(html.paper_health_page(view, capability_label=label()))
+        return html_response(
+            html.paper_health_page(view, capability_label=label(), base_path=base_path)
+        )
 
     def prepare_candidate_route(request: Request, csrf: str) -> Response:
         del csrf
         refuse_requested_environment(request.form)
+        # RELEASE v1 Release Blocker (in-console Owner gate): the exit-capable composition
+        # (`backend._plans is not None`) prepares under the Owner's real CFG-089-PAPER
+        # configuration with real live Alpaca evidence -- never M088's synthetic acceptance
+        # quote. M088's own plain PAPER composition (`backend._plans is None`) is completely
+        # untouched: it still calls `backend.prepare_candidate()` exactly as before.
+        if backend._plans is not None:
+            try:
+                prepared = prepare_v1_paper_candidate(
+                    configurations=backend._repositories.configurations,
+                    contexts=backend._repositories.contexts,
+                    proposals=backend._repositories.proposals,
+                    watermarks=backend._watermarks,
+                    time_bases=backend._repositories.time_bases,
+                    broker=backend._broker,
+                    market_data=backend._market_data,
+                    bars=backend._market_data,
+                    time_source=backend._time_source,
+                    now=datetime.now(UTC),
+                )
+            except V1PaperCandidateRefusedError as error:
+                return html_response(
+                    html.message_page(
+                        title="Candidate not prepared",
+                        message=f"{error}. Nothing was persisted. Prepare again when ready; "
+                        "nothing is retried automatically.",
+                        capability_label=label(),
+                        kill_switch_engaged=False,
+                        back="/today",
+                        tone="warn",
+                        base_path=base_path,
+                    )
+                )
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            proposal_id = prepared.proposal.proposal_governance_id
+            return html_response(
+                html.message_page(
+                    title="Candidate prepared",
+                    message=(
+                        f"{prepared.proposal.symbol} live bid {prepared.quote_bid} / "
+                        f"ask {prepared.quote_ask}, captured "
+                        f"{prepared.quote_captured_at.isoformat()}. Proposal {proposal_id}. "
+                        "Review the complete plan before approving."
+                    ),
+                    capability_label=label(),
+                    kill_switch_engaged=False,
+                    back=f"/opportunity?id={proposal_id}",
+                    tone="info",
+                    base_path=base_path,
+                )
+            )
         try:
             backend.prepare_candidate()
         except _REFUSED as error:
@@ -117,8 +330,282 @@ def build_paper_application(
         except Exception as error:  # noqa: BLE001 - never a traceback to the browser
             print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
             return refusal(error, "500 Internal Server Error")
-        return redirect("/today")
+        return redirect(html.url_for(base_path, "/today"))
 
     router.get("/health", paper_health_route)
     router.post("/prepare-candidate", prepare_candidate_route)
+
+    # RELEASE v1: when this backend was composed WITH plan management
+    # (`paper_operator_console_with_exit_runtime`, `backend._plans is not None`), ONE Owner
+    # approval must create BOTH the entry authorization and the durable `ApprovedPlan` the
+    # automatic manager later watches. This OVERRIDES the base router's `/confirm-approval`
+    # registration (same path, registered again -- a later `router.post` for an existing
+    # path replaces it) rather than editing `operator_console_app.py`'s own shared handler,
+    # so the plain SIMULATION console and M088's own plain PAPER composition
+    # (`backend._plans is None`) are completely untouched by this change.
+    if backend._plans is not None:
+
+        def confirm_approval_with_plan(request: Request, csrf: str) -> Response:
+            del csrf
+            proposal = request.first("proposal")
+            try:
+                refuse_requested_environment(request.form)
+                assert backend._plans is not None
+                result = approve_full_plan(
+                    backend.service,
+                    backend._repositories,
+                    backend._plans,
+                    proposal_id=proposal,
+                    token=request.first("ticket"),
+                    candidate_id=request.first("candidate", proposal),
+                )
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            if result.plan is not None:
+                print(
+                    f"paper-console: plan {result.plan.plan_id} for {proposal} "
+                    f"{'created' if result.plan_created_now else 'already existed'}",
+                    file=sys.stderr,
+                )
+            return redirect(html.url_for(base_path, f"/opportunity?id={proposal}"))
+
+        router.post("/confirm-approval", confirm_approval_with_plan)
+
+        # RELEASE v1: Active and History likewise OVERRIDE the base router's registration
+        # (same path, registered again) only for the exit-capable composition
+        # (`backend._plans is not None`) -- SIMULATION and plain PAPER are untouched.
+
+        def active_with_plan(request: Request, csrf: str) -> Response:
+            del request
+            try:
+                assert backend._plans is not None
+                assert backend._exits is not None
+                rows = backend.service.active_trades()
+                plan_blocks: dict[str, str] = {}
+                for row in rows:
+                    plan = backend._plans.for_entry(row.intent_id)
+                    if plan is None:
+                        continue
+                    attempt = backend._exits.attempts.active_for_entry(row.intent_id)
+                    quote = backend._market_data.fetch_quote(row.symbol)
+                    # RELEASE v1 VISIBILITY FIX: the SAME assessment
+                    # `AssessPositionExitHandler` would reach for this entry right now --
+                    # computed here, once, from the already-composed exit console. Only
+                    # while the entry is actually FILLED: before that, "no entry execution
+                    # is on record" is the NORMAL, expected, transient wait-for-fill state
+                    # every new plan passes through, never a reason to alarm the Owner, and
+                    # skipping the call then also avoids an extra broker round trip for a
+                    # row that could not possibly be eligible yet.
+                    assert backend.service.exits is not None
+                    refusals = (
+                        backend.service.exits.assess(row.intent_id).refusals
+                        if row.raw_state == "FILLED"
+                        else ()
+                    )
+                    block = active_plan_block_for_row(
+                        row,
+                        plan,
+                        attempt,
+                        quote.bid if quote is not None else None,
+                        assessment_refusals=refusals,
+                        base_path=base_path,
+                    )
+                    if block is not None:
+                        plan_blocks[row.intent_id] = block
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return html_response(
+                html.active_page(
+                    rows, csrf, label(), False, None, plan_blocks=plan_blocks, base_path=base_path
+                )
+            )
+
+        def history_with_plan(request: Request, csrf: str) -> Response:
+            del csrf
+            try:
+                assert backend._plans is not None
+                assert backend._exits is not None
+                filters = {
+                    key: request.first(key)
+                    for key in ("date", "symbol", "decision", "outcome")
+                    if request.first(key)
+                }
+                rows = backend.service.history(
+                    date=filters.get("date") or None,
+                    symbol=filters.get("symbol") or None,
+                    decision=filters.get("decision") or None,
+                    outcome=filters.get("outcome") or None,
+                )
+                plan_cells: dict[str, str] = {}
+                for row in rows:
+                    if row.intent_id is None:
+                        continue
+                    plan = backend._plans.for_entry(row.intent_id)
+                    if plan is None:
+                        continue
+                    attempt = backend._exits.attempts.active_for_entry(row.intent_id)
+                    cell = history_plan_cell_for_row(plan, attempt, row.price)
+                    if cell is not None:
+                        plan_cells[row.intent_id] = cell
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return html_response(
+                html.history_page(
+                    rows,
+                    filters=filters,
+                    capability_label=label(),
+                    kill_switch_engaged=False,
+                    plan_cells=plan_cells,
+                    base_path=base_path,
+                )
+            )
+
+        router.get("/active", active_with_plan)
+        router.get("/history", history_with_plan)
+
+        # RELEASE v1 OVERDUE RECOVERY UI: the two-step Owner action
+        # (grant_overdue_recovery_approval, then confirm_overdue_recovery) exposed through
+        # this console, reusing the SAME signed ticket machinery, CSRF protection and
+        # idempotent-dispatch claim as every other route in this file. Neither new route
+        # replaces or edits `/exit/review` or `/exit/confirm` -- a normal, not-yet-overdue
+        # exit is completely unaffected; these are additional, narrowly-scoped routes only
+        # reachable for a position this console's own domain logic independently proves is
+        # genuinely overdue.
+
+        def recovery_grant_review_route(request: Request, csrf: str) -> Response:
+            refuse_requested_environment(request.query)
+            assert backend._plans is not None
+            intent = request.first("intent")
+            plan = backend._plans.for_entry(intent)
+            if plan is None:
+                return refusal(
+                    ConsoleRefusalError(
+                        "No managed plan",
+                        "This entry has no managed Paper plan. Nothing was done.",
+                    ),
+                    "400 Bad Request",
+                )
+            if datetime.now(UTC) < plan.mandatory_liquidation_at:
+                return html_response(
+                    html.message_page(
+                        title="Not overdue",
+                        message=(
+                            "This position's mandatory liquidation deadline "
+                            f"({plan.mandatory_liquidation_at.isoformat(timespec='minutes')}) "
+                            "has not passed yet. Overdue-position recovery exists only for a "
+                            "position that is genuinely overdue. Nothing was done -- use the "
+                            "normal exit review instead."
+                        ),
+                        capability_label=label(),
+                        kill_switch_engaged=False,
+                        back=f"/exit/review?intent={intent}",
+                        tone="info",
+                        base_path=base_path,
+                    )
+                )
+            return html_response(
+                html.overdue_recovery_grant_page(
+                    intent_id=intent,
+                    symbol=plan.symbol,
+                    mandatory_liquidation_at=plan.mandatory_liquidation_at,
+                    csrf=csrf,
+                    capability_label=label(),
+                    base_path=base_path,
+                )
+            )
+
+        def recovery_grant_route(request: Request, csrf: str) -> Response:
+            del csrf
+            refuse_requested_environment(request.form)
+            exits = service.exits
+            assert exits is not None
+            intent = request.first("intent")
+            # Deliberately NOT built from `intent` (unlike `authorized_by` elsewhere, whose
+            # 64-character overflow for a real, long governance id was an independent defect
+            # fixed in isolation -- see RELEASE v1 RECOVERY HARDENING). The grant event itself
+            # already records `entry_intent_governance_id` separately, so this id only needs
+            # to be fresh and unique, never traceable by concatenation.
+            recovery_approval_id = f"RCV-{uuid4().hex}"
+            try:
+                exits.grant_overdue_recovery_approval(intent, recovery_approval_id)
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return redirect(
+                html.url_for(
+                    base_path,
+                    f"/exit/recovery/review?intent={intent}&recovery={recovery_approval_id}",
+                )
+            )
+
+        def recovery_review_route(request: Request, csrf: str) -> Response:
+            refuse_requested_environment(request.query)
+            exits = service.exits
+            assert exits is not None
+            intent = request.first("intent")
+            recovery_approval_id = request.first("recovery")
+            if not recovery_approval_id:
+                return refusal(
+                    ConsoleRefusalError(
+                        "Recovery approval required",
+                        "No recovery approval id was provided. Nothing was done.",
+                    ),
+                    "400 Bad Request",
+                )
+            try:
+                view = exits.review(intent)
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return html_response(
+                html.overdue_recovery_review_page(
+                    view, recovery_approval_id, csrf, label(), base_path=base_path
+                )
+            )
+
+        def recovery_confirm_route(request: Request, csrf: str) -> Response:
+            del csrf
+            refuse_requested_environment(request.form)
+            exits = service.exits
+            assert exits is not None
+            intent = request.first("intent")
+            try:
+                outcome = exits.confirm_overdue_recovery(
+                    intent, request.first("ticket"), request.first("recovery")
+                )
+            except _REFUSED as error:
+                return refusal(error, "400 Bad Request")
+            except Exception as error:  # noqa: BLE001 - never a traceback to the browser
+                print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
+                return refusal(error, "500 Internal Server Error")
+            return html_response(
+                html.message_page(
+                    title=outcome.title,
+                    message=outcome.message,
+                    capability_label=label(),
+                    kill_switch_engaged=False,
+                    back=f"/execution?intent={intent}",
+                    tone="info" if outcome.ok else "warn",
+                    base_path=base_path,
+                )
+            )
+
+        router.get("/exit/recovery", recovery_grant_review_route)
+        router.post("/exit/recovery/grant", recovery_grant_route)
+        router.get("/exit/recovery/review", recovery_review_route)
+        router.post("/exit/recovery/confirm", recovery_confirm_route)
+
     return router

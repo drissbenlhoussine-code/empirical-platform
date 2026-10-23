@@ -25,6 +25,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from empirical_platform.decision_candidate.approved_plan_repositories import ApprovedPlanRepository
+from empirical_platform.decision_candidate.external_position_closure_repositories import (
+    ExternalPositionClosureRepository,
+    NullExternalPositionClosureRepository,
+)
 from empirical_platform.decision_candidate.paper_execution import ExecutionAttempt
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
@@ -39,6 +44,7 @@ from empirical_platform.decision_candidate.position_exit import (
     PositionExitEvent,
     PositionExitState,
     RealizedResult,
+    is_overdue_recovery_authorization,
     realized_result,
 )
 from empirical_platform.decision_candidate.position_exit_repositories import (
@@ -55,7 +61,7 @@ from empirical_platform.decision_candidate.product_repositories import (
     OperatorTradingConfigurationRepository,
 )
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
-from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
+from empirical_platform.shared.brokerage.paper_time import PaperTimeSource, PaperTimeUncertainError
 from empirical_platform.usecases.decision_to_approval import NotFoundError
 from empirical_platform.usecases.operator_console import (
     NOT_AVAILABLE,
@@ -70,10 +76,14 @@ from empirical_platform.usecases.operator_console import (
 from empirical_platform.usecases.position_exit import (
     POSITION_NEEDS_ATTENTION,
     AssessPositionExitHandler,
+    AuthorizeOverduePositionRecoveryCommand,
+    AuthorizeOverduePositionRecoveryHandler,
     AuthorizePositionExitCommand,
     AuthorizePositionExitHandler,
     CancelPositionExitCommand,
     CancelPositionExitHandler,
+    GrantOverduePositionRecoveryApprovalCommand,
+    GrantOverduePositionRecoveryApprovalHandler,
     PositionAssessment,
     PositionExitRefusedError,
     PreviewPositionExitCommand,
@@ -86,6 +96,8 @@ from empirical_platform.usecases.position_exit import (
 
 __all__ = [
     "CATEGORY_EXIT_IN_PROGRESS",
+    "CATEGORY_EXPIRED_UNSUBMITTED",
+    "CATEGORY_EXTERNALLY_CLOSED",
     "CATEGORY_NEEDS_ATTENTION",
     "CATEGORY_OPEN_POSITION",
     "CATEGORY_POSITION_CLOSED",
@@ -95,7 +107,9 @@ __all__ = [
     "ExitRepositories",
     "ExitReviewView",
     "ExitSummary",
+    "NullExternalPositionClosureRepository",
     "PositionExitConsole",
+    "blocked_exit_alert",
     "deadline_status",
     "human_state_for_exit",
 ]
@@ -106,6 +120,19 @@ CATEGORY_OPEN_POSITION = "Open position"
 CATEGORY_EXIT_IN_PROGRESS = "Exit in progress"
 CATEGORY_NEEDS_ATTENTION = "Needs attention"
 CATEGORY_POSITION_CLOSED = "Position closed"
+#: RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX. A durable `ExternalPositionClosure`
+#: exists for this entry: its position was closed OUTSIDE this platform's own exit pipeline
+#: (an Owner's manual broker-dashboard sale), independently of whether a `PositionExitAttempt`
+#: was ever dispatched for it (usually none was -- that is exactly why this category exists).
+#: Distinct from `CATEGORY_POSITION_CLOSED`, which means a platform-dispatched exit was
+#: VERIFIED closed: callers must not conflate the two, since only the latter has a
+#: `PositionExitAttempt` to show realized P&L for.
+CATEGORY_EXTERNALLY_CLOSED = "Closed externally"
+#: RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX. Zero entry attempts were ever
+#: dispatched for this intent AND its `ApprovedOrderIntent.expires_at` has already passed:
+#: this was never a live working order and never will be one. Distinct from
+#: `CATEGORY_WORKING_ENTRY`, which means a fresh, still-live intent may yet be dispatched.
+CATEGORY_EXPIRED_UNSUBMITTED = "Expired — never submitted"
 DEADLINE_MISSED_TRUTH = "Position remains open — Owner action was not completed."
 _DEADLINE_MISSED_EVENT = "LIQUIDATION_DEADLINE_PASSED_POSITION_OPEN"
 _URGENCY_WINDOW = timedelta(minutes=30)
@@ -205,6 +232,37 @@ def deadline_status(
     return "info", f"Mandatory liquidation deadline {when}. Only the Owner can close the position."
 
 
+def blocked_exit_alert(
+    *, deadline_tone: str, assessment_refusals: tuple[str, ...], position_open: bool
+) -> str | None:
+    """An explicit, visible escalation for the one gap RELEASE v1's own incident review
+    found in the existing visibility: `deadline_status` already warns as the mandatory
+    liquidation deadline nears (`deadline_tone` "warn") or shouts once it has passed
+    ("danger"), and `AssessPositionExitHandler.handle(...).refusals` already says WHY the
+    automatic manager cannot act -- but nothing today says BOTH at once. An Owner who sees
+    only the deadline banner's "review and confirm the exit" has no way to know a manual
+    confirm would ALSO be refused for the identical reason the automatic manager is stuck
+    on (the live incident: a competing-entry attribution refusal silently stalled the
+    automatic MANDATORY_EXIT with no owner-visible status at all).
+
+    Returns `None` whenever there is nothing to escalate: the position is not open, no
+    refusal is on record for it, or the deadline is not yet inside its own urgency window
+    (`deadline_tone` is still "info"). Pure and read-only -- it never executes anything,
+    never authorizes anything, and never drops or paraphrases a refusal: the exact refusal
+    text `AssessPositionExitHandler` already produced is always included verbatim.
+    """
+    if not position_open or not assessment_refusals or deadline_tone == "info":
+        return None
+    when = "already past" if deadline_tone == "danger" else "approaching"
+    reason = "; ".join(assessment_refusals)
+    return (
+        f"The mandatory liquidation deadline is {when}, and the automatic exit cannot act "
+        f"on this position right now: {reason}. A manual confirm will be refused for the "
+        "same reason until this is resolved -- Owner review of the underlying block is "
+        "required."
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class ExitRepositories:
     previews: PositionExitPreviewRepository
@@ -284,6 +342,7 @@ class PositionExitConsole:
         exits: ExitRepositories,
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         configurations: OperatorTradingConfigurationRepository,
         kill_switch: ExecutionKillSwitchRepository,
         broker: ExitBrokerPort,
@@ -292,11 +351,20 @@ class PositionExitConsole:
         time_source: PaperTimeSource,
         clock: Callable[[], datetime],
         environment: str,
+        #: RELEASE v1 RECOVERY HARDENING. Read-only here: the ORIGINAL Owner-approved plan,
+        #: consulted ONLY by `confirm_overdue_recovery` to prove a fresh recovery approval id
+        #: is not the original `owner_approval_id` replayed. Never written to by this console.
+        #: `None` for a capability with no full-plan-approval concept at all (SIMULATION);
+        #: `confirm_overdue_recovery` refuses cleanly rather than requiring every composition
+        #: to wire up a plan repository it otherwise has no use for.
+        plans: ApprovedPlanRepository | None = None,
         operator_identity: str = "owner",
+        recovery_mode: bool = False,
     ) -> None:
         self._x = exits
         self._intents = intents
         self._entries = entry_attempts
+        self._external_closures = external_closures
         self._configurations = configurations
         self._kill_switch = kill_switch
         self._broker = broker
@@ -305,7 +373,14 @@ class PositionExitConsole:
         self._time = time_source
         self._clock = clock
         self._environment = environment
+        self._plans = plans
         self._operator = operator_identity
+        #: RELEASE v1 RECOVERY HARDENING. When set, `confirm` refuses before touching any
+        #: state: a fail-closed, read-only startup mode must dispatch nothing, automatically
+        #: or manually, while still leaving `review`/`assess`/`refresh`/`summary` (Paper
+        #: review, broker reconciliation and safety visibility) fully working. See
+        #: `entrypoints.operator_console --recovery-mode`.
+        self._recovery_mode = recovery_mode
 
     # -- reads -------------------------------------------------------------------------
 
@@ -314,6 +389,7 @@ class PositionExitConsole:
             intents=self._intents,
             entry_attempts=self._entries,
             exit_attempts=self._x.attempts,
+            external_closures=self._external_closures,
             broker=self._broker,
         ).handle(intent_id, at=self._clock())
 
@@ -329,8 +405,24 @@ class PositionExitConsole:
         return active is not None and active.position_closed
 
     def category(
-        self, entry: ExecutionAttempt | None, exit_attempt: PositionExitAttempt | None
+        self,
+        intent: ApprovedOrderIntent,
+        entry: ExecutionAttempt | None,
+        exit_attempt: PositionExitAttempt | None,
+        *,
+        now: datetime | None = None,
     ) -> str:
+        """RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX. Consults
+        `ExternalPositionClosureRepository` FIRST, regardless of whether a platform
+        `PositionExitAttempt` exists at all -- an externally-closed entry usually has NONE
+        (that is exactly the incident this closes: the Oct 9 entry showed as "Open position"
+        because its only evidence of closure was never a `PositionExitAttempt`). Also
+        distinguishes a genuinely still-live, not-yet-submitted intent from one that expired
+        with zero entry attempts and will never be dispatched -- neither may ever display as
+        "Open position" or "Working entry order".
+        """
+        if self._external_closures.for_entry(intent.intent_governance_id) is not None:
+            return CATEGORY_EXTERNALLY_CLOSED
         if exit_attempt is not None and exit_attempt.position_closed:
             return CATEGORY_POSITION_CLOSED
         if exit_attempt is not None and exit_attempt.state not in {
@@ -342,6 +434,9 @@ class PositionExitConsole:
                 return CATEGORY_NEEDS_ATTENTION
             return CATEGORY_EXIT_IN_PROGRESS
         if entry is None:
+            moment = now if now is not None else self._clock()
+            if intent.submission_state.value == "NOT_SUBMITTED" and moment >= intent.expires_at:
+                return CATEGORY_EXPIRED_UNSUBMITTED
             return CATEGORY_WORKING_ENTRY
         if not entry.outcome_is_known:
             return CATEGORY_NEEDS_ATTENTION
@@ -519,6 +614,7 @@ class PositionExitConsole:
                 intents=self._intents,
                 entry_attempts=self._entries,
                 exit_attempts=self._x.attempts,
+                external_closures=self._external_closures,
                 previews=self._x.previews,
                 events=self._x.events,
                 broker=self._broker,
@@ -588,6 +684,14 @@ class PositionExitConsole:
     # -- confirm ----------------------------------------------------------------------
 
     def confirm(self, intent_id: str, token: str) -> ActionOutcome:
+        if self._recovery_mode:
+            raise ConsoleRefusalError(
+                "Recovery mode active",
+                "This console was started in read-only recovery mode: Paper review, broker "
+                "reconciliation and safety visibility all work, but no exit may be confirmed "
+                "or sent -- automatically or manually. Nothing was sent. Restart without "
+                "--recovery-mode, with the Owner present, to resume exits.",
+            )
         now = self._clock()
         ticket = ConfirmationTicket.decode(token, signer=self._signer, now=now)
         if ticket.action != EXIT_ACTION or ticket.proposal_id != intent_id:
@@ -606,12 +710,8 @@ class PositionExitConsole:
                 "The exit terms shown are no longer the current ones. Nothing was sent. Review "
                 "the exit again.",
             )
-        if self._kill_switch.is_engaged():
-            raise ConsoleRefusalError(
-                "Execution blocked",
-                "The kill switch is engaged, so this exit cannot be submitted. Nothing was sent. "
-                "Release the kill switch on the Safety page first.",
-            )
+        # RELEASE v1: the kill switch blocks new entries only; a position-reducing exit is
+        # never blocked by it. See `docs/operations/kill-switch.md`.
         authorization = self._x.authorizations.latest_for_entry(intent_id)
         if (
             authorization is None
@@ -636,7 +736,13 @@ class PositionExitConsole:
                         authorized_at=now,
                     )
                 )
-            except PositionExitRefusedError as error:
+            except (PositionExitRefusedError, PaperTimeUncertainError) as error:
+                # `PaperTimeUncertainError` (paper_time.py) is a sibling `ValueError`
+                # subclass, not a `PositionExitRefusedError` -- `AuthorizePositionExitHandler`
+                # raises it directly on an uncertain broker-clock reading. Mirrors the SAME
+                # catch `position_plan_manager.PositionPlanManager._attempt_exit` already
+                # uses for the automatic path, so a transient clock disagreement produces a
+                # clear "review again" refusal here too, never an uncaught exception.
                 raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         try:
             result = SubmitAuthorizedPositionExitHandler(
@@ -645,6 +751,7 @@ class PositionExitConsole:
                 previews=self._x.previews,
                 authorizations=self._x.authorizations,
                 attempts=self._x.attempts,
+                external_closures=self._external_closures,
                 acknowledgements=self._x.acknowledgements,
                 events=self._x.events,
                 broker=self._broker,
@@ -658,9 +765,197 @@ class PositionExitConsole:
                     at=self._clock(),
                 )
             )
-        except PositionExitRefusedError as error:
+        except (PositionExitRefusedError, PaperTimeUncertainError) as error:
             raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         # Not dispatched because another request won the claim: report THAT exit, create nothing.
+        lost_race = not result.dispatched and result.attempt.attempt_id != (
+            f"XAT-{intent_id}-{preview.preview_version}"
+        )
+        return self._outcome(result.attempt, duplicate=lost_race)
+
+    # -- overdue-position recovery (RELEASE v1 recovery hardening) ---------------------
+
+    def grant_overdue_recovery_approval(
+        self, intent_id: str, recovery_approval_id: str
+    ) -> PositionExitEvent:
+        """Durably record ONE fresh, explicit Owner decision to recover an overdue
+        position -- a SEPARATE, prior step from `confirm_overdue_recovery` (SECURITY GATE,
+        RELEASE v1 recovery hardening review): `confirm_overdue_recovery` requires a REAL
+        persisted record matching this exact position, not merely a distinct nonempty
+        string. No ticket is involved -- this is a decision about the POSITION, not about
+        any one preview version, so there is nothing yet to re-confirm against; the
+        position, account and quantity are re-verified fresh, right now, against the
+        broker, by `GrantOverduePositionRecoveryApprovalHandler` itself.
+        """
+        plans = self._plans
+        if plans is None:
+            raise ConsoleRefusalError(
+                "Recovery not available",
+                "Overdue-position recovery is not available in this capability. Nothing "
+                "was recorded.",
+            )
+        try:
+            return GrantOverduePositionRecoveryApprovalHandler(
+                intents=self._intents,
+                entry_attempts=self._entries,
+                exit_attempts=self._x.attempts,
+                external_closures=self._external_closures,
+                plans=plans,
+                broker=self._broker,
+                events=self._x.events,
+                time_source=self._time,
+            ).handle(
+                GrantOverduePositionRecoveryApprovalCommand(
+                    entry_intent_governance_id=intent_id,
+                    recovery_approval_id=recovery_approval_id,
+                    granted_at=self._clock(),
+                )
+            )
+        except PositionExitRefusedError as error:
+            raise ConsoleRefusalError(
+                "Recovery approval refused", f"{error}. Nothing was recorded."
+            ) from error
+
+    def confirm_overdue_recovery(
+        self, intent_id: str, token: str, recovery_approval_id: str
+    ) -> ActionOutcome:
+        """The ONE escape hatch for a position whose mandatory deadline has already passed.
+
+        Deliberately a SEPARATE method from `confirm()`, not an extra branch inside it: a
+        normal authorization can never again satisfy `exit_authorization_binding_refusal`
+        once a position is overdue (see that function's own docstring), so recovering it
+        needs its own narrowly scoped authority, requiring `recovery_approval_id` -- a FRESH,
+        explicit Owner approval, distinct from the original plan's own `owner_approval_id`,
+        which `AuthorizeOverduePositionRecoveryHandler` never reads except to prove the new
+        id differs from it, and never rewrites or extends. `confirm()` itself, its normal
+        `AuthorizePositionExitHandler` path, and every normal pre-deadline exit are completely
+        unaffected by this method's existence.
+
+        Reuses the SAME `review()`-issued ticket `confirm()` does (the ticket proves which
+        preview the Owner was shown; it carries no opinion about whether the position is
+        overdue), the SAME idempotent-dispatch short-circuit, and the SAME
+        `SubmitAuthorizedPositionExitHandler` -- so the fresh broker position/quantity check,
+        the no-pending-SELL/no-UNKNOWN check, the fresh-quote check and the exactly-once
+        dispatch claim are all identical to a normal exit, unchanged.
+
+        RELEASE v1 RECOVERY HARDENING RECONCILIATION: gated by `self._recovery_mode` exactly
+        like `confirm()` -- this method did not exist yet when that flag was introduced, so
+        without this check a console started `--recovery-mode` (fail-closed, read-only) could
+        still dispatch a real SELL through this escape hatch, defeating the whole point of
+        recovery mode. `grant_overdue_recovery_approval` is deliberately NOT gated: it only
+        durably records the Owner's decision (never touches the broker), and whatever it
+        records stays inert until a LATER `confirm_overdue_recovery` call, which always
+        re-verifies broker position/quote/hours fresh at that time regardless of when the
+        grant was made -- so granting during recovery mode is safe, only sending is refused.
+        """
+        if self._recovery_mode:
+            raise ConsoleRefusalError(
+                "Recovery mode active",
+                "This console was started in read-only recovery mode: Paper review, broker "
+                "reconciliation and safety visibility all work, but no exit may be confirmed "
+                "or sent -- automatically or manually, including the overdue-recovery escape "
+                "hatch. Nothing was sent. Restart without --recovery-mode, with the Owner "
+                "present, to resume exits.",
+            )
+        plans = self._plans
+        if plans is None:
+            raise ConsoleRefusalError(
+                "Recovery not available",
+                "Overdue-position recovery is not available in this capability. Nothing was sent.",
+            )
+        now = self._clock()
+        ticket = ConfirmationTicket.decode(token, signer=self._signer, now=now)
+        if ticket.action != EXIT_ACTION or ticket.proposal_id != intent_id:
+            raise ConsoleRefusalError(
+                "Out of date",
+                "This confirmation did not come from a current exit review of this console. "
+                "Nothing was sent. Review the exit again.",
+            )
+        if not isinstance(recovery_approval_id, str) or not recovery_approval_id.strip():
+            raise ConsoleRefusalError(
+                "Recovery approval required",
+                "Overdue-position recovery requires a fresh, explicit Owner approval id. "
+                "Nothing was sent.",
+            )
+        existing = self._x.attempts.active_for_entry(intent_id)
+        if existing is not None:
+            return self._outcome(existing, duplicate=True)
+        # RELEASE v1 OVERDUE RECOVERY UI: fail-closed outside a regular trading session.
+        # Scoped to recovery ONLY (unlike the broader, not-yet-merged fix that gates
+        # `SubmitAuthorizedPositionExitHandler` itself for every exit) so normal exit and
+        # automatic Plan Manager behavior are completely unaffected by this change -- this
+        # is an extra refusal that can only ever apply to the recovery escape hatch.
+        if not self._broker.fetch_clock().is_open:
+            raise ConsoleRefusalError(
+                "Market closed",
+                "The market is not in a regular trading session; overdue-recovery exits are "
+                "not dispatched outside regular hours. Nothing was sent.",
+            )
+        preview = self._x.previews.get(f"XPV-{intent_id}-{ticket.proposal_version}")
+        if preview is None or preview.request_fingerprint != ticket.fingerprint:
+            raise ConsoleRefusalError(
+                "Terms changed",
+                "The exit terms shown are no longer the current ones. Nothing was sent. Review "
+                "the exit again.",
+            )
+        authorization = self._x.authorizations.latest_for_entry(intent_id)
+        if (
+            authorization is None
+            or authorization.preview_id != preview.preview_id
+            or authorization.is_consumed
+            or authorization.is_expired_at(now)
+            or not is_overdue_recovery_authorization(authorization)
+        ):
+            try:
+                AuthorizeOverduePositionRecoveryHandler(
+                    previews=self._x.previews,
+                    authorizations=self._x.authorizations,
+                    events=self._x.events,
+                    plans=plans,
+                    broker=self._broker,
+                    time_source=self._time,
+                ).handle(
+                    AuthorizeOverduePositionRecoveryCommand(
+                        authorization_id=f"XAU-RECOVERY-{intent_id}-{preview.preview_version}",
+                        preview_id=preview.preview_id,
+                        expected_request_fingerprint=preview.request_fingerprint,
+                        recovery_approval_id=recovery_approval_id,
+                        authorized_at=now,
+                    )
+                )
+            # RELEASE v1 RECOVERY HARDENING RECONCILIATION:
+            # `AuthorizeOverduePositionRecoveryHandler` measures the broker clock basis the
+            # same way `AuthorizePositionExitHandler` does and can raise
+            # `PaperTimeUncertainError` directly -- mirrors the catch `confirm()` already
+            # has for its own, pre-existing, equivalent call.
+            except (PositionExitRefusedError, PaperTimeUncertainError) as error:
+                raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
+        try:
+            result = SubmitAuthorizedPositionExitHandler(
+                intents=self._intents,
+                entry_attempts=self._entries,
+                previews=self._x.previews,
+                authorizations=self._x.authorizations,
+                attempts=self._x.attempts,
+                external_closures=self._external_closures,
+                acknowledgements=self._x.acknowledgements,
+                events=self._x.events,
+                broker=self._broker,
+                configurations=self._configurations,
+                kill_switch=self._kill_switch,
+                time_source=self._time,
+            ).handle(
+                SubmitAuthorizedPositionExitCommand(
+                    entry_intent_governance_id=intent_id,
+                    attempt_id=f"XAT-{intent_id}-{preview.preview_version}",
+                    at=self._clock(),
+                )
+            )
+        # RELEASE v1 RECOVERY HARDENING RECONCILIATION: same reasoning as above -- this call
+        # reaches the identical `observe_broker_clock`/hours-gate code `confirm()` already
+        # guards against.
+        except (PositionExitRefusedError, PaperTimeUncertainError) as error:
+            raise ConsoleRefusalError("Exit refused", f"{error}. Nothing was sent.") from error
         lost_race = not result.dispatched and result.attempt.attempt_id != (
             f"XAT-{intent_id}-{preview.preview_version}"
         )

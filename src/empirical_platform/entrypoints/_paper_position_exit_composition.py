@@ -1,10 +1,16 @@
 """MILESTONE-089 -- the Operator Console composed for PAPER WITH the exit path: Store B + Store C.
 
 THE DUAL-STORE BOUNDARY, EXPLICIT. Store B is `paper_execution_runtime()`
-(`entrypoints._paper_composition`) -- the SAME real Alpaca-credentialed, exact-M085-schema-
-head-verified context `tools/m085_paper_acceptance.py` and MILESTONE-088's console use,
-UNCHANGED. Store C is a SECOND, independent `PostgresPersistenceService`, over a database this
-module opens itself, exact-M089-schema-head-verified
+(`entrypoints._paper_composition`) -- the SAME real Alpaca-credentialed context
+`tools/m085_paper_acceptance.py` and MILESTONE-088's console use, UNCHANGED. RELEASE v1
+schema-blocker fix: that function now proves Store B compatible via
+`require_v1_integrated_schema_compatibility`, not the historical
+`require_exact_m085_schema_head` (see that function's own docstring in
+`paper_execution_repositories.py` for why: Store A and Store B are the SAME physical
+database in real deployment, and a database correctly migrated to serve this module's own
+`ApprovedPlan` reads can never simultaneously sit at the older, literal M085 revision).
+Store C is a SECOND, independent `PostgresPersistenceService`, over a database this module
+opens itself, exact-M089-schema-head-verified
 (`require_exact_m089_schema_head`) before anything built over it is handed out. There is no
 shared connection, no shared transaction and no cross-database foreign key between the two: a
 preview built for Store C reads Store B's own M085 entry-attempt repository directly (the SAME
@@ -47,7 +53,15 @@ from empirical_platform.shared.config.settings import (
     PostgreSQLConfigSnapshot,
     resolve_foundation_config,
 )
+from empirical_platform.shared.persistence.database_safety import require_personal_identity
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.approved_plan_repositories import (  # noqa: E501
+    PostgresApprovedPlanRepository,
+    require_exact_v1_approved_plan_schema_head,
+)
+from empirical_platform.shared.persistence.postgres_repositories.external_position_closure_repositories import (  # noqa: E501
+    PostgresExternalPositionClosureRepository,
+)
 from empirical_platform.shared.persistence.postgres_repositories.paper_position_exit_schema import (
     require_exact_m089_schema_head,
 )
@@ -60,6 +74,10 @@ from empirical_platform.usecases.operator_console import (
     OperatorConsoleService,
 )
 from empirical_platform.usecases.operator_console_exits import ExitRepositories, PositionExitConsole
+from empirical_platform.usecases.position_plan_manager import (
+    ManagerThreadHandle,
+    PositionPlanManager,
+)
 
 __all__ = [
     "PAPER_EXIT_DATABASE_VARIABLE",
@@ -88,23 +106,45 @@ def resolve_paper_exit_postgres_config(
 
 
 @contextmanager
-def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
+def paper_operator_console_with_exit_runtime(
+    *, recovery_mode: bool = False
+) -> Iterator[PaperConsoleBackend]:
     """Own Store B's AND Store C's persistence services for the console's lifetime.
 
-    Requires the EXACT M085 schema head on Store B (via `paper_execution_runtime()`,
-    unweakened) and the EXACT M089 schema head on Store C (via
+    Requires Store B proven compatible with the integrated v1 runtime (via
+    `paper_execution_runtime()`'s own `require_v1_integrated_schema_compatibility` guard --
+    RELEASE v1 schema-blocker fix, replacing the historical `require_exact_m085_schema_head`
+    that function used to call) and the EXACT M089 schema head on Store C (via
     `require_exact_m089_schema_head`, unweakened) before either database is read for anything
     but the schema check itself, and before any credential is used to build the broker
     clients. Store C is opened INSIDE Store B's context and closed before it, so a Store-C
     failure never leaves Store B's connection dangling and Store B's guard always runs first.
+
+    RELEASE v1 RECOVERY HARDENING: `recovery_mode=True` (`empirical-platform-operator-console
+    --capability paper-exit --recovery-mode`) is a fail-closed, read-only startup. Both
+    Stores open and every read (`review`, `assess`, `refresh`, `/safety`) works exactly as
+    before -- the Owner can see the real broker position, open orders and the overdue plan
+    immediately. Two things, and only two, are withheld: no `PositionPlanManager` is built at
+    all (`_plan_manager=None` below, so `operator_console.py` has nothing to start a
+    `PlanManagerThread` from), and `PositionExitConsole.confirm` refuses before touching any
+    state (see its own docstring). Nothing else about this composition changes: the SAME
+    durable preview/authorization/attempt rows a normal restart would resume from are read
+    and displayed, never recreated or cleared.
     """
     with paper_execution_runtime() as store_b:
-        store_c_config = resolve_paper_exit_postgres_config(resolve_foundation_config().postgresql)
+        store_a_config = resolve_foundation_config().postgresql
+        store_c_config = resolve_paper_exit_postgres_config(store_a_config)
+        store_a_plans = PostgresPersistenceService(store_a_config)
         store_c = PostgresPersistenceService(store_c_config)
         try:
+            store_a_plans.initialize()
+            require_exact_v1_approved_plan_schema_head(store_a_plans)
+            plans = PostgresApprovedPlanRepository(store_a_plans)
             store_c.initialize()
+            require_personal_identity(store_c, store_c_config, store="C")
             require_exact_m089_schema_head(store_c)
             exit_runtime = PostgresPositionExitRuntime(store_c)
+            external_closures = PostgresExternalPositionClosureRepository(store_c)
             exits = ExitRepositories(
                 previews=exit_runtime.previews,
                 authorizations=exit_runtime.authorizations,
@@ -134,6 +174,7 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 exits=exits,
                 intents=repositories.intents,
                 entry_attempts=repositories.attempts,
+                external_closures=external_closures,
                 configurations=repositories.configurations,
                 kill_switch=repositories.kill_switch,
                 broker=store_b.broker,
@@ -142,6 +183,8 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 time_source=store_b.time_source,
                 clock=_utc_now,
                 environment=PAPER_CAPABILITY.capability.value,
+                plans=plans,
+                recovery_mode=recovery_mode,
             )
             service = OperatorConsoleService(
                 repositories=repositories,
@@ -152,6 +195,41 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 time_source=store_b.time_source,
                 exits=exit_console,
             )
+            # RELEASE v1: the automatic position-plan manager, over the SAME Store B/Store C
+            # repositories the Owner's own manual exit already uses -- never a parallel
+            # broker-submission path (see `usecases.position_plan_manager`'s own docstring).
+            # RECOVERY HARDENING: in `recovery_mode`, it is never built at all -- not built and
+            # disarmed, simply absent -- so nothing in this process can start it.
+            plan_manager = (
+                None
+                if recovery_mode
+                else PositionPlanManager(
+                    plans=plans,
+                    external_closures=external_closures,
+                    intents=repositories.intents,
+                    entry_attempts=repositories.attempts,
+                    exit_attempts=exits.attempts,
+                    previews=exits.previews,
+                    authorizations=exits.authorizations,
+                    acknowledgements=exits.acknowledgements,
+                    events=exits.events,
+                    rounds=exits.rounds,
+                    broker=store_b.broker,
+                    market_data=store_b.market_data,
+                    configurations=repositories.configurations,
+                    environment=PAPER_CAPABILITY.capability.value,
+                    time_source=store_b.time_source,
+                )
+            )
+            # RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). ALWAYS created,
+            # even in `recovery_mode` -- this console genuinely supports plan management (as
+            # opposed to M088's plain PAPER composition, which has no such concept and never
+            # builds one of these at all). `.thread` is filled in later, by
+            # `entrypoints.operator_console.main`, once the real `PlanManagerThread` actually
+            # starts; in `recovery_mode` nothing ever sets it (no `PositionPlanManager` is
+            # built above), so `.heartbeat()` stays `None` forever here -- but `manager_status`
+            # never reaches that check for `recovery_mode=True`, which it tests FIRST.
+            manager_thread_handle = ManagerThreadHandle()
             yield PaperConsoleBackend(
                 service=service,
                 configuration_id="CFG-089-PAPER",
@@ -160,6 +238,13 @@ def paper_operator_console_with_exit_runtime() -> Iterator[PaperConsoleBackend]:
                 _broker=store_b.broker,
                 _market_data=store_b.market_data,
                 _time_source=store_b.time_source,
+                _plans=plans,
+                _plan_manager=plan_manager,
+                _exits=exits,
+                _external_closures=external_closures,
+                _manager_thread_handle=manager_thread_handle,
+                _recovery_mode=recovery_mode,
             )
         finally:
             store_c.close()
+            store_a_plans.close()

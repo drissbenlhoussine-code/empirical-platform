@@ -20,6 +20,7 @@ from empirical_platform.usecases.operator_console_exits import (
     _account_noun,
     _broker_noun,
     _closed_round_trip_label,
+    blocked_exit_alert,
     deadline_status,
 )
 
@@ -87,7 +88,9 @@ def test_exit_review_page_shows_the_broker_position_evidence_timestamp_and_clien
     assert view.full_close_warning in page
     # MILESTONE-089 REGRESSION GUARD: the badge used to be hardcoded "Simulation" regardless
     # of the capability actually composed; it must reflect what the caller passed.
-    assert '<span class="env-badge">PAPER</span>' in page
+    # RELEASE v1: PAPER also carries its own distinct badge class (`env-badge-paper`), so the
+    # always-running SIMULATION console and the real-Alpaca PAPER one are never color-twins.
+    assert '<span class="env-badge env-badge-paper">PAPER</span>' in page
     assert "Simulation" not in page.split("<footer")[0]
 
 
@@ -289,3 +292,65 @@ def test_deadline_status_position_closed_and_not_open_branches_use_utc_too() -> 
         deadline=deadline, now=deadline, position_open=False, position_closed=False
     )
     assert tone == "info" and expected in message
+
+
+# ---------------------------------------------------------------------------
+# RELEASE v1 VISIBILITY FIX: blocked_exit_alert correlates a deadline that is already
+# urgent (deadline_status's own "warn"/"danger" tone) with a genuine, on-the-record
+# AssessPositionExitHandler refusal -- the one combination nothing said explicitly before.
+# ---------------------------------------------------------------------------
+
+_A_REFUSAL = (
+    "another entry in the same symbol also holds shares (ATT-OCT9); attribution is ambiguous",
+)
+
+
+def test_no_alert_when_the_deadline_is_not_yet_urgent() -> None:
+    assert (
+        blocked_exit_alert(deadline_tone="info", assessment_refusals=_A_REFUSAL, position_open=True)
+        is None
+    )
+
+
+def test_no_alert_when_there_is_no_refusal_on_record() -> None:
+    assert (
+        blocked_exit_alert(deadline_tone="warn", assessment_refusals=(), position_open=True) is None
+    )
+
+
+def test_no_alert_when_the_position_is_not_open() -> None:
+    assert (
+        blocked_exit_alert(
+            deadline_tone="danger", assessment_refusals=_A_REFUSAL, position_open=False
+        )
+        is None
+    )
+
+
+def test_an_approaching_deadline_with_a_refusal_is_escalated_and_names_the_refusal() -> None:
+    alert = blocked_exit_alert(
+        deadline_tone="warn", assessment_refusals=_A_REFUSAL, position_open=True
+    )
+    assert alert is not None
+    assert "approaching" in alert
+    assert _A_REFUSAL[0] in alert
+    assert "manual confirm will be refused" in alert
+
+
+def test_a_missed_deadline_with_a_refusal_says_the_deadline_already_passed() -> None:
+    alert = blocked_exit_alert(
+        deadline_tone="danger", assessment_refusals=_A_REFUSAL, position_open=True
+    )
+    assert alert is not None
+    assert "already past" in alert
+    assert _A_REFUSAL[0] in alert
+
+
+def test_multiple_refusals_are_all_named_verbatim_never_summarized() -> None:
+    refusals = (_A_REFUSAL[0], "the entry order's outcome is unknown")
+    alert = blocked_exit_alert(
+        deadline_tone="warn", assessment_refusals=refusals, position_open=True
+    )
+    assert alert is not None
+    assert refusals[0] in alert
+    assert refusals[1] in alert

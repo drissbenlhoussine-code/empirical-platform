@@ -8,10 +8,10 @@
 SIMULATION IS THE DEFAULT (MILESTONE-088 Phase 6): `--capability` defaults to `simulation`
 and every existing flag and behaviour below is unchanged for it. `--capability paper`
 composes over Store B instead (`entrypoints._paper_operator_console_composition`) -- the
-same real Alpaca-credentialed, exact-M085-schema-head-verified context
-`tools/m085_paper_acceptance.py` uses -- and refuses `--load-day`/`--reset-simulation`,
-which have no PAPER meaning. No `--capability live` exists: there is no composition path in
-this repository that can build one. It binds to the loopback address only and refuses any
+same real Alpaca-credentialed context `tools/m085_paper_acceptance.py` uses -- and refuses
+`--load-day`/`--reset-simulation`, which have no PAPER meaning. No `--capability live`
+exists: there is no composition path in this repository that can build one. It binds to
+the loopback address only and refuses any
 other host, in both capabilities. One process serves the pages and, in the background, asks
 the broker (simulated, or the real Alpaca paper endpoint) about every open execution through
 the MILESTONE-085 reconciler, so Active trades moves from Submitted to Accepted to Filled
@@ -35,8 +35,10 @@ import sys
 import threading
 import webbrowser
 from collections.abc import Callable, Iterable
+from datetime import UTC, datetime
 from pathlib import Path
 
+from empirical_platform.entrypoints import _operator_console_html as html
 from empirical_platform.entrypoints._operator_console_web import SecuritySession, serve
 from empirical_platform.entrypoints._paper_operator_console_composition import (
     paper_operator_console_runtime,
@@ -50,6 +52,11 @@ from empirical_platform.entrypoints._position_exit_composition import (
 from empirical_platform.entrypoints.operator_console_app import build_application
 from empirical_platform.entrypoints.paper_operator_console_app import build_paper_application
 from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
+from empirical_platform.usecases.position_plan_manager import (
+    ManagerThreadHandle,
+    PlanManagerThread,
+    PositionPlanManager,
+)
 
 __all__ = ["main"]
 
@@ -57,6 +64,10 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8086
 DEFAULT_STATE_DIR = Path.home() / ".empirical-platform" / "operator-console"
 RECONCILER_JOIN_REPORT_INTERVAL_SECONDS = 30.0  # diagnostics only; never permits teardown
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 def _loopback(host: str) -> str:
@@ -134,6 +145,9 @@ def _serve_with_reconciler(
     no_browser: bool,
     reconcile_every: float,
     banner: tuple[str, ...],
+    plan_manager: PositionPlanManager | None = None,
+    manager_thread_handle: ManagerThreadHandle | None = None,
+    base_path: str = "",
 ) -> None:
     """Shared by both capabilities: start the reconciler, serve, and shut down in order.
 
@@ -141,18 +155,42 @@ def _serve_with_reconciler(
     stopped AND joined until it has actually terminated, and only THEN does the server close
     and the composition's own service, persistence and lock release -- no repository or
     broker client is closed while a reconciliation pass (which calls it) is still running.
+
+    RELEASE v1: when `plan_manager` is given (only `--capability paper-exit`'s composition
+    builds one), its `PlanManagerThread` starts and stops alongside the reconciler, inside
+    THIS SAME process -- never a second process -- so any `ApprovedPlan` the Owner approves
+    begins being monitored immediately, with no separate manual step.
+
+    RELEASE v1 SAFETY VISIBILITY: when `manager_thread_handle` is also given, the REAL
+    `PlanManagerThread` just started is published onto it immediately -- see
+    `usecases.position_plan_manager.ManagerThreadHandle`'s own docstring for why the backend
+    (built earlier, immutably, by the composition function) could not simply hold this
+    reference itself. The `/safety` route reads `manager_thread_handle.heartbeat()` on every
+    request, so this is the ONLY place a real, running thread becomes visible to it.
     """
     reconciler: _Reconciler | None = None
+    manager_thread: PlanManagerThread | None = None
     try:
         if reconcile_every > 0:
             reconciler = _Reconciler(refresh, reconcile_every)
             reconciler.start()
+        if plan_manager is not None:
+            manager_thread = PlanManagerThread(plan_manager, now=_utc_now)
+            manager_thread.start()
+            if manager_thread_handle is not None:
+                manager_thread_handle.thread = manager_thread
         with serve(application, host=host, port=port) as server:
+            # Direct/local URL is always unprefixed, same reasoning as the Opportunity
+            # Engine's own launcher: this process only ever registers unprefixed routes (a
+            # reverse proxy strips base_path before forwarding here, it never reaches this
+            # process). base_path only shapes the URLs this process generates in its own pages.
             url = f"http://{host}:{server.server_port}/today"
             print("=" * 72)
             for line in banner:
                 print(line)
             print(f"  Open {url}")
+            if base_path:
+                print(f"  Configured base path for a reverse proxy: {base_path}")
             print("  Press Ctrl+C to stop.")
             print("=" * 72, flush=True)
             if not no_browser:
@@ -164,11 +202,15 @@ def _serve_with_reconciler(
             finally:
                 if reconciler is not None:
                     reconciler.stop()
+                if manager_thread is not None:
+                    manager_thread.stop()
     finally:
         # Also holds if the server never started (port in use, Ctrl+C during startup): the
         # composition's own context manager cannot exit while the reconciler is alive.
         if reconciler is not None:
             reconciler.stop()
+        if manager_thread is not None:
+            manager_thread.stop()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -211,8 +253,37 @@ def main(argv: list[str] | None = None) -> int:
         default=5.0,
         help="seconds between background reconciliation passes (0 disables)",
     )
+    parser.add_argument(
+        "--recovery-mode",
+        action="store_true",
+        help="--capability paper-exit only: fail-closed, read-only startup. Paper review, "
+        "broker reconciliation and safety visibility all work exactly as normal; the "
+        "automatic Plan Manager is never built and no exit -- automatic or manual -- can be "
+        "confirmed or sent. Restart without this flag, with the Owner present, to resume "
+        "exits.",
+    )
+    parser.add_argument(
+        "--base-path",
+        default="",
+        help="path prefix this console is reverse-proxied under, e.g. /paper (default: none, "
+        "i.e. root behaviour) -- mirrors the Opportunity Engine's own --base-path exactly. "
+        "Only shapes the URLs this process generates in its own pages; routes always register "
+        "unprefixed because a reverse proxy strips the prefix before forwarding here.",
+    )
     arguments = parser.parse_args(argv)
     host = _loopback(arguments.host)
+    try:
+        base_path = html.validate_base_path(arguments.base_path)
+    except ValueError as error:
+        raise SystemExit(f"REFUSED: {error}") from error
+
+    if arguments.recovery_mode and arguments.capability != "paper-exit":
+        print(
+            "REFUSED: --recovery-mode only has meaning for --capability paper-exit. Nothing "
+            "was started.",
+            file=sys.stderr,
+        )
+        return 2
 
     if arguments.capability in ("paper", "paper-exit"):
         if arguments.load_day or arguments.reset_simulation:
@@ -226,8 +297,34 @@ def main(argv: list[str] | None = None) -> int:
             # MILESTONE-089: the ONLY difference from --capability paper is which composition
             # function opens Store C alongside Store B and wires the exit console; the routes,
             # the app and the banner's first two lines are otherwise identical.
-            with paper_operator_console_with_exit_runtime() as backend:
-                application = build_paper_application(backend, security=SecuritySession())
+            with paper_operator_console_with_exit_runtime(
+                recovery_mode=arguments.recovery_mode
+            ) as backend:
+                application = build_paper_application(
+                    backend, security=SecuritySession(), base_path=base_path
+                )
+                banner = (
+                    (
+                        "  OPERATOR CONSOLE -- PAPER, RECOVERY MODE. Read-only startup: Paper "
+                        "review, reconciliation and safety visibility only.",
+                        "  The automatic Plan Manager is NOT running. No exit can be "
+                        "confirmed or sent, automatically or manually.",
+                        "  Restart WITHOUT --recovery-mode, with the Owner present, to "
+                        "resume exits.",
+                        "  Live -- not authorized.",
+                    )
+                    if arguments.recovery_mode
+                    else (
+                        "  OPERATOR CONSOLE -- PAPER. Orders reach the real Alpaca PAPER "
+                        "endpoint only.",
+                        "  Not real money. Every submission requires explicit Owner approval.",
+                        "  MILESTONE-089: SELL_TO_CLOSE is enabled for attributable PAPER "
+                        "positions.",
+                        "  RELEASE v1: an Owner-approved full plan is managed automatically "
+                        "(stop/target/mandatory exit) -- see /safety.",
+                        "  Live -- not authorized.",
+                    )
+                )
                 _serve_with_reconciler(
                     application,
                     refresh=backend.service.refresh_executions,
@@ -235,18 +332,16 @@ def main(argv: list[str] | None = None) -> int:
                     port=arguments.port,
                     no_browser=arguments.no_browser,
                     reconcile_every=arguments.reconcile_every,
-                    banner=(
-                        "  OPERATOR CONSOLE -- PAPER. Orders reach the real Alpaca PAPER "
-                        "endpoint only.",
-                        "  Not real money. Every submission requires explicit Owner approval.",
-                        "  MILESTONE-089: SELL_TO_CLOSE is enabled for attributable PAPER "
-                        "positions.",
-                        "  Live -- not authorized.",
-                    ),
+                    banner=banner,
+                    plan_manager=backend._plan_manager,
+                    manager_thread_handle=backend._manager_thread_handle,
+                    base_path=base_path,
                 )
             return 0
         with paper_operator_console_runtime() as backend:
-            application = build_paper_application(backend, security=SecuritySession())
+            application = build_paper_application(
+                backend, security=SecuritySession(), base_path=base_path
+            )
             _serve_with_reconciler(
                 application,
                 refresh=backend.service.refresh_executions,
@@ -260,6 +355,7 @@ def main(argv: list[str] | None = None) -> int:
                     "  Not real money. Every submission requires explicit Owner approval.",
                     "  Live -- not authorized.",
                 ),
+                base_path=base_path,
             )
         return 0
 
@@ -276,7 +372,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"{', '.join(report.proposed) or 'nothing'}; already present "
                     f"{', '.join(report.already_present) or 'nothing'}"
                 )
-            application = build_application(runtime, security=SecuritySession())
+            application = build_application(
+                runtime, security=SecuritySession(), base_path=base_path
+            )
             _serve_with_reconciler(
                 application,
                 refresh=runtime.service.refresh_executions,
@@ -288,6 +386,7 @@ def main(argv: list[str] | None = None) -> int:
                     "  OPERATOR CONSOLE -- SIMULATION ONLY. No order can reach any venue.",
                     "  Paper execution locked -- acceptance pending. Live -- not authorized.",
                 ),
+                base_path=base_path,
             )
     except SimulationStateLockedError as refused:
         print(f"REFUSED: {refused}", file=sys.stderr)

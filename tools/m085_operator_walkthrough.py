@@ -341,6 +341,9 @@ def prepare() -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from empirical_platform.shared.persistence.database_safety import install_test_connection_guard
+
+    install_test_connection_guard()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.parse_args(argv)
 

@@ -77,6 +77,7 @@ empirical-platform-authorize-paper-submission = "empirical_platform.entrypoints.
 empirical-platform-submit-authorized-paper-order = "empirical_platform.entrypoints.submit_authorized_paper_order:main"
 empirical-platform-reconcile-paper-order = "empirical_platform.entrypoints.reconcile_paper_order:main"
 empirical-platform-cancel-paper-order = "empirical_platform.entrypoints.cancel_paper_order:main"
+empirical-platform-record-external-position-closure = "empirical_platform.entrypoints.record_external_position_closure:main"
 empirical-platform-show-paper-execution = "empirical_platform.entrypoints.show_paper_execution:main"
 empirical-platform-list-paper-executions = "empirical_platform.entrypoints.list_paper_executions:main"
 empirical-platform-paper-execution-status = "empirical_platform.entrypoints.paper_execution_status:main"
