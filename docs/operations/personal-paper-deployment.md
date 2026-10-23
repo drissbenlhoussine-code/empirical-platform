@@ -67,8 +67,30 @@ python tools/personal_paper_deploy.py \
   [--confirm-production]
 ```
 
-`EMPIRICAL_ALPACA_PAPER_API_KEY`/`_SECRET_KEY`, `EMPIRICAL_PLATFORM_POSTGRES_*` and
-`EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` are read from the environment, fresh, never logged.
+`EMPIRICAL_ALPACA_PAPER_API_KEY`/`_SECRET_KEY` and `EMPIRICAL_PLATFORM_POSTGRES_*` (Store B)
+are read from the environment, fresh, never logged.
+
+**Store C's connectivity (M096 fix):** the real topology is one Postgres server, two
+databases -- the real console entrypoint
+(`_paper_position_exit_composition.resolve_paper_exit_postgres_config`) reuses Store B's
+host/port/user/password verbatim for Store C and only swaps the database name, and the real
+environment never sets `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST`/`_PORT`/`_USER`/
+`_PASSWORD` at all. This script now resolves Store C the same way:
+- If `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` is **not** set (the real shape today),
+  Store C reuses Store B's host/port/user/password, with only the database name taken from
+  `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE` (default `empirical_platform_paper_exit`).
+- If `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` **is** set, Store C is treated as
+  independently configured and every `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` field
+  (`_HOST`/`_PORT`/`_USER`/`_PASSWORD`/`_DATABASE`) is resolved on its own -- for a future
+  topology where the two stores are split across servers.
+- Setting `_PORT`/`_USER`/`_PASSWORD` without `_HOST` is refused (ambiguous partial
+  override) rather than silently mixed with Store B's values.
+
+An earlier version of this script always required the fully independent form, which the
+real environment never satisfies -- invoking it against production crashed with an
+unhandled `KeyError` before touching anything (found during the 2026-10-22 read-only
+preflight; CI never caught it because every test set all five
+`EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` variables itself).
 
 **`--confirm-production` is required, and only accepted, when EITHER `--manifest-path`
 resolves to the real default production manifest path**

@@ -1146,6 +1146,59 @@ def _env_config(prefix: str, environ: Mapping[str, str]) -> PostgreSQLConfigSnap
     )
 
 
+#: M096 FIX (found during the 2026-10-22 read-only preflight): the real console entrypoint
+#: (`_paper_position_exit_composition.resolve_paper_exit_postgres_config`) reuses Store B's
+#: host/port/user/password verbatim for Store C and only swaps the database name -- there is
+#: ONE real Postgres server, two databases. The real environment never sets
+#: EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST/_PORT/_USER/_PASSWORD at all. This script's
+#: Store C resolution used to call `_env_config("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES", ...)`
+#: unconditionally, which hard-requires `_DATABASE` (`environ[...]`) and silently defaults
+#: host/port to "localhost"/5432 (Store B's real port is 55433) -- so invoking this script
+#: against the real environment crashed with an unhandled `KeyError` before touching
+#: anything, a gap CI never caught because every test sets all five
+#: EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_* variables itself.
+#:
+#: The constant and default below are duplicated from that module rather than imported --
+#: the SAME discipline that module's own docstring already applies to Store B's wiring: a
+#: tiny, stable value duplicated on purpose so a change to the console's composition root
+#: can never silently change what this script assumes, and vice versa.
+#: `test_store_c_fallback_constants_match_the_real_console_entrypoint` pins the two together.
+_PAPER_EXIT_DATABASE_VARIABLE: Final = "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE"
+_PAPER_EXIT_HOST_VARIABLE: Final = "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST"
+_DEFAULT_STORE_C_DATABASE: Final = "empirical_platform_paper_exit"
+
+
+def _store_c_config(
+    store_b_config: PostgreSQLConfigSnapshot, environ: Mapping[str, str]
+) -> PostgreSQLConfigSnapshot:
+    """Store C's connectivity, resolved the SAME way the real console resolves it.
+
+    Independent Store C configuration is opt-in and signaled by
+    `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` being set: when it is, every
+    `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` field is resolved independently via
+    `_env_config`, exactly as this script always has. When it is absent -- the real topology
+    today, one Postgres server for both stores -- Store C reuses Store B's host/port/user/
+    password verbatim, with only the database name taken from
+    `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE` (or the same default the real console
+    entrypoint uses). `_PORT`/`_USER`/`_PASSWORD` set WITHOUT `_HOST` is refused rather than
+    silently mixed with Store B's values: that combination cannot mean anything safe.
+    """
+    independent = _PAPER_EXIT_HOST_VARIABLE in environ
+    partially_configured = any(
+        f"EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_{field}" in environ
+        for field in ("PORT", "USER", "PASSWORD")
+    )
+    if not independent and partially_configured:
+        raise DatabaseSafetyError(
+            "EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_{PORT,USER,PASSWORD} is set without "
+            f"{_PAPER_EXIT_HOST_VARIABLE} -- ambiguous partial Store C override, refused."
+        )
+    if independent:
+        return _env_config("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES", environ)
+    database = environ.get(_PAPER_EXIT_DATABASE_VARIABLE, _DEFAULT_STORE_C_DATABASE)
+    return store_b_config.model_copy(update={"database": database})
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-path", required=True, type=Path)
@@ -1165,8 +1218,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
 
-    store_b_config = _env_config("EMPIRICAL_PLATFORM_POSTGRES", os.environ)
-    store_c_config = _env_config("EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES", os.environ)
+    try:
+        store_b_config = _env_config("EMPIRICAL_PLATFORM_POSTGRES", os.environ)
+        store_c_config = _store_c_config(store_b_config, os.environ)
+    except (KeyError, ValueError) as error:  # DatabaseSafetyError is a ValueError subclass.
+        print(
+            f"REFUSED: Store B/C configuration is incomplete or invalid ({error}). "
+            "Nothing was touched.",
+            file=sys.stderr,
+        )
+        return 2
 
     # ADVERSARIAL REVIEW FOLLOW-UP: the guard must key off every real-world thing that could
     # make this touch production, not just the manifest path. A decoy --manifest-path with
