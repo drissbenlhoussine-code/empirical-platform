@@ -53,7 +53,8 @@ class _FakeProcess:
     def is_running(self, pid: int) -> bool:
         return self.running.get(pid, False)
 
-    def graceful_stop(self, pid: int) -> None:
+    def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None:
+        del host, port, safety_directory
         self.graceful_stop_calls.append(pid)
         self.running[pid] = False
 
@@ -70,12 +71,20 @@ class _FakeProcess:
 class _FakeNetwork:
     def __init__(self) -> None:
         self.free_ports: set[int] = set()
+        self.owners: dict[int, int] = {}  # port -> the PID "really" listening on it
+        self.owning_pid_errors: dict[int, str] = {}  # port -> error message to raise instead
         self.responses: dict[str, tuple[int, str]] = {}
         self.http_calls: list[str] = []
 
     def port_is_free(self, host: str, port: int) -> bool:
         del host
         return port in self.free_ports
+
+    def owning_pid(self, host: str, port: int) -> int | None:
+        del host
+        if port in self.owning_pid_errors:
+            raise RuntimeError(self.owning_pid_errors[port])
+        return self.owners.get(port)
 
     def http_get(self, url: str, *, timeout: float) -> tuple[int, str]:
         del timeout
@@ -256,12 +265,13 @@ def test_step3_refuses_wrong_head(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------------------
 
 
-def test_step5_and_6_succeed_when_process_stops_and_port_clears(tmp_path: Path) -> None:
+def test_step5_and_6_succeed_when_owning_pid_matches_and_process_stops(tmp_path: Path) -> None:
     process = _FakeProcess()
     process.running[4242] = True
     network = _FakeNetwork()
-    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
     cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path, shutdown_timeout_seconds=1.0)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
 
     detail = deploy.step5_shutdown(cfg, ports)
     assert 4242 in process.graceful_stop_calls
@@ -274,23 +284,112 @@ def test_step5_and_6_succeed_when_process_stops_and_port_clears(tmp_path: Path) 
 
 def test_step5_times_out_if_process_never_stops(tmp_path: Path) -> None:
     class _StubbornProcess(_FakeProcess):
-        def graceful_stop(self, pid: int) -> None:
+        def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None:
             pass  # deliberately never actually stops
 
     process = _StubbornProcess()
     process.running[4242] = True
-    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, _FakeNetwork())
+    network = _FakeNetwork()
     cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path, shutdown_timeout_seconds=0.3)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
     with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
         deploy.step5_shutdown(cfg, ports)
     assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
 
 
-def test_step5_refuses_when_no_pid_is_known(tmp_path: Path) -> None:
+def test_step5_is_idempotent_when_port_already_free(tmp_path: Path) -> None:
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network = _FakeNetwork()
+    network.free_ports.add(cfg.console_port)
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network)
+    detail = deploy.step5_shutdown(cfg, ports)
+    assert "already free" in detail
+
+
+def test_step5_refuses_when_given_pid_is_running_but_port_is_free(tmp_path: Path) -> None:
+    """A stale/incorrect `--console-pid`: the port is free (nothing of ours is listening)
+    but the given PID happens to still be running something else. Refuses rather than
+    silently treating this as "nothing to stop"."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network = _FakeNetwork()
+    network.free_ports.add(cfg.console_port)
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert not process.graceful_stop_calls
+
+
+def test_step5_refuses_when_owning_pid_cannot_be_determined(tmp_path: Path) -> None:
+    """The port is occupied but the OS-level query could not identify who owns it. This
+    must never be treated the same as "confirmed free"."""
     cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
     ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), _FakeNetwork())
-    with pytest.raises(deploy.DeploymentBlockedError):
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
         deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "could not be determined" in excinfo.value.reason
+
+
+def test_step5_propagates_an_owning_pid_query_failure(tmp_path: Path) -> None:
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network = _FakeNetwork()
+    network.owning_pid_errors[cfg.console_port] = "netstat failed"
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "netstat failed" in excinfo.value.reason
+
+
+def test_step5_refuses_when_console_pid_does_not_match_the_actual_owner(tmp_path: Path) -> None:
+    """Rejects PID reuse / an incorrect `--console-pid`: the process actually listening on
+    the port is a DIFFERENT PID than the one given. Nothing is signalled."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    process.running[9999] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 9999  # the REAL owner is a different PID
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "does not match" in excinfo.value.reason
+    assert not process.graceful_stop_calls
+
+
+def test_step5_auto_discovers_the_pid_when_console_pid_is_not_given(tmp_path: Path) -> None:
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path, shutdown_timeout_seconds=1.0)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    detail = deploy.step5_shutdown(cfg, ports)
+    assert process.graceful_stop_calls == [4242]
+    assert "4242" in detail
+
+
+def test_step5_wraps_a_console_shutdown_error_as_deployment_blocked(tmp_path: Path) -> None:
+    class _RefusingProcess(_FakeProcess):
+        def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None:
+            del host, port, safety_directory
+            raise deploy.ConsoleShutdownError("control token capability mismatch")
+
+    process = _RefusingProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "control token capability mismatch" in excinfo.value.reason
 
 
 def test_step6_refuses_if_backup_lock_still_held(tmp_path: Path) -> None:
@@ -929,6 +1028,14 @@ def test_store_c_fallback_constants_match_the_real_console_entrypoint() -> None:
 
     assert deploy._PAPER_EXIT_DATABASE_VARIABLE == real.PAPER_EXIT_DATABASE_VARIABLE
     assert deploy._DEFAULT_STORE_C_DATABASE == real._DEFAULT_STORE_C_DATABASE
+
+
+def test_shutdown_capability_constant_matches_the_real_console_entrypoint() -> None:
+    """MILESTONE-098 drift guard: `read_control_token`'s `expected_capability` must name
+    the exact same capability the console itself writes into its control token."""
+    from empirical_platform.entrypoints import operator_console as real
+
+    assert deploy._SHUTDOWN_CONTROL_CAPABILITY == real.SHUTDOWN_CONTROL_CAPABILITY
 
 
 def test_main_refuses_cleanly_before_touching_anything_when_store_c_is_partially_configured(
