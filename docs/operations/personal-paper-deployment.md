@@ -140,6 +140,40 @@ for completeness, that the real console has no `SIGTERM` handler either, so -- i
 cause a problem in practice and is out of scope for a Windows-titled fix, but is flagged here
 rather than silently left implied-safe.
 
+**M098 security hardening (follow-up).** Four gaps in the mechanism above were closed
+without changing its shape:
+
+- **Permission narrowing is fail closed, not best-effort.** A failure to set, or to verify
+  by reading back, the current-user-only ACL/mode on the `console-control` directory or the
+  token file itself now raises `console_control.ControlTokenPermissionError`.
+  `operator_console._install_shutdown_control` catches exactly this and does NOT register
+  `/control/shutdown` at all -- the console keeps serving its normal read-only/recovery
+  functions, but the shutdown interface itself never activates until the underlying
+  permission problem is fixed and the console is restarted. This applies to the directory as
+  well as the file: a world- or group-writable directory would let an unprivileged local
+  user delete and replace the file even with a perfect file-level ACL.
+- **Symlinks are refused, never followed.** The safety directory, the `console-control`
+  directory, and the token file (and its write-time temporary file) are each checked with
+  `Path.is_symlink()` before being trusted for a read or a write, closing the class of attack
+  where a co-resident, lower-privileged process plants a symlink ahead of time to redirect a
+  security-critical read or write.
+- **Isolation from a local reverse proxy or a tunnelling tool (e.g. Tailscale `serve`/
+  `funnel`).** `/control/shutdown`'s `authorize()` now requires `REMOTE_ADDR` to be loopback
+  (belt-and-suspenders in addition to, never instead of, the launcher's own `--host`
+  loopback-only refusal) and refuses outright if the request carries any forwarding header
+  (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`,
+  `X-Real-IP`, `Forwarded`, `Via`) -- a direct local caller (this script, via
+  `urllib.request`) never sends any of these, so their presence alone is refused regardless
+  of the token.
+- **PID reuse within the same short window.** A bare PID match cannot distinguish the real
+  console from an unrelated process the OS reuses the same PID for moments later. The token
+  file now also records `console_control.process_start_fingerprint(os.getpid())` -- an
+  OS-queried (`Get-Process`/`ps`), never self-reported, process start time -- and
+  `graceful_stop` queries this fingerprint for the PID it is about to stop, immediately
+  before reading the token, requiring an exact match. `step5_shutdown` additionally
+  re-confirms the owning PID immediately before acting (not only at discovery), closing the
+  window between the two queries.
+
 **`--confirm-production` is required, and only accepted, when EITHER `--manifest-path`
 resolves to the real default production manifest path**
 (`%LOCALAPPDATA%\EmpiricalPlatform\safety\personal-paper.json`) **OR the resolved Store B/C
@@ -202,16 +236,26 @@ explicit, Owner-authorized, out-of-band action.
   see the module docstring for why it does NOT use `install_test_connection_guard()` the way
   other Postgres suites do, and why it is its own isolated pytest invocation in CI.
 - `tests/unit/test_m098_console_shutdown_control.py` -- `shared.console_control`'s token
-  read/write/remove contract (round-trip, capability/port/PID mismatches, malformed/missing
-  files, best-effort permission narrowing never raising) and `_operator_console_web.Router.
-  service_post`'s dispatch rule (authorized/unauthorized, no CSRF/session cookie involved),
-  against fakes -- no real socket, no real subprocess.
+  read/write/remove contract (round-trip, capability/port/PID/start-fingerprint mismatches,
+  malformed/missing files, a stale token defeated by fingerprint even when the bare PID now
+  matches); the hardening itself FAILING CLOSED (permission narrowing/verification failure
+  raises and `write_control_token` cleans up any partial file; a planted symlink at the
+  safety directory, the `console-control` directory, or the token file is refused on both
+  read and write); and `_operator_console_web.Router.service_post`'s dispatch rule
+  (authorized/unauthorized, no CSRF/session cookie involved). Also covers
+  `operator_console._install_shutdown_control` directly: a permission failure leaves
+  `/control/shutdown` entirely unregistered (not merely refusing once reached); a missing
+  token header, a wrong token, and a stale token file from an earlier instance are each
+  refused with the console left running; and a non-loopback `REMOTE_ADDR` or any forwarding
+  header is refused even with the correct token. All against fakes -- no real socket, no
+  real subprocess.
 - `tests/integration/test_m098_windows_console_shutdown.py` -- Windows-only (skipped
   everywhere else), real disposable subprocesses: an independently-launched console (the
   exact M097 shape), a deployment-managed one, an incorrect/mismatched `--console-pid`
   against two real running consoles, an unrelated process occupying the port, a shutdown
-  that is accepted but never actually completes, and the console's own enforcement of a
-  missing or wrong token.
+  that is accepted but never actually completes, the console's own enforcement of a missing
+  or wrong token, a control-token file replaced by a real symlink, and a token file whose
+  start-time fingerprint has been tampered with to no longer match the real running process.
 
 ## Known residual risk
 

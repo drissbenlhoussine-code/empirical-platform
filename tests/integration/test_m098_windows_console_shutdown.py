@@ -340,3 +340,82 @@ def test_the_consoles_own_route_rejects_a_missing_or_wrong_token_and_keeps_runni
 
     status, body = network.http_get(f"http://127.0.0.1:{port}/", timeout=5.0)
     assert status == 200 and "dummy console OK" in body
+
+
+def test_step5_refuses_a_control_token_file_planted_as_a_symlink(tmp_path: Path) -> None:
+    """MILESTONE-098 SECURITY HARDENING: a real running console, but its control-token file
+    has been replaced (e.g. by a lower-privileged co-resident process, before the console
+    started) with a symlink to an attacker-controlled file. The deployment tool must refuse
+    outright rather than follow it -- and the real console, which already wrote its OWN
+    token successfully before this test plants the symlink over the read PATH the
+    deployment tool uses, must still be left running untouched."""
+    network = deploy.RealNetworkPort()
+    port = _free_tcp_port()
+    _spawn(
+        tmp_path,
+        "dummy_symlink.py",
+        _DUMMY_CONSOLE_SCRIPT,
+        str(port),
+        str(tmp_path),
+        new_process_group=False,
+    )
+    deploy.wait_until(lambda: not network.port_is_free("127.0.0.1", port), timeout_seconds=5.0)
+    real_pid = network.owning_pid("127.0.0.1", port)
+    assert real_pid is not None
+
+    token_path = tmp_path / "console-control" / f"paper-exit-{port}.json"
+    deploy.wait_until(lambda: token_path.exists(), timeout_seconds=5.0)
+    decoy = tmp_path / "decoy.json"
+    decoy.write_text(token_path.read_text(encoding="utf-8"), encoding="utf-8")
+    token_path.unlink()
+    try:
+        token_path.symlink_to(decoy)
+    except (OSError, NotImplementedError):
+        pytest.skip("this environment does not permit creating symlinks")
+
+    cfg = _cfg(tmp_path=tmp_path, port=port, console_pid=real_pid)
+    ports = deploy.Ports(broker=None, process=deploy.RealProcessPort(), network=network)  # type: ignore[arg-type]
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "symlink" in excinfo.value.reason
+    assert not network.port_is_free("127.0.0.1", port)  # the real console is untouched
+
+
+def test_step5_refuses_a_stale_token_file_from_a_different_earlier_process(
+    tmp_path: Path,
+) -> None:
+    """A real running console, but the on-disk token file at its own path has been
+    overwritten (simulating a leftover from an earlier, now-dead process that happened to
+    reuse this port number before the OS reassigned it) to claim the SAME PID but a
+    start-time fingerprint that cannot possibly belong to the process actually running
+    now. Must be refused, and the real console left running."""
+    network = deploy.RealNetworkPort()
+    port = _free_tcp_port()
+    _spawn(
+        tmp_path,
+        "dummy_stale.py",
+        _DUMMY_CONSOLE_SCRIPT,
+        str(port),
+        str(tmp_path),
+        new_process_group=False,
+    )
+    deploy.wait_until(lambda: not network.port_is_free("127.0.0.1", port), timeout_seconds=5.0)
+    real_pid = network.owning_pid("127.0.0.1", port)
+    assert real_pid is not None
+
+    token_path = tmp_path / "console-control" / f"paper-exit-{port}.json"
+    deploy.wait_until(lambda: token_path.exists(), timeout_seconds=5.0)
+    import json as _json
+
+    payload = _json.loads(token_path.read_text(encoding="utf-8"))
+    payload["start_fingerprint"] = "a fingerprint from a process that is not really running"
+    token_path.write_text(_json.dumps(payload), encoding="utf-8")
+
+    cfg = _cfg(tmp_path=tmp_path, port=port, console_pid=real_pid)
+    ports = deploy.Ports(broker=None, process=deploy.RealProcessPort(), network=network)  # type: ignore[arg-type]
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "fingerprint" in excinfo.value.reason
+    assert not network.port_is_free("127.0.0.1", port)  # the real console is untouched

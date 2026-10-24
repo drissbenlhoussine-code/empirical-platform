@@ -41,6 +41,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
 from empirical_platform.entrypoints import _operator_console_html as html
 from empirical_platform.entrypoints._operator_console_web import (
@@ -92,6 +93,28 @@ class ShutdownControl:
     safety_directory: Path
 
 
+#: MILESTONE-098 hardening: headers a direct local caller (the deployment tool, via
+#: `urllib.request`) never sends, but a reverse proxy or a tunnelling tool (Tailscale
+#: `serve`/`funnel`, a local nginx, etc.) forwarding a request from elsewhere onto this
+#: loopback-bound listener typically adds. Any of these on the shutdown route is refused
+#: outright, regardless of the token presented -- this route must only ever be reachable by
+#: a process on this machine talking to loopback directly, never through a hop that could
+#: also be relaying traffic that originated off-box.
+_FORWARDING_HEADERS: Final = (
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-real-ip",
+    "forwarded",
+    "via",
+)
+#: The only `REMOTE_ADDR` values `wsgiref` can report for a connection actually accepted on
+#: a loopback bind. Checked in addition to (not instead of) the `--host` loopback refusal in
+#: `_loopback` -- belt-and-suspenders against the bind address ever being loosened by mistake.
+_LOOPBACK_REMOTE_ADDRESSES: Final = ("127.0.0.1", "::1")
+
+
 def _install_shutdown_control(
     router: Router, server: ThreadingWSGIServer, *, safety_directory: Path
 ) -> None:
@@ -103,14 +126,35 @@ def _install_shutdown_control(
     worker thread. The handler starts a background thread and returns its HTTP response
     immediately; `serve_forever()` notices and returns on its own next poll, and the SAME
     `finally` block that already runs for a Ctrl+C `KeyboardInterrupt` then runs unchanged --
-    nothing about the documented SHUTDOWN ORDER is bypassed."""
+    nothing about the documented SHUTDOWN ORDER is bypassed.
+
+    FAIL CLOSED (MILESTONE-098 hardening): if the control token's permissions cannot be set
+    and verified (`console_control.ControlTokenPermissionError`), this route is NOT
+    registered at all -- the console keeps serving its normal read-only/recovery pages, but
+    no caller, however correctly authenticated otherwise, can ever reach `/control/shutdown`
+    until the underlying permission problem is fixed and the console is restarted."""
     pid = os.getpid()
     port = server.server_port
-    token = console_control.write_control_token(
-        safety_directory, pid=pid, port=port, capability=SHUTDOWN_CONTROL_CAPABILITY
-    )
+    try:
+        token = console_control.write_control_token(
+            safety_directory, pid=pid, port=port, capability=SHUTDOWN_CONTROL_CAPABILITY
+        )
+    except console_control.ControlTokenPermissionError as error:
+        print(
+            "operator-console: SECURITY: the authenticated shutdown route was NOT "
+            f"activated -- its control-token permissions could not be set or verified: "
+            f"{error}. This console keeps serving its normal read-only/recovery functions; "
+            "a future deployment attempt will correctly refuse to stop it automatically "
+            "until this is fixed (fail closed, per MILESTONE-098 hardening).",
+            file=sys.stderr,
+        )
+        return
 
     def authorize(request: Request) -> bool:
+        if request.remote_addr not in _LOOPBACK_REMOTE_ADDRESSES:
+            return False
+        if any(header in request.headers for header in _FORWARDING_HEADERS):
+            return False
         presented = request.headers.get(console_control.CONTROL_TOKEN_HEADER.lower(), "")
         return hmac.compare_digest(presented, token)
 

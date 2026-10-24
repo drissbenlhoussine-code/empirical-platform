@@ -72,6 +72,11 @@ class Request:
     form: dict[str, list[str]]
     cookies: dict[str, str]
     headers: dict[str, str]
+    #: MILESTONE-098 hardening: the WSGI `REMOTE_ADDR` the server itself observed for this
+    #: connection -- never derived from a header, which a forwarding hop could set to
+    #: anything. Defaults to "" only for callers (e.g. a hand-built test environ) that never
+    #: set it; a real `wsgiref` server always populates it.
+    remote_addr: str = ""
 
     def first(self, name: str, default: str = "") -> str:
         values = self.form.get(name) or self.query.get(name) or []
@@ -261,7 +266,13 @@ def _read_request(environ: dict[str, Any]) -> Request:
         if key.startswith("HTTP_")
     }
     return Request(
-        method=method, path=path, query=query, form=form, cookies=cookies, headers=headers
+        method=method,
+        path=path,
+        query=query,
+        form=form,
+        cookies=cookies,
+        headers=headers,
+        remote_addr=str(environ.get("REMOTE_ADDR", "")),
     )
 
 

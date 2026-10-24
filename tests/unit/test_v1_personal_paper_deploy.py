@@ -73,6 +73,11 @@ class _FakeNetwork:
         self.free_ports: set[int] = set()
         self.owners: dict[int, int] = {}  # port -> the PID "really" listening on it
         self.owning_pid_errors: dict[int, str] = {}  # port -> error message to raise instead
+        # MILESTONE-098: a per-port queue of successive `owning_pid` answers, consumed one
+        # call at a time, for tests that need `step5_shutdown`'s discovery call and its later
+        # re-confirmation call to disagree (a PID/port race). Falls back to `owners` once
+        # exhausted (or if never set), so every pre-existing test is unaffected.
+        self.owning_pid_sequence: dict[int, list[int | None]] = {}
         self.responses: dict[str, tuple[int, str]] = {}
         self.http_calls: list[str] = []
 
@@ -84,6 +89,9 @@ class _FakeNetwork:
         del host
         if port in self.owning_pid_errors:
             raise RuntimeError(self.owning_pid_errors[port])
+        sequence = self.owning_pid_sequence.get(port)
+        if sequence:
+            return sequence.pop(0)
         return self.owners.get(port)
 
     def http_get(self, url: str, *, timeout: float) -> tuple[int, str]:
@@ -390,6 +398,52 @@ def test_step5_wraps_a_console_shutdown_error_as_deployment_blocked(tmp_path: Pa
         deploy.step5_shutdown(cfg, ports)
     assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
     assert "control token capability mismatch" in excinfo.value.reason
+
+
+def test_step5_detects_a_pid_port_race_between_discovery_and_shutdown(tmp_path: Path) -> None:
+    """MILESTONE-098 SECURITY HARDENING: the owning PID is re-confirmed immediately before
+    acting, not trusted from discovery alone. If the OS reused the port for a different
+    process in between (simulated here via a two-answer sequence), this refuses rather than
+    signal either process."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    process.running[9999] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network.owning_pid_sequence[cfg.console_port] = [4242, 9999]
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "race" in excinfo.value.reason
+    assert not process.graceful_stop_calls
+
+
+def test_step5_propagates_a_query_failure_during_the_race_reconfirmation(tmp_path: Path) -> None:
+    """The second (reconfirmation) `owning_pid` query can itself fail at the OS level, just
+    as the first can -- this must be treated the same way, never as a silent "unchanged"."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+
+    real_owning_pid = network.owning_pid
+    calls = {"count": 0}
+
+    def _flaky_owning_pid(host: str, port: int) -> int | None:
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("netstat failed on reconfirmation")
+        return real_owning_pid(host, port)
+
+    network.owning_pid = _flaky_owning_pid  # type: ignore[method-assign]
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "netstat failed on reconfirmation" in excinfo.value.reason
+    assert not process.graceful_stop_calls
 
 
 def test_step6_refuses_if_backup_lock_still_held(tmp_path: Path) -> None:

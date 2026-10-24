@@ -460,12 +460,25 @@ class RealProcessPort:
 
             os.kill(pid, signal.SIGTERM)
             return
+        # MILESTONE-098 SECURITY HARDENING: query this PID's start time ourselves, as close
+        # as possible to the token read, independently of whatever the token file itself
+        # claims -- closing the window between `step5_shutdown`'s discovery of `pid` and
+        # this call, during which the OS could have reused the same PID for an unrelated
+        # process. `read_control_token` then requires its own recorded fingerprint to match.
+        try:
+            fingerprint = console_control.process_start_fingerprint(pid)
+        except RuntimeError as error:
+            raise ConsoleShutdownError(
+                f"could not confirm the identity of PID {pid} immediately before "
+                f"attempting shutdown: {error}"
+            ) from error
         try:
             record = console_control.read_control_token(
                 safety_directory,
                 port=port,
                 expected_capability=_SHUTDOWN_CONTROL_CAPABILITY,
                 expected_pid=pid,
+                expected_start_fingerprint=fingerprint,
             )
         except console_control.ControlTokenError as error:
             raise ConsoleShutdownError(str(error)) from error
@@ -807,6 +820,22 @@ def step5_shutdown(cfg: DeployConfig, ports: Ports) -> str:
             f"--console-pid {cfg.console_pid} does not match the process actually "
             f"listening on port {cfg.console_port} (PID {owning_pid}); refusing to signal "
             "the wrong process",
+        )
+    # MILESTONE-098 SECURITY HARDENING: re-confirm the owner immediately before acting, not
+    # only at discovery above. This closes the TOCTOU window between the two: however
+    # unlikely, the OS could have reused `owning_pid` for an unrelated process between the
+    # query above and this one. `graceful_stop` independently closes the remaining window
+    # (between this check and the token read) with an OS-queried start-time fingerprint.
+    try:
+        reconfirmed_pid = ports.network.owning_pid(cfg.console_host, cfg.console_port)
+    except RuntimeError as error:
+        raise DeploymentBlockedError(STEP_5_SHUTDOWN, str(error)) from error
+    if reconfirmed_pid != owning_pid:
+        raise DeploymentBlockedError(
+            STEP_5_SHUTDOWN,
+            f"the process listening on port {cfg.console_port} changed from PID "
+            f"{owning_pid} to {reconfirmed_pid!r} between discovery and shutdown; a "
+            "PID/port race was detected -- refusing to signal either process",
         )
     try:
         ports.process.graceful_stop(
