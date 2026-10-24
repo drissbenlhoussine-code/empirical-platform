@@ -419,3 +419,94 @@ def test_step5_refuses_a_stale_token_file_from_a_different_earlier_process(
     assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
     assert "fingerprint" in excinfo.value.reason
     assert not network.port_is_free("127.0.0.1", port)  # the real console is untouched
+
+
+def _run_dumb_tcp_relay(listen_sock: socket.socket, target_host: str, target_port: int) -> None:
+    """A byte-for-byte TCP relay that never parses HTTP and adds NO header of any kind --
+    the realistic worst-case stand-in for Tailscale `serve`/`funnel` or a transparent
+    reverse proxy that merely forwards raw bytes between a remote peer and this
+    loopback-bound console. Unlike a proxy that adds `X-Forwarded-*` headers (already
+    covered by `test_m098_console_shutdown_control.py`'s unit tests), THIS relay gives the
+    console nothing to detect at the HTTP layer at all: its own connection to the console is
+    itself on loopback, so `REMOTE_ADDR` looks exactly like a genuine local caller's."""
+    while True:
+        try:
+            client, _ = listen_sock.accept()
+        except OSError:
+            return
+
+        def _pump(src: socket.socket, dst: socket.socket) -> None:
+            try:
+                while True:
+                    chunk = src.recv(65536)
+                    if not chunk:
+                        break
+                    dst.sendall(chunk)
+            except OSError:
+                pass
+            finally:
+                try:
+                    dst.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+
+        upstream = socket.create_connection((target_host, target_port))
+        threading.Thread(target=_pump, args=(client, upstream), daemon=True).start()
+        threading.Thread(target=_pump, args=(upstream, client), daemon=True).start()
+
+
+def test_step5_shutdown_route_still_refuses_through_a_header_stripping_tcp_relay(
+    tmp_path: Path,
+) -> None:
+    """MILESTONE-098 FINAL HARDENING: practically verifies isolation from Tailscale/a
+    reverse proxy in the WORST case -- a relay that forwards every byte verbatim and adds
+    NO forwarding header at all. The console's `REMOTE_ADDR`/forwarding-header checks
+    cannot distinguish this relay's own loopback connection from a genuine local caller, so
+    the ONLY thing standing between a remote peer reached through it and this route is the
+    per-instance secret token, which is never sent over any network. This is a REAL TCP
+    relay and a REAL running dummy console -- not a request-object-level simulation."""
+    network = deploy.RealNetworkPort()
+    console_port = _free_tcp_port()
+    _spawn(
+        tmp_path,
+        "dummy_relay_target.py",
+        _DUMMY_CONSOLE_SCRIPT,
+        str(console_port),
+        str(tmp_path),
+        new_process_group=False,
+    )
+    deploy.wait_until(
+        lambda: not network.port_is_free("127.0.0.1", console_port), timeout_seconds=5.0
+    )
+
+    relay_port = _free_tcp_port()
+    listen_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listen_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listen_sock.bind(("127.0.0.1", relay_port))
+    listen_sock.listen(16)
+    threading.Thread(
+        target=_run_dumb_tcp_relay, args=(listen_sock, "127.0.0.1", console_port), daemon=True
+    ).start()
+
+    import urllib.error
+    import urllib.request
+
+    try:
+        for headers in ({}, {"X-Empirical-Shutdown-Token": "definitely-wrong"}):
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{relay_port}/control/shutdown",
+                method="POST",
+                headers=headers,
+                data=b"",
+            )
+            try:
+                urllib.request.urlopen(request, timeout=5)  # noqa: S310
+                raise AssertionError("expected HTTP 401 through the header-stripping relay")
+            except urllib.error.HTTPError as error:
+                assert error.code == 401
+    finally:
+        listen_sock.close()
+
+    # The console is still running and answering directly, entirely unaffected.
+    status, body = network.http_get(f"http://127.0.0.1:{console_port}/", timeout=5.0)
+    assert status == 200 and "dummy console OK" in body

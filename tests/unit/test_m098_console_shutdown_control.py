@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -263,33 +264,107 @@ def test_write_raises_when_narrowing_reports_success_but_exit_code_is_nonzero(
         console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
 
 
-def test_write_raises_when_the_icacls_readback_still_shows_a_broad_principal(
+def _fake_sid_subprocess_run(
+    *,
+    current_sid: str = "S-1-5-21-FAKE-TEST-1001",
+    icacls_returncode: int = 0,
+    acl_sids: str = "",
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Builds a fake `subprocess.run` replacement that distinguishes MILESTONE-098 FINAL
+    HARDENING's three distinct Windows subprocess calls by their argv content -- the SID
+    query (`WindowsIdentity`), the `icacls` grant, and the `Get-Acl` SID readback -- the way
+    the real implementation issues them. `process_start_fingerprint`'s own `Get-Process`
+    call is deliberately NOT special-cased: every test using this fake fails before
+    `write_control_token` ever reaches it (permission narrowing on the directory always
+    comes first and raises first)."""
+
+    def _fake_run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        joined = " ".join(str(part) for part in argv)
+        if "WindowsIdentity" in joined:
+            return subprocess.CompletedProcess(
+                args=argv, returncode=0, stdout=f"{current_sid}\r\n", stderr=""
+            )
+        if argv and argv[0] == "icacls":
+            return subprocess.CompletedProcess(
+                args=argv, returncode=icacls_returncode, stdout="", stderr="denied"
+            )
+        if "Get-Acl" in joined:
+            return subprocess.CompletedProcess(args=argv, returncode=0, stdout=acl_sids, stderr="")
+        if "Get-Process" in joined:
+            # `process_start_fingerprint` -- only reached by a test whose narrowing
+            # succeeds all the way through; any fixed, non-empty, successful output is
+            # sufficient since this fake's tests do not assert on the fingerprint itself.
+            return subprocess.CompletedProcess(
+                args=argv, returncode=0, stdout="2026-01-01T00:00:00.0000000Z\r\n", stderr=""
+            )
+        raise AssertionError(f"unexpected subprocess.run call in this test: {argv}")
+
+    return _fake_run
+
+
+def test_write_raises_when_the_current_users_sid_cannot_be_determined(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The narrowing command can exit 0 and still not have achieved what it claims -- the
-    readback verification is what actually closes this gap."""
-    calls: list[list[str]] = []
-
-    domain = os.environ.get("USERDOMAIN", "")
-    user = os.environ.get("USERNAME", "")
-    account = f"{domain}\\{user}" if domain else user
-
-    def _fake_icacls(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        calls.append(argv)
-        if "/inheritance:r" in argv:
-            return subprocess.CompletedProcess(args=argv, returncode=0, stdout="", stderr="")
-        return subprocess.CompletedProcess(
-            args=argv,
-            returncode=0,
-            stdout=f"path: {account}:(F)\r\npath: Everyone:(F)\r\n",
-            stderr="",
-        )
-
-    monkeypatch.setattr(console_control.subprocess, "run", _fake_icacls)
+    """MILESTONE-098 FINAL HARDENING: the current user's identity for both the grant and its
+    verification is now the OS-reported SID (`WindowsIdentity.GetCurrent()`), never the
+    `USERNAME`/`USERDOMAIN` environment variables -- if that query itself fails, narrowing
+    must fail closed rather than fall back to an environment variable."""
     if os.name != "nt":
-        pytest.skip("icacls readback verification only applies on Windows")
-    with pytest.raises(console_control.ControlTokenPermissionError, match="Everyone"):
+        pytest.skip("SID-based narrowing only applies on Windows")
+
+    def _fake_run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "WindowsIdentity" in " ".join(str(part) for part in argv):
+            return subprocess.CompletedProcess(args=argv, returncode=1, stdout="", stderr="denied")
+        raise AssertionError(f"unexpected subprocess.run call in this test: {argv}")
+
+    monkeypatch.setattr(console_control.subprocess, "run", _fake_run)
+    with pytest.raises(console_control.ControlTokenPermissionError, match="SID"):
         console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+
+
+def test_write_raises_when_the_acl_readback_still_shows_a_broad_sid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """MILESTONE-098 FINAL HARDENING: verification is now SID-based, never account-display-
+    NAME-based -- a name like 'Everyone' is itself localized on a non-English Windows
+    installation (and is, in principle, renameable), while its well-known SID (`S-1-1-0`)
+    never changes. The narrowing command can exit 0 and still not have achieved what it
+    claims; the SID readback via `Get-Acl` is what actually closes this gap."""
+    if os.name != "nt":
+        pytest.skip("SID-based ACL readback verification only applies on Windows")
+    fake_sid = "S-1-5-21-FAKE-TEST-1001"
+    monkeypatch.setattr(
+        console_control.subprocess,
+        "run",
+        _fake_sid_subprocess_run(current_sid=fake_sid, acl_sids=f"{fake_sid}\r\nS-1-1-0\r\n"),
+    )
+    with pytest.raises(console_control.ControlTokenPermissionError, match="S-1-1-0"):
+        console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+
+
+def test_write_does_not_object_to_system_or_administrators_sids_after_narrowing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real Windows narrowing to a single principal commonly still leaves SYSTEM and
+    local Administrators with their own explicit ACEs -- `/grant:r` replaces grants for the
+    ONE principal named, it does not strip other principals' pre-existing explicit grants.
+    These are not an unprivileged, broad audience, so verification must not object to them
+    (unlike a genuinely broad SID such as Everyone)."""
+    if os.name != "nt":
+        pytest.skip("SID-based ACL readback verification only applies on Windows")
+    fake_sid = "S-1-5-21-FAKE-TEST-1001"
+    monkeypatch.setattr(
+        console_control.subprocess,
+        "run",
+        _fake_sid_subprocess_run(
+            current_sid=fake_sid,
+            acl_sids=f"S-1-5-18\r\nS-1-5-32-544\r\n{fake_sid}\r\n",
+        ),
+    )
+    token = console_control.write_control_token(
+        tmp_path, pid=4242, port=8189, capability="paper-exit"
+    )
+    assert token
 
 
 def test_write_rejects_a_symlinked_console_control_directory(tmp_path: Path) -> None:
@@ -302,6 +377,104 @@ def test_write_rejects_a_symlinked_console_control_directory(tmp_path: Path) -> 
         pytest.skip("this environment does not permit creating symlinks")
     with pytest.raises(console_control.ControlTokenPermissionError, match="symlink"):
         console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+
+
+def test_write_rejects_a_windows_junction_planted_at_the_console_control_directory(
+    tmp_path: Path,
+) -> None:
+    """MILESTONE-098 FINAL HARDENING: `Path.is_symlink()` does NOT detect an NTFS junction
+    (`IO_REPARSE_TAG_MOUNT_POINT` -- a different reparse tag than a symlink's
+    `IO_REPARSE_TAG_SYMLINK`); the assertion on `is_symlink()` below is this test's own
+    proof of the gap this closes. A junction requires no elevated privilege to create,
+    unlike a symlink, making it the MORE practical attack a lower-privileged co-resident
+    process could mount."""
+    if os.name != "nt":
+        pytest.skip("NTFS junctions are a Windows-only concept")
+    real_target = tmp_path / "elsewhere"
+    real_target.mkdir()
+    linked = tmp_path / "console-control"
+    result = subprocess.run(  # noqa: S603 - fixed executable, explicit argument vector
+        ["cmd", "/c", "mklink", "/J", str(linked), str(real_target)],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"this environment could not create an NTFS junction: {result.stderr}")
+    assert not linked.is_symlink(), (
+        "this test's premise requires a junction that Path.is_symlink() misses entirely"
+    )
+    with pytest.raises(console_control.ControlTokenPermissionError, match="reparse point"):
+        console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+
+
+def test_write_rejects_a_windows_junction_planted_at_the_safety_directory(
+    tmp_path: Path,
+) -> None:
+    if os.name != "nt":
+        pytest.skip("NTFS junctions are a Windows-only concept")
+    real_target = tmp_path / "real-safety"
+    real_target.mkdir()
+    linked_safety = tmp_path / "linked-safety"
+    result = subprocess.run(  # noqa: S603 - fixed executable, explicit argument vector
+        ["cmd", "/c", "mklink", "/J", str(linked_safety), str(real_target)],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"this environment could not create an NTFS junction: {result.stderr}")
+    with pytest.raises(console_control.ControlTokenPermissionError, match="reparse point"):
+        console_control.write_control_token(
+            linked_safety, pid=4242, port=8189, capability="paper-exit"
+        )
+
+
+def test_create_token_text_exclusively_fails_closed_if_something_already_exists(
+    tmp_path: Path,
+) -> None:
+    """MILESTONE-098 FINAL HARDENING: the token temp file is now created with the OS's own
+    exclusive-create guarantee (`O_EXCL` on POSIX, `CREATE_NEW` on Windows) specifically so
+    a file planted at that exact name in the TOCTOU window between an earlier symlink check
+    and the write cannot be silently written through or over. Exercises the low-level
+    helper directly, independent of any ACL side effect `write_control_token`'s own
+    directory-narrowing step could otherwise have on a pre-existing file's permissions."""
+    path = tmp_path / "token.json"
+    path.write_text("pre-existing-content", encoding="utf-8")
+    with pytest.raises(console_control.ControlTokenPermissionError):
+        console_control._create_token_text_exclusively(
+            path, "attacker-controlled-overwrite", label="test file"
+        )
+    assert path.read_text(encoding="utf-8") == "pre-existing-content"
+
+
+def test_write_fails_closed_without_deleting_a_file_it_never_created(tmp_path: Path) -> None:
+    """The end-to-end version of the test above: `write_control_token` itself must not
+    unlink a pre-existing file at the temp-file path that its OWN exclusive-create step
+    refused to touch -- only a temp file THIS call actually created is ever cleaned up."""
+    directory = tmp_path / "console-control"
+    directory.mkdir(parents=True)
+    temp_path = directory / f"paper-exit-8189.json.{os.getpid()}.tmp"
+    temp_path.write_text("attacker-planted-content", encoding="utf-8")
+    with pytest.raises(console_control.ControlTokenPermissionError):
+        console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+    assert temp_path.exists(), "a file this call never created must survive untouched"
+
+
+def test_read_without_toctou_rejects_a_symlink_via_a_single_open(tmp_path: Path) -> None:
+    """MILESTONE-098 FINAL HARDENING: proves the LOW-LEVEL read helper alone -- without
+    relying on any earlier, separate `_reject_if_symlink` call -- refuses a symlink. This is
+    what actually closes the TOCTOU window: the check and the read happen on the exact same
+    open, so there is no separate second lookup for a swap to race against."""
+    decoy = tmp_path / "decoy.json"
+    decoy.write_text("{}", encoding="utf-8")
+    linked = tmp_path / "linked.json"
+    try:
+        linked.symlink_to(decoy)
+    except (OSError, NotImplementedError):
+        pytest.skip("this environment does not permit creating symlinks")
+    with pytest.raises(console_control.ControlTokenPermissionError, match="reparse point"):
+        console_control._read_token_text_without_toctou(linked, label="test file")
 
 
 def test_write_rejects_a_symlinked_token_file_planted_in_advance(tmp_path: Path) -> None:
