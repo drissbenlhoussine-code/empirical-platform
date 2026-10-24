@@ -30,16 +30,28 @@ repository or service is closed while the reconciler thread is alive.
 from __future__ import annotations
 
 import argparse
+import hmac
 import ipaddress
+import json
+import os
 import sys
 import threading
 import webbrowser
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
 from empirical_platform.entrypoints import _operator_console_html as html
-from empirical_platform.entrypoints._operator_console_web import SecuritySession, serve
+from empirical_platform.entrypoints._operator_console_web import (
+    Request,
+    Response,
+    Router,
+    SecuritySession,
+    ThreadingWSGIServer,
+    serve,
+)
 from empirical_platform.entrypoints._paper_operator_console_composition import (
     paper_operator_console_runtime,
 )
@@ -51,7 +63,9 @@ from empirical_platform.entrypoints._position_exit_composition import (
 )
 from empirical_platform.entrypoints.operator_console_app import build_application
 from empirical_platform.entrypoints.paper_operator_console_app import build_paper_application
+from empirical_platform.shared import console_control
 from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
+from empirical_platform.shared.persistence.database_safety import manifest_path
 from empirical_platform.usecases.position_plan_manager import (
     ManagerThreadHandle,
     PlanManagerThread,
@@ -64,6 +78,101 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8086
 DEFAULT_STATE_DIR = Path.home() / ".empirical-platform" / "operator-console"
 RECONCILER_JOIN_REPORT_INTERVAL_SECONDS = 30.0  # diagnostics only; never permits teardown
+SHUTDOWN_CONTROL_CAPABILITY = "paper-exit"  # the only capability the deployment tool stops
+
+
+@dataclass(frozen=True, slots=True)
+class ShutdownControl:
+    """MILESTONE-098: enables the authenticated `/control/shutdown` route for exactly
+    `--capability paper-exit` -- see `empirical_platform.shared.console_control` for why.
+    There is deliberately no equivalent for `simulation` or plain `paper`: the deployment
+    tool this exists for never targets them, and omitting the wiring entirely (rather than
+    gating it at request time) means there is no code path that could ever create a control
+    token for them in the first place."""
+
+    safety_directory: Path
+
+
+#: MILESTONE-098 hardening: headers a direct local caller (the deployment tool, via
+#: `urllib.request`) never sends, but a reverse proxy or a tunnelling tool (Tailscale
+#: `serve`/`funnel`, a local nginx, etc.) forwarding a request from elsewhere onto this
+#: loopback-bound listener typically adds. Any of these on the shutdown route is refused
+#: outright, regardless of the token presented -- this route must only ever be reachable by
+#: a process on this machine talking to loopback directly, never through a hop that could
+#: also be relaying traffic that originated off-box.
+_FORWARDING_HEADERS: Final = (
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-forwarded-port",
+    "x-real-ip",
+    "forwarded",
+    "via",
+)
+#: The only `REMOTE_ADDR` values `wsgiref` can report for a connection actually accepted on
+#: a loopback bind. Checked in addition to (not instead of) the `--host` loopback refusal in
+#: `_loopback` -- belt-and-suspenders against the bind address ever being loosened by mistake.
+_LOOPBACK_REMOTE_ADDRESSES: Final = ("127.0.0.1", "::1")
+
+
+def _install_shutdown_control(
+    router: Router, server: ThreadingWSGIServer, *, safety_directory: Path
+) -> None:
+    """Writes this process's control token and registers the one route that accepts it.
+
+    `server.shutdown()` is documented as safe to call from a thread other than the one
+    running `serve_forever()` -- true here because `ThreadingWSGIServer` (see
+    `_operator_console_web.py`) dispatches every request, this one included, on its own
+    worker thread. The handler starts a background thread and returns its HTTP response
+    immediately; `serve_forever()` notices and returns on its own next poll, and the SAME
+    `finally` block that already runs for a Ctrl+C `KeyboardInterrupt` then runs unchanged --
+    nothing about the documented SHUTDOWN ORDER is bypassed.
+
+    FAIL CLOSED (MILESTONE-098 hardening): if the control token's permissions cannot be set
+    and verified (`console_control.ControlTokenPermissionError`), this route is NOT
+    registered at all -- the console keeps serving its normal read-only/recovery pages, but
+    no caller, however correctly authenticated otherwise, can ever reach `/control/shutdown`
+    until the underlying permission problem is fixed and the console is restarted."""
+    pid = os.getpid()
+    port = server.server_port
+    try:
+        token = console_control.write_control_token(
+            safety_directory, pid=pid, port=port, capability=SHUTDOWN_CONTROL_CAPABILITY
+        )
+    except console_control.ControlTokenPermissionError as error:
+        print(
+            "operator-console: SECURITY: the authenticated shutdown route was NOT "
+            f"activated -- its control-token permissions could not be set or verified: "
+            f"{error}. This console keeps serving its normal read-only/recovery functions; "
+            "a future deployment attempt will correctly refuse to stop it automatically "
+            "until this is fixed (fail closed, per MILESTONE-098 hardening).",
+            file=sys.stderr,
+        )
+        return
+
+    def authorize(request: Request) -> bool:
+        if request.remote_addr not in _LOOPBACK_REMOTE_ADDRESSES:
+            return False
+        if any(header in request.headers for header in _FORWARDING_HEADERS):
+            return False
+        presented = request.headers.get(console_control.CONTROL_TOKEN_HEADER.lower(), "")
+        return hmac.compare_digest(presented, token)
+
+    def handle_shutdown(request: Request, csrf: str) -> Response:
+        del request, csrf
+        print("operator-console: authenticated shutdown request accepted", flush=True)
+        threading.Thread(target=server.shutdown, daemon=True).start()
+        body = json.dumps({"accepted": True, "pid": pid}).encode("utf-8")
+        return Response(
+            status="202 Accepted",
+            headers=[
+                ("Content-Type", "application/json"),
+                ("Content-Length", str(len(body))),
+            ],
+            body=body,
+        )
+
+    router.service_post("/control/shutdown", handle_shutdown, authorize=authorize)
 
 
 def _utc_now() -> datetime:
@@ -137,7 +246,7 @@ class _Reconciler(threading.Thread):
 
 
 def _serve_with_reconciler(
-    application: Callable[..., Iterable[bytes]],
+    application: Router,
     *,
     refresh: Callable[[], object],
     host: str,
@@ -148,6 +257,7 @@ def _serve_with_reconciler(
     plan_manager: PositionPlanManager | None = None,
     manager_thread_handle: ManagerThreadHandle | None = None,
     base_path: str = "",
+    shutdown_control: ShutdownControl | None = None,
 ) -> None:
     """Shared by both capabilities: start the reconciler, serve, and shut down in order.
 
@@ -185,6 +295,10 @@ def _serve_with_reconciler(
             # reverse proxy strips base_path before forwarding here, it never reaches this
             # process). base_path only shapes the URLs this process generates in its own pages.
             url = f"http://{host}:{server.server_port}/today"
+            if shutdown_control is not None:
+                _install_shutdown_control(
+                    application, server, safety_directory=shutdown_control.safety_directory
+                )
             print("=" * 72)
             for line in banner:
                 print(line)
@@ -204,6 +318,10 @@ def _serve_with_reconciler(
                     reconciler.stop()
                 if manager_thread is not None:
                     manager_thread.stop()
+                if shutdown_control is not None:
+                    console_control.remove_control_token(
+                        shutdown_control.safety_directory, port=server.server_port
+                    )
     finally:
         # Also holds if the server never started (port in use, Ctrl+C during startup): the
         # composition's own context manager cannot exit while the reconciler is alive.
@@ -269,6 +387,15 @@ def main(argv: list[str] | None = None) -> int:
         "i.e. root behaviour) -- mirrors the Opportunity Engine's own --base-path exactly. "
         "Only shapes the URLs this process generates in its own pages; routes always register "
         "unprefixed because a reverse proxy strips the prefix before forwarding here.",
+    )
+    parser.add_argument(
+        "--safety-directory",
+        type=Path,
+        default=None,
+        help="MILESTONE-098: --capability paper-exit only. Where this process writes its "
+        "authenticated shutdown control token (default: the Safety Manifest's own "
+        "directory). `tools/personal_paper_deploy.py` reads the SAME directory -- it is the "
+        "one place deployment tooling and the console already agree on.",
     )
     arguments = parser.parse_args(argv)
     host = _loopback(arguments.host)
@@ -336,6 +463,9 @@ def main(argv: list[str] | None = None) -> int:
                     plan_manager=backend._plan_manager,
                     manager_thread_handle=backend._manager_thread_handle,
                     base_path=base_path,
+                    shutdown_control=ShutdownControl(
+                        safety_directory=arguments.safety_directory or manifest_path().parent
+                    ),
                 )
             return 0
         with paper_operator_console_runtime() as backend:
