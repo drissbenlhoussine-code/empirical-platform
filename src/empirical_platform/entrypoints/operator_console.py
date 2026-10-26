@@ -150,18 +150,31 @@ def _install_shutdown_control(
         )
         return
 
+    expected = token.encode("ascii")
+    stopping = threading.Event()
+    stopping_lock = threading.Lock()
+
     def authorize(request: Request) -> bool:
         if request.remote_addr not in _LOOPBACK_REMOTE_ADDRESSES:
             return False
         if any(header in request.headers for header in _FORWARDING_HEADERS):
             return False
         presented = request.headers.get(console_control.CONTROL_TOKEN_HEADER.lower(), "")
-        return hmac.compare_digest(presented, token)
+        # M098-R: compared as bytes. `hmac.compare_digest` raises TypeError for a str holding
+        # any non-ASCII character, which turned a malformed header into an unhandled 500
+        # instead of a 401; as bytes, any input is simply compared, in constant time.
+        return hmac.compare_digest(presented.encode("utf-8", "surrogateescape"), expected)
 
     def handle_shutdown(request: Request, csrf: str) -> Response:
         del request, csrf
-        print("operator-console: authenticated shutdown request accepted", flush=True)
-        threading.Thread(target=server.shutdown, daemon=True).start()
+        # M098-R: a repeated (retried) authenticated request is answered the same way but
+        # never starts a second shutdown.
+        with stopping_lock:
+            first = not stopping.is_set()
+            stopping.set()
+        if first:
+            print("operator-console: authenticated shutdown request accepted", flush=True)
+            threading.Thread(target=server.shutdown, daemon=True).start()
         body = json.dumps({"accepted": True, "pid": pid}).encode("utf-8")
         return Response(
             status="202 Accepted",

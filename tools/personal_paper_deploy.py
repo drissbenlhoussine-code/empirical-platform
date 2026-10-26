@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -425,17 +426,26 @@ class AlpacaReadOnlyBrokerPort:
 
 class RealProcessPort:
     """Windows- and POSIX-aware; never used against a PID this repository's own tests did
-    not spawn themselves."""
+    not spawn themselves.
+
+    M098-R: on Windows every query is a direct Win32 call (`console_control`), never
+    `tasklist`, whose failure used to read as "not running" -- a fail-OPEN answer for a step
+    that waits for the console to exit. `graceful_stop` opens a handle to the target process
+    before anything else; its identity and, afterwards, its exit are observed on that SAME
+    process object, which a reused PID can never impersonate."""
+
+    def __init__(self) -> None:
+        self._stopping: dict[int, int] = {}
 
     def is_running(self, pid: int) -> bool:
         if os.name == "nt":
-            result = subprocess.run(  # noqa: S603 - fixed executable, explicit vector
-                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],  # noqa: S607
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            return str(pid) in result.stdout
+            handle = self._stopping.get(pid)
+            if handle is not None:
+                if not console_control.wait_for_process_exit(handle, timeout_seconds=0):
+                    return True
+                console_control.close_process_handle(self._stopping.pop(pid))
+                return False
+            return console_control.windows_process_is_running(pid)
         try:
             os.kill(pid, 0)
         except (ProcessLookupError, PermissionError):
@@ -448,67 +458,71 @@ class RealProcessPort:
         """MILESTONE-098. On POSIX, unchanged: `SIGTERM` can address any PID the caller has
         permission for (no process-group restriction exists there).
 
-        On Windows, `CTRL_BREAK_EVENT` is NOT used (see the module-level M098 note and
-        `shared.console_control`'s docstring for the full root cause: it can only reach a
-        process group THIS process itself created with `CREATE_NEW_PROCESS_GROUP`, which an
-        independently-launched console never is -- exactly what failed as `WinError 87`
-        during the M097 deployment attempt). Instead, an authenticated local HTTP request
-        asks the console to stop itself, which works identically regardless of how it was
-        launched."""
+        On Windows, `CTRL_BREAK_EVENT` is NOT used: Windows delivers it only to a process
+        group THIS process created with `CREATE_NEW_PROCESS_GROUP`, which an independently
+        launched console never is -- exactly what failed as `WinError 87` during the M097
+        deployment attempt. Instead, an authenticated loopback HTTP request asks the console
+        to stop itself, which works identically however it was launched."""
         if os.name != "nt":
             import signal
 
             os.kill(pid, signal.SIGTERM)
             return
-        # MILESTONE-098 SECURITY HARDENING: query this PID's start time ourselves, as close
-        # as possible to the token read, independently of whatever the token file itself
-        # claims -- closing the window between `step5_shutdown`'s discovery of `pid` and
-        # this call, during which the OS could have reused the same PID for an unrelated
-        # process. `read_control_token` then requires its own recorded fingerprint to match.
+        # The token is a secret: it may only ever travel to this machine's loopback interface.
+        # A misconfigured `--console-host` must fail here, before the token is even read.
+        if not _is_loopback_literal(host):
+            raise ConsoleShutdownError(
+                f"refusing to send the shutdown token to {host!r}: only a loopback IP literal "
+                "(127.0.0.1 or ::1) may receive it"
+            )
         try:
-            fingerprint = console_control.process_start_fingerprint(pid)
+            handle = console_control.open_process_for_shutdown(pid)
         except RuntimeError as error:
             raise ConsoleShutdownError(
                 f"could not confirm the identity of PID {pid} immediately before "
                 f"attempting shutdown: {error}"
             ) from error
+        keep_handle = False
         try:
-            record = console_control.read_control_token(
-                safety_directory,
-                port=port,
-                expected_capability=_SHUTDOWN_CONTROL_CAPABILITY,
-                expected_pid=pid,
-                expected_start_fingerprint=fingerprint,
-            )
-        except console_control.ControlTokenError as error:
-            raise ConsoleShutdownError(str(error)) from error
-        request = urllib.request.Request(  # noqa: S310 - fixed loopback host:port, POST only
-            f"http://{host}:{port}/control/shutdown",
-            method="POST",
-            headers={console_control.CONTROL_TOKEN_HEADER: record.token},
-            data=b"",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=15) as response:  # noqa: S310
-                status = response.status
-                body = response.read().decode("utf-8", errors="replace")
-        except urllib.error.HTTPError as error:
-            raise ConsoleShutdownError(
-                f"console refused the shutdown request (HTTP {error.code})"
-            ) from error
-        except OSError as error:
-            raise ConsoleShutdownError(f"shutdown request failed: {error}") from error
-        if status != 202:
-            raise ConsoleShutdownError(f"console returned an unexpected status (HTTP {status})")
-        try:
-            payload = json.loads(body)
-        except ValueError as error:
-            raise ConsoleShutdownError("console's shutdown response was not valid JSON") from error
-        if not isinstance(payload, dict) or payload.get("pid") != pid:
-            raise ConsoleShutdownError(
-                "console's shutdown response did not confirm the expected PID -- refusing "
-                "to trust an unverified responder"
-            )
+            try:
+                if console_control.wait_for_process_exit(handle, timeout_seconds=0):
+                    raise RuntimeError(f"PID {pid} has already exited")
+                fingerprint = console_control.process_handle_fingerprint(handle)
+            except RuntimeError as error:
+                raise ConsoleShutdownError(
+                    f"could not confirm the identity of PID {pid} immediately before "
+                    f"attempting shutdown: {error}"
+                ) from error
+            try:
+                record = console_control.read_control_token(
+                    safety_directory,
+                    port=port,
+                    expected_capability=_SHUTDOWN_CONTROL_CAPABILITY,
+                    expected_pid=pid,
+                    expected_start_fingerprint=fingerprint,
+                )
+            except console_control.ControlTokenError as error:
+                raise ConsoleShutdownError(str(error)) from error
+            status, body = _post_loopback_shutdown(host, port, record.token)
+            if status != 202:
+                raise ConsoleShutdownError(f"console refused the shutdown request (HTTP {status})")
+            try:
+                payload = json.loads(body)
+            except ValueError as error:
+                raise ConsoleShutdownError(
+                    "console's shutdown response was not valid JSON"
+                ) from error
+            if not isinstance(payload, dict) or payload.get("pid") != pid:
+                raise ConsoleShutdownError(
+                    "console's shutdown response did not confirm the expected PID -- refusing "
+                    "to trust an unverified responder"
+                )
+            # `is_running(pid)` now answers from this handle until the process object exits.
+            self._stopping[pid] = handle
+            keep_handle = True
+        finally:
+            if not keep_handle:
+                console_control.close_process_handle(handle)
 
     def start_recovery_console(
         self, *, executable: Sequence[str], env: Mapping[str, str], log_path: Path
@@ -532,10 +546,39 @@ class RealProcessPort:
         return process.pid
 
 
-_WINDOWS_LISTENER_PATTERN: Final = re.compile(
-    r"^\s*TCP\s+(?P<addr>\S+):(?P<port>\d+)\s+\S+\s+LISTENING\s+(?P<pid>\d+)\s*$",
-    re.IGNORECASE | re.MULTILINE,
-)
+def _is_loopback_literal(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _post_loopback_shutdown(host: str, port: int, token: str) -> tuple[int, str]:
+    """POSTs the shutdown request straight to `host:port` over a plain TCP connection.
+    Deliberately NOT `urllib.request.urlopen`: that honours `HTTP_PROXY`/`http_proxy` (Python
+    bypasses a proxy for loopback only if `NO_PROXY` says so), which would hand the token
+    header to a proxy, and it follows redirects, carrying the header to wherever a 3xx
+    points. `http.client` does neither. The token appears in no URL and in no error text."""
+    import http.client
+
+    connection = http.client.HTTPConnection(host, port, timeout=15)
+    try:
+        connection.request(
+            "POST",
+            "/control/shutdown",
+            body=b"",
+            headers={console_control.CONTROL_TOKEN_HEADER: token, "Content-Length": "0"},
+        )
+        response = connection.getresponse()
+        return response.status, response.read(64 * 1024).decode("utf-8", errors="replace")
+    except (OSError, http.client.HTTPException) as error:
+        raise ConsoleShutdownError(
+            f"shutdown request to the console failed: {type(error).__name__}"
+        ) from error
+    finally:
+        connection.close()
+
+
 _POSIX_LISTENER_PID_PATTERN: Final = re.compile(r"pid=(\d+)")
 
 
@@ -546,21 +589,26 @@ class RealNetworkPort:
             return probe.connect_ex((host, port)) != 0
 
     def owning_pid(self, host: str, port: int) -> int | None:
-        del host  # loopback-only by construction (see `_loopback` in operator_console.py)
         if os.name == "nt":
-            result = subprocess.run(  # noqa: S603 - fixed executable, explicit vector
-                ["netstat", "-ano", "-p", "TCP"],  # noqa: S607
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=15,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"netstat failed while locating the owner of port {port}")
-            for match in _WINDOWS_LISTENER_PATTERN.finditer(result.stdout):
-                if int(match.group("port")) == port:
-                    return int(match.group("pid"))
-            return None
+            # Only listeners a connection to `host` could actually reach: that exact address
+            # or its family's wildcard. Two different processes answering is refused rather
+            # than guessed about.
+            try:
+                wanted = ipaddress.ip_address(host)
+            except ValueError as error:
+                raise RuntimeError(f"console host {host!r} is not an IP literal") from error
+            wildcard = "::" if wanted.version == 6 else "0.0.0.0"  # noqa: S104 - compared, never bound
+            pids = {
+                pid
+                for address, pid in console_control.windows_tcp_listeners(port)
+                if address in (str(wanted), wildcard)
+            }
+            if len(pids) > 1:
+                raise RuntimeError(
+                    f"more than one process ({sorted(pids)}) is listening on port {port}; "
+                    "refusing to guess which one is the console"
+                )
+            return next(iter(pids), None)
         result = subprocess.run(  # noqa: S603 - fixed executable, explicit vector
             ["ss", "-H", "-ltnp", "sport", "=", f":{port}"],  # noqa: S607
             capture_output=True,
@@ -873,6 +921,21 @@ def step6_verify_stopped(cfg: DeployConfig, ports: Ports) -> str:
     if not port_free:
         raise DeploymentBlockedError(
             STEP_6_VERIFY_STOPPED, f"port {cfg.console_port} is still occupied"
+        )
+    # M098-R: a refused connection is not proof the port was released (a listener can be
+    # bound to another address of the same port, or be momentarily not accepting). The OS
+    # listener table must show nobody listening before migrations may run.
+    try:
+        listener = ports.network.owning_pid(cfg.console_host, cfg.console_port)
+    except RuntimeError as error:
+        raise DeploymentBlockedError(
+            STEP_6_VERIFY_STOPPED,
+            f"could not confirm port {cfg.console_port} was released: {error}",
+        ) from error
+    if listener is not None:
+        raise DeploymentBlockedError(
+            STEP_6_VERIFY_STOPPED,
+            f"PID {listener} is still listening on port {cfg.console_port}",
         )
     return f"process stopped, backup lock clear, port {cfg.console_port} free"
 

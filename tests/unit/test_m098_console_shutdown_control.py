@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
+import sys
 import time
-from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -74,8 +75,7 @@ def test_read_refuses_a_missing_file(tmp_path: Path) -> None:
 
 def test_read_refuses_malformed_json(tmp_path: Path) -> None:
     path = console_control.control_token_path(tmp_path, port=8189)
-    path.parent.mkdir(parents=True)
-    path.write_text("{not json", encoding="utf-8")
+    _plant(path, "{not json")
     with pytest.raises(console_control.ControlTokenError, match="no readable control token"):
         console_control.read_control_token(
             tmp_path,
@@ -88,8 +88,7 @@ def test_read_refuses_malformed_json(tmp_path: Path) -> None:
 
 def test_read_refuses_a_missing_field(tmp_path: Path) -> None:
     path = console_control.control_token_path(tmp_path, port=8189)
-    path.parent.mkdir(parents=True)
-    path.write_text(json.dumps({"pid": 4242, "port": 8189}), encoding="utf-8")
+    _plant(path, json.dumps({"pid": 4242, "port": 8189}))
     with pytest.raises(console_control.ControlTokenError, match="malformed"):
         console_control.read_control_token(
             tmp_path,
@@ -116,7 +115,6 @@ def test_read_refuses_a_port_field_mismatch(tmp_path: Path) -> None:
     """Simulates manual tampering: the file lives at the path for port 8189 (so it IS the
     file this port's caller would read) but its own recorded `port` field disagrees."""
     path = console_control.control_token_path(tmp_path, port=8189)
-    path.parent.mkdir(parents=True)
     payload = {
         "pid": 4242,
         "port": 9999,
@@ -125,7 +123,7 @@ def test_read_refuses_a_port_field_mismatch(tmp_path: Path) -> None:
         "start_fingerprint": _SELF_FINGERPRINT,
         "token": "deadbeef",
     }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    _plant(path, json.dumps(payload))
     with pytest.raises(console_control.ControlTokenError, match="different port"):
         console_control.read_control_token(
             tmp_path,
@@ -220,19 +218,115 @@ def test_different_ports_use_different_files_and_do_not_collide(tmp_path: Path) 
 
 
 # ---------------------------------------------------------------------------------------
-# MILESTONE-098 SECURITY HARDENING: permission narrowing is now FAIL CLOSED -- a failure to
-# apply or verify it raises `ControlTokenPermissionError` instead of only being logged, and
-# `write_control_token` cleans up any partial file before the error propagates.
+# MILESTONE-098 SECURITY HARDENING: permission narrowing is FAIL CLOSED -- a failure to
+# apply or verify it raises `ControlTokenPermissionError`, and `write_control_token` cleans
+# up any partial file before the error propagates.
+#
+# M098-R: on Windows the identity, ACL and process checks are native Win32 calls. The
+# previous `powershell`/`icacls` subprocesses failed on the windows-latest runner (Windows
+# PowerShell 5.1 cannot load its own security module when launched from a PowerShell 7
+# host), which made 24 tests fail and would equally disable the shutdown route on any host
+# started that way.
 # ---------------------------------------------------------------------------------------
+
+_WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows security descriptors")
+_FAKE_USER = "S-1-5-21-1111111111-2222222222-3333333333-1001"
+
+
+def _plant(path: Path, text: str) -> None:
+    """Writes a hand-made token file the way the console would: on Windows with the owner-only
+    descriptor (a plain `write_text` file inherits its directory's ACL and is, correctly,
+    refused at read time now), elsewhere as a plain file."""
+    if os.name == "nt":
+        user_sid = console_control._current_windows_user_sid()  # noqa: SLF001
+        path.parent.parent.mkdir(parents=True, exist_ok=True)
+        console_control._create_owner_only_directory(path.parent, user_sid)  # noqa: SLF001
+        console_control._create_token_text_exclusively(path, text, label="test", user_sid=user_sid)  # noqa: SLF001
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+
+def _security(
+    *aces: tuple[int, int, str | None],
+    owner: str = _FAKE_USER,
+    null: bool = False,
+    protected: bool = True,
+) -> object:
+    return console_control._WindowsSecurity(  # noqa: SLF001
+        owner_sid=owner,
+        dacl_null=null,
+        protected=protected,
+        aces=tuple(console_control._WindowsAce(t, f, s) for t, f, s in aces),  # noqa: SLF001
+    )
+
+
+_ALLOW = 0
+_DENY = 1
+
+
+def test_acl_rules_accept_only_the_user_system_and_administrators() -> None:
+    """Pure logic, every platform: the allowlist. SYSTEM and Administrators may hold explicit
+    grants (they can read any file on this disk anyway); deny ACEs are harmless."""
+    console_control._check_windows_security(  # noqa: SLF001
+        _security(
+            (_ALLOW, 0, _FAKE_USER),
+            (_ALLOW, 0, "S-1-5-18"),
+            (_ALLOW, 0, "S-1-5-32-544"),
+            (_DENY, 0, "S-1-1-0"),
+        ),
+        _FAKE_USER,
+        path=Path("token.json"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("security", "reason"),
+    [
+        (
+            _security((_ALLOW, 0, _FAKE_USER), (_ALLOW, 0, "S-1-1-0")),
+            "unexpected principal (S-1-1-0)",
+        ),
+        # The previous check was a denylist of four broad SIDs: a grant to any OTHER account
+        # (another local user, a service, INTERACTIVE) passed unnoticed.
+        (
+            _security(
+                (_ALLOW, 0, _FAKE_USER),
+                (_ALLOW, 0, "S-1-5-21-1111111111-2222222222-3333333333-1002"),
+            ),
+            "unexpected principal",
+        ),
+        (
+            _security((_ALLOW, 0, _FAKE_USER), (_ALLOW, 0, "S-1-5-4")),
+            "unexpected principal (S-1-5-4)",
+        ),
+        (_security(null=True), "NULL DACL"),
+        (_security((_ALLOW, 0, _FAKE_USER), protected=False), "not protected"),
+        (_security((_ALLOW, 0x10, _FAKE_USER)), "inherited ACE"),
+        (_security((_ALLOW, 0, _FAKE_USER), (5, 0, None)), "unsupported type 5"),
+        (
+            _security(
+                (_ALLOW, 0, _FAKE_USER), owner="S-1-5-21-1111111111-2222222222-3333333333-1002"
+            ),
+            "owner",
+        ),
+        (_security((_ALLOW, 0, "S-1-5-18")), "does not grant the current user"),
+    ],
+)
+def test_acl_rules_refuse_every_unsafe_or_ambiguous_descriptor(
+    security: object, reason: str
+) -> None:
+    with pytest.raises(console_control.ControlTokenPermissionError, match=re.escape(reason)):
+        console_control._check_windows_security(security, _FAKE_USER, path=Path("token.json"))  # type: ignore[arg-type]  # noqa: SLF001
 
 
 def test_write_raises_and_cleans_up_when_permission_narrowing_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def _boom(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        raise OSError("icacls is not available in this sandbox")
+    def _refuse(*_args: object, **_kwargs: object) -> None:
+        raise console_control.ControlTokenPermissionError("narrowing refused in this test")
 
-    monkeypatch.setattr(console_control.subprocess, "run", _boom)
+    monkeypatch.setattr(console_control, "_create_owner_only_directory", _refuse)
     monkeypatch.setattr(
         console_control.Path,
         "chmod",
@@ -244,127 +338,227 @@ def test_write_raises_and_cleans_up_when_permission_narrowing_fails(
     assert list(tmp_path.rglob("*.tmp")) == []
 
 
-def test_write_raises_when_narrowing_reports_success_but_exit_code_is_nonzero(
+@_WINDOWS_ONLY
+def test_write_raises_and_cleans_up_when_the_written_file_fails_verification(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Covers the Windows path specifically: `icacls` can exit non-zero without raising an
-    `OSError` at all -- a narrowing attempt that merely FAILED, rather than one that could
-    not run."""
+    """Creating the file may appear to succeed; what is verified on the handle is what
+    counts. An unexpected principal in the readback fails the write and leaves nothing."""
+    real = console_control._read_windows_security  # noqa: SLF001
 
-    def _failing_icacls(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(args=[], returncode=1, stdout="", stderr="denied")
+    def _with_an_extra_principal(handle: int) -> object:
+        security = real(handle)
+        return console_control._WindowsSecurity(  # noqa: SLF001
+            owner_sid=security.owner_sid,
+            dacl_null=False,
+            protected=True,
+            aces=(*security.aces, console_control._WindowsAce(0, 0, "S-1-5-11")),  # noqa: SLF001
+        )
 
-    monkeypatch.setattr(console_control.subprocess, "run", _failing_icacls)
-    monkeypatch.setattr(
-        console_control.Path,
-        "chmod",
-        lambda self, mode: (_ for _ in ()).throw(OSError("chmod refused")),
-    )
-    with pytest.raises(console_control.ControlTokenPermissionError):
+    monkeypatch.setattr(console_control, "_read_windows_security", _with_an_extra_principal)
+    with pytest.raises(console_control.ControlTokenPermissionError, match="S-1-5-11"):
         console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+    assert not console_control.control_token_path(tmp_path, port=8189).exists()
+    assert list(tmp_path.rglob("*.tmp")) == []
 
 
-def _fake_sid_subprocess_run(
-    *,
-    current_sid: str = "S-1-5-21-FAKE-TEST-1001",
-    icacls_returncode: int = 0,
-    acl_sids: str = "",
-) -> Callable[..., subprocess.CompletedProcess[str]]:
-    """Builds a fake `subprocess.run` replacement that distinguishes MILESTONE-098 FINAL
-    HARDENING's three distinct Windows subprocess calls by their argv content -- the SID
-    query (`WindowsIdentity`), the `icacls` grant, and the `Get-Acl` SID readback -- the way
-    the real implementation issues them. `process_start_fingerprint`'s own `Get-Process`
-    call is deliberately NOT special-cased: every test using this fake fails before
-    `write_control_token` ever reaches it (permission narrowing on the directory always
-    comes first and raises first)."""
-
-    def _fake_run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        joined = " ".join(str(part) for part in argv)
-        if "WindowsIdentity" in joined:
-            return subprocess.CompletedProcess(
-                args=argv, returncode=0, stdout=f"{current_sid}\r\n", stderr=""
-            )
-        if argv and argv[0] == "icacls":
-            return subprocess.CompletedProcess(
-                args=argv, returncode=icacls_returncode, stdout="", stderr="denied"
-            )
-        if "Get-Acl" in joined:
-            return subprocess.CompletedProcess(args=argv, returncode=0, stdout=acl_sids, stderr="")
-        if "Get-Process" in joined:
-            # `process_start_fingerprint` -- only reached by a test whose narrowing
-            # succeeds all the way through; any fixed, non-empty, successful output is
-            # sufficient since this fake's tests do not assert on the fingerprint itself.
-            return subprocess.CompletedProcess(
-                args=argv, returncode=0, stdout="2026-01-01T00:00:00.0000000Z\r\n", stderr=""
-            )
-        raise AssertionError(f"unexpected subprocess.run call in this test: {argv}")
-
-    return _fake_run
-
-
+@_WINDOWS_ONLY
 def test_write_raises_when_the_current_users_sid_cannot_be_determined(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MILESTONE-098 FINAL HARDENING: the current user's identity for both the grant and its
-    verification is now the OS-reported SID (`WindowsIdentity.GetCurrent()`), never the
-    `USERNAME`/`USERDOMAIN` environment variables -- if that query itself fails, narrowing
-    must fail closed rather than fall back to an environment variable."""
-    if os.name != "nt":
-        pytest.skip("SID-based narrowing only applies on Windows")
+    def _no_sid() -> str:
+        raise console_control.ControlTokenPermissionError(
+            "could not determine the current Windows user's SID"
+        )
 
-    def _fake_run(argv: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        if "WindowsIdentity" in " ".join(str(part) for part in argv):
-            return subprocess.CompletedProcess(args=argv, returncode=1, stdout="", stderr="denied")
-        raise AssertionError(f"unexpected subprocess.run call in this test: {argv}")
-
-    monkeypatch.setattr(console_control.subprocess, "run", _fake_run)
+    monkeypatch.setattr(console_control, "_current_windows_user_sid", _no_sid)
     with pytest.raises(console_control.ControlTokenPermissionError, match="SID"):
         console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+    assert not console_control.control_token_path(tmp_path, port=8189).exists()
 
 
-def test_write_raises_when_the_acl_readback_still_shows_a_broad_sid(
+@_WINDOWS_ONLY
+def test_root_cause_writing_and_reading_needs_no_subprocess_and_no_working_powershell(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """MILESTONE-098 FINAL HARDENING: verification is now SID-based, never account-display-
-    NAME-based -- a name like 'Everyone' is itself localized on a non-English Windows
-    installation (and is, in principle, renameable), while its well-known SID (`S-1-1-0`)
-    never changes. The narrowing command can exit 0 and still not have achieved what it
-    claims; the SID readback via `Get-Acl` is what actually closes this gap."""
-    if os.name != "nt":
-        pytest.skip("SID-based ACL readback verification only applies on Windows")
-    fake_sid = "S-1-5-21-FAKE-TEST-1001"
-    monkeypatch.setattr(
-        console_control.subprocess,
-        "run",
-        _fake_sid_subprocess_run(current_sid=fake_sid, acl_sids=f"{fake_sid}\r\nS-1-1-0\r\n"),
-    )
-    with pytest.raises(console_control.ControlTokenPermissionError, match="S-1-1-0"):
-        console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+    """M098-R ROOT CAUSE REGRESSION. The previous implementation shelled out to `powershell`
+    and `icacls` (PATH-resolved) for the user SID, the ACL readback and the process start
+    time; on the windows-latest runner Windows PowerShell 5.1 could not load its own
+    security module, and every token write failed. Here every subprocess is forbidden and
+    PowerShell's module path is deliberately broken: the write, the verification and the
+    read must all still succeed."""
 
+    def _forbidden(*args: object, **_kwargs: object) -> None:
+        raise AssertionError(f"no subprocess may be used on Windows here: {args!r}")
 
-def test_write_does_not_object_to_system_or_administrators_sids_after_narrowing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A real Windows narrowing to a single principal commonly still leaves SYSTEM and
-    local Administrators with their own explicit ACEs -- `/grant:r` replaces grants for the
-    ONE principal named, it does not strip other principals' pre-existing explicit grants.
-    These are not an unprivileged, broad audience, so verification must not object to them
-    (unlike a genuinely broad SID such as Everyone)."""
-    if os.name != "nt":
-        pytest.skip("SID-based ACL readback verification only applies on Windows")
-    fake_sid = "S-1-5-21-FAKE-TEST-1001"
-    monkeypatch.setattr(
-        console_control.subprocess,
-        "run",
-        _fake_sid_subprocess_run(
-            current_sid=fake_sid,
-            acl_sids=f"S-1-5-18\r\nS-1-5-32-544\r\n{fake_sid}\r\n",
-        ),
-    )
+    monkeypatch.setattr(console_control.subprocess, "run", _forbidden)
+    monkeypatch.setattr(console_control.subprocess, "Popen", _forbidden)
+    monkeypatch.setenv("PSModulePath", str(tmp_path / "no-such-modules"))
     token = console_control.write_control_token(
         tmp_path, pid=4242, port=8189, capability="paper-exit"
     )
-    assert token
+    record = console_control.read_control_token(
+        tmp_path,
+        port=8189,
+        expected_capability="paper-exit",
+        expected_pid=4242,
+        expected_start_fingerprint=console_control.process_start_fingerprint(_SELF_PID),
+    )
+    assert record.token == token
+
+
+@_WINDOWS_ONLY
+def test_the_real_token_file_and_directory_are_owner_only_and_protected(tmp_path: Path) -> None:
+    """Read back from the real files on this real Windows machine, by SID."""
+    console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+    user = console_control._current_windows_user_sid()  # noqa: SLF001
+    for path in (
+        tmp_path / "console-control",
+        console_control.control_token_path(tmp_path, port=8189),
+    ):
+        handle = console_control._open_windows_object(
+            path, access=console_control._READ_CONTROL, label="t"
+        )  # noqa: SLF001
+        try:
+            security = console_control._read_windows_security(handle)  # noqa: SLF001
+        finally:
+            console_control._kernel32.CloseHandle(handle)  # noqa: SLF001
+        assert security.protected, path
+        assert not security.dacl_null, path
+        assert security.owner_sid == user, path
+        assert {ace.sid for ace in security.aces} <= {user, "S-1-5-18", "S-1-5-32-544"}, path
+        assert not any(ace.flags & 0x10 for ace in security.aces), path
+
+
+@_WINDOWS_ONLY
+@pytest.mark.parametrize("principal", ["S-1-1-0", "S-1-5-4", "S-1-5-32-545"])
+def test_read_refuses_a_token_file_whose_real_acl_was_widened_after_writing(
+    tmp_path: Path, principal: str
+) -> None:
+    """The ACL is verified again when the deployment tool READS the token, not only when the
+    console wrote it. Everyone, INTERACTIVE (which the old four-SID denylist allowed) and
+    BUILTIN\\Users each get a real grant here via icacls -- a test-side tool, never used by
+    the code under test."""
+    console_control.write_control_token(tmp_path, pid=4242, port=8189, capability="paper-exit")
+    path = console_control.control_token_path(tmp_path, port=8189)
+    result = subprocess.run(  # noqa: S603 - fixed executable, explicit argument vector
+        ["icacls", str(path), "/grant", f"*{principal}:R"],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"could not add a test grant: {result.stdout} {result.stderr}")
+    with pytest.raises(console_control.ControlTokenPermissionError, match=re.escape(principal)):
+        console_control.read_control_token(
+            tmp_path,
+            port=8189,
+            expected_capability="paper-exit",
+            expected_pid=4242,
+            expected_start_fingerprint=_SELF_FINGERPRINT,
+        )
+
+
+@_WINDOWS_ONLY
+def test_read_refuses_a_token_file_with_inherited_permissions(tmp_path: Path) -> None:
+    path = console_control.control_token_path(tmp_path, port=8189)
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"pid": 4242}), encoding="utf-8")
+    with pytest.raises(
+        console_control.ControlTokenPermissionError, match="refusing to trust the permissions"
+    ):
+        console_control.read_control_token(
+            tmp_path,
+            port=8189,
+            expected_capability="paper-exit",
+            expected_pid=4242,
+            expected_start_fingerprint=_SELF_FINGERPRINT,
+        )
+
+
+def _junction(link: Path, target: Path) -> None:
+    result = subprocess.run(  # noqa: S603 - fixed executable, explicit argument vector
+        ["cmd", "/c", "mklink", "/J", str(link), str(target)],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"this environment could not create an NTFS junction: {result.stderr}")
+
+
+@_WINDOWS_ONLY
+def test_a_junction_on_an_ancestor_directory_is_refused_for_write_and_read(tmp_path: Path) -> None:
+    """Checking each final path component (`Path.is_symlink()`, reparse attributes) misses a
+    junction HIGHER UP the path, which redirects everything below it. The path the OS reports
+    for the opened handle reveals it."""
+    real_parent = tmp_path / "real-parent"
+    (real_parent / "safety").mkdir(parents=True)
+    linked_parent = tmp_path / "linked-parent"
+    _junction(linked_parent, real_parent)
+    with pytest.raises(console_control.ControlTokenPermissionError, match="redirects"):
+        console_control.write_control_token(
+            linked_parent / "safety", pid=4242, port=8189, capability="paper-exit"
+        )
+    console_control.write_control_token(
+        real_parent / "safety", pid=4242, port=8190, capability="paper-exit"
+    )
+    with pytest.raises(console_control.ControlTokenPermissionError, match="redirects"):
+        console_control.read_control_token(
+            linked_parent / "safety",
+            port=8190,
+            expected_capability="paper-exit",
+            expected_pid=4242,
+            expected_start_fingerprint=_SELF_FINGERPRINT,
+        )
+
+
+@_WINDOWS_ONLY
+def test_process_identity_and_exit_are_observed_on_the_process_handle() -> None:
+    """A handle keeps referring to the original process object, so its start time and its
+    exit cannot be confused with a later process that reuses the PID; an exited process's
+    start time is never reported as a live identity."""
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1.5)"])  # noqa: S603
+    handle = console_control.open_process_for_shutdown(child.pid)
+    try:
+        assert console_control.process_handle_fingerprint(
+            handle
+        ) == console_control.process_start_fingerprint(child.pid)
+        assert console_control.process_handle_fingerprint(handle) != _SELF_FINGERPRINT
+        assert console_control.windows_process_is_running(child.pid)
+        assert console_control.wait_for_process_exit(handle, timeout_seconds=0.05) is False
+        assert console_control.wait_for_process_exit(handle, timeout_seconds=20) is True
+    finally:
+        console_control.close_process_handle(handle)
+    child.wait()
+    assert not console_control.windows_process_is_running(child.pid)
+    with pytest.raises(RuntimeError):
+        console_control.process_start_fingerprint(child.pid)
+
+
+@_WINDOWS_ONLY
+def test_the_native_listener_table_finds_this_process_on_ipv4_and_ipv6_loopback() -> None:
+    import socket
+
+    with (
+        socket.socket(socket.AF_INET, socket.SOCK_STREAM) as v4,
+        socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as v6,
+    ):
+        v4.bind(("127.0.0.1", 0))
+        v4.listen(1)
+        v6.bind(("::1", 0))
+        v6.listen(1)
+        assert ("127.0.0.1", _SELF_PID) in console_control.windows_tcp_listeners(
+            v4.getsockname()[1]
+        )
+        assert ("::1", _SELF_PID) in console_control.windows_tcp_listeners(v6.getsockname()[1])
+        free = v4.getsockname()[1]
+    assert console_control.windows_tcp_listeners(free) == []
+
+
+def test_network_order_port_conversion() -> None:
+    assert console_control.socket_port_from_network_order(0x0000_901F) == 8080
+    assert console_control.socket_port_from_network_order(0xABCD_1F90) == 0x901F
 
 
 def test_write_rejects_a_symlinked_console_control_directory(tmp_path: Path) -> None:
@@ -443,7 +637,10 @@ def test_create_token_text_exclusively_fails_closed_if_something_already_exists(
     path.write_text("pre-existing-content", encoding="utf-8")
     with pytest.raises(console_control.ControlTokenPermissionError):
         console_control._create_token_text_exclusively(
-            path, "attacker-controlled-overwrite", label="test file"
+            path,
+            "attacker-controlled-overwrite",
+            label="test file",
+            user_sid=console_control._current_windows_user_sid() if os.name == "nt" else "",
         )
     assert path.read_text(encoding="utf-8") == "pre-existing-content"
 
@@ -714,10 +911,10 @@ def test_install_shutdown_control_does_not_activate_when_permission_narrowing_fa
     request to `/control/shutdown` must now fall through to the ordinary "not found" / CSRF
     handling, with the route entirely absent from the Router's dispatch table."""
 
-    def _boom(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        raise OSError("permission narrowing unavailable in this sandbox")
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise console_control.ControlTokenPermissionError("permission narrowing unavailable here")
 
-    monkeypatch.setattr(console_control.subprocess, "run", _boom)
+    monkeypatch.setattr(console_control, "_create_owner_only_directory", _boom)
     monkeypatch.setattr(
         console_control.Path,
         "chmod",
@@ -881,3 +1078,43 @@ def test_shutdown_route_rejects_a_request_carrying_a_forwarding_header(tmp_path:
         headers={"X-Empirical-Shutdown-Token": record.token},
     )
     assert status == "202 Accepted"
+
+
+def test_shutdown_route_answers_401_not_500_for_a_non_ascii_token(tmp_path: Path) -> None:
+    """M098-R: `hmac.compare_digest` raises TypeError on a str holding non-ASCII characters,
+    which turned a malformed header into an unhandled server error. Compared as bytes, it is
+    simply a wrong token."""
+    router = Router(SecuritySession())
+    server = _FakeServer(8189)
+    operator_console._install_shutdown_control(router, server, safety_directory=tmp_path)  # type: ignore[arg-type]
+    status, _headers, _body = _wsgi_call(
+        router,
+        method="POST",
+        path="/control/shutdown",
+        headers={"X-Empirical-Shutdown-Token": "tökén-☃"},
+    )
+    assert status == "401 Unauthorized"
+    assert server.shutdown_calls == 0
+
+
+def test_a_repeated_authenticated_shutdown_request_starts_only_one_shutdown(tmp_path: Path) -> None:
+    router = Router(SecuritySession())
+    server = _FakeServer(8189)
+    operator_console._install_shutdown_control(router, server, safety_directory=tmp_path)  # type: ignore[arg-type]
+    record = console_control.read_control_token(
+        tmp_path,
+        port=8189,
+        expected_capability=operator_console.SHUTDOWN_CONTROL_CAPABILITY,
+        expected_pid=operator_console.os.getpid(),
+        expected_start_fingerprint=_SELF_FINGERPRINT,
+    )
+    for _attempt in range(3):
+        status, _headers, _body = _wsgi_call(
+            router,
+            method="POST",
+            path="/control/shutdown",
+            headers={"X-Empirical-Shutdown-Token": record.token},
+        )
+        assert status == "202 Accepted"
+    time.sleep(0.3)
+    assert server.shutdown_calls == 1
