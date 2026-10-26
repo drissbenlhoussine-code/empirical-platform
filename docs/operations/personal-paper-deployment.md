@@ -113,18 +113,27 @@ stopped at step 5 with `OSError: [WinError 87] The parameter is incorrect` from
 The fix replaces process signalling with a loopback HTTP request the console answers itself
 (`POST /control/shutdown`), authenticated by a per-instance secret (`secrets.token_hex(32)`,
 compared with `hmac.compare_digest`) written to a file under the Safety Manifest's own
-directory, narrowed to the current OS user (`icacls`/`chmod 0600`, best-effort). This works
+directory, owner-only: on Windows created with a protected DACL for the current user,
+SYSTEM and Administrators only, verified by SID against that allowlist when written AND when
+read, and refused if the opened file is not exactly the requested path (a junction or
+symlink anywhere on the path); `chmod 0600` on POSIX. Fail closed, never best-effort. All
+Windows checks are direct Win32 calls (M098-R): the earlier `powershell`/`icacls` calls failed
+whenever Windows PowerShell 5.1 was started from a PowerShell 7 host. This works
 identically whether the console was launched independently or by this tool's own
 `start_recovery_console` -- it never touches process groups or signals at all; it is a plain
 `BaseServer.shutdown()` call that flows through the exact same `try/finally` teardown already
 proven correct for `KeyboardInterrupt`. See `empirical_platform.shared.console_control` for
 the full security model.
 
-Before trusting any token, this step independently re-queries the OS (`netstat -ano` on
-Windows, `ss -ltnp` on POSIX) for whichever PID ACTUALLY owns the configured port right now,
+Before trusting any token, this step independently re-queries the OS (the native TCP
+listener table on Windows, matched to the exact console address; `ss -ltnp` on POSIX) for whichever PID ACTUALLY owns the configured port right now,
 and refuses -- rather than guesses -- if a given `--console-pid` does not match it. This
 rejects a stale or otherwise incorrect PID, including the case where the OS has since reused
-that PID for an unrelated process.
+that PID for an unrelated process. On Windows the token is sent only to a loopback IP
+literal, over a direct connection that ignores `HTTP_PROXY` and follows no redirect; the
+process is opened by handle before the request, and its exit is confirmed on that same handle,
+which a reused PID cannot impersonate. Step 6 then requires the listener table to show nobody
+on the port before any migration runs.
 
 **Residual limitation, stated plainly:** this fix only takes effect for a console STARTED
 with M098-or-later code. A console already running from before this change has no
