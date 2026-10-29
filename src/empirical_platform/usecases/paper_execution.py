@@ -281,6 +281,11 @@ def _policy_for(
             f"{intent.configuration_version} named by the intent does not exist; there are "
             "no send-time limits to judge this order under"
         )
+    if (
+        getattr(configurations, "requires_current_risk_contract", False)
+        and configuration.risk_contract_version != 2
+    ):
+        raise PaperExecutionRefusedError("legacy configuration cannot authorize current v1 entry")
     return execution_policy_from_configuration(configuration)
 
 

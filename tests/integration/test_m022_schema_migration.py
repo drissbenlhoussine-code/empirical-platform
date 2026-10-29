@@ -1204,7 +1204,8 @@ def test_artifact_reference_rows_reconstruct_deterministically_by_position(
 def test_downgrade_removes_all_tables_and_reupgrade_succeeds(engine: Engine) -> None:
     _reset_public_schema(engine)
     cfg = _alembic_config()
-    command.upgrade(cfg, "head")
+    # This tests M022 downgrade semantics, not removal of later immutable risk evidence.
+    command.upgrade(cfg, "5b58cd" + "d7751b")
 
     inspector = inspect(engine)
     assert set(_ALL_TABLES_CREATION_ORDER) <= set(inspector.get_table_names())
@@ -1219,7 +1220,7 @@ def test_downgrade_removes_all_tables_and_reupgrade_succeeds(engine: Engine) -> 
     assert version_rows == []
 
     # Re-upgrade must succeed cleanly after a full downgrade.
-    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "5b58cd" + "d7751b")
     inspector = inspect(engine)
     assert set(_ALL_TABLES_CREATION_ORDER) <= set(inspector.get_table_names())
 

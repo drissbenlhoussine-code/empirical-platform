@@ -39,7 +39,7 @@ import os
 import sys
 import tempfile
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -984,6 +984,11 @@ class SimulatedMarketData:
     def __init__(self, store: SimulationStore, *, clock: Callable[[], datetime] = _now) -> None:
         self._store = store
         self._clock = clock
+        # EXIT SIGNAL QUALITY GATE (2026-10-21) test affordance only -- NOT part of
+        # `SimulationStore`'s durable state (see this module's own "DURABLE ON PURPOSE"
+        # docstring): a test that never calls `stage_recent_quotes` gets the trivially
+        # self-consistent default below, not an untested code path.
+        self._recent_override: dict[str, tuple[SimulatedQuoteView, ...]] = {}
 
     def fetch_quote(self, symbol: str) -> SimulatedQuoteView | None:
         quote = self._store.quote_for(symbol)
@@ -997,6 +1002,28 @@ class SimulatedMarketData:
             ask=ask,
             captured_at=self._clock() - timedelta(seconds=2),
         )
+
+    def fetch_recent_quotes(
+        self, symbol: str, *, start: datetime, end: datetime, limit: int = 1000
+    ) -> tuple[SimulatedQuoteView, ...]:
+        """Default: several copies of the single staged current quote -- perfectly
+        self-consistent, matching a calm/liquid market, so a test that stages one quote
+        and never calls `stage_recent_quotes` exercises the quality gate's CORROBORATED
+        path, not an untested one. A test exercising the gate's thin-sample or
+        inconsistent-evidence paths calls `stage_recent_quotes` to inject an explicit,
+        deterministic window instead (see `tests/unit/_m086_fakes.py`)."""
+        overridden = self._recent_override.get(symbol.upper())
+        if overridden is not None:
+            return overridden
+        quote = self.fetch_quote(symbol)
+        if quote is None:
+            return ()
+        return tuple(quote for _ in range(8))
+
+    def stage_recent_quotes(self, symbol: str, quotes: Sequence[SimulatedQuoteView]) -> None:
+        """Test-only: dictate exactly what `fetch_recent_quotes` returns for `symbol`,
+        overriding the default self-consistent window built from the single staged quote."""
+        self._recent_override[symbol.upper()] = tuple(quotes)
 
 
 def decimal_text(value: Decimal | str) -> str:

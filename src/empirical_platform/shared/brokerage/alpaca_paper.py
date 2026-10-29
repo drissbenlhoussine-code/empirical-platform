@@ -115,6 +115,10 @@ __all__ = [
 #: unpaginated single page is the narrowest capability this milestone's actual need requires.
 MAXIMUM_BARS_PER_REQUEST: Final = 1000
 
+#: EXIT SIGNAL QUALITY GATE (2026-10-21): mirrors MAXIMUM_BARS_PER_REQUEST's own bound on a
+#: single unpaginated page -- see `fetch_recent_quotes`.
+MAXIMUM_QUOTES_PER_REQUEST: Final = 1000
+
 REDACTED: Final = "<redacted>"
 
 #: Header names whose VALUES must never be rendered. Compared case-folded,
@@ -1146,6 +1150,72 @@ class AlpacaPaperMarketDataClient:
             captured_at=_parse_instant(quote.get("t"), field="quote timestamp"),
             source="alpaca-iex",
         )
+
+    def fetch_recent_quotes(
+        self, symbol: str, *, start: datetime, end: datetime, limit: int = 1000
+    ) -> tuple[_QuoteView, ...]:
+        """EXIT SIGNAL QUALITY GATE (2026-10-21): real, IEX-feed, individual quote ticks over
+        `[start, end]`, oldest first -- the one additional capability this hardening adds
+        beyond the single-snapshot `fetch_quote`. Re-derived fresh from Alpaca on every call,
+        exactly like `fetch_minute_bars`: never remembered in RAM between manager ticks, so a
+        crash/restart loses nothing a fresh call would not already re-establish.
+
+        Read-only evidence, nothing else. `start`/`end` must be timezone-aware; a single
+        unpaginated page of up to `limit` ticks is returned (see MAXIMUM_QUOTES_PER_REQUEST)
+        -- a thin/illiquid stretch simply returns fewer, which the caller treats as "too few
+        to assess agreement" rather than as an error (see `position_plan_manager`).
+        """
+        AlpacaPaperClient._require_plain_symbol(symbol)
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("start and end must be timezone-aware")
+        if end <= start:
+            raise ValueError("end must be after start")
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not (1 <= limit <= MAXIMUM_QUOTES_PER_REQUEST)
+        ):
+            raise ValueError(f"limit must be an int between 1 and {MAXIMUM_QUOTES_PER_REQUEST}")
+        query = (
+            f"start={_urlquote(start.astimezone(UTC).isoformat())}"
+            f"&end={_urlquote(end.astimezone(UTC).isoformat())}"
+            f"&limit={limit}&feed=iex&sort=asc"
+        )
+        status, _, raw = self._connection.request("GET", f"/v2/stocks/{symbol}/quotes?{query}")
+        if status != 200:
+            return ()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return ()
+        if not isinstance(payload, dict):
+            return ()
+        returned_symbol = payload.get("symbol")
+        if returned_symbol is not None and returned_symbol != symbol:
+            raise BrokerResponseInvalidError(
+                f"asked for {symbol} quotes and was given {returned_symbol}"
+            )
+        raw_quotes = payload.get("quotes")
+        if raw_quotes is None:
+            return ()
+        if not isinstance(raw_quotes, list):
+            raise BrokerResponseInvalidError("the quotes payload is not a list")
+        views: list[_QuoteView] = []
+        for entry in raw_quotes:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("a quote entry is not an object")
+            bid = entry.get("bp")
+            ask = entry.get("ap")
+            views.append(
+                _QuoteView(
+                    symbol=symbol,
+                    bid=None if bid is None else str(bid),
+                    ask=None if ask is None else str(ask),
+                    captured_at=_parse_instant(entry.get("t"), field="quote timestamp"),
+                    source="alpaca-iex",
+                )
+            )
+        return tuple(views)
 
     def fetch_minute_bars(
         self, symbol: str, *, start: datetime, end: datetime, limit: int = 100

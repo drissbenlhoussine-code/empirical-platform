@@ -21,12 +21,14 @@ session that never imported this file.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import datetime, time
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from empirical_platform.decision_candidate.entry_risk_contract import read_risk
 from empirical_platform.decision_candidate.evaluation_context import EvaluationContext
 from empirical_platform.decision_candidate.operator_trading_configuration import (
     AccountMode,
@@ -50,6 +52,11 @@ from empirical_platform.decision_candidate.trade_proposal import (
 )
 from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+from empirical_platform.shared.persistence.postgres_repositories.entry_risk_storage import (
+    configuration_risk,
+    encode_risk,
+    risk_insert,
+)
 
 __all__ = [
     "PostgresApprovalDecisionRepository",
@@ -228,6 +235,7 @@ def _configuration_parameters(configuration: OperatorTradingConfiguration) -> di
 
 def _row_to_configuration(row: Mapping[str, Any]) -> OperatorTradingConfiguration:
     return OperatorTradingConfiguration(
+        **configuration_risk(dict(row)),
         configuration_governance_id=_str(row, "configuration_governance_id"),
         configuration_version=_int(row, "configuration_version"),
         base_currency=_str(row, "base_currency"),
@@ -279,49 +287,101 @@ class PostgresOperatorTradingConfigurationRepository:
     def __init__(self, service: PostgresPersistenceService) -> None:
         self._service = service
 
-    def save(self, configuration: OperatorTradingConfiguration) -> OperatorTradingConfiguration:
+    @property
+    def requires_current_risk_contract(self) -> bool:
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                "INSERT INTO public.operator_trading_configuration (configuration_governance_id, "
-                "configuration_version, base_currency, permitted_markets, watchlist, "
-                "prohibited_instruments, maximum_deployable_capital, maximum_capital_per_trade, "
-                "maximum_percent_per_trade, minimum_cash_reserve, maximum_simultaneous_positions, "
-                "maximum_daily_loss, maximum_daily_order_count, minimum_price, maximum_price, "
-                "minimum_liquidity_shares, maximum_spread_percent, "
-                "maximum_estimated_slippage_percent, maximum_evidence_age_seconds, "
-                "maximum_market_data_age_seconds, permitted_session, earliest_entry_time, "
-                "latest_entry_time, mandatory_liquidation_time, operator_timezone, "
-                "exchange_calendar_policy, proposal_expiry_seconds, approval_expiry_seconds, "
-                "default_order_type, permitted_order_types, limit_price_policy, stop_loss_percent, "
-                "profit_exit_percent, maximum_leverage, short_selling_permitted, "
-                "overnight_positions_permitted, account_mode, kill_switch) VALUES "
-                "(:configuration_governance_id, :configuration_version, :base_currency, "
-                ":permitted_markets, :watchlist, :prohibited_instruments, "
-                ":maximum_deployable_capital, :maximum_capital_per_trade, "
-                ":maximum_percent_per_trade, :minimum_cash_reserve, "
-                ":maximum_simultaneous_positions, :maximum_daily_loss, :maximum_daily_order_count, "
-                ":minimum_price, :maximum_price, :minimum_liquidity_shares, "
-                ":maximum_spread_percent, :maximum_estimated_slippage_percent, "
-                ":maximum_evidence_age_seconds, :maximum_market_data_age_seconds, "
-                ":permitted_session, :earliest_entry_time, :latest_entry_time, "
-                ":mandatory_liquidation_time, :operator_timezone, :exchange_calendar_policy, "
-                ":proposal_expiry_seconds, :approval_expiry_seconds, :default_order_type, "
-                ":permitted_order_types, :limit_price_policy, :stop_loss_percent, "
-                ":profit_exit_percent, :maximum_leverage, :short_selling_permitted, "
-                ":overnight_positions_permitted, :account_mode, :kill_switch) RETURNING "
-                "configuration_governance_id, configuration_version, base_currency, "
-                "permitted_markets, watchlist, prohibited_instruments, maximum_deployable_capital, "
-                "maximum_capital_per_trade, maximum_percent_per_trade, minimum_cash_reserve, "
-                "maximum_simultaneous_positions, maximum_daily_loss, maximum_daily_order_count, "
-                "minimum_price, maximum_price, minimum_liquidity_shares, maximum_spread_percent, "
-                "maximum_estimated_slippage_percent, maximum_evidence_age_seconds, "
-                "maximum_market_data_age_seconds, permitted_session, earliest_entry_time, "
-                "latest_entry_time, mandatory_liquidation_time, operator_timezone, "
-                "exchange_calendar_policy, proposal_expiry_seconds, approval_expiry_seconds, "
-                "default_order_type, permitted_order_types, limit_price_policy, stop_loss_percent, "
-                "profit_exit_percent, maximum_leverage, short_selling_permitted, "
-                "overnight_positions_permitted, account_mode, kill_switch",
-                _configuration_parameters(configuration),
+                "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = "
+                "'public.operator_trading_configuration'::regclass AND "
+                "attname = 'risk_contract' AND NOT attisdropped) OR EXISTS "
+                "(SELECT 1 FROM public.alembic_version WHERE version_num = :current) AS required",
+                {"current": "c6e2a4f8" + "b901"},
+            )
+        return bool(rows[0]["required"])
+
+    def save(self, configuration: OperatorTradingConfiguration) -> OperatorTradingConfiguration:
+        risk_payload = None
+        maximum_shares = configuration.maximum_position_quantity_shares
+        if configuration.risk_contract_version == 2:
+            risk_payload = json.dumps(
+                {
+                    "version": 2,
+                    "maximum_position_quantity_shares": maximum_shares,
+                    "maximum_planned_loss_per_trade": str(
+                        configuration.maximum_planned_loss_per_trade
+                    ),
+                }
+            )
+        with self._service.unit_of_work() as work:
+            rows = work.execute(
+                risk_insert(
+                    (
+                        "INSERT INTO public.operator_trading_configuration "
+                        "(configuration_governance_id, configuration_version, "
+                        "base_currency, permitted_markets, watchlist, "
+                        "prohibited_instruments, maximum_deployable_capital, "
+                        "maximum_capital_per_trade, maximum_percent_per_trade, "
+                        "minimum_cash_reserve, maximum_simultaneous_positions, "
+                        "maximum_daily_loss, maximum_daily_order_count, "
+                        "minimum_price, maximum_price, minimum_liquidity_shares, "
+                        "maximum_spread_percent, maximum_estimated_slippage_percent, "
+                        "maximum_evidence_age_seconds, "
+                        "maximum_market_data_age_seconds, permitted_session, "
+                        "earliest_entry_time, latest_entry_time, "
+                        "mandatory_liquidation_time, operator_timezone, "
+                        "exchange_calendar_policy, proposal_expiry_seconds, "
+                        "approval_expiry_seconds, default_order_type, "
+                        "permitted_order_types, limit_price_policy, "
+                        "stop_loss_percent, profit_exit_percent, maximum_leverage, "
+                        "short_selling_permitted, overnight_positions_permitted, "
+                        "account_mode, kill_switch) VALUES "
+                        "(:configuration_governance_id, :configuration_version, "
+                        ":base_currency, :permitted_markets, :watchlist, "
+                        ":prohibited_instruments, :maximum_deployable_capital, "
+                        ":maximum_capital_per_trade, :maximum_percent_per_trade, "
+                        ":minimum_cash_reserve, :maximum_simultaneous_positions, "
+                        ":maximum_daily_loss, :maximum_daily_order_count, "
+                        ":minimum_price, :maximum_price, :minimum_liquidity_shares, "
+                        ":maximum_spread_percent, "
+                        ":maximum_estimated_slippage_percent, "
+                        ":maximum_evidence_age_seconds, "
+                        ":maximum_market_data_age_seconds, :permitted_session, "
+                        ":earliest_entry_time, :latest_entry_time, "
+                        ":mandatory_liquidation_time, :operator_timezone, "
+                        ":exchange_calendar_policy, :proposal_expiry_seconds, "
+                        ":approval_expiry_seconds, :default_order_type, "
+                        ":permitted_order_types, :limit_price_policy, "
+                        ":stop_loss_percent, :profit_exit_percent, "
+                        ":maximum_leverage, :short_selling_permitted, "
+                        ":overnight_positions_permitted, :account_mode, "
+                        ":kill_switch) RETURNING configuration_governance_id, "
+                        "configuration_version, base_currency, permitted_markets, "
+                        "watchlist, prohibited_instruments, "
+                        "maximum_deployable_capital, maximum_capital_per_trade, "
+                        "maximum_percent_per_trade, minimum_cash_reserve, "
+                        "maximum_simultaneous_positions, maximum_daily_loss, "
+                        "maximum_daily_order_count, minimum_price, maximum_price, "
+                        "minimum_liquidity_shares, maximum_spread_percent, "
+                        "maximum_estimated_slippage_percent, "
+                        "maximum_evidence_age_seconds, "
+                        "maximum_market_data_age_seconds, permitted_session, "
+                        "earliest_entry_time, latest_entry_time, "
+                        "mandatory_liquidation_time, operator_timezone, "
+                        "exchange_calendar_policy, proposal_expiry_seconds, "
+                        "approval_expiry_seconds, default_order_type, "
+                        "permitted_order_types, limit_price_policy, "
+                        "stop_loss_percent, profit_exit_percent, maximum_leverage, "
+                        "short_selling_permitted, overnight_positions_permitted, "
+                        "account_mode, kill_switch, "
+                        "to_jsonb(operator_trading_configuration)->'risk_contract' "
+                        "AS risk_contract"
+                    ),
+                    risk_payload,
+                ),
+                {
+                    **_configuration_parameters(configuration),
+                    "risk_contract": (risk_payload),
+                },
             )
         return _row_to_configuration(rows[0])
 
@@ -331,22 +391,30 @@ class PostgresOperatorTradingConfigurationRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT configuration_governance_id, configuration_version, base_currency, "
-                    "permitted_markets, watchlist, prohibited_instruments, "
-                    "maximum_deployable_capital, maximum_capital_per_trade, "
-                    "maximum_percent_per_trade, minimum_cash_reserve, "
-                    "maximum_simultaneous_positions, maximum_daily_loss, maximum_daily_order_count,"
-                    " minimum_price, maximum_price, minimum_liquidity_shares, "
-                    "maximum_spread_percent, maximum_estimated_slippage_percent, "
-                    "maximum_evidence_age_seconds, maximum_market_data_age_seconds, "
-                    "permitted_session, earliest_entry_time, latest_entry_time, "
-                    "mandatory_liquidation_time, operator_timezone, exchange_calendar_policy, "
-                    "proposal_expiry_seconds, approval_expiry_seconds, default_order_type, "
-                    "permitted_order_types, limit_price_policy, stop_loss_percent, "
-                    "profit_exit_percent, maximum_leverage, short_selling_permitted, "
-                    "overnight_positions_permitted, account_mode, kill_switch FROM "
-                    "public.operator_trading_configuration "
-                    "WHERE configuration_governance_id = :gid AND configuration_version = :ver",
+                    (
+                        "SELECT configuration_governance_id, configuration_version, "
+                        "base_currency, permitted_markets, watchlist, "
+                        "prohibited_instruments, maximum_deployable_capital, "
+                        "maximum_capital_per_trade, maximum_percent_per_trade, "
+                        "minimum_cash_reserve, maximum_simultaneous_positions, "
+                        "maximum_daily_loss, maximum_daily_order_count, "
+                        "minimum_price, maximum_price, minimum_liquidity_shares, "
+                        "maximum_spread_percent, maximum_estimated_slippage_percent, "
+                        "maximum_evidence_age_seconds, "
+                        "maximum_market_data_age_seconds, permitted_session, "
+                        "earliest_entry_time, latest_entry_time, "
+                        "mandatory_liquidation_time, operator_timezone, "
+                        "exchange_calendar_policy, proposal_expiry_seconds, "
+                        "approval_expiry_seconds, default_order_type, "
+                        "permitted_order_types, limit_price_policy, "
+                        "stop_loss_percent, profit_exit_percent, maximum_leverage, "
+                        "short_selling_permitted, overnight_positions_permitted, "
+                        "account_mode, kill_switch, "
+                        "to_jsonb(operator_trading_configuration)->'risk_contract' "
+                        "AS risk_contract FROM public.operator_trading_configuration "
+                        "WHERE configuration_governance_id = :gid AND "
+                        "configuration_version = :ver"
+                    ),
                     {"gid": configuration_governance_id, "ver": configuration_version},
                 )
             )
@@ -356,23 +424,30 @@ class PostgresOperatorTradingConfigurationRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT configuration_governance_id, configuration_version, base_currency, "
-                    "permitted_markets, watchlist, prohibited_instruments, "
-                    "maximum_deployable_capital, maximum_capital_per_trade, "
-                    "maximum_percent_per_trade, minimum_cash_reserve, "
-                    "maximum_simultaneous_positions, maximum_daily_loss, maximum_daily_order_count,"
-                    " minimum_price, maximum_price, minimum_liquidity_shares, "
-                    "maximum_spread_percent, maximum_estimated_slippage_percent, "
-                    "maximum_evidence_age_seconds, maximum_market_data_age_seconds, "
-                    "permitted_session, earliest_entry_time, latest_entry_time, "
-                    "mandatory_liquidation_time, operator_timezone, exchange_calendar_policy, "
-                    "proposal_expiry_seconds, approval_expiry_seconds, default_order_type, "
-                    "permitted_order_types, limit_price_policy, stop_loss_percent, "
-                    "profit_exit_percent, maximum_leverage, short_selling_permitted, "
-                    "overnight_positions_permitted, account_mode, kill_switch FROM "
-                    "public.operator_trading_configuration "
-                    "WHERE configuration_governance_id = :gid "
-                    "ORDER BY configuration_version DESC LIMIT 1",
+                    (
+                        "SELECT configuration_governance_id, configuration_version, "
+                        "base_currency, permitted_markets, watchlist, "
+                        "prohibited_instruments, maximum_deployable_capital, "
+                        "maximum_capital_per_trade, maximum_percent_per_trade, "
+                        "minimum_cash_reserve, maximum_simultaneous_positions, "
+                        "maximum_daily_loss, maximum_daily_order_count, "
+                        "minimum_price, maximum_price, minimum_liquidity_shares, "
+                        "maximum_spread_percent, maximum_estimated_slippage_percent, "
+                        "maximum_evidence_age_seconds, "
+                        "maximum_market_data_age_seconds, permitted_session, "
+                        "earliest_entry_time, latest_entry_time, "
+                        "mandatory_liquidation_time, operator_timezone, "
+                        "exchange_calendar_policy, proposal_expiry_seconds, "
+                        "approval_expiry_seconds, default_order_type, "
+                        "permitted_order_types, limit_price_policy, "
+                        "stop_loss_percent, profit_exit_percent, maximum_leverage, "
+                        "short_selling_permitted, overnight_positions_permitted, "
+                        "account_mode, kill_switch, "
+                        "to_jsonb(operator_trading_configuration)->'risk_contract' "
+                        "AS risk_contract FROM public.operator_trading_configuration "
+                        "WHERE configuration_governance_id = :gid ORDER BY "
+                        "configuration_version DESC LIMIT 1"
+                    ),
                     {"gid": configuration_governance_id},
                 )
             )
@@ -432,20 +507,28 @@ class PostgresEvaluationContextRepository:
         }
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                "INSERT INTO public.evaluation_context (evaluation_context_id, "
-                "configuration_governance_id, configuration_version, watermark_governance_id, "
-                "consumed_receipt_count, consumed_receipt_digest, quote_id, account_snapshot_id, "
-                "session_id, cost_estimate_id, research_session_id, decision_candidate_id, "
-                "instrument_universe_version, strategy_version, created_at) VALUES "
-                "(:evaluation_context_id, :configuration_governance_id, :configuration_version, "
-                ":watermark_governance_id, :consumed_receipt_count, :consumed_receipt_digest, "
-                ":quote_id, :account_snapshot_id, :session_id, :cost_estimate_id, "
-                ":research_session_id, :decision_candidate_id, :instrument_universe_version, "
-                ":strategy_version, :created_at) RETURNING evaluation_context_id, "
-                "configuration_governance_id, configuration_version, watermark_governance_id, "
-                "consumed_receipt_count, consumed_receipt_digest, quote_id, account_snapshot_id, "
-                "session_id, cost_estimate_id, research_session_id, decision_candidate_id, "
-                "instrument_universe_version, strategy_version, created_at",
+                (
+                    "INSERT INTO public.evaluation_context "
+                    "(evaluation_context_id, configuration_governance_id, "
+                    "configuration_version, watermark_governance_id, "
+                    "consumed_receipt_count, consumed_receipt_digest, quote_id, "
+                    "account_snapshot_id, session_id, cost_estimate_id, "
+                    "research_session_id, decision_candidate_id, "
+                    "instrument_universe_version, strategy_version, created_at) "
+                    "VALUES (:evaluation_context_id, "
+                    ":configuration_governance_id, :configuration_version, "
+                    ":watermark_governance_id, :consumed_receipt_count, "
+                    ":consumed_receipt_digest, :quote_id, :account_snapshot_id, "
+                    ":session_id, :cost_estimate_id, :research_session_id, "
+                    ":decision_candidate_id, :instrument_universe_version, "
+                    ":strategy_version, :created_at) RETURNING "
+                    "evaluation_context_id, configuration_governance_id, "
+                    "configuration_version, watermark_governance_id, "
+                    "consumed_receipt_count, consumed_receipt_digest, quote_id, "
+                    "account_snapshot_id, session_id, cost_estimate_id, "
+                    "research_session_id, decision_candidate_id, "
+                    "instrument_universe_version, strategy_version, created_at"
+                ),
                 parameters,
             )
         return _row_to_context(rows[0])
@@ -454,13 +537,16 @@ class PostgresEvaluationContextRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT evaluation_context_id, configuration_governance_id, "
-                    "configuration_version, watermark_governance_id, consumed_receipt_count, "
-                    "consumed_receipt_digest, quote_id, account_snapshot_id, session_id, "
-                    "cost_estimate_id, research_session_id, decision_candidate_id, "
-                    "instrument_universe_version, strategy_version, created_at FROM "
-                    "public.evaluation_context "
-                    "WHERE evaluation_context_id = :cid",
+                    (
+                        "SELECT evaluation_context_id, configuration_governance_id, "
+                        "configuration_version, watermark_governance_id, "
+                        "consumed_receipt_count, consumed_receipt_digest, quote_id, "
+                        "account_snapshot_id, session_id, cost_estimate_id, "
+                        "research_session_id, decision_candidate_id, "
+                        "instrument_universe_version, strategy_version, created_at "
+                        "FROM public.evaluation_context WHERE evaluation_context_id "
+                        "= :cid"
+                    ),
                     {"cid": evaluation_context_id},
                 )
             )
@@ -481,6 +567,7 @@ def _row_to_proposal(row: Mapping[str, Any], risk_checks: tuple[RiskCheck, ...])
     checks its reader has or none at all -- never invented ones.
     """
     return TradeProposal(
+        entry_risk=read_risk(row.get("risk_contract")),
         proposal_governance_id=_str(row, "proposal_governance_id"),
         proposal_version=_int(row, "proposal_version"),
         evaluation_context_id=_str(row, "evaluation_context_id"),
@@ -542,32 +629,49 @@ class PostgresTradeProposalRepository:
         }
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                "INSERT INTO public.trade_proposal (proposal_governance_id, proposal_version, "
-                "evaluation_context_id, configuration_governance_id, configuration_version, symbol,"
-                " side, quantity, order_type, limit_price, currency, estimated_notional, "
-                "estimated_fees, estimated_slippage_amount, estimated_total_cash_required, "
-                "stop_loss_price, profit_exit_price, mandatory_liquidation_at, created_at, "
-                "expires_at, status, content_fingerprint) VALUES (:proposal_governance_id, "
-                ":proposal_version, :evaluation_context_id, :configuration_governance_id, "
-                ":configuration_version, :symbol, :side, :quantity, :order_type, :limit_price, "
-                ":currency, :estimated_notional, :estimated_fees, :estimated_slippage_amount, "
-                ":estimated_total_cash_required, :stop_loss_price, :profit_exit_price, "
-                ":mandatory_liquidation_at, :created_at, :expires_at, :status, "
-                ":content_fingerprint) RETURNING proposal_governance_id, proposal_version, "
-                "evaluation_context_id, configuration_governance_id, configuration_version, symbol,"
-                " side, quantity, order_type, limit_price, currency, estimated_notional, "
-                "estimated_fees, estimated_slippage_amount, estimated_total_cash_required, "
-                "stop_loss_price, profit_exit_price, mandatory_liquidation_at, created_at, "
-                "expires_at, status, content_fingerprint",
-                parameters,
+                risk_insert(
+                    (
+                        "INSERT INTO public.trade_proposal (proposal_governance_id, "
+                        "proposal_version, evaluation_context_id, "
+                        "configuration_governance_id, configuration_version, symbol, "
+                        "side, quantity, order_type, limit_price, currency, "
+                        "estimated_notional, estimated_fees, "
+                        "estimated_slippage_amount, estimated_total_cash_required, "
+                        "stop_loss_price, profit_exit_price, "
+                        "mandatory_liquidation_at, created_at, expires_at, status, "
+                        "content_fingerprint) VALUES (:proposal_governance_id, "
+                        ":proposal_version, :evaluation_context_id, "
+                        ":configuration_governance_id, :configuration_version, "
+                        ":symbol, :side, :quantity, :order_type, :limit_price, "
+                        ":currency, :estimated_notional, :estimated_fees, "
+                        ":estimated_slippage_amount, :estimated_total_cash_required, "
+                        ":stop_loss_price, :profit_exit_price, "
+                        ":mandatory_liquidation_at, :created_at, :expires_at, "
+                        ":status, :content_fingerprint) RETURNING "
+                        "proposal_governance_id, proposal_version, "
+                        "evaluation_context_id, configuration_governance_id, "
+                        "configuration_version, symbol, side, quantity, order_type, "
+                        "limit_price, currency, estimated_notional, estimated_fees, "
+                        "estimated_slippage_amount, estimated_total_cash_required, "
+                        "stop_loss_price, profit_exit_price, "
+                        "mandatory_liquidation_at, created_at, expires_at, status, "
+                        "content_fingerprint, "
+                        "to_jsonb(trade_proposal)->'risk_contract' AS risk_contract"
+                    ),
+                    encode_risk(proposal.entry_risk),
+                ),
+                {**parameters, "risk_contract": (encode_risk(proposal.entry_risk))},
             )
             # Same unit of work as the proposal row: a proposal whose checks
             # failed to store would read back as one that passed no gates.
             for ordinal, check in enumerate(proposal.risk_checks):
                 work.execute(
-                    "INSERT INTO public.trade_proposal_risk_check "
-                    "(proposal_governance_id, check_id, ordinal, outcome, detail) "
-                    "VALUES (:pid, :check_id, :ordinal, :outcome, :detail)",
+                    (
+                        "INSERT INTO public.trade_proposal_risk_check "
+                        "(proposal_governance_id, check_id, ordinal, outcome, "
+                        "detail) VALUES (:pid, :check_id, :ordinal, :outcome, "
+                        ":detail)"
+                    ),
                     {
                         "pid": proposal.proposal_governance_id,
                         "check_id": check.check_id,
@@ -582,8 +686,11 @@ class PostgresTradeProposalRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT check_id, outcome, detail FROM public.trade_proposal_risk_check "
-                    "WHERE proposal_governance_id = :pid ORDER BY ordinal",
+                    (
+                        "SELECT check_id, outcome, detail FROM "
+                        "public.trade_proposal_risk_check WHERE "
+                        "proposal_governance_id = :pid ORDER BY ordinal"
+                    ),
                     {"pid": proposal_governance_id},
                 )
             )
@@ -600,13 +707,19 @@ class PostgresTradeProposalRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT proposal_governance_id, proposal_version, evaluation_context_id, "
-                    "configuration_governance_id, configuration_version, symbol, side, quantity, "
-                    "order_type, limit_price, currency, estimated_notional, estimated_fees, "
-                    "estimated_slippage_amount, estimated_total_cash_required, stop_loss_price, "
-                    "profit_exit_price, mandatory_liquidation_at, created_at, expires_at, status, "
-                    "content_fingerprint FROM public.trade_proposal "
-                    "WHERE proposal_governance_id = :pid",
+                    (
+                        "SELECT proposal_governance_id, proposal_version, "
+                        "evaluation_context_id, configuration_governance_id, "
+                        "configuration_version, symbol, side, quantity, order_type, "
+                        "limit_price, currency, estimated_notional, estimated_fees, "
+                        "estimated_slippage_amount, estimated_total_cash_required, "
+                        "stop_loss_price, profit_exit_price, "
+                        "mandatory_liquidation_at, created_at, expires_at, status, "
+                        "content_fingerprint, "
+                        "to_jsonb(trade_proposal)->'risk_contract' AS risk_contract "
+                        "FROM public.trade_proposal WHERE proposal_governance_id = "
+                        ":pid"
+                    ),
                     {"pid": proposal_governance_id},
                 )
             )
@@ -618,14 +731,19 @@ class PostgresTradeProposalRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT proposal_governance_id, proposal_version, evaluation_context_id, "
-                    "configuration_governance_id, configuration_version, symbol, side, quantity, "
-                    "order_type, limit_price, currency, estimated_notional, estimated_fees, "
-                    "estimated_slippage_amount, estimated_total_cash_required, stop_loss_price, "
-                    "profit_exit_price, mandatory_liquidation_at, created_at, expires_at, status, "
-                    "content_fingerprint FROM public.trade_proposal "
-                    "WHERE status = :status "
-                    'ORDER BY created_at, proposal_governance_id COLLATE "C"',
+                    (
+                        "SELECT proposal_governance_id, proposal_version, "
+                        "evaluation_context_id, configuration_governance_id, "
+                        "configuration_version, symbol, side, quantity, order_type, "
+                        "limit_price, currency, estimated_notional, estimated_fees, "
+                        "estimated_slippage_amount, estimated_total_cash_required, "
+                        "stop_loss_price, profit_exit_price, "
+                        "mandatory_liquidation_at, created_at, expires_at, status, "
+                        "content_fingerprint, "
+                        "to_jsonb(trade_proposal)->'risk_contract' AS risk_contract "
+                        "FROM public.trade_proposal WHERE status = :status ORDER BY "
+                        'created_at, proposal_governance_id COLLATE "C"'
+                    ),
                     {"status": status.value},
                 )
             )
@@ -644,8 +762,11 @@ class PostgresTradeProposalRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT status, count(*) AS row_count FROM public.trade_proposal "
-                    "GROUP BY status",
+                    (
+                        "SELECT status, count(*) AS row_count, "
+                        "to_jsonb(trade_proposal)->'risk_contract' AS risk_contract "
+                        "FROM public.trade_proposal GROUP BY status"
+                    ),
                     {},
                 )
             )
@@ -663,13 +784,19 @@ class PostgresTradeProposalRepository:
         """
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                "UPDATE public.trade_proposal SET status = :status "
-                "WHERE proposal_governance_id = :pid RETURNING proposal_governance_id, "
-                "proposal_version, evaluation_context_id, configuration_governance_id, "
-                "configuration_version, symbol, side, quantity, order_type, limit_price, currency, "
-                "estimated_notional, estimated_fees, estimated_slippage_amount, "
-                "estimated_total_cash_required, stop_loss_price, profit_exit_price, "
-                "mandatory_liquidation_at, created_at, expires_at, status, content_fingerprint",
+                (
+                    "UPDATE public.trade_proposal SET status = :status WHERE "
+                    "proposal_governance_id = :pid RETURNING "
+                    "proposal_governance_id, proposal_version, "
+                    "evaluation_context_id, configuration_governance_id, "
+                    "configuration_version, symbol, side, quantity, order_type, "
+                    "limit_price, currency, estimated_notional, estimated_fees, "
+                    "estimated_slippage_amount, estimated_total_cash_required, "
+                    "stop_loss_price, profit_exit_price, "
+                    "mandatory_liquidation_at, created_at, expires_at, status, "
+                    "content_fingerprint, "
+                    "to_jsonb(trade_proposal)->'risk_contract' AS risk_contract"
+                ),
                 {"status": status.value, "pid": proposal_governance_id},
             )
         if not rows:
@@ -724,14 +851,19 @@ class PostgresApprovalDecisionRepository:
         }
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                "INSERT INTO public.trade_approval_decision (decision_governance_id, "
-                "proposal_governance_id, proposal_version, approved_fingerprint, action, "
-                "operator_identity, decided_at, expires_at, resulting_status) VALUES "
-                "(:decision_governance_id, :proposal_governance_id, :proposal_version, "
-                ":approved_fingerprint, :action, :operator_identity, :decided_at, :expires_at, "
-                ":resulting_status) RETURNING decision_governance_id, proposal_governance_id, "
-                "proposal_version, approved_fingerprint, action, operator_identity, decided_at, "
-                "expires_at, resulting_status",
+                (
+                    "INSERT INTO public.trade_approval_decision "
+                    "(decision_governance_id, proposal_governance_id, "
+                    "proposal_version, approved_fingerprint, action, "
+                    "operator_identity, decided_at, expires_at, "
+                    "resulting_status) VALUES (:decision_governance_id, "
+                    ":proposal_governance_id, :proposal_version, "
+                    ":approved_fingerprint, :action, :operator_identity, "
+                    ":decided_at, :expires_at, :resulting_status) RETURNING "
+                    "decision_governance_id, proposal_governance_id, "
+                    "proposal_version, approved_fingerprint, action, "
+                    "operator_identity, decided_at, expires_at, resulting_status"
+                ),
                 parameters,
             )
         return _row_to_decision(rows[0])
@@ -740,10 +872,13 @@ class PostgresApprovalDecisionRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT decision_governance_id, proposal_governance_id, proposal_version, "
-                    "approved_fingerprint, action, operator_identity, decided_at, expires_at, "
-                    "resulting_status FROM public.trade_approval_decision "
-                    "WHERE decision_governance_id = :did",
+                    (
+                        "SELECT decision_governance_id, proposal_governance_id, "
+                        "proposal_version, approved_fingerprint, action, "
+                        "operator_identity, decided_at, expires_at, resulting_status "
+                        "FROM public.trade_approval_decision WHERE "
+                        "decision_governance_id = :did"
+                    ),
                     {"did": decision_governance_id},
                 )
             )
@@ -753,10 +888,13 @@ class PostgresApprovalDecisionRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT decision_governance_id, proposal_governance_id, proposal_version, "
-                    "approved_fingerprint, action, operator_identity, decided_at, expires_at, "
-                    "resulting_status FROM public.trade_approval_decision "
-                    "WHERE proposal_governance_id = :pid",
+                    (
+                        "SELECT decision_governance_id, proposal_governance_id, "
+                        "proposal_version, approved_fingerprint, action, "
+                        "operator_identity, decided_at, expires_at, resulting_status "
+                        "FROM public.trade_approval_decision WHERE "
+                        "proposal_governance_id = :pid"
+                    ),
                     {"pid": proposal_governance_id},
                 )
             )
@@ -770,6 +908,7 @@ class PostgresApprovalDecisionRepository:
 
 def _row_to_intent(row: Mapping[str, Any]) -> ApprovedOrderIntent:
     return ApprovedOrderIntent(
+        entry_risk=read_risk(row.get("risk_contract")),
         intent_governance_id=_str(row, "intent_governance_id"),
         proposal_governance_id=_str(row, "proposal_governance_id"),
         proposal_version=_int(row, "proposal_version"),
@@ -833,24 +972,39 @@ class PostgresApprovedOrderIntentRepository:
         }
         with self._service.unit_of_work() as work:
             rows = work.execute(
-                "INSERT INTO public.approved_order_intent (intent_governance_id, "
-                "proposal_governance_id, proposal_version, approved_fingerprint, "
-                "decision_governance_id, symbol, side, quantity, order_type, limit_price, currency,"
-                " time_in_force, mandatory_liquidation_at, account_mode_required, idempotency_key, "
-                "configuration_governance_id, configuration_version, evaluation_context_id, "
-                "created_at, expires_at, submission_state) VALUES (:intent_governance_id, "
-                ":proposal_governance_id, :proposal_version, :approved_fingerprint, "
-                ":decision_governance_id, :symbol, :side, :quantity, :order_type, :limit_price, "
-                ":currency, :time_in_force, :mandatory_liquidation_at, :account_mode_required, "
-                ":idempotency_key, :configuration_governance_id, :configuration_version, "
-                ":evaluation_context_id, :created_at, :expires_at, :submission_state) RETURNING "
-                "intent_governance_id, proposal_governance_id, proposal_version, "
-                "approved_fingerprint, decision_governance_id, symbol, side, quantity, order_type, "
-                "limit_price, currency, time_in_force, mandatory_liquidation_at, "
-                "account_mode_required, idempotency_key, configuration_governance_id, "
-                "configuration_version, evaluation_context_id, "
-                "created_at, expires_at, submission_state",
-                parameters,
+                risk_insert(
+                    (
+                        "INSERT INTO public.approved_order_intent "
+                        "(intent_governance_id, proposal_governance_id, "
+                        "proposal_version, approved_fingerprint, "
+                        "decision_governance_id, symbol, side, quantity, order_type, "
+                        "limit_price, currency, time_in_force, "
+                        "mandatory_liquidation_at, account_mode_required, "
+                        "idempotency_key, configuration_governance_id, "
+                        "configuration_version, evaluation_context_id, created_at, "
+                        "expires_at, submission_state) VALUES "
+                        "(:intent_governance_id, :proposal_governance_id, "
+                        ":proposal_version, :approved_fingerprint, "
+                        ":decision_governance_id, :symbol, :side, :quantity, "
+                        ":order_type, :limit_price, :currency, :time_in_force, "
+                        ":mandatory_liquidation_at, :account_mode_required, "
+                        ":idempotency_key, :configuration_governance_id, "
+                        ":configuration_version, :evaluation_context_id, "
+                        ":created_at, :expires_at, :submission_state) RETURNING "
+                        "intent_governance_id, proposal_governance_id, "
+                        "proposal_version, approved_fingerprint, "
+                        "decision_governance_id, symbol, side, quantity, order_type, "
+                        "limit_price, currency, time_in_force, "
+                        "mandatory_liquidation_at, account_mode_required, "
+                        "idempotency_key, configuration_governance_id, "
+                        "configuration_version, evaluation_context_id, created_at, "
+                        "expires_at, submission_state, "
+                        "to_jsonb(approved_order_intent)->'risk_contract' AS "
+                        "risk_contract"
+                    ),
+                    encode_risk(intent.entry_risk),
+                ),
+                {**parameters, "risk_contract": (encode_risk(intent.entry_risk))},
             )
         return _row_to_intent(rows[0])
 
@@ -858,13 +1012,19 @@ class PostgresApprovedOrderIntentRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT intent_governance_id, proposal_governance_id, proposal_version, "
-                    "approved_fingerprint, decision_governance_id, symbol, side, quantity, "
-                    "order_type, limit_price, currency, time_in_force, mandatory_liquidation_at, "
-                    "account_mode_required, idempotency_key, configuration_governance_id, "
-                    "configuration_version, evaluation_context_id, created_at, expires_at, "
-                    "submission_state FROM public.approved_order_intent "
-                    "WHERE intent_governance_id = :iid",
+                    (
+                        "SELECT intent_governance_id, proposal_governance_id, "
+                        "proposal_version, approved_fingerprint, "
+                        "decision_governance_id, symbol, side, quantity, order_type, "
+                        "limit_price, currency, time_in_force, "
+                        "mandatory_liquidation_at, account_mode_required, "
+                        "idempotency_key, configuration_governance_id, "
+                        "configuration_version, evaluation_context_id, created_at, "
+                        "expires_at, submission_state, "
+                        "to_jsonb(approved_order_intent)->'risk_contract' AS "
+                        "risk_contract FROM public.approved_order_intent WHERE "
+                        "intent_governance_id = :iid"
+                    ),
                     {"iid": intent_governance_id},
                 )
             )
@@ -874,13 +1034,19 @@ class PostgresApprovedOrderIntentRepository:
         with self._service.unit_of_work() as work:
             rows = list(
                 work.execute(
-                    "SELECT intent_governance_id, proposal_governance_id, proposal_version, "
-                    "approved_fingerprint, decision_governance_id, symbol, side, quantity, "
-                    "order_type, limit_price, currency, time_in_force, mandatory_liquidation_at, "
-                    "account_mode_required, idempotency_key, configuration_governance_id, "
-                    "configuration_version, evaluation_context_id, created_at, expires_at, "
-                    "submission_state FROM public.approved_order_intent "
-                    "WHERE proposal_governance_id = :pid",
+                    (
+                        "SELECT intent_governance_id, proposal_governance_id, "
+                        "proposal_version, approved_fingerprint, "
+                        "decision_governance_id, symbol, side, quantity, order_type, "
+                        "limit_price, currency, time_in_force, "
+                        "mandatory_liquidation_at, account_mode_required, "
+                        "idempotency_key, configuration_governance_id, "
+                        "configuration_version, evaluation_context_id, created_at, "
+                        "expires_at, submission_state, "
+                        "to_jsonb(approved_order_intent)->'risk_contract' AS "
+                        "risk_contract FROM public.approved_order_intent WHERE "
+                        "proposal_governance_id = :pid"
+                    ),
                     {"pid": proposal_governance_id},
                 )
             )
