@@ -72,6 +72,11 @@ class Request:
     form: dict[str, list[str]]
     cookies: dict[str, str]
     headers: dict[str, str]
+    #: MILESTONE-098 hardening: the WSGI `REMOTE_ADDR` the server itself observed for this
+    #: connection -- never derived from a header, which a forwarding hop could set to
+    #: anything. Defaults to "" only for callers (e.g. a hand-built test environ) that never
+    #: set it; a real `wsgiref` server always populates it.
+    remote_addr: str = ""
 
     def first(self, name: str, default: str = "") -> str:
         values = self.form.get(name) or self.query.get(name) or []
@@ -139,6 +144,7 @@ class Router:
 
     def __init__(self, security: SecuritySession) -> None:
         self._routes: dict[tuple[str, str], Handler] = {}
+        self._service_routes: dict[tuple[str, str], tuple[Handler, Callable[[Request], bool]]] = {}
         self._security = security
         self._not_found: Callable[[Request], Response] | None = None
         self._refused: Callable[[Request, str], Response] | None = None
@@ -148,6 +154,15 @@ class Router:
 
     def post(self, path: str, handler: Handler) -> None:
         self._routes[("POST", path)] = handler
+
+    def service_post(
+        self, path: str, handler: Handler, *, authorize: Callable[[Request], bool]
+    ) -> None:
+        """A POST route for a non-browser, machine-to-machine caller (e.g. the deployment
+        tool): no CSRF token or session cookie participates -- there is no browser tab to
+        carry either -- and `authorize` is checked before `handler` runs. `handler` is never
+        reached, and no session cookie is ever set, on an unauthorized call."""
+        self._service_routes[("POST", path)] = (handler, authorize)
 
     def on_not_found(self, handler: Callable[[Request], Response]) -> None:
         self._not_found = handler
@@ -161,6 +176,18 @@ class Router:
         self, environ: dict[str, Any], start_response: Callable[..., Any]
     ) -> Iterable[bytes]:
         request = _read_request(environ)
+        service_entry = self._service_routes.get((request.method, request.path))
+        if service_entry is not None:
+            service_handler, authorize = service_entry
+            response = (
+                service_handler(request, "")
+                if authorize(request)
+                else html_response("<h1>Unauthorized</h1>", "401 Unauthorized")
+            )
+            headers = list(response.headers)
+            headers.extend(_SECURITY_HEADERS)
+            start_response(response.status, headers)
+            return [response.body]
         session_id = request.cookies.get(_SESSION_COOKIE)
         new_cookie = None
         if not session_id:
@@ -239,7 +266,13 @@ def _read_request(environ: dict[str, Any]) -> Request:
         if key.startswith("HTTP_")
     }
     return Request(
-        method=method, path=path, query=query, form=form, cookies=cookies, headers=headers
+        method=method,
+        path=path,
+        query=query,
+        form=form,
+        cookies=cookies,
+        headers=headers,
+        remote_addr=str(environ.get("REMOTE_ADDR", "")),
     )
 
 

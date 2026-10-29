@@ -498,7 +498,19 @@ def test_step11_refuses_when_worktree_chain_head_is_behind_the_live_schema(
 # ---------------------------------------------------------------------------------------
 
 _DUMMY_CONSOLE_SCRIPT = """
-import http.server, signal, sys, socketserver
+import http.server, json, os, signal, socketserver, sys, threading, time
+
+from empirical_platform.shared import console_control
+
+PORT = int(sys.argv[1])
+SAFETY_DIRECTORY = sys.argv[2]
+PID = os.getpid()
+# MILESTONE-098: mirrors exactly what the real console writes at startup, so this dummy
+# genuinely exercises the production shutdown mechanism's HTTP/token contract -- not a
+# hand-rolled imitation of it.
+TOKEN = console_control.write_control_token(
+    __import__("pathlib").Path(SAFETY_DIRECTORY), pid=PID, port=PORT, capability="paper-exit"
+)
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -507,20 +519,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_POST(self):
+        if self.path != "/control/shutdown":
+            self.send_response(404)
+            self.end_headers()
+            return
+        presented = self.headers.get(console_control.CONTROL_TOKEN_HEADER, "")
+        if presented != TOKEN:
+            self.send_response(401)
+            self.end_headers()
+            return
+        body = json.dumps({"accepted": True, "pid": PID}).encode("utf-8")
+        self.send_response(202)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+        # Exit AFTER the response is flushed, on a separate thread, same reasoning as the
+        # real console's own `operator_console._install_shutdown_control`: the handler
+        # returns its HTTP response first, and the process (standing in for
+        # `BaseServer.shutdown()` there) stops shortly after.
+        threading.Thread(target=lambda: (time.sleep(0.05), os._exit(0)), daemon=True).start()
+
     def log_message(self, *args):
         pass
 
 def _graceful_exit(signum, frame):
+    # POSIX only: `graceful_stop` still uses SIGTERM there, unchanged by M098.
     sys.exit(0)
 
 signal.signal(signal.SIGTERM, _graceful_exit)
-if hasattr(signal, "SIGBREAK"):
-    signal.signal(signal.SIGBREAK, _graceful_exit)
 
-class _Server(socketserver.TCPServer):
+class _Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
     allow_reuse_address = True
+    daemon_threads = True
 
-with _Server(("127.0.0.1", int(sys.argv[1])), Handler) as server:
+with _Server(("127.0.0.1", PORT), Handler) as server:
     server.serve_forever(poll_interval=0.1)
 """
 
@@ -544,7 +580,8 @@ def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path
     network_port = deploy.RealNetworkPort()
     creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
     process = subprocess.Popen(  # noqa: S603 - fixed interpreter, fixed script this test wrote
-        [sys.executable, str(script_path), str(port)], creationflags=creationflags
+        [sys.executable, str(script_path), str(port), str(tmp_path)],
+        creationflags=creationflags,
     )
     # This test IS the dummy console's real OS parent, which real production is not (the
     # deploy script discovers an already-running console's PID; it never forks it). On POSIX,
@@ -556,6 +593,16 @@ def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path
     placeholder_db_config = PostgreSQLConfigSnapshot(
         host="localhost", port=55555, database="placeholder_test", user="empirical"
     )
+    deploy.wait_until(lambda: not network_port.port_is_free("127.0.0.1", port), timeout_seconds=5.0)
+    # MILESTONE-098: the PID this test treats as "the console" is whichever PID the OS
+    # itself reports as owning the port -- exactly what `step5_shutdown` independently
+    # re-derives, and NOT necessarily `process.pid` (on at least one real Windows venv
+    # layout, `.venv\Scripts\python.exe` is itself a redirecting launcher that re-execs the
+    # base interpreter as a CHILD process holding a DIFFERENT PID; this mirrors the test's
+    # own existing comment below -- "the deploy script discovers an already-running
+    # console's PID; it never forks it" -- more faithfully than trusting `Popen.pid` would).
+    real_pid = network_port.owning_pid("127.0.0.1", port)
+    assert real_pid is not None
     cfg = deploy.DeployConfig(
         repo_path=REPO_ROOT,
         expected_release_head="unused",
@@ -567,15 +614,12 @@ def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path
         migration_sql_path=REPO_ROOT / "tools" / deploy.MIGRATION_SQL_FILENAME,
         console_host="127.0.0.1",
         console_port=port,
-        console_pid=process.pid,
+        console_pid=real_pid,
         shutdown_timeout_seconds=10.0,
         startup_timeout_seconds=10.0,
     )
     ports = deploy.Ports(broker=None, process=process_port, network=network_port)  # type: ignore[arg-type]
 
-    deploy.wait_until(
-        lambda: not network_port.port_is_free(cfg.console_host, port), timeout_seconds=5.0
-    )
     status, body = network_port.http_get(f"http://127.0.0.1:{port}/", timeout=5.0)
     assert status == 200 and "dummy console OK" in body
 
@@ -585,10 +629,10 @@ def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path
     assert "free" in verify_detail
     assert network_port.port_is_free(cfg.console_host, port)
 
-    launch_detail, pid = deploy.step12_recovery_start(
+    launch_detail, _started_pid = deploy.step12_recovery_start(
         cfg,
         ports,
-        executable=(sys.executable, str(script_path), str(port)),
+        executable=(sys.executable, str(script_path), str(port), str(tmp_path)),
         env=dict(os.environ),
         log_path=tmp_path / "recovery-console.log",
     )
@@ -597,5 +641,14 @@ def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path
         status, body = network_port.http_get(f"http://127.0.0.1:{port}/", timeout=5.0)
         assert status == 200
     finally:
-        process_port.graceful_stop(pid)
-        deploy.wait_until(lambda: not process_port.is_running(pid), timeout_seconds=5.0)
+        # Same reasoning as above: re-derive who actually owns the port right now, rather
+        # than trust the PID `step12_recovery_start` happened to return.
+        cleanup_pid = network_port.owning_pid(cfg.console_host, port)
+        assert cleanup_pid is not None
+        process_port.graceful_stop(
+            cleanup_pid,
+            host=cfg.console_host,
+            port=port,
+            safety_directory=cfg.manifest_path.parent,
+        )
+        deploy.wait_until(lambda: not process_port.is_running(cleanup_pid), timeout_seconds=5.0)

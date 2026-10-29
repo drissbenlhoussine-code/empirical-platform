@@ -53,8 +53,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -70,6 +72,7 @@ from typing import Any, Final, Literal, Protocol
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
+from empirical_platform.shared import console_control
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.database_safety import (
     IDENTITY_QUERY,
@@ -77,6 +80,20 @@ from empirical_platform.shared.persistence.database_safety import (
     DatabaseSafetyError,
     read_manifest,
 )
+
+#: MILESTONE-098: the deployment tool only ever stops ONE capability's console. Duplicated
+#: (not imported) from `entrypoints.operator_console.SHUTDOWN_CONTROL_CAPABILITY`, same
+#: reasoning as M096's Store C constants -- a change to the heavier entrypoints module can
+#: never alter this tool's own behaviour by surprise; `test_shutdown_capability_constant_
+#: matches_the_real_console_entrypoint` guards the two staying in sync.
+_SHUTDOWN_CONTROL_CAPABILITY: Final = "paper-exit"
+
+
+class ConsoleShutdownError(RuntimeError):
+    """Raised by `RealProcessPort.graceful_stop` when the authenticated shutdown request
+    cannot be verified, sent, or confirmed. Always caught by `step5_shutdown` and converted
+    into a `DeploymentBlockedError` -- never left to propagate as a raw traceback."""
+
 
 # ---------------------------------------------------------------------------------------
 # Pinned, reviewed migration. Regenerate with:
@@ -327,7 +344,7 @@ class BrokerPort(Protocol):
 
 class ProcessPort(Protocol):
     def is_running(self, pid: int) -> bool: ...
-    def graceful_stop(self, pid: int) -> None: ...
+    def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None: ...
     def start_recovery_console(
         self, *, executable: Sequence[str], env: Mapping[str, str], log_path: Path
     ) -> int: ...
@@ -335,6 +352,12 @@ class ProcessPort(Protocol):
 
 class NetworkPort(Protocol):
     def port_is_free(self, host: str, port: int) -> bool: ...
+    def owning_pid(self, host: str, port: int) -> int | None:
+        """The PID currently LISTENing on `port`, or `None` if confirmed free. Must raise
+        (never return `None`) if the OS-level query itself could not be completed -- a
+        caller must never treat "could not determine" the same as "confirmed free"."""
+        ...
+
     def http_get(self, url: str, *, timeout: float) -> tuple[int, str]: ...
 
 
@@ -403,17 +426,26 @@ class AlpacaReadOnlyBrokerPort:
 
 class RealProcessPort:
     """Windows- and POSIX-aware; never used against a PID this repository's own tests did
-    not spawn themselves."""
+    not spawn themselves.
+
+    M098-R: on Windows every query is a direct Win32 call (`console_control`), never
+    `tasklist`, whose failure used to read as "not running" -- a fail-OPEN answer for a step
+    that waits for the console to exit. `graceful_stop` opens a handle to the target process
+    before anything else; its identity and, afterwards, its exit are observed on that SAME
+    process object, which a reused PID can never impersonate."""
+
+    def __init__(self) -> None:
+        self._stopping: dict[int, int] = {}
 
     def is_running(self, pid: int) -> bool:
         if os.name == "nt":
-            result = subprocess.run(  # noqa: S603 - fixed executable, explicit vector
-                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],  # noqa: S607
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-            return str(pid) in result.stdout
+            handle = self._stopping.get(pid)
+            if handle is not None:
+                if not console_control.wait_for_process_exit(handle, timeout_seconds=0):
+                    return True
+                console_control.close_process_handle(self._stopping.pop(pid))
+                return False
+            return console_control.windows_process_is_running(pid)
         try:
             os.kill(pid, 0)
         except (ProcessLookupError, PermissionError):
@@ -422,24 +454,87 @@ class RealProcessPort:
             return False
         return True
 
-    def graceful_stop(self, pid: int) -> None:
-        import signal
+    def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None:
+        """MILESTONE-098. On POSIX, unchanged: `SIGTERM` can address any PID the caller has
+        permission for (no process-group restriction exists there).
 
-        if os.name == "nt":
-            # CTRL_BREAK_EVENT, not taskkill: a plain (non-GUI) console process started
-            # with CREATE_NEW_PROCESS_GROUP (see `start_recovery_console`) receives no
-            # window-close message at all, so `taskkill` without `/F` silently does
-            # nothing to it. CTRL_BREAK_EVENT is what Windows actually delivers to such a
-            # process as a graceful, catchable signal (Python maps it to `SIGBREAK`).
-            os.kill(pid, signal.CTRL_BREAK_EVENT)
+        On Windows, `CTRL_BREAK_EVENT` is NOT used: Windows delivers it only to a process
+        group THIS process created with `CREATE_NEW_PROCESS_GROUP`, which an independently
+        launched console never is -- exactly what failed as `WinError 87` during the M097
+        deployment attempt. Instead, an authenticated loopback HTTP request asks the console
+        to stop itself, which works identically however it was launched."""
+        if os.name != "nt":
+            import signal
+
+            os.kill(pid, signal.SIGTERM)
             return
-        os.kill(pid, signal.SIGTERM)
+        # The token is a secret: it may only ever travel to this machine's loopback interface.
+        # A misconfigured `--console-host` must fail here, before the token is even read.
+        if not _is_loopback_literal(host):
+            raise ConsoleShutdownError(
+                f"refusing to send the shutdown token to {host!r}: only a loopback IP literal "
+                "(127.0.0.1 or ::1) may receive it"
+            )
+        try:
+            handle = console_control.open_process_for_shutdown(pid)
+        except RuntimeError as error:
+            raise ConsoleShutdownError(
+                f"could not confirm the identity of PID {pid} immediately before "
+                f"attempting shutdown: {error}"
+            ) from error
+        keep_handle = False
+        try:
+            try:
+                if console_control.wait_for_process_exit(handle, timeout_seconds=0):
+                    raise RuntimeError(f"PID {pid} has already exited")
+                fingerprint = console_control.process_handle_fingerprint(handle)
+            except RuntimeError as error:
+                raise ConsoleShutdownError(
+                    f"could not confirm the identity of PID {pid} immediately before "
+                    f"attempting shutdown: {error}"
+                ) from error
+            try:
+                record = console_control.read_control_token(
+                    safety_directory,
+                    port=port,
+                    expected_capability=_SHUTDOWN_CONTROL_CAPABILITY,
+                    expected_pid=pid,
+                    expected_start_fingerprint=fingerprint,
+                )
+            except console_control.ControlTokenError as error:
+                raise ConsoleShutdownError(str(error)) from error
+            status, body = _post_loopback_shutdown(host, port, record.token)
+            if status != 202:
+                raise ConsoleShutdownError(f"console refused the shutdown request (HTTP {status})")
+            try:
+                payload = json.loads(body)
+            except ValueError as error:
+                raise ConsoleShutdownError(
+                    "console's shutdown response was not valid JSON"
+                ) from error
+            if not isinstance(payload, dict) or payload.get("pid") != pid:
+                raise ConsoleShutdownError(
+                    "console's shutdown response did not confirm the expected PID -- refusing "
+                    "to trust an unverified responder"
+                )
+            # `is_running(pid)` now answers from this handle until the process object exits.
+            self._stopping[pid] = handle
+            keep_handle = True
+        finally:
+            if not keep_handle:
+                console_control.close_process_handle(handle)
 
     def start_recovery_console(
         self, *, executable: Sequence[str], env: Mapping[str, str], log_path: Path
     ) -> int:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         with log_path.open("w", encoding="utf-8") as log_file:
+            # MILESTONE-098: no longer needed for CTRL_BREAK_EVENT targeting (that
+            # mechanism is retired -- see `graceful_stop`). Kept so an operator pressing
+            # Ctrl+C in THIS tool's own terminal does not also deliver Ctrl+C to the
+            # console it just started: without its own process group, the child shares
+            # the parent's console session and would receive the same console-control
+            # event.
             creationflags: int = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
             process = subprocess.Popen(  # noqa: S603 - fixed, explicit argument vector
                 list(executable),
@@ -451,11 +546,80 @@ class RealProcessPort:
         return process.pid
 
 
+def _is_loopback_literal(host: str) -> bool:
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _post_loopback_shutdown(host: str, port: int, token: str) -> tuple[int, str]:
+    """POSTs the shutdown request straight to `host:port` over a plain TCP connection.
+    Deliberately NOT `urllib.request.urlopen`: that honours `HTTP_PROXY`/`http_proxy` (Python
+    bypasses a proxy for loopback only if `NO_PROXY` says so), which would hand the token
+    header to a proxy, and it follows redirects, carrying the header to wherever a 3xx
+    points. `http.client` does neither. The token appears in no URL and in no error text."""
+    import http.client
+
+    connection = http.client.HTTPConnection(host, port, timeout=15)
+    try:
+        connection.request(
+            "POST",
+            "/control/shutdown",
+            body=b"",
+            headers={console_control.CONTROL_TOKEN_HEADER: token, "Content-Length": "0"},
+        )
+        response = connection.getresponse()
+        return response.status, response.read(64 * 1024).decode("utf-8", errors="replace")
+    except (OSError, http.client.HTTPException) as error:
+        raise ConsoleShutdownError(
+            f"shutdown request to the console failed: {type(error).__name__}"
+        ) from error
+    finally:
+        connection.close()
+
+
+_POSIX_LISTENER_PID_PATTERN: Final = re.compile(r"pid=(\d+)")
+
+
 class RealNetworkPort:
     def port_is_free(self, host: str, port: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.settimeout(0.5)
             return probe.connect_ex((host, port)) != 0
+
+    def owning_pid(self, host: str, port: int) -> int | None:
+        if os.name == "nt":
+            # Only listeners a connection to `host` could actually reach: that exact address
+            # or its family's wildcard. Two different processes answering is refused rather
+            # than guessed about.
+            try:
+                wanted = ipaddress.ip_address(host)
+            except ValueError as error:
+                raise RuntimeError(f"console host {host!r} is not an IP literal") from error
+            wildcard = "::" if wanted.version == 6 else "0.0.0.0"  # noqa: S104 - compared, never bound
+            pids = {
+                pid
+                for address, pid in console_control.windows_tcp_listeners(port)
+                if address in (str(wanted), wildcard)
+            }
+            if len(pids) > 1:
+                raise RuntimeError(
+                    f"more than one process ({sorted(pids)}) is listening on port {port}; "
+                    "refusing to guess which one is the console"
+                )
+            return next(iter(pids), None)
+        result = subprocess.run(  # noqa: S603 - fixed executable, explicit vector
+            ["ss", "-H", "-ltnp", "sport", "=", f":{port}"],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=15,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"'ss' failed while locating the owner of port {port}")
+        pid_match = _POSIX_LISTENER_PID_PATTERN.search(result.stdout)
+        return int(pid_match.group(1)) if pid_match else None
 
     def http_get(self, url: str, *, timeout: float) -> tuple[int, str]:
         try:
@@ -675,20 +839,71 @@ def _pg_restore_executable(pg_bin: Path) -> Path:
 
 
 def step5_shutdown(cfg: DeployConfig, ports: Ports) -> str:
-    if cfg.console_pid is None:
-        raise DeploymentBlockedError(STEP_5_SHUTDOWN, "no console PID was provided to stop")
-    pid = cfg.console_pid
-    if not ports.process.is_running(pid):
-        return f"PID {pid} already not running"
-    ports.process.graceful_stop(pid)
+    """MILESTONE-098: the PID to stop is the process that ACTUALLY owns `cfg.console_port`
+    right now, freshly queried at the OS level -- never a blindly-trusted `--console-pid`.
+    If `--console-pid` was also given, it must match exactly, or this refuses rather than
+    guess which process to signal (rejects a stale or otherwise incorrect PID, including the
+    case where the OS has since reused that PID for an unrelated process)."""
+    if ports.network.port_is_free(cfg.console_host, cfg.console_port):
+        if cfg.console_pid is not None and ports.process.is_running(cfg.console_pid):
+            raise DeploymentBlockedError(
+                STEP_5_SHUTDOWN,
+                f"port {cfg.console_port} is free but --console-pid {cfg.console_pid} is "
+                "still running something else; refusing to guess what to stop",
+            )
+        return f"port {cfg.console_port} is already free; nothing to stop"
+    try:
+        owning_pid = ports.network.owning_pid(cfg.console_host, cfg.console_port)
+    except RuntimeError as error:
+        raise DeploymentBlockedError(STEP_5_SHUTDOWN, str(error)) from error
+    if owning_pid is None:
+        raise DeploymentBlockedError(
+            STEP_5_SHUTDOWN,
+            f"port {cfg.console_port} is occupied but its owning PID could not be "
+            "determined; refusing to signal an unidentified process",
+        )
+    if cfg.console_pid is not None and cfg.console_pid != owning_pid:
+        raise DeploymentBlockedError(
+            STEP_5_SHUTDOWN,
+            f"--console-pid {cfg.console_pid} does not match the process actually "
+            f"listening on port {cfg.console_port} (PID {owning_pid}); refusing to signal "
+            "the wrong process",
+        )
+    # MILESTONE-098 SECURITY HARDENING: re-confirm the owner immediately before acting, not
+    # only at discovery above. This closes the TOCTOU window between the two: however
+    # unlikely, the OS could have reused `owning_pid` for an unrelated process between the
+    # query above and this one. `graceful_stop` independently closes the remaining window
+    # (between this check and the token read) with an OS-queried start-time fingerprint.
+    try:
+        reconfirmed_pid = ports.network.owning_pid(cfg.console_host, cfg.console_port)
+    except RuntimeError as error:
+        raise DeploymentBlockedError(STEP_5_SHUTDOWN, str(error)) from error
+    if reconfirmed_pid != owning_pid:
+        raise DeploymentBlockedError(
+            STEP_5_SHUTDOWN,
+            f"the process listening on port {cfg.console_port} changed from PID "
+            f"{owning_pid} to {reconfirmed_pid!r} between discovery and shutdown; a "
+            "PID/port race was detected -- refusing to signal either process",
+        )
+    try:
+        ports.process.graceful_stop(
+            owning_pid,
+            host=cfg.console_host,
+            port=cfg.console_port,
+            safety_directory=cfg.manifest_path.parent,
+        )
+    except ConsoleShutdownError as error:
+        raise DeploymentBlockedError(STEP_5_SHUTDOWN, str(error)) from error
     stopped = wait_until(
-        lambda: not ports.process.is_running(pid), timeout_seconds=cfg.shutdown_timeout_seconds
+        lambda: not ports.process.is_running(owning_pid),
+        timeout_seconds=cfg.shutdown_timeout_seconds,
     )
     if not stopped:
         raise DeploymentBlockedError(
-            STEP_5_SHUTDOWN, f"PID {pid} did not exit within {cfg.shutdown_timeout_seconds}s"
+            STEP_5_SHUTDOWN,
+            f"PID {owning_pid} did not exit within {cfg.shutdown_timeout_seconds}s",
         )
-    return f"PID {pid} exited gracefully"
+    return f"PID {owning_pid} exited gracefully via authenticated control request"
 
 
 def step6_verify_stopped(cfg: DeployConfig, ports: Ports) -> str:
@@ -706,6 +921,21 @@ def step6_verify_stopped(cfg: DeployConfig, ports: Ports) -> str:
     if not port_free:
         raise DeploymentBlockedError(
             STEP_6_VERIFY_STOPPED, f"port {cfg.console_port} is still occupied"
+        )
+    # M098-R: a refused connection is not proof the port was released (a listener can be
+    # bound to another address of the same port, or be momentarily not accepting). The OS
+    # listener table must show nobody listening before migrations may run.
+    try:
+        listener = ports.network.owning_pid(cfg.console_host, cfg.console_port)
+    except RuntimeError as error:
+        raise DeploymentBlockedError(
+            STEP_6_VERIFY_STOPPED,
+            f"could not confirm port {cfg.console_port} was released: {error}",
+        ) from error
+    if listener is not None:
+        raise DeploymentBlockedError(
+            STEP_6_VERIFY_STOPPED,
+            f"PID {listener} is still listening on port {cfg.console_port}",
         )
     return f"process stopped, backup lock clear, port {cfg.console_port} free"
 

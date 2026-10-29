@@ -53,7 +53,8 @@ class _FakeProcess:
     def is_running(self, pid: int) -> bool:
         return self.running.get(pid, False)
 
-    def graceful_stop(self, pid: int) -> None:
+    def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None:
+        del host, port, safety_directory
         self.graceful_stop_calls.append(pid)
         self.running[pid] = False
 
@@ -70,12 +71,33 @@ class _FakeProcess:
 class _FakeNetwork:
     def __init__(self) -> None:
         self.free_ports: set[int] = set()
+        self.owners: dict[int, int] = {}  # port -> the PID "really" listening on it
+        self.owning_pid_errors: dict[int, str] = {}  # port -> error message to raise instead
+        # MILESTONE-098: a per-port queue of successive `owning_pid` answers, consumed one
+        # call at a time, for tests that need `step5_shutdown`'s discovery call and its later
+        # re-confirmation call to disagree (a PID/port race). Falls back to `owners` once
+        # exhausted (or if never set), so every pre-existing test is unaffected.
+        self.owning_pid_sequence: dict[int, list[int | None]] = {}
+        # M098-R: a port that refuses connections normally has no listener at all; a test can
+        # plant one here to model a listener the connect probe misses (step 6 must refuse it).
+        self.stale_listeners: dict[int, int] = {}
         self.responses: dict[str, tuple[int, str]] = {}
         self.http_calls: list[str] = []
 
     def port_is_free(self, host: str, port: int) -> bool:
         del host
         return port in self.free_ports
+
+    def owning_pid(self, host: str, port: int) -> int | None:
+        del host
+        if port in self.owning_pid_errors:
+            raise RuntimeError(self.owning_pid_errors[port])
+        sequence = self.owning_pid_sequence.get(port)
+        if sequence:
+            return sequence.pop(0)
+        if port in self.free_ports:
+            return self.stale_listeners.get(port)
+        return self.owners.get(port)
 
     def http_get(self, url: str, *, timeout: float) -> tuple[int, str]:
         del timeout
@@ -256,12 +278,13 @@ def test_step3_refuses_wrong_head(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------------------
 
 
-def test_step5_and_6_succeed_when_process_stops_and_port_clears(tmp_path: Path) -> None:
+def test_step5_and_6_succeed_when_owning_pid_matches_and_process_stops(tmp_path: Path) -> None:
     process = _FakeProcess()
     process.running[4242] = True
     network = _FakeNetwork()
-    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
     cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path, shutdown_timeout_seconds=1.0)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
 
     detail = deploy.step5_shutdown(cfg, ports)
     assert 4242 in process.graceful_stop_calls
@@ -274,23 +297,158 @@ def test_step5_and_6_succeed_when_process_stops_and_port_clears(tmp_path: Path) 
 
 def test_step5_times_out_if_process_never_stops(tmp_path: Path) -> None:
     class _StubbornProcess(_FakeProcess):
-        def graceful_stop(self, pid: int) -> None:
+        def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None:
             pass  # deliberately never actually stops
 
     process = _StubbornProcess()
     process.running[4242] = True
-    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, _FakeNetwork())
+    network = _FakeNetwork()
     cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path, shutdown_timeout_seconds=0.3)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
     with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
         deploy.step5_shutdown(cfg, ports)
     assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
 
 
-def test_step5_refuses_when_no_pid_is_known(tmp_path: Path) -> None:
+def test_step5_is_idempotent_when_port_already_free(tmp_path: Path) -> None:
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network = _FakeNetwork()
+    network.free_ports.add(cfg.console_port)
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network)
+    detail = deploy.step5_shutdown(cfg, ports)
+    assert "already free" in detail
+
+
+def test_step5_refuses_when_given_pid_is_running_but_port_is_free(tmp_path: Path) -> None:
+    """A stale/incorrect `--console-pid`: the port is free (nothing of ours is listening)
+    but the given PID happens to still be running something else. Refuses rather than
+    silently treating this as "nothing to stop"."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network = _FakeNetwork()
+    network.free_ports.add(cfg.console_port)
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert not process.graceful_stop_calls
+
+
+def test_step5_refuses_when_owning_pid_cannot_be_determined(tmp_path: Path) -> None:
+    """The port is occupied but the OS-level query could not identify who owns it. This
+    must never be treated the same as "confirmed free"."""
     cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
     ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), _FakeNetwork())
-    with pytest.raises(deploy.DeploymentBlockedError):
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
         deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "could not be determined" in excinfo.value.reason
+
+
+def test_step5_propagates_an_owning_pid_query_failure(tmp_path: Path) -> None:
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network = _FakeNetwork()
+    network.owning_pid_errors[cfg.console_port] = "netstat failed"
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "netstat failed" in excinfo.value.reason
+
+
+def test_step5_refuses_when_console_pid_does_not_match_the_actual_owner(tmp_path: Path) -> None:
+    """Rejects PID reuse / an incorrect `--console-pid`: the process actually listening on
+    the port is a DIFFERENT PID than the one given. Nothing is signalled."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    process.running[9999] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 9999  # the REAL owner is a different PID
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "does not match" in excinfo.value.reason
+    assert not process.graceful_stop_calls
+
+
+def test_step5_auto_discovers_the_pid_when_console_pid_is_not_given(tmp_path: Path) -> None:
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path, shutdown_timeout_seconds=1.0)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    detail = deploy.step5_shutdown(cfg, ports)
+    assert process.graceful_stop_calls == [4242]
+    assert "4242" in detail
+
+
+def test_step5_wraps_a_console_shutdown_error_as_deployment_blocked(tmp_path: Path) -> None:
+    class _RefusingProcess(_FakeProcess):
+        def graceful_stop(self, pid: int, *, host: str, port: int, safety_directory: Path) -> None:
+            del host, port, safety_directory
+            raise deploy.ConsoleShutdownError("control token capability mismatch")
+
+    process = _RefusingProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "control token capability mismatch" in excinfo.value.reason
+
+
+def test_step5_detects_a_pid_port_race_between_discovery_and_shutdown(tmp_path: Path) -> None:
+    """MILESTONE-098 SECURITY HARDENING: the owning PID is re-confirmed immediately before
+    acting, not trusted from discovery alone. If the OS reused the port for a different
+    process in between (simulated here via a two-answer sequence), this refuses rather than
+    signal either process."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    process.running[9999] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network.owning_pid_sequence[cfg.console_port] = [4242, 9999]
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "race" in excinfo.value.reason
+    assert not process.graceful_stop_calls
+
+
+def test_step5_propagates_a_query_failure_during_the_race_reconfirmation(tmp_path: Path) -> None:
+    """The second (reconfirmation) `owning_pid` query can itself fail at the OS level, just
+    as the first can -- this must be treated the same way, never as a silent "unchanged"."""
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+
+    real_owning_pid = network.owning_pid
+    calls = {"count": 0}
+
+    def _flaky_owning_pid(host: str, port: int) -> int | None:
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("netstat failed on reconfirmation")
+        return real_owning_pid(host, port)
+
+    network.owning_pid = _flaky_owning_pid  # type: ignore[method-assign]
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step5_shutdown(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_5_SHUTDOWN
+    assert "netstat failed on reconfirmation" in excinfo.value.reason
+    assert not process.graceful_stop_calls
 
 
 def test_step6_refuses_if_backup_lock_still_held(tmp_path: Path) -> None:
@@ -309,6 +467,76 @@ def test_step6_refuses_if_port_still_occupied(tmp_path: Path) -> None:
     ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), _FakeNetwork())  # no free ports
     with pytest.raises(deploy.DeploymentBlockedError):
         deploy.step6_verify_stopped(cfg, ports)
+
+
+def test_step6_refuses_a_listener_the_connect_probe_missed(tmp_path: Path) -> None:
+    """M098-R: a refused connection is not proof the console released its port; the OS
+    listener table must show nobody listening before migrations may run."""
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network.free_ports.add(cfg.console_port)
+    network.stale_listeners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network)
+    with pytest.raises(
+        deploy.DeploymentBlockedError, match="PID 4242 is still listening"
+    ) as excinfo:
+        deploy.step6_verify_stopped(cfg, ports)
+    assert excinfo.value.step == deploy.STEP_6_VERIFY_STOPPED
+
+
+def test_step6_refuses_when_the_listener_table_cannot_be_read(tmp_path: Path) -> None:
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=None, backup_root=tmp_path)
+    network.free_ports.add(cfg.console_port)
+    network.owning_pid_errors[cfg.console_port] = "listener table unavailable"
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network)
+    with pytest.raises(deploy.DeploymentBlockedError, match="could not confirm port"):
+        deploy.step6_verify_stopped(cfg, ports)
+
+
+def test_an_unverified_shutdown_never_reaches_migration_manifest_fast_forward_or_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """M098-R: the REAL step 5 and step 6 run (against fakes); the console is reported
+    stopped, but a listener is still on its port. Step 6 must block, and nothing after it --
+    migration, schema checks, manifest update, fast-forward, recovery start -- may run."""
+    for fn_name in _STEP_FUNCTION_NAMES[:4]:
+        step_name = deploy.STEP_ORDER[_STEP_FUNCTION_NAMES.index(fn_name)]
+        result: object = ("ok", tmp_path) if step_name == deploy.STEP_4_BACKUP else "ok"
+        monkeypatch.setattr(deploy, fn_name, lambda *_a, _r=result, **_k: _r)
+    reached: list[str] = []
+    for fn_name in _STEP_FUNCTION_NAMES[6:]:
+        monkeypatch.setattr(deploy, fn_name, lambda *_a, _n=fn_name, **_k: reached.append(_n))
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path, shutdown_timeout_seconds=1.0)
+    network.owners[cfg.console_port] = 4242
+    original_stop = process.graceful_stop
+
+    def _stop_but_leave_a_listener(pid: int, **kwargs: object) -> None:
+        original_stop(pid, **kwargs)  # type: ignore[arg-type]
+        network.free_ports.add(cfg.console_port)
+        network.stale_listeners[cfg.console_port] = 5151
+
+    process.graceful_stop = _stop_but_leave_a_listener  # type: ignore[method-assign]
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    journal_path = tmp_path / "journal.json"
+    launch = deploy.RecoveryConsoleLaunch(executable=("x",), env={}, log_path=journal_path)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.run_deployment(
+            cfg,
+            ports,
+            deploy.DeploymentJournal.load_or_new(journal_path),
+            journal_path,
+            launch=launch,
+        )
+    assert excinfo.value.step == deploy.STEP_6_VERIFY_STOPPED
+    assert reached == []
+    reloaded = deploy.DeploymentJournal.load_or_new(journal_path)
+    assert deploy.STEP_5_SHUTDOWN in reloaded.completed_steps()
+    assert reloaded.last().step == deploy.STEP_6_VERIFY_STOPPED  # type: ignore[union-attr]
+    assert reloaded.last().status == "failed"  # type: ignore[union-attr]
 
 
 # ---------------------------------------------------------------------------------------
@@ -931,6 +1159,14 @@ def test_store_c_fallback_constants_match_the_real_console_entrypoint() -> None:
     assert deploy._DEFAULT_STORE_C_DATABASE == real._DEFAULT_STORE_C_DATABASE
 
 
+def test_shutdown_capability_constant_matches_the_real_console_entrypoint() -> None:
+    """MILESTONE-098 drift guard: `read_control_token`'s `expected_capability` must name
+    the exact same capability the console itself writes into its control token."""
+    from empirical_platform.entrypoints import operator_console as real
+
+    assert deploy._SHUTDOWN_CONTROL_CAPABILITY == real.SHUTDOWN_CONTROL_CAPABILITY
+
+
 def test_main_refuses_cleanly_before_touching_anything_when_store_c_is_partially_configured(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -981,3 +1217,162 @@ def test_main_triggers_production_guard_via_store_c_fallback_database_name(
     decoy_manifest = tmp_path / "decoy-manifest.json"
     exit_code = deploy.main(_main_args(tmp_path, decoy_manifest, confirm_production=False))
     assert exit_code == 2
+
+
+# ---------------------------------------------------------------------------------------
+# M098-R: how the shutdown token travels, and the native Windows process/port queries.
+# ---------------------------------------------------------------------------------------
+
+
+class _RecordingHandler:
+    """Builds a tiny HTTP server class that records what it received and answers as told."""
+
+    @staticmethod
+    def server(
+        status: int, extra_headers: dict[str, str], body: bytes
+    ) -> tuple[object, list[dict[str, str]]]:
+        import http.server
+        import threading
+
+        seen: list[dict[str, str]] = []
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self) -> None:  # noqa: N802 - stdlib naming
+                seen.append({k.lower(): v for k, v in self.headers.items()})
+                self.send_response(status)
+                for key, value in extra_headers.items():
+                    self.send_header(key, value)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            do_GET = do_POST  # noqa: N815
+
+            def log_message(self, *_args: object) -> None:
+                return
+
+        httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        return httpd, seen
+
+
+def test_the_shutdown_token_never_goes_through_a_proxy_or_follows_a_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """M098-R: `urllib.request.urlopen` honoured HTTP_PROXY (Python bypasses a proxy for
+    loopback only if NO_PROXY says so) and followed redirects, either of which would hand the
+    token header to a third party. The request must go straight to the console and stop
+    there."""
+    trap, trap_seen = _RecordingHandler.server(200, {}, b"trap")
+    proxy, proxy_seen = _RecordingHandler.server(200, {}, b"proxy")
+    console, console_seen = _RecordingHandler.server(
+        307,
+        {"Location": f"http://127.0.0.1:{trap.server_address[1]}/stolen"},
+        b"",  # type: ignore[attr-defined]
+    )
+    try:
+        for name in ("HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+            monkeypatch.setenv(name, f"http://127.0.0.1:{proxy.server_address[1]}")  # type: ignore[attr-defined]
+        for name in ("NO_PROXY", "no_proxy"):
+            monkeypatch.delenv(name, raising=False)
+        status, _body = deploy._post_loopback_shutdown(  # noqa: SLF001
+            "127.0.0.1",
+            console.server_address[1],
+            "secret-token-value",  # type: ignore[attr-defined]
+        )
+        assert status == 307
+        assert (
+            console_seen and console_seen[0]["x-empirical-shutdown-token"] == "secret-token-value"
+        )
+        assert proxy_seen == []
+        assert trap_seen == []
+    finally:
+        for server in (trap, proxy, console):
+            server.shutdown()  # type: ignore[attr-defined]
+
+
+def test_a_refused_connection_names_no_token(tmp_path: Path) -> None:
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        free_port = probe.getsockname()[1]
+    with pytest.raises(deploy.ConsoleShutdownError) as excinfo:
+        deploy._post_loopback_shutdown("127.0.0.1", free_port, "secret-token-value")  # noqa: SLF001
+    assert "secret-token-value" not in str(excinfo.value)
+    del tmp_path
+
+
+_WINDOWS_ONLY = pytest.mark.skipif(
+    deploy.os.name != "nt", reason="Windows process and port queries"
+)
+
+
+@_WINDOWS_ONLY
+@pytest.mark.parametrize("host", ["192.0.2.10", "localhost", "example.invalid", "0.0.0.0"])  # noqa: S104
+def test_graceful_stop_refuses_a_non_loopback_host_before_reading_the_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    def _must_not_read(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("the token must not even be read for a non-loopback host")
+
+    monkeypatch.setattr(deploy.console_control, "read_control_token", _must_not_read)
+    with pytest.raises(deploy.ConsoleShutdownError, match="loopback"):
+        deploy.RealProcessPort().graceful_stop(
+            deploy.os.getpid(), host=host, port=8189, safety_directory=tmp_path
+        )
+
+
+@_WINDOWS_ONLY
+def test_graceful_stop_refuses_a_pid_that_does_not_exist(tmp_path: Path) -> None:
+    with pytest.raises(deploy.ConsoleShutdownError, match="could not confirm the identity"):
+        deploy.RealProcessPort().graceful_stop(
+            2**30 - 1, host="127.0.0.1", port=8189, safety_directory=tmp_path
+        )
+
+
+@_WINDOWS_ONLY
+def test_real_is_running_is_native_and_never_reports_an_unknown_answer_as_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def _forbidden(*args: object, **_kwargs: object) -> None:
+        raise AssertionError(f"is_running must not shell out: {args!r}")
+
+    monkeypatch.setattr(deploy.subprocess, "run", _forbidden)
+    process = deploy.RealProcessPort()
+    assert process.is_running(deploy.os.getpid()) is True
+    assert process.is_running(2**30 - 1) is False
+
+
+@_WINDOWS_ONLY
+def test_real_owning_pid_reads_the_native_listener_table_for_the_exact_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import socket
+
+    def _forbidden(*args: object, **_kwargs: object) -> None:
+        raise AssertionError(
+            f"owning_pid must not shell out (netstat output is localized): {args!r}"
+        )
+
+    monkeypatch.setattr(deploy.subprocess, "run", _forbidden)
+    network = deploy.RealNetworkPort()
+    with socket.socket(socket.AF_INET6, socket.SOCK_STREAM) as v6:
+        v6.bind(("::1", 0))
+        v6.listen(1)
+        port = v6.getsockname()[1]
+        assert network.owning_pid("::1", port) == deploy.os.getpid()
+        # A listener on a different address of the same port is not what 127.0.0.1 reaches.
+        assert network.owning_pid("127.0.0.1", port) is None
+    assert network.owning_pid("::1", port) is None
+
+
+def test_owning_pid_refuses_two_different_listeners(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(deploy.os, "name", "nt")
+    monkeypatch.setattr(
+        deploy.console_control,
+        "windows_tcp_listeners",
+        lambda port: [("127.0.0.1", 11), ("0.0.0.0", 22)],  # noqa: S104
+    )
+    with pytest.raises(RuntimeError, match="more than one process"):
+        deploy.RealNetworkPort().owning_pid("127.0.0.1", 8189)

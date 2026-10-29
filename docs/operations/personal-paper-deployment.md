@@ -21,8 +21,11 @@ the reviewed, auditable, narrowly-scoped tool that performs the deployment anywa
 4. **Backup** -- a fresh Store B+C backup via `tools/personal_paper_backup.py`, with its
    SHA-256 and structural readability (`pg_restore --list`) independently re-verified here,
    not just trusted from the backup tool's own report.
-5. **Graceful shutdown** -- the running console is sent `CTRL_BREAK_EVENT` (Windows) / `SIGTERM`
-   (POSIX) and this step waits for it to actually exit.
+5. **Graceful shutdown** -- POSIX: `SIGTERM`. Windows (MILESTONE-098): an authenticated local
+   HTTP request to the console's own `/control/shutdown` route -- see "Graceful shutdown on
+   Windows (M098 fix)" below for why `CTRL_BREAK_EVENT` was replaced. Either way, this step
+   first independently confirms, at the OS level, which PID actually owns the configured
+   port -- never a blindly-trusted `--console-pid` -- and waits for that PID to actually exit.
 6. **Verify stopped** -- process gone, the backup tool's own lock file clear, and port 8189
    (or whichever port is configured) is free at the OS level.
 7. **Migrate** -- the ONE pending migration, `f3a7c9e2b164`, applied via the exact, hash-pinned
@@ -92,6 +95,128 @@ unhandled `KeyError` before touching anything (found during the 2026-10-22 read-
 preflight; CI never caught it because every test set all five
 `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` variables itself).
 
+**Graceful shutdown on Windows (M098 fix):** the first real deployment attempt (M097)
+stopped at step 5 with `OSError: [WinError 87] The parameter is incorrect` from
+`os.kill(pid, signal.CTRL_BREAK_EVENT)`. Root cause, found by investigation, was two-fold:
+
+- `CTRL_BREAK_EVENT` can only be delivered by a process to a process GROUP it itself created
+  with `CREATE_NEW_PROCESS_GROUP`. An already-running, independently-launched console (started
+  before the deployment tool ever ran, by a different parent/console session) is not
+  addressable that way on Windows, by design of the OS primitive -- not a bug in this script's
+  use of it, a structural limit of the mechanism itself.
+- Even had delivery succeeded, the real console entrypoint
+  (`entrypoints.operator_console._serve_with_reconciler`) never installed a `SIGBREAK`
+  handler -- only `KeyboardInterrupt` (Ctrl+C) is caught. An unhandled console-control event
+  would have hit Windows' own default action, not the documented SHUTDOWN ORDER (reconciler
+  stopped and joined, then the plan manager, then the server/database/lock release).
+
+The fix replaces process signalling with a loopback HTTP request the console answers itself
+(`POST /control/shutdown`), authenticated by a per-instance secret (`secrets.token_hex(32)`,
+compared with `hmac.compare_digest`) written to a file under the Safety Manifest's own
+directory, owner-only: on Windows created with a protected DACL for the current user,
+SYSTEM and Administrators only, verified by SID against that allowlist when written AND when
+read, and refused if the opened file is not exactly the requested path (a junction or
+symlink anywhere on the path); `chmod 0600` on POSIX. Fail closed, never best-effort. All
+Windows checks are direct Win32 calls (M098-R): the earlier `powershell`/`icacls` calls failed
+whenever Windows PowerShell 5.1 was started from a PowerShell 7 host. This works
+identically whether the console was launched independently or by this tool's own
+`start_recovery_console` -- it never touches process groups or signals at all; it is a plain
+`BaseServer.shutdown()` call that flows through the exact same `try/finally` teardown already
+proven correct for `KeyboardInterrupt`. See `empirical_platform.shared.console_control` for
+the full security model.
+
+Before trusting any token, this step independently re-queries the OS (the native TCP
+listener table on Windows, matched to the exact console address; `ss -ltnp` on POSIX) for whichever PID ACTUALLY owns the configured port right now,
+and refuses -- rather than guesses -- if a given `--console-pid` does not match it. This
+rejects a stale or otherwise incorrect PID, including the case where the OS has since reused
+that PID for an unrelated process. On Windows the token is sent only to a loopback IP
+literal, over a direct connection that ignores `HTTP_PROXY` and follows no redirect; the
+process is opened by handle before the request, and its exit is confirmed on that same handle,
+which a reused PID cannot impersonate. Step 6 then requires the listener table to show nobody
+on the port before any migration runs.
+
+**Residual limitation, stated plainly:** this fix only takes effect for a console STARTED
+with M098-or-later code. A console already running from before this change has no
+`/control/shutdown` route and no control-token file, and step 5 will correctly refuse to
+guess how to stop it (there is nothing to authenticate against). Transitioning such a
+console requires one separate, explicit, Owner-supervised restart onto the new code before
+this script's step 5 will succeed against it -- this script never attempts to work around
+that by falling back to a forced termination.
+
+POSIX's `SIGTERM` path is unchanged by M098 and was not reported broken. It is worth noting,
+for completeness, that the real console has no `SIGTERM` handler either, so -- in principle
+-- it would not run the documented SHUTDOWN ORDER there either; this has not been observed to
+cause a problem in practice and is out of scope for a Windows-titled fix, but is flagged here
+rather than silently left implied-safe.
+
+**M098 security hardening (follow-up).** Four gaps in the mechanism above were closed
+without changing its shape:
+
+- **Permission narrowing is fail closed, not best-effort.** A failure to set, or to verify
+  by reading back, the current-user-only ACL/mode on the `console-control` directory or the
+  token file itself now raises `console_control.ControlTokenPermissionError`.
+  `operator_console._install_shutdown_control` catches exactly this and does NOT register
+  `/control/shutdown` at all -- the console keeps serving its normal read-only/recovery
+  functions, but the shutdown interface itself never activates until the underlying
+  permission problem is fixed and the console is restarted. This applies to the directory as
+  well as the file: a world- or group-writable directory would let an unprivileged local
+  user delete and replace the file even with a perfect file-level ACL.
+- **Symlinks are refused, never followed.** The safety directory, the `console-control`
+  directory, and the token file (and its write-time temporary file) are each checked with
+  `Path.is_symlink()` before being trusted for a read or a write, closing the class of attack
+  where a co-resident, lower-privileged process plants a symlink ahead of time to redirect a
+  security-critical read or write.
+- **Isolation from a local reverse proxy or a tunnelling tool (e.g. Tailscale `serve`/
+  `funnel`).** `/control/shutdown`'s `authorize()` now requires `REMOTE_ADDR` to be loopback
+  (belt-and-suspenders in addition to, never instead of, the launcher's own `--host`
+  loopback-only refusal) and refuses outright if the request carries any forwarding header
+  (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`,
+  `X-Real-IP`, `Forwarded`, `Via`) -- a direct local caller (this script, via
+  `urllib.request`) never sends any of these, so their presence alone is refused regardless
+  of the token.
+- **PID reuse within the same short window.** A bare PID match cannot distinguish the real
+  console from an unrelated process the OS reuses the same PID for moments later. The token
+  file now also records `console_control.process_start_fingerprint(os.getpid())` -- an
+  OS-queried (`Get-Process`/`ps`), never self-reported, process start time -- and
+  `graceful_stop` queries this fingerprint for the PID it is about to stop, immediately
+  before reading the token, requiring an exact match. `step5_shutdown` additionally
+  re-confirms the owning PID immediately before acting (not only at discovery), closing the
+  window between the two queries.
+
+**M098 security hardening (final round).** Three further gaps were closed:
+
+- **ACL verification is SID-based, not account-NAME-based.** The current user's identity for
+  both the `icacls` grant and its readback verification is now
+  `[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value` (never the
+  `USERNAME`/`USERDOMAIN` environment variables), and every ACE in the readback is resolved
+  to its SID via `Get-Acl`/`IdentityReference.Translate(...)` before being compared against
+  the broad-principal denylist. A display name such as "Everyone" is itself localized on a
+  non-English Windows installation (and is, in principle, renameable); its well-known SID
+  (`S-1-1-0`) never changes. Verification deliberately does not object to SYSTEM or local
+  Administrators explicit ACEs that a single-principal `/grant:r` leaves untouched -- the
+  threat model is an unprivileged, co-resident local user, not this machine's own OS/admin
+  principals.
+- **NTFS junctions are refused, and the remaining TOCTOU window is closed.** An NTFS junction
+  uses a different reparse tag (`IO_REPARSE_TAG_MOUNT_POINT`) than a symlink
+  (`IO_REPARSE_TAG_SYMLINK`) and `Path.is_symlink()` does not detect it at all -- and, unlike
+  a symlink, a junction requires no elevated privilege to create. `_reject_if_symlink` now
+  also inspects `FILE_ATTRIBUTE_REPARSE_POINT` on Windows. Beyond that early check, the
+  token file's read and its temp file's write each now happen through a single native
+  Win32/POSIX open rather than a separate "check, then open" pair: the read opens a handle
+  reparse-point-aware (`FILE_FLAG_OPEN_REPARSE_POINT`) and reads through that same handle;
+  the write uses the OS's own exclusive-create guarantee (`O_EXCL`/`CREATE_NEW`), so anything
+  already at that exact name -- planted in the race window -- fails the create itself closed
+  instead of being silently written through or over.
+- **The network-isolation claim is verified against the worst case, not just the easy one.**
+  A header-stripping, byte-for-byte TCP relay in front of this loopback port is
+  indistinguishable, at the WSGI layer, from a genuine local caller: it connects over
+  loopback too, so `REMOTE_ADDR` looks identical either way, and it adds no forwarding
+  header to catch. `test_step5_shutdown_route_still_refuses_through_a_header_stripping_tcp_
+  relay` proves the real defense in that case is the per-instance secret token itself
+  (generated fresh, kept only in memory and a permission-narrowed file, never sent over any
+  network), using a real TCP relay and a real running dummy console -- not a request-object
+  simulation.
+
 **`--confirm-production` is required, and only accepted, when EITHER `--manifest-path`
 resolves to the real default production manifest path**
 (`%LOCALAPPDATA%\EmpiricalPlatform\safety\personal-paper.json`) **OR the resolved Store B/C
@@ -145,11 +270,46 @@ explicit, Owner-authorized, out-of-band action.
   journal is accurate and resuming replays nothing already completed.
 - `tests/integration/test_v1_personal_paper_deploy_postgres.py` -- the same steps against real,
   disposable Store B/C databases rebuilt from the actual migration chains (never
-  hand-fabricated), plus a real dummy console subprocess for the graceful-shutdown/
-  recovery-start steps' real OS process and TCP port mechanics. Requires
-  `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1` and a disposable Postgres server; see the module
-  docstring for why it does NOT use `install_test_connection_guard()` the way other Postgres
-  suites do, and why it is its own isolated pytest invocation in CI.
+  hand-fabricated), plus a real dummy console subprocess (now speaking the M098 control-token
+  protocol) for the graceful-shutdown/recovery-start steps' real OS process and TCP port
+  mechanics -- including the one test that needs no Postgres opt-in at all
+  (`test_real_shutdown_then_real_recovery_start_against_a_dummy_console`), so it also runs on
+  windows-latest in the repository-wide suite, exercising the real M098 mechanism for real.
+  The rest require `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1` and a disposable Postgres server;
+  see the module docstring for why it does NOT use `install_test_connection_guard()` the way
+  other Postgres suites do, and why it is its own isolated pytest invocation in CI.
+- `tests/unit/test_m098_console_shutdown_control.py` -- `shared.console_control`'s token
+  read/write/remove contract (round-trip, capability/port/PID/start-fingerprint mismatches,
+  malformed/missing files, a stale token defeated by fingerprint even when the bare PID now
+  matches); the hardening itself FAILING CLOSED (permission narrowing/verification failure
+  raises and `write_control_token` cleans up any partial file; a planted symlink at the
+  safety directory, the `console-control` directory, or the token file is refused on both
+  read and write); and `_operator_console_web.Router.service_post`'s dispatch rule
+  (authorized/unauthorized, no CSRF/session cookie involved). Also covers
+  `operator_console._install_shutdown_control` directly: a permission failure leaves
+  `/control/shutdown` entirely unregistered (not merely refusing once reached); a missing
+  token header, a wrong token, and a stale token file from an earlier instance are each
+  refused with the console left running; and a non-loopback `REMOTE_ADDR` or any forwarding
+  header is refused even with the correct token. FINAL HARDENING additions: SID-based ACL
+  verification (a fake broad SID -- not a name -- triggers the refusal; SYSTEM/Administrators
+  SIDs do not; the current-user SID query itself failing fails closed); a real NTFS junction
+  (created with `mklink /J`, requiring no elevated privilege) planted at the safety directory
+  or the `console-control` directory, proven to be invisible to `Path.is_symlink()` and
+  caught by the reparse-point check instead; the exclusive-create helper (and
+  `write_control_token` end-to-end) refusing to overwrite a file already occupying the
+  temp-file path, and never deleting a file it did not itself create; and the low-level
+  TOCTOU-safe read helper rejecting a symlink on its own, independent of any earlier
+  check. All against fakes/real local filesystem primitives -- no real socket, no real HTTP.
+- `tests/integration/test_m098_windows_console_shutdown.py` -- Windows-only (skipped
+  everywhere else), real disposable subprocesses: an independently-launched console (the
+  exact M097 shape), a deployment-managed one, an incorrect/mismatched `--console-pid`
+  against two real running consoles, an unrelated process occupying the port, a shutdown
+  that is accepted but never actually completes, the console's own enforcement of a missing
+  or wrong token, a control-token file replaced by a real symlink, a token file whose
+  start-time fingerprint has been tampered with to no longer match the real running process,
+  and (FINAL HARDENING) a real, dumb, header-stripping TCP relay in front of a real running
+  console proving the shutdown route still refuses without the token even when neither the
+  `REMOTE_ADDR` nor the forwarding-header check can detect the relay at all.
 
 ## Known residual risk
 
