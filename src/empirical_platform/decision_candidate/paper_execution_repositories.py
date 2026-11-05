@@ -319,6 +319,9 @@ class BrokerPositionView(Protocol):
     @property
     def quantity(self) -> int: ...
 
+    @property
+    def average_entry_price(self) -> str: ...
+
 
 class BrokerOrderView(Protocol):
     """One broker order as the broker currently describes it."""
@@ -402,6 +405,10 @@ class PaperBrokerPort(Protocol):
     def fetch_asset(self, symbol: str) -> BrokerAssetView: ...
 
     def fetch_position(self, symbol: str) -> BrokerPositionView | None: ...
+
+    def fetch_open_orders(self, symbol: str) -> tuple[BrokerOrderView, ...]:
+        """Every order at the broker, for this symbol, not yet in a terminal state."""
+        ...
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None

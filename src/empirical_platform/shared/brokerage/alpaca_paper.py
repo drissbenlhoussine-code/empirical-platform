@@ -417,6 +417,7 @@ class _AssetView:
 class _PositionView:
     symbol: str
     quantity: int
+    average_entry_price: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -812,7 +813,39 @@ class AlpacaPaperClient:
                 f"the {symbol} position {quantity_text} is fractional; this product "
                 "only reasons about whole shares"
             )
-        return _PositionView(symbol=returned, quantity=int(quantity))
+        average_entry_price = _decimal_text(payload.get("avg_entry_price"), field="avg_entry_price")
+        return _PositionView(
+            symbol=returned, quantity=int(quantity), average_entry_price=average_entry_price
+        )
+
+    def fetch_open_orders(self, symbol: str) -> tuple[_OrderView, ...]:
+        """Every order the broker still considers open for this symbol, freshly queried.
+
+        RISK-CHECK EVIDENCE GAP FOLLOW-UP: `evaluate_trade_proposal`'s `no_open_order`/
+        `OPEN_ORDER_CONFLICT` check is only as good as what it is given; before this method
+        existed, every real caller passed it a hardcoded empty tuple regardless of broker
+        state. Alpaca's own `status=open` filter already excludes every terminal state
+        (filled/canceled/expired/rejected/done_for_day), so nothing further is filtered here.
+        """
+        self._require_plain_symbol(symbol)
+        status, body, sanitized = self._json("GET", f"/v2/orders?status=open&symbols={symbol}")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the orders endpoint answered HTTP {status} for {symbol}: {sanitized}"
+            )
+        views: list[_OrderView] = []
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError(
+                    f"the orders endpoint returned a non-object order entry for {symbol}"
+                )
+            view = self._order_view(entry)
+            if view.symbol != symbol:
+                raise BrokerResponseInvalidError(
+                    f"asked for {symbol}'s open orders and was told about {view.symbol}"
+                )
+            views.append(view)
+        return tuple(views)
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None

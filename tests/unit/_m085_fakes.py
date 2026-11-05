@@ -816,6 +816,7 @@ class FakeBroker:
         account_status_code: int = 200,
         account_overrides: dict[str, object] | None = None,
         position: object | None = None,
+        open_orders: tuple[object, ...] = (),
         submit_raises: BaseException | None = None,
         submit_status: int = 200,
         submit_view: object | None = _UNSET,
@@ -830,6 +831,7 @@ class FakeBroker:
         self.account_status_code = account_status_code
         self.account_overrides: dict[str, object] = account_overrides or {}
         self.position = position
+        self.open_orders = open_orders
         self.submit_raises = submit_raises
         self.submit_status = submit_status
         self.submit_view = submit_view
@@ -878,6 +880,10 @@ class FakeBroker:
     def fetch_position(self, symbol: str) -> object | None:
         del symbol
         return self.position
+
+    def fetch_open_orders(self, symbol: str) -> tuple[object, ...]:
+        del symbol
+        return self.open_orders
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None

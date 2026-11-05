@@ -89,6 +89,15 @@ environment never sets `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST`/`_PORT`/`_U
 - Setting `_PORT`/`_USER`/`_PASSWORD` without `_HOST` is refused (ambiguous partial
   override) rather than silently mixed with Store B's values.
 
+**ADVERSARIAL REVIEW FOLLOW-UP (2026-11-05):** only the first bullet above is actually
+mirrored by the real console entrypoint. The second (independent-host) branch exists only in
+this script; `resolve_paper_exit_postgres_config` has no such branch today and will keep
+reusing Store B's host even if `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` is ever set,
+silently pointing the live console at a different server than this script backs up/migrates/
+verifies. Harmless today only because the real environment never sets that variable; it must
+not be treated as a ready-made split-server escape hatch until the console entrypoint grows
+the equivalent branch.
+
 An earlier version of this script always required the fully independent form, which the
 real environment never satisfies -- invoking it against production crashed with an
 unhandled `KeyError` before touching anything (found during the 2026-10-22 read-only

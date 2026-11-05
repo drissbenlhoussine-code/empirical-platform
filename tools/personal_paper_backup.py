@@ -149,6 +149,18 @@ def backup(identity_path: Path, root: Path, pg_bin: Path, keep: int = 168) -> Pa
                     attempts = conn.exec_driver_sql(query).scalar_one()
                     if attempts < expected["minimum_attempts"]:
                         raise DatabaseSafetyError("PERSONAL_PAPER_LOSS_DETECTED: history shrank")
+                    # ADVERSARIAL REVIEW FOLLOW-UP: step9_verify_unchanged's post-migration
+                    # safety net only ever compared paper_execution_attempt/position_exit_attempt
+                    # -- never approved_plan, Store B's OTHER historical table and the one an
+                    # actual Store B migration modifies. Baseline it here too, same snapshot,
+                    # same REPEATABLE READ guarantee, so that check can be symmetric.
+                    approved_plan_rows = (
+                        conn.exec_driver_sql(
+                            "SELECT count(*) FROM public.approved_plan"
+                        ).scalar_one()
+                        if store == "B"
+                        else None
+                    )
                     snapshot = conn.exec_driver_sql("SELECT pg_export_snapshot()").scalar_one()
                     archive = staging / f"{store}.dump"
                     run_pg(
@@ -175,6 +187,8 @@ def backup(identity_path: Path, root: Path, pg_bin: Path, keep: int = 168) -> Pa
                         "attempts": attempts,
                         "sha256": digest(archive),
                     }
+                    if approved_plan_rows is not None:
+                        files[store]["approved_plan_rows"] = approved_plan_rows
             finally:
                 engine.dispose()
         atomic_json(
@@ -190,6 +204,7 @@ def backup(identity_path: Path, root: Path, pg_bin: Path, keep: int = 168) -> Pa
         staging.rename(completed)
         for store in ("B", "C"):
             manifest["stores"][store]["minimum_attempts"] = files[store]["attempts"]
+        manifest["stores"]["B"]["minimum_approved_plan_rows"] = files["B"]["approved_plan_rows"]
         atomic_json(identity_path, manifest)
         rotate(root, keep)
         return completed

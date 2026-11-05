@@ -63,6 +63,8 @@ from empirical_platform.decision_candidate.product_market_inputs import (
     InstrumentMetadata,
     LiquiditySnapshot,
     MarketStatus,
+    OpenOrderSnapshot,
+    PositionSnapshot,
     QuoteSnapshot,
     SessionSnapshot,
     TradingCostEstimate,
@@ -523,6 +525,41 @@ def prepare_v1_paper_candidate(
             "the account endpoint did not answer; nothing was prepared"
         )
 
+    # PORTFOLIO-CONFLICT EVIDENCE GAP FOLLOW-UP: `evaluate_trade_proposal`'s
+    # no_existing_position/no_open_order/position_count checks are only as honest as what
+    # they are given. A hardcoded empty tuple here would make all three pass unconditionally
+    # regardless of real broker state -- including while an earlier, still-unfilled LIMIT BUY
+    # for this same symbol sits working at the broker. Both are freshly queried, never cached.
+    broker_position = broker.fetch_position(symbol)
+    positions = (
+        ()
+        if broker_position is None or broker_position.quantity == 0
+        else (
+            PositionSnapshot(
+                symbol=broker_position.symbol,
+                quantity=broker_position.quantity,
+                average_price=Decimal(broker_position.average_entry_price),
+            ),
+        )
+    )
+    open_orders: list[OpenOrderSnapshot] = []
+    for working_order in broker.fetch_open_orders(symbol):
+        order_quantity = Decimal(working_order.quantity)
+        if order_quantity != order_quantity.to_integral_value():
+            raise V1PaperCandidateRefusedError(
+                f"a working order at the broker for {symbol} has a fractional quantity "
+                f"{working_order.quantity!r}; refusing to prepare a candidate against "
+                "evidence this product cannot represent"
+            )
+        open_orders.append(
+            OpenOrderSnapshot(
+                order_reference=working_order.client_order_id,
+                symbol=working_order.symbol,
+                side=working_order.side.upper(),
+                quantity=int(order_quantity),
+            )
+        )
+
     spread_percent = ((ask - bid) / ask * Decimal("100")).quantize(Decimal("0.0001"))
 
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
@@ -612,8 +649,8 @@ def prepare_v1_paper_candidate(
                 estimated_slippage_percent=spread_percent,
                 observed_at=now,
             ),
-            positions=(),
-            open_orders=(),
+            positions=positions,
+            open_orders=tuple(open_orders),
             evidence_age_seconds=evidence_age_seconds,
         )
     )

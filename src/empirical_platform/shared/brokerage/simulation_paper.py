@@ -335,6 +335,10 @@ class SimulatedAssetView:
 class SimulatedPositionView:
     symbol: str
     quantity: int
+    #: The simulation store never tracks a cost basis -- there is no real fill price to
+    #: report. Present only so this satisfies `BrokerPositionView` structurally; nothing in
+    #: the simulation capability's own candidate-preparation path reads it.
+    average_entry_price: str = "0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,6 +685,11 @@ class SimulatedPaperBroker:
             if quantity == 0
             else SimulatedPositionView(symbol=symbol.upper(), quantity=quantity)
         )
+
+    def fetch_open_orders(self, symbol: str) -> tuple[SimulatedOrderView, ...]:
+        """The simulation fills every order synchronously; nothing is ever left working."""
+        del symbol
+        return ()
 
     # -- orders ------------------------------------------------------------------
 

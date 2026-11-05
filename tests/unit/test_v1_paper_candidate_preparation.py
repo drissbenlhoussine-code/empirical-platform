@@ -302,6 +302,41 @@ class TestRefusalsWriteNothing:
         with pytest.raises(V1PaperCandidateRefusedError, match="not currently tradable"):
             _prepare(broker=broker)
 
+    def test_an_existing_position_in_the_symbol_refuses_a_second_candidate(self) -> None:
+        """RELEASE v1 REGRESSION (adversarial review follow-up): `prepare_v1_paper_candidate`
+        must hand the real broker-reported position to M084's `no_existing_position` check,
+        never a hardcoded empty tuple -- or the check passes unconditionally regardless of
+        what is actually held at the broker."""
+
+        @dataclass
+        class _HeldPosition:
+            symbol: str = "AAPL"
+            quantity: int = 1
+            average_entry_price: str = "330.00"
+
+        broker = _open_broker()
+        broker.position = _HeldPosition()
+        with pytest.raises(V1PaperCandidateRefusedError, match="EXISTING_POSITION_CONFLICT"):
+            _prepare(broker=broker)
+
+    def test_a_working_open_order_in_the_symbol_refuses_a_second_candidate(self) -> None:
+        """RELEASE v1 REGRESSION (adversarial review follow-up): an earlier, still-unfilled
+        order for this symbol must refuse a second candidate via `no_open_order`. A flat
+        (`fetch_position` returns None) broker is not enough on its own -- the whole point
+        of this check is to catch exposure a filled-position check cannot see yet."""
+
+        @dataclass
+        class _WorkingOrder:
+            client_order_id: str = "m085-still-working-0001"
+            symbol: str = "AAPL"
+            side: str = "buy"
+            quantity: str = "1"
+
+        broker = _open_broker()
+        broker.open_orders = (_WorkingOrder(),)
+        with pytest.raises(V1PaperCandidateRefusedError, match="OPEN_ORDER_CONFLICT"):
+            _prepare(broker=broker)
+
     def test_no_liquidity_evidence_is_refused(self) -> None:
         # First `fetch_minute_bars` call (recent window, for last-trade) sees a real bar;
         # the second (previous session, for liquidity) sees none -- proving the liquidity
