@@ -212,13 +212,13 @@ jobs:
           tests/integration/test_m084_m083_compatibility.py
           tests/integration/test_m084_concurrency.py
           tests/integration/test_m084_queue_index.py
+      - name: Pin the matrix's test-only Alpaca placeholders (never real; ACC-10 asserts the key id the wire saw)
+        run: |
+          echo "EMPIRICAL_ALPACA_PAPER_API_KEY=${EMPIRICAL_PLATFORM_POSTGRES_USER}-ci-only-key-0001" >> "$GITHUB_ENV"
+          echo "EMPIRICAL_ALPACA_PAPER_SECRET_KEY=${EMPIRICAL_PLATFORM_POSTGRES_USER}-ci-only-secret-0001" >> "$GITHUB_ENV"
       - name: M100 end-to-end acceptance matrix -- ACC-01 .. ACC-24 on real PostgreSQL, scripted PAPER wire
         env:
           M100_EVIDENCE_DIR: ${{ runner.temp }}/m100-evidence
-          # The matrix pins these exact test-only placeholders (ACC-10 asserts the key id the
-          # wire saw); they override the job-wide placeholders set above. Never real keys.
-          EMPIRICAL_ALPACA_PAPER_API_KEY: empirical-ci-only-key-0001
-          EMPIRICAL_ALPACA_PAPER_SECRET_KEY: empirical-ci-only-secret-0001
         run: >-
           python -m pytest --no-cov -v --no-header -p no:cacheprovider
           tests/integration/test_m100_e2e_acceptance_matrix.py
