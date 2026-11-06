@@ -629,6 +629,11 @@ def _free_tcp_port() -> int:
         return probe.getsockname()[1]
 
 
+@pytest.mark.skipif(
+    os.name != "nt" and shutil.which("ss") is None,
+    reason="the deploy tool locates a POSIX listener with iproute2's `ss`, which this host lacks "
+    "(the GitHub ubuntu runner has it; Windows uses the native TCP table)",
+)
 def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path: Path) -> None:
     """Pure OS process/TCP port mechanics -- deliberately needs no Postgres opt-in at all,
     so this test runs in the repository-wide `pytest` too, not just this file's own isolated

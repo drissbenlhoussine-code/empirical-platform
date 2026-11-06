@@ -113,6 +113,7 @@ changing the shape of the design above:
 from __future__ import annotations
 
 import ctypes
+import errno
 import json
 import os
 import secrets
@@ -982,8 +983,13 @@ def _read_token_text_without_toctou(path: Path, *, label: str) -> str:
         try:
             posix_fd = os.open(path, os.O_RDONLY | _O_NOFOLLOW)
         except OSError as error:
+            if error.errno == errno.ENOENT:
+                # An absent file is "no readable token" (the caller's ControlTokenError),
+                # not a permission finding -- the same classification the Windows branch gives.
+                raise
             raise ControlTokenPermissionError(
-                f"could not open {label} at {path} without following a symlink: {error}"
+                f"refusing to use {label} at {path}: it is a symlink or reparse point, or "
+                f"could not be opened without following one: {error}"
             ) from error
         with os.fdopen(posix_fd, "r", encoding="utf-8") as stream:
             return stream.read()
