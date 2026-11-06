@@ -336,3 +336,43 @@ def test_limits_survive_a_restart_because_they_live_in_broker_and_database_state
     result = _try_enter(restarted)
     assert not _sent(result)
     assert _orders(restarted) == 0
+
+
+def test_the_post_claim_boundary_alone_refuses_when_the_pre_claim_pass_is_blind(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two entries race for the last slot. The PRE-claim pass is forced to pass for the second
+    one (as it would if both ran before either claimed); only the pass inside ``before_send``,
+    after the claim, can stop it -- and it must, leaving a provably-unsent NOT_SENT attempt."""
+    from empirical_platform.usecases import paper_execution as pe
+
+    world.load_day(("AAPL", "MSFT"))
+    held = _holdings(11)
+    _stage_with_extra_quotes(world, ("AAPL", "MSFT"), *held)
+    for symbol in held:
+        world.store.add_position(symbol, 1)
+    frozen = world.broker.fetch_portfolio_risk_evidence(day_start=world.clock.utc)
+    assert _sent(_try_enter(world, "AAPL"))
+    monkeypatch.setattr(
+        world.broker,
+        "fetch_portfolio_risk_evidence",
+        lambda *, day_start: replace(frozen, captured_at=world.clock.utc),
+    )
+    original = pe.SubmitAuthorizedPaperOrderHandler._enforce_trading_limits
+
+    def _blind_first_pass(self: object, **kwargs: object) -> None:
+        if kwargs["exclude_attempt_id"] is None:
+            return  # the pre-claim pass sees nothing wrong
+        original(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        pe.SubmitAuthorizedPaperOrderHandler, "_enforce_trading_limits", _blind_first_pass
+    )
+    proposal = world.proposal_id("MSFT")
+    view = world.service.prepare_approval(proposal)
+    result = world.service.confirm_approval(proposal, view.ticket)
+    assert not _sent(result)
+    assert not [o for o in world.store.orders() if o.symbol == "MSFT"]
+    intent = world.repositories.intents.for_proposal(proposal)
+    attempt = world.repositories.attempts.for_intent(intent.intent_governance_id)
+    assert attempt is not None and attempt.failure_code == "NOT_SENT"

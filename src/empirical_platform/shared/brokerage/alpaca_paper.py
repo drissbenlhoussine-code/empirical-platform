@@ -875,8 +875,9 @@ class AlpacaPaperClient:
         equity = Decimal(_decimal_text(account.get("equity"), field="equity"))
         last_equity = Decimal(_decimal_text(account.get("last_equity"), field="last_equity"))
 
-        # ORDER MATTERS: orders are read BEFORE positions, so an order that fills between the two
-        # reads is seen as working AND as a position (counted twice = conservative), never as neither.
+        # ORDER MATTERS: orders are read BEFORE positions, so an order that fills between the
+        # two reads is seen as working AND as a position (counted twice, conservative), never
+        # as neither.
         after = day_start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         status, orders, sanitized = self._json(
             "GET",

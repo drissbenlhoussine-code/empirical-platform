@@ -448,3 +448,86 @@ def test_a_filled_exit_is_closed_once_and_never_rearmed(world: World) -> None:
     assert len(scene.attempts()) == 1 and scene.attempts()[0].position_closed
     assert len(scene.sells()) == 1
     assert not scene.risk_events()
+
+
+# ---------------------------------------------------------------------------------------------
+# Review findings: a transient failure must not latch a re-arm; a refused cancel must escalate
+# ---------------------------------------------------------------------------------------------
+
+
+def test_a_transient_failure_after_the_rearm_preview_does_not_wedge_that_generation(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scene = Scene(world, SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED)
+    scene.tick()
+    scene.tick(EXIT_WORKING_REST_SECONDS + 1)  # cancel requested
+    scene.tick(1)  # cancel confirmed
+    real_handler = scene.manager._submit_handler
+    calls = {"n": 0}
+
+    class _Flaky:
+        def handle(self, command: object) -> object:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise ConnectionError("broker unreachable during the re-arm")
+            return real_handler.handle(command)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(scene.manager, "_submit_handler", _Flaky())
+    assert scene.tick(1).kind is PlanOutcomeKind.NEEDS_ATTENTION  # prepared, then it failed
+    assert len(scene.attempts()) == 1
+    # Much later the prepared pair is stale; a fresh identity is minted and the re-arm succeeds.
+    outcome = scene.tick(400)
+    assert outcome.kind is PlanOutcomeKind.EXIT_REARMED
+    assert len(scene.attempts()) == 2 and len(scene.live_sells()) == 1
+
+
+def test_a_cancel_the_broker_keeps_refusing_is_escalated_not_silently_retried_forever(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scene = Scene(world, SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED)
+    scene.tick()
+    monkeypatch.setattr(world.broker, "cancel_order", lambda _id: (403, "{}"))
+    seen = set()
+    for _ in range(40):
+        outcome = scene.tick(10)
+        seen.add(outcome.kind)
+    assert PlanOutcomeKind.EXIT_UNRESOLVED_RISK in seen
+    assert world.kill_switch.engaged is True
+    assert len(scene.sells()) == 1  # the order was never replaced
+    (event,) = scene.risk_events()
+    assert "has not accepted a cancel" in event.detail
+
+
+def test_an_owner_who_releases_the_kill_switch_is_not_overridden_every_tick(
+    world: World,
+) -> None:
+    scene = Scene(world, SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED)
+    scene.tick()
+    for _ in range(300):
+        scene.tick(10)
+        if world.kill_switch.engaged:
+            break
+    assert world.kill_switch.engaged
+    world.kill_switch.engaged = False  # the Owner releases it
+    for _ in range(5):
+        scene.tick(10)
+    assert world.kill_switch.engaged is False
+
+
+def test_the_nth_attempt_ending_terminal_and_unfilled_escalates_and_never_sends_another(
+    world: World,
+) -> None:
+    scene = Scene(world, SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED)
+    scene.tick()
+    for _ in range(400):
+        if len(scene.sells()) == EXIT_MAXIMUM_ATTEMPTS:
+            break
+        scene.tick(10)
+    assert len(scene.sells()) == EXIT_MAXIMUM_ATTEMPTS
+    last = scene.live_sells()[0]
+    world.store.put(replace(last, status="expired"))  # the final attempt ends unfilled
+    for _ in range(20):
+        outcome = scene.tick(10)
+    assert outcome.kind is PlanOutcomeKind.EXIT_UNRESOLVED_RISK
+    assert len(scene.sells()) == EXIT_MAXIMUM_ATTEMPTS  # a further exit was NOT sent
+    assert any("exit attempts were spent" in e.detail for e in scene.risk_events())

@@ -244,6 +244,8 @@ def test_step_08_a_failure_before_any_byte_is_sent_leaves_nothing_at_the_broker(
     assert attempt.state is PaperExecutionState.REJECTED and attempt.failure_code == "NOT_SENT"
     assert m.buys() == []
     # The NOT_SENT attempt is not counted as an order or as exposure by the limit gate.
+    for index in range(9):  # 9 of the 10 daily orders already used: a counted NOT_SENT would block
+        m.store.put(_filler(index, status="rejected", symbol="V"))
     m.stage("MSFT", entry=SimulationScenario.ACCEPTED_THEN_FILLED)
     second = m.entry("MSFT")
     assert m.submit(second).dispatched is True  # type: ignore[attr-defined]
@@ -428,19 +430,25 @@ def test_step_18_a_triggered_stop_sells_once_and_the_position_is_verified_closed
     evidence(18, "stop exit closes the position", sells=1, closed=True)
 
 
-def test_step_19_repeated_ticks_and_manager_restarts_never_create_a_second_exit(m: Matrix) -> None:
+def test_step_19_repeated_ticks_and_manager_restarts_never_overlap_or_oversell_exits(
+    m: Matrix,
+) -> None:
+    """Across cancel/re-arm cycles and a process restart every few ticks: never two live exits,
+    never more shares sold than held, never more attempts than the bound."""
     entry = m.open_position()
     m.plan(entry)
-    m.set_exit(SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED)
     m.breach_stop()
     m.set_exit(SimulationExitScenario.EXIT_ACCEPTED_NOT_FILLED)
-    for index in range(20):
-        _tick(m, 3)
+    for index in range(60):  # 10 s ticks = 600 s, well past the rest period and re-arms
+        _tick(m, 10)
         if index % 4 == 0:
             m.restart()  # a brand-new process every few ticks
         assert len(_live_sells(m)) <= 1
-    assert len(m.sells()) == 1
-    evidence(19, "no duplicate exit", ticks=20, restarts=5, sells=1)
+    sells = m.sells()
+    assert 1 <= len(sells) <= EXIT_MAXIMUM_ATTEMPTS
+    assert len({o.client_order_id for o in sells}) == len(sells)  # type: ignore[attr-defined]
+    assert sum(int(float(o.filled_quantity)) for o in sells) <= 5  # type: ignore[attr-defined]
+    evidence(19, "no overlap across restarts", ticks=60, sells=len(sells))
 
 
 def test_step_20_an_unfilled_exit_is_cancelled_confirmed_rearmed_and_fills(m: Matrix) -> None:

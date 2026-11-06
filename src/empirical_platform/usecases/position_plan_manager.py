@@ -200,6 +200,11 @@ EXIT_UNPROTECTED_ESCALATION_SECONDS = 120
 
 _ESCALATION_ACTOR = "plan-manager"
 
+#: A prepared-but-unclaimed re-arm pair older than this is superseded by a fresh one (the preview's
+#: quote limit is 60 s by default and the authorization lives 300 s).
+_PREPARED_PAIR_MAX_AGE_SECONDS = 30
+_MAXIMUM_PREPARED_PAIRS = 50
+
 #: The ONLY broker statuses on which the manager will cancel a resting exit. Any other vocabulary
 #: (a status this product has never mapped, or none at all) is an unexpected broker response:
 #: nothing is cancelled or replaced on the strength of it.
@@ -248,31 +253,43 @@ class PlanEvaluationOutcome:
     detail: str
 
 
-def _generation_suffix(plan: ApprovedPlan, kind: ExitTriggerKind, generation: int) -> str:
+def _generation_suffix(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int, salt: int = 0
+) -> str:
     """Identity material for re-arm generations (>= 1).
 
     A digest, not a concatenation: the base identifiers are already close to the 64-character
     identifier limit, so a readable suffix could overflow it. Deterministic, so a restart, a
     second worker and a reconciliation all derive the SAME identity for the same generation.
     """
-    return hashlib.sha256(f"{plan.plan_id}|{kind.value}|{generation}".encode()).hexdigest()[:40]
+    material = f"{plan.plan_id}|{kind.value}|{generation}"
+    if salt:
+        # A salt > 0 supersedes a prepared-but-never-claimed pair whose evidence went stale.
+        material += f"|{salt}"
+    return hashlib.sha256(material.encode()).hexdigest()[:40]
 
 
-def _preview_id(plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0) -> str:
+def _preview_id(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0, salt: int = 0
+) -> str:
     if generation:
-        return f"XPV-{_generation_suffix(plan, kind, generation)}"
+        return f"XPV-{_generation_suffix(plan, kind, generation, salt)}"
     return f"XPV-plan-{plan.plan_id}-{kind.value}"
 
 
-def _authorization_id(plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0) -> str:
+def _authorization_id(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0, salt: int = 0
+) -> str:
     if generation:
-        return f"XAU-{_generation_suffix(plan, kind, generation)}"
+        return f"XAU-{_generation_suffix(plan, kind, generation, salt)}"
     return f"XAU-plan-{plan.plan_id}-{kind.value}"
 
 
-def _attempt_id(plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0) -> str:
+def _attempt_id(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0, salt: int = 0
+) -> str:
     if generation:
-        return f"XAT-{_generation_suffix(plan, kind, generation)}"
+        return f"XAT-{_generation_suffix(plan, kind, generation, salt)}"
     return f"XAT-plan-{plan.plan_id}-{kind.value}"
 
 
@@ -627,10 +644,15 @@ class PositionPlanManager:
             return reconciled_outcome("; outcome not established, reconciling only")
         if state is PositionExitState.CANCEL_REQUESTED:
             requested_at = self._cancel_requested_at(reconciled)
-            if (
-                requested_at is not None
-                and (now - requested_at).total_seconds() > EXIT_CANCEL_CONFIRMATION_SECONDS
-            ):
+            overdue = (
+                (now - requested_at).total_seconds() > EXIT_CANCEL_CONFIRMATION_SECONDS
+                if requested_at is not None
+                # No request event (cancel made at the broker, or a crash before the event): fall
+                # back to the attempt's age so the escalation can never be skipped.
+                else (now - (reconciled.acknowledged_at or reconciled.claimed_at)).total_seconds()
+                > EXIT_WORKING_REST_SECONDS + EXIT_CANCEL_CONFIRMATION_SECONDS
+            )
+            if overdue:
                 return self._escalate(
                     plan,
                     reconciled,
@@ -676,9 +698,33 @@ class PositionPlanManager:
             )
         if not self._can_reprice_safely(now):
             return reconciled_outcome("; not repriced (market closed, closing, or clock unknown)")
-        cancelled = self._cancel_handler.handle(
-            CancelPositionExitCommand(attempt_id=reconciled.attempt_id, at=now)
-        )
+        try:
+            cancelled = self._cancel_handler.handle(
+                CancelPositionExitCommand(attempt_id=reconciled.attempt_id, at=now)
+            )
+        except Exception as error:  # noqa: BLE001 - an erroring cancel is an unmet cancel
+            cancelled = reconciled
+            _LOG.warning("plan %s: cancel request raised %s", plan.plan_id, type(error).__name__)
+        if cancelled.state is not PositionExitState.CANCEL_REQUESTED:
+            # The broker refused (or did not accept) the cancel: the order is still live at its
+            # stale price. Retry on later ticks; if it keeps failing, make it an escalation.
+            if resting >= EXIT_WORKING_REST_SECONDS + EXIT_CANCEL_CONFIRMATION_SECONDS:
+                return self._escalate(
+                    plan,
+                    reconciled,
+                    now=now,
+                    key="cancel-refused",
+                    reason=(
+                        f"the broker has not accepted a cancel of exit {reconciled.attempt_id} "
+                        f"in {int(resting)}s; the stale order is still working"
+                    ),
+                )
+            return PlanEvaluationOutcome(
+                plan.plan_id,
+                plan.entry_intent_governance_id,
+                PlanOutcomeKind.NEEDS_ATTENTION,
+                f"the cancel of {cancelled.attempt_id} was not accepted; will retry",
+            )
         return PlanEvaluationOutcome(
             plan.plan_id,
             plan.entry_intent_governance_id,
@@ -800,7 +846,8 @@ class PositionPlanManager:
         digest = hashlib.sha256(f"{plan.plan_id}|{attempt.attempt_id}|{key}".encode()).hexdigest()
         event_id = f"XEV-risk-{digest[:40]}"
         known = {e.event_id for e in self._events.for_entry(plan.entry_intent_governance_id)}
-        if event_id not in known:
+        first_time = event_id not in known
+        if first_time:
             self._events.append(
                 PositionExitEvent(
                     event_id=event_id,
@@ -811,8 +858,10 @@ class PositionPlanManager:
                     detail=reason[:500],
                 )
             )
-        blocked = "entries not blocked"
-        if self._entry_kill_switch is not None:
+        blocked = "entries blocked (recorded earlier; only the Owner releases it)"
+        # Engaged ONCE, when the risk is first recorded: an Owner who releases the switch is not
+        # overridden every tick.
+        if first_time and self._entry_kill_switch is not None:
             try:
                 self._entry_kill_switch.engage(
                     changed_by=_ESCALATION_ACTOR,
@@ -822,9 +871,7 @@ class PositionPlanManager:
                 blocked = "new entries blocked (kill switch engaged)"
             except Exception as error:  # noqa: BLE001 - never let escalation itself raise
                 blocked = f"FAILED to block new entries ({type(error).__name__})"
-                _LOG.error(
-                    "plan %s: could not engage the entry kill switch: %s", plan.plan_id, error
-                )
+                _LOG.error("plan %s: cannot engage the entry kill switch: %s", plan.plan_id, error)
         _LOG.warning("plan %s UNRESOLVED EXIT RISK: %s; %s", plan.plan_id, reason, blocked)
         return PlanEvaluationOutcome(
             plan.plan_id,
@@ -833,6 +880,25 @@ class PositionPlanManager:
             f"{reason}; {blocked}; the Owner must act",
         )
 
+    def _fresh_salt(
+        self, plan: ApprovedPlan, kind: ExitTriggerKind, generation: int, now: datetime
+    ) -> int:
+        """The smallest salt whose prepared preview is absent or still fresh.
+
+        A preview/authorization prepared for a re-arm but never claimed (a transient outage or
+        refusal between prepare and send) freezes a quote that ages out and an authorization that
+        expires; reusing it forever would latch the failure. After `_PREPARED_PAIR_MAX_AGE_SECONDS`
+        an unclaimed pair is superseded by a new deterministic identity. A pair that was claimed
+        is an attempt, so it is already counted in the history and never reaches this function.
+        """
+        for salt in range(_MAXIMUM_PREPARED_PAIRS):
+            existing = self._previews.get(_preview_id(plan, kind, generation, salt))
+            if existing is None:
+                return salt
+            if (now - existing.created_at).total_seconds() <= _PREPARED_PAIR_MAX_AGE_SECONDS:
+                return salt
+        return _MAXIMUM_PREPARED_PAIRS - 1
+
     # -- the shared, idempotent Preview -> Authorize -> Submit sequence ---------------
 
     def _attempt_exit(
@@ -840,21 +906,24 @@ class PositionPlanManager:
     ) -> PlanEvaluationOutcome:
         assert plan.triggered_exit_kind is not None
         kind = plan.triggered_exit_kind
+        salt = self._fresh_salt(plan, kind, generation, now) if generation else 0
         try:
-            preview = self._previews.get(_preview_id(plan, kind, generation))
+            preview = self._previews.get(_preview_id(plan, kind, generation, salt))
             if preview is None:
                 preview = self._preview_handler.handle(
                     PreviewPositionExitCommand(
                         entry_intent_governance_id=plan.entry_intent_governance_id,
-                        preview_id=_preview_id(plan, kind, generation),
+                        preview_id=_preview_id(plan, kind, generation, salt),
                         created_at=now,
                     )
                 )
-            authorization = self._authorizations.get(_authorization_id(plan, kind, generation))
+            authorization = self._authorizations.get(
+                _authorization_id(plan, kind, generation, salt)
+            )
             if authorization is None:
                 authorization = self._authorize_handler.handle(
                     AuthorizePositionExitCommand(
-                        authorization_id=_authorization_id(plan, kind, generation),
+                        authorization_id=_authorization_id(plan, kind, generation, salt),
                         preview_id=preview.preview_id,
                         expected_request_fingerprint=preview.request_fingerprint,
                         # RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: derived
@@ -872,7 +941,7 @@ class PositionPlanManager:
             result = self._submit_handler.handle(
                 SubmitAuthorizedPositionExitCommand(
                     entry_intent_governance_id=plan.entry_intent_governance_id,
-                    attempt_id=_attempt_id(plan, kind, generation),
+                    attempt_id=_attempt_id(plan, kind, generation, salt),
                     at=now,
                 )
             )
