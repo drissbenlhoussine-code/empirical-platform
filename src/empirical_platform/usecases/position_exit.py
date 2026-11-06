@@ -74,9 +74,11 @@ from empirical_platform.decision_candidate.position_exit import (
     exit_attempt_may_have_transmitted,
     exit_authorization_binding_refusal,
     exit_eligibility,
+    exit_limit_price,
     exit_order_terms_mismatches,
     exit_request_fingerprint,
     exit_send_boundary_binding,
+    is_exit_transition_allowed,
 )
 from empirical_platform.decision_candidate.position_exit_repositories import (
     ExitBrokerPort,
@@ -361,6 +363,10 @@ class PreviewPositionExitCommand:
     entry_intent_governance_id: str
     preview_id: str
     created_at: datetime
+    #: RELIABLE EXIT MANAGEMENT: 0 prices the LIMIT at the bid (the original behaviour);
+    #: `g > 0` concedes a bounded number of basis points below the CURRENT bid
+    #: (`position_exit.exit_limit_price`). Still a LIMIT order, never a market order.
+    reprice_generation: int = 0
 
 
 class PreviewPositionExitHandler:
@@ -458,7 +464,9 @@ class PreviewPositionExitHandler:
             side=EXIT_SIDE,
             quantity=quantity,
             order_type=OrderType.LIMIT,
-            limit_price=bid,
+            limit_price=exit_limit_price(bid, generation=command.reprice_generation)
+            if bid is not None
+            else None,
             time_in_force="DAY",
             extended_hours=False,
             client_order_id=derive_exit_client_order_id(
@@ -1510,9 +1518,16 @@ def _apply_status(
     at: datetime,
 ) -> PositionExitAttempt:
     target = _BROKER_STATUS_TO_STATE.get(view.status)
+    # A stale or out-of-order broker status (e.g. `accepted` after a cancel request) that the
+    # closed transition table does not allow is RECORDED but never forced into the state.
+    keep = (
+        target is None
+        or target is attempt.state
+        or not is_exit_transition_allowed(attempt.state, target)
+    )
     return attempts.transition(
         attempt_id=attempt.attempt_id,
-        target=attempt.state if target is None or target is attempt.state else target,
+        target=attempt.state if keep or target is None else target,
         at=at,
         broker_order_id=view.broker_order_id,
         broker_status=view.status,
@@ -1879,31 +1894,41 @@ class CancelPositionExitHandler:
             self._acknowledgements, attempt.attempt_id, "CANCEL", command.at, status, None, body
         )
         if status not in {200, 202, 204}:
-            self._events.append(
-                PositionExitEvent(
-                    event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REFUSED", str(status)),
-                    entry_intent_governance_id=attempt.entry_intent_governance_id,
-                    attempt_id=attempt.attempt_id,
-                    event_type="EXIT_CANCEL_REFUSED",
-                    occurred_at=command.at,
-                    detail=f"HTTP {status}"[:500],
-                )
-            )
+            self._append(attempt, "EXIT_CANCEL_REFUSED", f"HTTP {status}", command.at, str(status))
             return attempt
         moved = self._attempts.transition(
             attempt_id=attempt.attempt_id, target=PositionExitState.CANCEL_REQUESTED, at=command.at
         )
-        self._events.append(
-            PositionExitEvent(
-                event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REQUESTED"),
-                entry_intent_governance_id=attempt.entry_intent_governance_id,
-                attempt_id=attempt.attempt_id,
-                event_type="EXIT_CANCEL_REQUESTED",
-                occurred_at=command.at,
-                detail=f"cancel requested for broker_order_id={attempt.broker_order_id}"[:500],
-            )
+        self._append(
+            attempt,
+            "EXIT_CANCEL_REQUESTED",
+            f"cancel requested for broker_order_id={attempt.broker_order_id}",
+            command.at,
+            "",
         )
         return moved
+
+    def _append(
+        self, attempt: PositionExitAttempt, event_type: str, detail: str, at: datetime, suffix: str
+    ) -> None:
+        """Append one audit event. A repeated cancel request on the same attempt (the reliable
+        exit manager may ask more than once, bounded) gets a time-suffixed id instead of
+        colliding with the first one."""
+        parts = (attempt.attempt_id, event_type, *((suffix,) if suffix else ()))
+        event_id = _event_id(*parts)
+        existing = {e.event_id for e in self._events.for_entry(attempt.entry_intent_governance_id)}
+        if event_id in existing:
+            event_id = _event_id(*parts, at.isoformat())
+        self._events.append(
+            PositionExitEvent(
+                event_id=event_id,
+                entry_intent_governance_id=attempt.entry_intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type=event_type,
+                occurred_at=at,
+                detail=detail[:500],
+            )
+        )
 
 
 def broker_now_for(timing: PaperTimeWindow) -> BoundedInstant:

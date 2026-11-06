@@ -907,7 +907,7 @@ class SimulatedPaperBroker:
             return 404, json.dumps(
                 {"code": 40410000, "message": "order not found", "simulation": True}
             )
-        if order.status in {"filled", "canceled", "rejected"}:
+        if order.status in {"filled", "canceled", "rejected", "expired"}:
             return 422, json.dumps(
                 {
                     "code": 42210000,
@@ -929,7 +929,7 @@ class SimulatedPaperBroker:
         """
         lookups = order.lookups + 1
         behaviour = _PROGRESSION.get(order.scenario, "fill")
-        if order.status in {"filled", "canceled", "rejected"}:
+        if order.status in {"filled", "canceled", "rejected", "expired"}:
             return replace(order, lookups=lookups)
         if order.cancel_requested:
             if behaviour == "race":
