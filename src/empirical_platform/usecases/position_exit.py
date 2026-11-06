@@ -1485,6 +1485,21 @@ class SubmitAuthorizedPositionExitHandler:
         )
 
 
+def _acknowledgement_id(attempt_id: str, sequence: int) -> str:
+    """A UNIQUE acknowledgement id that always fits the 64-character identifier limit.
+
+    The readable form is kept whenever it fits (so every id already persisted is unchanged).
+    It used to be cut with `[:64]` instead, which for a plan-minted MANDATORY_EXIT attempt id
+    (63 characters) dropped the sequence suffix: the SECOND acknowledgement of that attempt
+    then collided with the first on the primary key, and every reconcile of the mandatory
+    liquidation raised. A longer attempt id is digested rather than truncated.
+    """
+    readable = f"XACK-{attempt_id}-{sequence}"
+    if len(readable) <= 64:
+        return readable
+    return f"XACK-{_digest(attempt_id)[:40]}-{sequence}"
+
+
 def _acknowledge(
     repository: PositionExitAcknowledgementRepository,
     attempt_id: str,
@@ -1497,7 +1512,7 @@ def _acknowledge(
     sequence = repository.next_sequence(attempt_id)
     repository.append(
         BrokerAcknowledgement(
-            acknowledgement_id=f"XACK-{attempt_id}-{sequence}"[:64],
+            acknowledgement_id=_acknowledgement_id(attempt_id, sequence),
             attempt_id=attempt_id,
             sequence=sequence,
             kind=kind,

@@ -191,6 +191,13 @@ ignore = [
 # strings; wrapping markup at 100 columns would only fragment the tags. Every other
 # rule still applies to it.
 "src/empirical_platform/entrypoints/_operator_console_html.py" = ["E501"]
+# M100 end-to-end acceptance matrix: test names must carry the Owner's literal step identifier
+# (`test_ACC_07_...`), and its scripted-wire helpers take the loosely typed fixtures and
+# JSON-ish facts a recorder necessarily handles. Scoped to these files only.
+"tests/integration/test_m100_e2e_acceptance_matrix.py" = ["N802", "ANN401"]
+"tests/integration/_m100_world.py" = ["ANN401"]
+"tests/integration/_m100_fake_alpaca.py" = ["ANN401"]
+"tests/integration/_acceptance_evidence.py" = ["ANN401"]
 
 [tool.ruff.format]
 quote-style = "double"

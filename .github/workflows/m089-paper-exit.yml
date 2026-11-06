@@ -17,12 +17,28 @@ name: M089 Paper exit
 # runs, so this job sets TEST-SHAPED ones (never a real key) and the test itself proves, at the
 # HTTP transport seam, that zero requests are ever made with them.
 
+# M100 END-TO-END ACCEPTANCE MATRIX -- the last step of `v1-deployment-shape-postgres` runs
+# `tests/integration/test_m100_e2e_acceptance_matrix.py` (ACC-01 ... ACC-24) against that job's
+# two real PostgreSQL databases: the production console composition, handlers, plan manager and
+# exit pipeline over a SCRIPTED local PAPER wire on 127.0.0.1 (the host pins stay in force; the
+# placeholder Alpaca keys above are never sent anywhere else). It writes
+# `acceptance-evidence.json`, rendered to markdown and uploaded as a build artifact.
+
 on:
   push:
     branches: [feature/m089-paper-sell-to-close, release/v1-personal-paper]
   pull_request:
     paths:
       - '.github/workflows/m089-paper-exit.yml'
+      # M100 end-to-end acceptance matrix: it drives the whole production path, so ANY edit to
+      # the source tree, the migrations or the matrix itself must run it.
+      - 'src/**'
+      - 'migrations/**'
+      - 'pyproject.toml'
+      - 'tests/integration/test_m100_e2e_acceptance_matrix.py'
+      - 'tests/integration/_m100_*.py'
+      - 'tests/integration/_acceptance_evidence.py'
+      - 'tools/m100_render_acceptance_report.py'
       - 'alembic_paper_exit.ini'
       - 'migrations_paper_exit/**'
       - 'src/empirical_platform/shared/persistence/database_safety.py'
@@ -196,3 +212,25 @@ jobs:
           tests/integration/test_m084_m083_compatibility.py
           tests/integration/test_m084_concurrency.py
           tests/integration/test_m084_queue_index.py
+      - name: M100 end-to-end acceptance matrix -- ACC-01 .. ACC-24 on real PostgreSQL, scripted PAPER wire
+        env:
+          M100_EVIDENCE_DIR: ${{ runner.temp }}/m100-evidence
+        run: >-
+          python -m pytest --no-cov -v --no-header -p no:cacheprovider
+          tests/integration/test_m100_e2e_acceptance_matrix.py
+      - name: Render the M100 acceptance evidence
+        if: always()
+        env:
+          M100_EVIDENCE_DIR: ${{ runner.temp }}/m100-evidence
+        run: >-
+          python tools/m100_render_acceptance_report.py
+          --evidence "$M100_EVIDENCE_DIR/acceptance-evidence.json"
+          --out "$M100_EVIDENCE_DIR/m100-acceptance-evidence.md"
+          --command "python -m pytest --no-cov -v --no-header -p no:cacheprovider tests/integration/test_m100_e2e_acceptance_matrix.py (CI job v1-deployment-shape-postgres)"
+      - name: Upload the M100 acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m100-acceptance-evidence
+          path: ${{ runner.temp }}/m100-evidence
+          if-no-files-found: warn
