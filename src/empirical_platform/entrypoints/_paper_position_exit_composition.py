@@ -219,6 +219,8 @@ def paper_operator_console_with_exit_runtime(
                     configurations=repositories.configurations,
                     environment=PAPER_CAPABILITY.capability.value,
                     time_source=store_b.time_source,
+                    # M100 D3: the ENTRY stop, engaged only when an exit cannot safely complete.
+                    entry_kill_switch=repositories.kill_switch,
                 )
             )
             # RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). ALWAYS created,

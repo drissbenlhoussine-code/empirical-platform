@@ -53,6 +53,11 @@ on:
       - 'tests/**/test_v1_integrated_schema_compatibility.py'
       - 'tests/**/test_v1_integrated_deployment_shape_postgres.py'
       - 'tests/**/test_v1_approved_plan_postgres.py'
+      - 'src/empirical_platform/**/trading_limit_gate.py'
+      - 'src/empirical_platform/**/usecases/paper_execution.py'
+      - 'src/empirical_platform/**/paper_operator_console.py'
+      - 'tests/**/test_m100*.py'
+      - 'tests/**/_m100*.py'
 
 permissions:
   contents: read
@@ -187,6 +192,7 @@ jobs:
           tests/unit/test_m085_paper_composition.py
           tests/integration/test_v1_integrated_deployment_shape_postgres.py
           tests/integration/test_v1_approved_plan_postgres.py
+          tests/integration/test_m100_acceptance_matrix_postgres.py
           tests/integration/test_database_backup_restore.py
           tests/unit/test_database_safety.py
           tests/unit/test_destructive_database_safety.py
