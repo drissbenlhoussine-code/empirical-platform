@@ -41,6 +41,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     ReconciliationRoundOutcome,
     SubmissionPreview,
 )
+from empirical_platform.decision_candidate.trading_limit_gate import PortfolioRiskEvidence
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 
 __all__ = [
@@ -408,6 +409,13 @@ class PaperBrokerPort(Protocol):
 
     def fetch_open_orders(self, symbol: str) -> tuple[BrokerOrderView, ...]:
         """Every order at the broker, for this symbol, not yet in a terminal state."""
+        ...
+
+    def fetch_portfolio_risk_evidence(self, *, day_start: datetime) -> PortfolioRiskEvidence:
+        """M100 D1: account-wide positions, working orders, today's order count and P&L.
+
+        Must raise (never default) when any part cannot be read or proven complete.
+        """
         ...
 
     def submit_order(

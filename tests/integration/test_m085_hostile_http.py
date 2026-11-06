@@ -30,6 +30,7 @@ import json
 import socket
 import threading
 from collections.abc import Callable, Iterator
+from datetime import datetime
 from decimal import Decimal
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -949,3 +950,116 @@ class TestTheAccountPathIsEquallyStrict:
         hostile.then(_json_response(200, {"not": "a list"}))
         with pytest.raises(BrokerResponseInvalidError):
             client.fetch_open_orders("AAPL")
+
+
+class TestPortfolioRiskEvidence:
+    """M100 D1: the account-wide evidence the trading-limit gate relies on is parsed strictly.
+
+    Three requests are made, in order: account, positions, orders-since-day-start. Any shape the
+    parser cannot prove becomes ``BrokerResponseInvalidError`` -- the gate then blocks the entry.
+    """
+
+    @staticmethod
+    def _day_start() -> datetime:
+        from datetime import UTC
+
+        return datetime(2026, 11, 5, 5, 0, tzinfo=UTC)
+
+    @staticmethod
+    def _account(equity: str = "99800", last_equity: str = "100000") -> dict[str, Any]:
+        return {"equity": equity, "last_equity": last_equity}
+
+    @staticmethod
+    def _position(**overrides: object) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "symbol": "AAPL",
+            "qty": "10",
+            "avg_entry_price": "200.00",
+            "unrealized_intraday_pl": "-50.00",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_realized_pnl_is_whole_day_pnl_minus_unrealized_intraday(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, self._account()))  # day pnl = -200
+        hostile.then(_json_response(200, [self._position()]))  # unrealized -50
+        hostile.then(
+            _json_response(
+                200,
+                [
+                    an_order_payload(status="accepted", client_order_id="a-1"),
+                    an_order_payload(status="filled", client_order_id="a-2"),
+                    an_order_payload(status="rejected", client_order_id="a-3"),
+                ],
+            )
+        )
+        evidence = client.fetch_portfolio_risk_evidence(day_start=self._day_start())
+        assert evidence.day_pnl == Decimal("-200")
+        assert evidence.realized_pnl_today == Decimal("-150")
+        assert evidence.orders_today == 3
+        assert evidence.order_client_ids_today == {"a-1", "a-2", "a-3"}
+        assert [o.client_order_id for o in evidence.working_orders] == ["a-1"]
+        assert evidence.positions[0].cost_basis == Decimal("2000.00")
+        assert "after=2026-11-05T05:00:00Z" in hostile.requests[2]["path"]
+        assert "status=all" in hostile.requests[2]["path"]
+
+    def test_an_unknown_order_status_counts_as_working(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, self._account()))
+        hostile.then(_json_response(200, []))
+        hostile.then(_json_response(200, [an_order_payload(status="some_new_status")]))
+        evidence = client.fetch_portfolio_risk_evidence(day_start=self._day_start())
+        assert len(evidence.working_orders) == 1
+
+    def test_a_missing_last_equity_is_refused_not_defaulted(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, {"equity": "100000"}))
+        with pytest.raises(BrokerResponseInvalidError):
+            client.fetch_portfolio_risk_evidence(day_start=self._day_start())
+
+    def test_a_missing_unrealized_intraday_pl_is_refused(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        position = self._position()
+        del position["unrealized_intraday_pl"]
+        hostile.then(_json_response(200, self._account()))
+        hostile.then(_json_response(200, [position]))
+        with pytest.raises(BrokerResponseInvalidError):
+            client.fetch_portfolio_risk_evidence(day_start=self._day_start())
+
+    def test_a_short_position_is_refused(self, client: AlpacaPaperClient, hostile: _Script) -> None:
+        hostile.then(_json_response(200, self._account()))
+        hostile.then(_json_response(200, [self._position(qty="-3")]))
+        with pytest.raises(BrokerResponseInvalidError, match="short"):
+            client.fetch_portfolio_risk_evidence(day_start=self._day_start())
+
+    def test_a_full_orders_page_is_refused_as_possibly_truncated(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, self._account()))
+        hostile.then(_json_response(200, []))
+        page = [
+            an_order_payload(client_order_id=f"o-{index}", status="filled") for index in range(500)
+        ]
+        hostile.then(_json_response(200, page))
+        with pytest.raises(BrokerResponseInvalidError, match="truncated"):
+            client.fetch_portfolio_risk_evidence(day_start=self._day_start())
+
+    @pytest.mark.parametrize("failing_call", [0, 1, 2])
+    def test_a_non_200_answer_on_any_of_the_three_reads_is_refused(
+        self, client: AlpacaPaperClient, hostile: _Script, failing_call: int
+    ) -> None:
+        answers = [
+            _json_response(200, self._account()),
+            _json_response(200, []),
+            _json_response(200, []),
+        ]
+        answers[failing_call] = _json_response(503, {"message": "unavailable"})
+        for answer in answers[: failing_call + 1]:
+            hostile.then(answer)
+        with pytest.raises(BrokerResponseInvalidError):
+            client.fetch_portfolio_risk_evidence(day_start=self._day_start())

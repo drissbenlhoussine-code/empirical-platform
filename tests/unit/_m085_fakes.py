@@ -54,6 +54,11 @@ from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
     SubmissionState,
 )
+from empirical_platform.decision_candidate.trading_limit_gate import (
+    BrokerPositionExposure,
+    BrokerWorkingOrder,
+    PortfolioRiskEvidence,
+)
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerIdentityExistsError,
     BrokerIdentityUnresolvedError,
@@ -847,6 +852,8 @@ class FakeBroker:
         self.lookups: list[str] = []
         self.lookup_sequence: list[tuple[int, object | None, str]] = []
         self.lookup_raises: BaseException | None = None
+        self.risk_evidence: object | None = None
+        self.risk_raises: BaseException | None = None
 
     def fetch_account(self) -> tuple[int, dict[str, object]]:
         if self.account_status_code != 200:
@@ -884,6 +891,46 @@ class FakeBroker:
     def fetch_open_orders(self, symbol: str) -> tuple[object, ...]:
         del symbol
         return self.open_orders
+
+    def fetch_portfolio_risk_evidence(self, *, day_start: datetime) -> object:
+        """M100 D1: a quiet account by default; tests set ``risk_evidence`` or ``risk_raises``."""
+        del day_start
+        if self.risk_raises is not None:
+            raise self.risk_raises
+        if self.risk_evidence is not None:
+            return self.risk_evidence
+        held = self.position
+        positions = (
+            ()
+            if held is None or getattr(held, "quantity", 0) == 0
+            else (
+                BrokerPositionExposure(
+                    symbol=held.symbol,  # type: ignore[attr-defined]
+                    quantity=held.quantity,  # type: ignore[attr-defined]
+                    cost_basis=Decimal(held.average_entry_price)  # type: ignore[attr-defined]
+                    * held.quantity,  # type: ignore[attr-defined]
+                ),
+            )
+        )
+        working = tuple(
+            BrokerWorkingOrder(
+                client_order_id=o.client_order_id,  # type: ignore[attr-defined]
+                symbol=o.symbol,  # type: ignore[attr-defined]
+                side=o.side,  # type: ignore[attr-defined]
+                quantity=int(Decimal(o.quantity)),  # type: ignore[attr-defined]
+                notional=None,
+            )
+            for o in self.open_orders
+        )
+        return PortfolioRiskEvidence(
+            captured_at=datetime.now(UTC),
+            positions=positions,
+            working_orders=working,
+            orders_today=0,
+            order_client_ids_today=frozenset(),
+            realized_pnl_today=Decimal(0),
+            day_pnl=Decimal(0),
+        )
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None

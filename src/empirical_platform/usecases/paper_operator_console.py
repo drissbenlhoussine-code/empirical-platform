@@ -75,6 +75,7 @@ from empirical_platform.decision_candidate.product_repositories import (
     TradeProposalRepository,
 )
 from empirical_platform.decision_candidate.trade_proposal import RiskCheckOutcome, TradeProposal
+from empirical_platform.decision_candidate.trading_limit_gate import trading_day_start
 from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
 from empirical_platform.usecases.operator_console_fixtures import simulation_timezone_for
 from empirical_platform.usecases.paper_execution import (
@@ -530,35 +531,40 @@ def prepare_v1_paper_candidate(
     # they are given. A hardcoded empty tuple here would make all three pass unconditionally
     # regardless of real broker state -- including while an earlier, still-unfilled LIMIT BUY
     # for this same symbol sits working at the broker. Both are freshly queried, never cached.
-    broker_position = broker.fetch_position(symbol)
-    positions = (
-        ()
-        if broker_position is None or broker_position.quantity == 0
-        else (
-            PositionSnapshot(
-                symbol=broker_position.symbol,
-                quantity=broker_position.quantity,
-                average_price=Decimal(broker_position.average_entry_price),
-            ),
+    # M100 D1: the WHOLE account, not one symbol. Positions, working orders, today's order count
+    # and today's P&L all come from one fresh broker read; if any of it cannot be read or proven
+    # complete, nothing is prepared (the submission boundary re-checks it again before any send).
+    try:
+        risk_evidence = broker.fetch_portfolio_risk_evidence(
+            day_start=trading_day_start(now, configuration.operator_timezone)
         )
+    except Exception as error:  # noqa: BLE001 - unverifiable limits block new entries
+        raise V1PaperCandidateRefusedError(
+            "today's positions, orders and P&L could not be verified from the broker "
+            f"({type(error).__name__}); nothing was prepared"
+        ) from error
+    positions = tuple(
+        PositionSnapshot(
+            symbol=held.symbol,
+            quantity=held.quantity,
+            average_price=held.cost_basis / held.quantity,
+        )
+        for held in risk_evidence.positions
+        if held.quantity != 0
     )
-    open_orders: list[OpenOrderSnapshot] = []
-    for working_order in broker.fetch_open_orders(symbol):
-        order_quantity = Decimal(working_order.quantity)
-        if order_quantity != order_quantity.to_integral_value():
-            raise V1PaperCandidateRefusedError(
-                f"a working order at the broker for {symbol} has a fractional quantity "
-                f"{working_order.quantity!r}; refusing to prepare a candidate against "
-                "evidence this product cannot represent"
-            )
-        open_orders.append(
-            OpenOrderSnapshot(
-                order_reference=working_order.client_order_id,
-                symbol=working_order.symbol,
-                side=working_order.side.upper(),
-                quantity=int(order_quantity),
-            )
+    open_orders: list[OpenOrderSnapshot] = [
+        OpenOrderSnapshot(
+            order_reference=working.client_order_id,
+            symbol=working.symbol,
+            side=working.side.upper(),
+            quantity=working.quantity,
         )
+        for working in risk_evidence.working_orders
+    ]
+    # The engine's single "realized pnl" input is the WORSE of realized and whole-day P&L, the
+    # same fail-closed reading the submission-boundary gate uses.
+    worst_pnl_today = min(risk_evidence.realized_pnl_today, risk_evidence.day_pnl)
+    orders_today = risk_evidence.orders_today
 
     spread_percent = ((ask - bid) / ask * Decimal("100")).quantize(Decimal("0.0001"))
 
@@ -618,8 +624,8 @@ def prepare_v1_paper_candidate(
                 base_currency=str(account_payload.get("currency", configuration.base_currency)),
                 cash_available=Decimal(str(account_payload.get("cash", "0"))),
                 equity_total=Decimal(str(account_payload.get("equity", "0"))),
-                realized_pnl_today=Decimal("0"),
-                orders_submitted_today=0,
+                realized_pnl_today=worst_pnl_today,
+                orders_submitted_today=orders_today,
                 observed_at=now,
             ),
             session=SessionSnapshot(
