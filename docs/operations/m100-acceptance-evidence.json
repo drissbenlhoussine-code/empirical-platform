@@ -1,12 +1,12 @@
 {
   "command_line": "--no-cov -v --no-header -p no:cacheprovider tests/integration/test_m100_e2e_acceptance_matrix.py",
-  "generated_at_utc": "2026-11-06T10:54:06.100233+00:00",
-  "git_sha": "b0401cac64b13a252981619408985e8a88c94b8c",
+  "generated_at_utc": "2026-11-06T11:14:05.553161+00:00",
+  "git_sha": "cbb3d4d64cb0ca63f81b7633fa96065f4ca5ef02",
   "python": "3.13.18",
   "results": {
     "ACC-01": {
       "acc_id": "ACC-01",
-      "duration_seconds": 0.1,
+      "duration_seconds": 0.092,
       "facts": {
         "bars_received": 3,
         "broker_clock_open": true,
@@ -33,11 +33,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_01_market_data_received",
       "outcome": "passed",
       "test": "test_ACC_01_market_data_received",
-      "timestamp_utc": "2026-11-06T10:53:30.440604+00:00"
+      "timestamp_utc": "2026-11-06T11:13:27.289149+00:00"
     },
     "ACC-02": {
       "acc_id": "ACC-02",
-      "duration_seconds": 0.128,
+      "duration_seconds": 0.12,
       "facts": {
         "control_flat_bars": {
           "reasons": [
@@ -51,7 +51,7 @@
         },
         "opportunity_table": {
           "rows": 2,
-          "sha256": "539895dc836ac55feb88cb3ec06daf55291bb538bdeae7dbfb77bb5fdfb944c8"
+          "sha256": "b7bacaf98411c6c9c2dbaa6c3bc48349a6205bb55230008c50bf13a15c5c6c8a"
         },
         "orders_posted": 0,
         "signal": {
@@ -64,7 +64,7 @@
             "volume 60,000 exceeded the 5-bar average 30,000",
             "sized to 4 share(s): risk 1.00/share within the 100 maximum-loss budget"
           ],
-          "opportunity_id": "OPP-74391c523518293d630521168e30a018",
+          "opportunity_id": "OPP-077f29a206ded140e32d0df5b400445b",
           "quantity": 4,
           "reward_risk": "2.0000",
           "status": "ACTIONABLE",
@@ -75,13 +75,13 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_02_signal_generated",
       "outcome": "passed",
       "test": "test_ACC_02_signal_generated",
-      "timestamp_utc": "2026-11-06T10:53:31.283081+00:00"
+      "timestamp_utc": "2026-11-06T11:13:28.064604+00:00"
     },
     "ACC-03": {
       "acc_id": "ACC-03",
-      "duration_seconds": 0.147,
+      "duration_seconds": 0.145,
       "facts": {
-        "content_fingerprint": "93ced1b2664af0a9793335754b2ebfeb156cf866e2c80e0d0542ff09831e5b71",
+        "content_fingerprint": "1ca722a14dae4d3d042dad2897dc29e4a4edddc20df7c5fa4440a380dc376551",
         "downstream_row_counts": {
           "approved_order_intent": 0,
           "approved_plan": 0,
@@ -92,12 +92,12 @@
         },
         "limit_price": "100.00000000",
         "orders_posted": 0,
-        "proposal_id": "PRP-089-PAPER-20261106T105332Z",
+        "proposal_id": "PRP-089-PAPER-20261106T111328Z",
         "quantity": 4,
         "route_message": "Candidate prepared \u2014 Operator Console Operator Console PAPER Today Active trades History Safety Candidate prepared. AAPL live bid 99.98 / ask 100.0, captured 20",
         "rows_written": {
           "rows": 1,
-          "sha256": "f43edb1357e9d14a75186f46b06f94488933b5000d22247118f2d3a3740acb54"
+          "sha256": "4ac54b1bad897c646f8be6bb97a14b66cfdbf2af3462a08a198de511ccd95785"
         },
         "status": "PREPARED",
         "stop": "99.00000000",
@@ -107,11 +107,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_03_candidate_prepared",
       "outcome": "passed",
       "test": "test_ACC_03_candidate_prepared",
-      "timestamp_utc": "2026-11-06T10:53:32.064534+00:00"
+      "timestamp_utc": "2026-11-06T11:13:28.832489+00:00"
     },
     "ACC-04": {
       "acc_id": "ACC-04",
-      "duration_seconds": 0.201,
+      "duration_seconds": 0.239,
       "facts": {
         "all_passed": true,
         "check_ids": [
@@ -143,9 +143,9 @@
         ],
         "checks_performed": 25,
         "negative_controls": {
-          "market_closed": "the market is closed (next open 2026-11-07 02:53:37.259840+00:00); nothing was prepared",
+          "market_closed": "the market is closed (next open 2026-11-07 03:13:34.120469+00:00); nothing was prepared",
           "price_out_of_bounds": "PRICE_OUTSIDE_BOUNDS (price_bounds: reference price 1500.0; sized_quantity: derived quantity 0 from budget 500.00000000; planned_loss: risk quantity must be a positive whole number)",
-          "stale_quote": "MARKET_DATA_STALE (market_data_age: quote age 300.015585s)",
+          "stale_quote": "MARKET_DATA_STALE (market_data_age: quote age 300.017102s)",
           "wide_spread": "SPREAD_TOO_WIDE (spread: spread 5.128205128205128205128205128%; slippage: slippage 5.0000%)"
         },
         "orders_posted": 0,
@@ -155,11 +155,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_04_risk_checks_performed",
       "outcome": "passed",
       "test": "test_ACC_04_risk_checks_performed",
-      "timestamp_utc": "2026-11-06T10:53:32.885785+00:00"
+      "timestamp_utc": "2026-11-06T11:13:29.749948+00:00"
     },
     "ACC-04b": {
       "acc_id": "ACC-04b",
-      "duration_seconds": 1.606,
+      "duration_seconds": 1.59,
       "facts": {
         "admission_events": 2,
         "entry_attempt_rows": 2,
@@ -167,32 +167,32 @@
           "daily_loss": {
             "attempt_state": null,
             "buy_orders_on_wire": 0,
-            "proposal_id": "PRP-089-PAPER-20261106T105334Z",
+            "proposal_id": "PRP-089-PAPER-20261106T111331Z",
             "refusal": "this dispatch is not permitted: daily loss limit reached: equity-based loss today 600 >= maximum_daily_loss 500.00000000."
           },
           "daily_order_count": {
             "buy_orders_added_by_the_refused_approval": 0,
             "buy_orders_on_wire_total": 1,
-            "first_proposal": "PRP-089-PAPER-20261106T105338Z",
+            "first_proposal": "PRP-089-PAPER-20261106T111335Z",
             "refusal": "this dispatch is not permitted: daily order count limit reached: 2 orders today including this one > maximum_daily_order_count 1.",
-            "second_proposal": "PRP-089-PAPER-20261106T105339Z"
+            "second_proposal": "PRP-089-PAPER-20261106T111336Z"
           },
           "exit_under_breached_loss_limit": {
             "closed_verified": true,
-            "exit_attempt": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105341Z-STOP",
+            "exit_attempt": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111338Z-STOP",
             "sell_orders_on_wire": 2,
             "state": "FILLED"
           },
           "position_count": {
             "attempt_state": null,
             "buy_orders_on_wire": 0,
-            "proposal_id": "PRP-089-PAPER-20261106T105336Z",
+            "proposal_id": "PRP-089-PAPER-20261106T111332Z",
             "refusal": "this dispatch is not permitted: simultaneous position limit reached: 2 symbols held or working including AAPL > maximum_simultaneous_positions 1."
           },
           "total_exposure": {
             "attempt_state": null,
             "buy_orders_on_wire": 0,
-            "proposal_id": "PRP-089-PAPER-20261106T105337Z",
+            "proposal_id": "PRP-089-PAPER-20261106T111334Z",
             "refusal": "this dispatch is not permitted: total exposure limit reached: 599.96000000 including this order > maximum_deployable_capital 500.00000000."
           }
         }
@@ -200,11 +200,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_04b_d1_portfolio_limits_refuse_at_the_submission_boundary",
       "outcome": "passed",
       "test": "test_ACC_04b_d1_portfolio_limits_refuse_at_the_submission_boundary",
-      "timestamp_utc": "2026-11-06T10:53:35.137430+00:00"
+      "timestamp_utc": "2026-11-06T11:13:31.980642+00:00"
     },
     "ACC-05": {
       "acc_id": "ACC-05",
-      "duration_seconds": 0.551,
+      "duration_seconds": 0.633,
       "facts": {
         "broker_positions_read": [
           [
@@ -222,18 +222,18 @@
         "own_position": {
           "broker_quantity": 4,
           "entry_filled_quantity": "4.00000000",
-          "intent_id": "INT-PRP-089-PAPER-20261106T105340Z",
-          "proposal_id": "PRP-089-PAPER-20261106T105340Z"
+          "intent_id": "INT-PRP-089-PAPER-20261106T111337Z",
+          "proposal_id": "PRP-089-PAPER-20261106T111337Z"
         }
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_05_existing_positions_detected",
       "outcome": "passed",
       "test": "test_ACC_05_existing_positions_detected",
-      "timestamp_utc": "2026-11-06T10:53:36.319369+00:00"
+      "timestamp_utc": "2026-11-06T11:13:33.245253+00:00"
     },
     "ACC-06": {
       "acc_id": "ACC-06",
-      "duration_seconds": 0.471,
+      "duration_seconds": 0.511,
       "facts": {
         "buy_orders_on_wire_before_own_entry": 0,
         "confirm_refusal": "execution is blocked: [\"a position of 1 already exists in AAPL\"]",
@@ -246,7 +246,7 @@
         ],
         "own_entry_visible_as_working_buy": [
           [
-            "m085-fe641ce28d0d22e997708b9bf3dd86919793e6d9",
+            "m085-c0bb130d2bac785edc33397b2ba3b954748f9e05",
             "buy"
           ]
         ],
@@ -255,36 +255,36 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_06_existing_open_orders_detected",
       "outcome": "passed",
       "test": "test_ACC_06_existing_open_orders_detected",
-      "timestamp_utc": "2026-11-06T10:53:37.449054+00:00"
+      "timestamp_utc": "2026-11-06T11:13:34.415448+00:00"
     },
     "ACC-07": {
       "acc_id": "ACC-07",
-      "duration_seconds": 0.642,
+      "duration_seconds": 0.647,
       "facts": {
         "buy_orders_on_wire": 1,
         "duplicate_confirm_of_first_sent_nothing": true,
-        "first_client_order_id": "m085-d1965e769425e1f767e92fb87a8ece452ae59f00",
-        "first_proposal": "PRP-089-PAPER-20261106T105339Z",
+        "first_client_order_id": "m085-3b0fa23afd9d4149e1c3ad6bd414d9bbb5397ede",
+        "first_proposal": "PRP-089-PAPER-20261106T111336Z",
         "refusal_while_first_order_working": "execution is blocked: [\"a position of 4 already exists in AAPL\"]",
         "refusal_while_first_position_held": "execution is blocked: [\"a position of 4 already exists in AAPL\"]",
-        "second_proposal": "PRP-089-PAPER-20261106T105340Z",
+        "second_proposal": "PRP-089-PAPER-20261106T111337Z",
         "second_proposal_attempt_rows": 0
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_07_conflicting_entry_refused",
       "outcome": "passed",
       "test": "test_ACC_07_conflicting_entry_refused",
-      "timestamp_utc": "2026-11-06T10:53:38.739149+00:00"
+      "timestamp_utc": "2026-11-06T11:13:35.727733+00:00"
     },
     "ACC-08": {
       "acc_id": "ACC-08",
-      "duration_seconds": 0.554,
+      "duration_seconds": 0.546,
       "facts": {
         "foreign_ticket_http_status": 400,
         "forged_ticket_http_status": 400,
         "genuine_approval_orders_posted": 1,
         "intent_without_authorization": {
           "attempts": 0,
-          "intent_id": "INT-PRP-089-PAPER-20261106T105341Z",
+          "intent_id": "INT-PRP-089-PAPER-20261106T111338Z",
           "orders_posted": 0,
           "refusal": "no human authorization exists for this intent; nothing may be dispatched"
         },
@@ -293,25 +293,25 @@
           "attempts": 0,
           "decisions": 0,
           "orders_posted": 0,
-          "proposal": "PRP-089-PAPER-20261106T105340Z"
+          "proposal": "PRP-089-PAPER-20261106T111337Z"
         },
         "rejected_then_approve_refusal": "This opportunity was already rejected. Nothing was sent."
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_08_owner_approval_enforced",
       "outcome": "passed",
       "test": "test_ACC_08_owner_approval_enforced",
-      "timestamp_utc": "2026-11-06T10:53:39.875551+00:00"
+      "timestamp_utc": "2026-11-06T11:13:36.850607+00:00"
     },
     "ACC-09": {
       "acc_id": "ACC-09",
-      "duration_seconds": 0.448,
+      "duration_seconds": 0.418,
       "facts": {
         "control_order_valid": true,
         "db_over_cap_intent_update_refusal": "approved_order_intent is append-only: UPDATE is not permitted",
         "domain_over_cap_intent_refusal": "intent terms differ from immutable risk contract",
         "intent_table_unchanged_by_tamper": {
           "rows": 1,
-          "sha256": "7c435ca6d993d4750bd969ff3a06fac1bb142a0dce89cc765d25148d96e75e33"
+          "sha256": "9de9c586b98d0a6a199afeda0df56870abf19740b6dd756b4080c42e349be0b2"
         },
         "malformed_refusals": {
           "bool_quantity": "quantity must be an int",
@@ -335,11 +335,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_09_order_payload_validated",
       "outcome": "passed",
       "test": "test_ACC_09_order_payload_validated",
-      "timestamp_utc": "2026-11-06T10:53:40.954936+00:00"
+      "timestamp_utc": "2026-11-06T11:13:37.871722+00:00"
     },
     "ACC-09b": {
       "acc_id": "ACC-09b",
-      "duration_seconds": 0.347,
+      "duration_seconds": 0.416,
       "facts": {
         "acknowledgement_quantity_sent_by_broker": "1",
         "broker_order_id_after_reconcile": "b0000000-0000-4000-8000-000000000001",
@@ -353,20 +353,20 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_09b_broker_acknowledgement_that_differs_is_not_trusted",
       "outcome": "passed",
       "test": "test_ACC_09b_broker_acknowledgement_that_differs_is_not_trusted",
-      "timestamp_utc": "2026-11-06T10:53:41.920073+00:00"
+      "timestamp_utc": "2026-11-06T11:13:38.914847+00:00"
     },
     "ACC-10": {
       "acc_id": "ACC-10",
-      "duration_seconds": 0.327,
+      "duration_seconds": 0.359,
       "facts": {
-        "attempt_id": "ATT-PRP-089-PAPER-20261106T105343Z",
+        "attempt_id": "ATT-PRP-089-PAPER-20261106T111340Z",
         "authorization_consumed": true,
         "chain_row_counts": {
           "attempt_rows": 1,
           "authorization_rows": 1,
           "preview_rows": 1
         },
-        "client_order_id": "m085-d149ce73c37cfd96b43d956b283dcddd622b8cbb",
+        "client_order_id": "m085-e20727c323d07b391e2ccb0d049eea9e22dea12a",
         "credential_key_ids_on_wire_headers": 1,
         "credentials_in_paths_or_bodies": false,
         "endpoint_host": "paper-api.alpaca.markets",
@@ -378,10 +378,10 @@
           "SEND_BOUNDARY_ENTERED"
         ],
         "orders_posted": 1,
-        "proposal_id": "PRP-089-PAPER-20261106T105343Z",
+        "proposal_id": "PRP-089-PAPER-20261106T111340Z",
         "state": "PAPER_ACCEPTED",
         "wire_post_body": {
-          "client_order_id": "m085-d149ce73c37cfd96b43d956b283dcddd622b8cbb",
+          "client_order_id": "m085-e20727c323d07b391e2ccb0d049eea9e22dea12a",
           "extended_hours": false,
           "limit_price": "100.00000000",
           "qty": "4",
@@ -394,15 +394,15 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_10_paper_order_simulated",
       "outcome": "passed",
       "test": "test_ACC_10_paper_order_simulated",
-      "timestamp_utc": "2026-11-06T10:53:42.885728+00:00"
+      "timestamp_utc": "2026-11-06T11:13:39.948810+00:00"
     },
     "ACC-11": {
       "acc_id": "ACC-11",
-      "duration_seconds": 0.349,
+      "duration_seconds": 0.344,
       "facts": {
         "acknowledgement_digests": [
-          "2cfed6b3793b647c409fe166a24d884a00baa44dde9faadc4555c02397367e1a",
-          "b3e68780e81a736d92be5b584dfb962d3965b5b2aeb22a127a8e2ff97c485694"
+          "5509d21a33f801fb2c1c754bf9b61f9527d689d340d0524f9412efef3da36be8",
+          "dbeded89c2ff4e15399695bd83e85537be6fe1c64468043ae40fba1724a47663"
         ],
         "acknowledgement_rows": [
           {
@@ -420,7 +420,7 @@
         ],
         "acknowledgement_table": {
           "rows": 2,
-          "sha256": "bc2f8c620f93c12717c36071ac5327f91385955814ce6b844994f00e67b4c3ce"
+          "sha256": "ee6c18fb7f5cae96faa71f269af3cbae1afefae792602796b6382590aa1e24c1"
         },
         "broker_order_id": "b0000000-0000-4000-8000-000000000001",
         "broker_status_after_ack_new": "new",
@@ -431,11 +431,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_11_broker_acknowledgement_handled",
       "outcome": "passed",
       "test": "test_ACC_11_broker_acknowledgement_handled",
-      "timestamp_utc": "2026-11-06T10:53:43.834630+00:00"
+      "timestamp_utc": "2026-11-06T11:13:40.892053+00:00"
     },
     "ACC-12": {
       "acc_id": "ACC-12",
-      "duration_seconds": 0.438,
+      "duration_seconds": 0.611,
       "facts": {
         "after_first_fill": {
           "avg": "100.00000000",
@@ -449,9 +449,9 @@
         },
         "attempt_table_digest": {
           "rows": 1,
-          "sha256": "f06a7aec235c2c3c3444e9f3e61d76dbb653f07814ec2731f4525bafcf3941ab"
+          "sha256": "4b4c434d7f5c706b9ee502c699c7de82a7fad452fd99a0e79d882eba091c372c"
         },
-        "client_order_id": "m085-e1ce5f935003942e9dc6270b61f97a80d9836948",
+        "client_order_id": "m085-f7587a15a62fb46f9f8e1a13ab59ab1d6919fb49",
         "exit_assessment_eligible_while_working": false,
         "exit_assessment_refusals": [
           "the entry order is partially filled and its remainder can still fill; cancel the remainder and wait until the entry is final before closing"
@@ -460,48 +460,106 @@
         "plan_manager_outcomes": [
           [
             "NOT_ELIGIBLE",
-            "the entry order is partially filled and its remainder can still fill; cancel the remainder and wait until the entry is f"
+            "partial entry ATT-PRP-089-PAPER-20261106T111342Z state=PARTIALLY_FILLED: remainder cancel scheduled in 120s or at the fi"
           ]
         ],
-        "reconciliation_rounds": 3,
+        "reconciliation_rounds": 4,
         "sell_orders_on_wire": 0
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_12_partial_fill_reconciled",
       "outcome": "passed",
       "test": "test_ACC_12_partial_fill_reconciled",
-      "timestamp_utc": "2026-11-06T10:53:44.908134+00:00"
+      "timestamp_utc": "2026-11-06T11:13:42.143658+00:00"
+    },
+    "ACC-12b": {
+      "acc_id": "ACC-12b",
+      "duration_seconds": 0.642,
+      "facts": {
+        "broker_position_after": 0,
+        "buy_orders_on_wire": 1,
+        "entry_cancel_requests_on_wire": 1,
+        "entry_client_order_id": "m085-b67a98741b636bd0e11bd33cc6a17ceea663a659",
+        "entry_event_types": [
+          "AUTHORIZATION_GRANTED",
+          "PREVIEW_CREATED",
+          "ENTRY_ADMITTED",
+          "SEND_BOUNDARY_ENTERED",
+          "PAPER_ORDER_SUBMITTED",
+          "RECONCILED",
+          "CANCEL_REQUESTED",
+          "RECONCILED"
+        ],
+        "entry_filled_quantity_after": "2.00000000",
+        "entry_state_after": "CANCELED",
+        "exit_state_after_fill": "FILLED",
+        "filled_before_cancel": "2.00000000",
+        "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T111344Z",
+        "proposal_id": "PRP-089-PAPER-20261106T111344Z",
+        "sell_order_on_wire": {
+          "client_order_id": "m087-6b93bca0540c9b227e653a16f3a0c402d97c5714",
+          "extended_hours": false,
+          "limit_price": "98.90000000",
+          "qty": "2",
+          "side": "sell",
+          "symbol": "AAPL",
+          "time_in_force": "day",
+          "type": "limit"
+        },
+        "sell_quantity_equals_filled_quantity": true,
+        "state_before_cancel": "PARTIALLY_FILLED",
+        "tick_at_stop_breach": [
+          [
+            "EXIT_CLAIMED",
+            "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111344Z-STOP generation=0 dispatched=True"
+          ],
+          [
+            "EXIT_RECONCILED",
+            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111344Z-STOP state=ACCEPTED"
+          ]
+        ],
+        "tick_before_trigger": [
+          [
+            "NOT_ELIGIBLE",
+            "partial entry ATT-PRP-089-PAPER-20261106T111344Z state=PARTIALLY_FILLED: remainder cancel scheduled in 120s or at the first trigger"
+          ]
+        ]
+      },
+      "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_12b_partial_entry_remainder_is_cancelled_then_the_stop_sells_the_filled_quantity",
+      "outcome": "passed",
+      "test": "test_ACC_12b_partial_entry_remainder_is_cancelled_then_the_stop_sells_the_filled_quantity",
+      "timestamp_utc": "2026-11-06T11:13:43.459049+00:00"
     },
     "ACC-13": {
       "acc_id": "ACC-13",
-      "duration_seconds": 0.359,
+      "duration_seconds": 0.43,
       "facts": {
         "attempt_table_digest": {
           "rows": 1,
-          "sha256": "bbe48688f7901a3670c851b6125af9f6600cbdd3c3dc654e120dae737578a907"
+          "sha256": "a2d75b64e8f986dcd454fe6b6500964191b76c3ef8a8dafcbd383209eaa136b6"
         },
         "broker_status": "filled",
-        "client_order_id": "m085-de33e521bf723a9510c558924cc6956f90348ec4",
+        "client_order_id": "m085-1b3e99047a169f80817544ec2e1e31037c77ae3b",
         "filled_quantity": "4.00000000",
         "final_state": "FILLED",
         "later_reconcile_changed_nothing": true,
-        "terminal_at": "2026-11-06T10:53:46.966174+00:00",
-        "terminal_row_rewrite_refused_by_database": "attempt ATT-PRP-089-PAPER-20261106T105346Z is terminal in state FILLED and is immutable",
+        "terminal_at": "2026-11-06T11:13:45.608037+00:00",
+        "terminal_row_rewrite_refused_by_database": "attempt ATT-PRP-089-PAPER-20261106T111345Z is terminal in state FILLED and is immutable",
         "volume_weighted_average_price": "100.20000000"
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_13_full_fill_reconciled",
       "outcome": "passed",
       "test": "test_ACC_13_full_fill_reconciled",
-      "timestamp_utc": "2026-11-06T10:53:45.906933+00:00"
+      "timestamp_utc": "2026-11-06T11:13:44.550400+00:00"
     },
     "ACC-14": {
       "acc_id": "ACC-14",
-      "duration_seconds": 0.431,
+      "duration_seconds": 0.43,
       "facts": {
         "active_page_shows_managed_plan": true,
         "approved_plan_rows": 1,
         "approved_plan_table": {
           "rows": 1,
-          "sha256": "bd41d3d63786bda7fa30276e8a5962ed1048afd7c3affc2e1ce117f5b6726770"
+          "sha256": "396f102f109e73471dbf9682f76af9370ff64fdf000b816164fde94aa7024a9a"
         },
         "attributable_entry_quantity": "4.00000000",
         "broker_position": {
@@ -510,49 +568,49 @@
           "symbol": "AAPL"
         },
         "exit_assessment_eligible": true,
-        "intent_id": "INT-PRP-089-PAPER-20261106T105347Z",
+        "intent_id": "INT-PRP-089-PAPER-20261106T111346Z",
         "plan": {
-          "mandatory_liquidation_at": "2026-11-06T23:59:00+00:00",
-          "owner_approval_id": "DEC-PRP-089-PAPER-20261106T105347Z",
-          "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T105347Z",
+          "mandatory_liquidation_at": "2026-11-07T00:59:00+00:00",
+          "owner_approval_id": "DEC-PRP-089-PAPER-20261106T111346Z",
+          "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T111346Z",
           "quantity": "4.00000000",
           "stop": "99.00000000",
-          "system_identity": "system-approved-plan:b91d105ff7c5e373ba6c684bb9c9f76a62b05145",
+          "system_identity": "system-approved-plan:eca72e630df75df3bdf35ec3683d1fa3f591d27f",
           "target": "102.00000000"
         },
         "positions_on_wire": 4,
-        "proposal_id": "PRP-089-PAPER-20261106T105347Z"
+        "proposal_id": "PRP-089-PAPER-20261106T111346Z"
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_14_position_recorded",
       "outcome": "passed",
       "test": "test_ACC_14_position_recorded",
-      "timestamp_utc": "2026-11-06T10:53:46.948534+00:00"
+      "timestamp_utc": "2026-11-06T11:13:45.597729+00:00"
     },
     "ACC-15": {
       "acc_id": "ACC-15",
-      "duration_seconds": 0.481,
+      "duration_seconds": 0.573,
       "facts": {
         "claimed_plan_row": {
           "approved_quantity": "4.00000000",
-          "candidate_id": "PRP-089-PAPER-20261106T105348Z",
-          "created_at": "2026-11-06 10:53:48.817883+00:00",
-          "entry_intent_governance_id": "INT-PRP-089-PAPER-20261106T105348Z",
-          "mandatory_liquidation_at": "2026-11-06 23:59:00+00:00",
-          "owner_approval_id": "DEC-PRP-089-PAPER-20261106T105348Z",
-          "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T105348Z",
+          "candidate_id": "PRP-089-PAPER-20261106T111347Z",
+          "created_at": "2026-11-06 11:13:47.484429+00:00",
+          "entry_intent_governance_id": "INT-PRP-089-PAPER-20261106T111347Z",
+          "mandatory_liquidation_at": "2026-11-07 00:59:00+00:00",
+          "owner_approval_id": "DEC-PRP-089-PAPER-20261106T111347Z",
+          "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T111347Z",
           "stop_price": "99.00000000",
           "symbol": "AAPL",
-          "system_identity": "system-approved-plan:ba617e99645a98f7e0f6242944156054915cba76",
+          "system_identity": "system-approved-plan:87492e156143c900bf5bc8a7c3892561b0bab5c8",
           "target_price": "102.00000000",
-          "triggered_exit_at": "2026-11-06 10:53:49.015413+00:00",
+          "triggered_exit_at": "2026-11-06 11:13:47.724043+00:00",
           "triggered_exit_kind": "STOP",
           "triggered_exit_quote_ask": "99.00000000",
           "triggered_exit_quote_bid": "98.90000000",
-          "triggered_exit_quote_captured_at": "2026-11-06 10:53:48.025283+00:00",
+          "triggered_exit_quote_captured_at": "2026-11-06 11:13:46.737741+00:00",
           "triggered_exit_quote_source": "alpaca-iex"
         },
-        "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T105348Z",
-        "proposal_id": "PRP-089-PAPER-20261106T105348Z",
+        "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T111347Z",
+        "proposal_id": "PRP-089-PAPER-20261106T111347Z",
         "sell_orders_on_wire": 1,
         "stop_price": "99.00000000",
         "tick_above_stop": [
@@ -570,55 +628,55 @@
         "tick_sustained_breach": [
           [
             "EXIT_CLAIMED",
-            "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105348Z-STOP generation=0 dispatched=True"
+            "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111347Z-STOP generation=0 dispatched=True"
           ],
           [
             "EXIT_RECONCILED",
-            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105348Z-STOP state=ACCEPTED"
+            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111347Z-STOP state=ACCEPTED"
           ]
         ]
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_15_stop_loss_evaluated",
       "outcome": "passed",
       "test": "test_ACC_15_stop_loss_evaluated",
-      "timestamp_utc": "2026-11-06T10:53:48.035266+00:00"
+      "timestamp_utc": "2026-11-06T11:13:46.784598+00:00"
     },
     "ACC-16": {
       "acc_id": "ACC-16",
-      "duration_seconds": 0.553,
+      "duration_seconds": 0.538,
       "facts": {
         "claimed_plan_row": {
           "approved_quantity": "4.00000000",
-          "candidate_id": "PRP-089-PAPER-20261106T105349Z",
-          "created_at": "2026-11-06 10:53:49.958357+00:00",
-          "entry_intent_governance_id": "INT-PRP-089-PAPER-20261106T105349Z",
-          "mandatory_liquidation_at": "2026-11-06 23:59:00+00:00",
-          "owner_approval_id": "DEC-PRP-089-PAPER-20261106T105349Z",
-          "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T105349Z",
+          "candidate_id": "PRP-089-PAPER-20261106T111348Z",
+          "created_at": "2026-11-06 11:13:48.726655+00:00",
+          "entry_intent_governance_id": "INT-PRP-089-PAPER-20261106T111348Z",
+          "mandatory_liquidation_at": "2026-11-07 00:59:00+00:00",
+          "owner_approval_id": "DEC-PRP-089-PAPER-20261106T111348Z",
+          "plan_id": "PLAN-INT-PRP-089-PAPER-20261106T111348Z",
           "stop_price": "99.00000000",
           "symbol": "AAPL",
-          "system_identity": "system-approved-plan:bb6ea6adc5fd83cd4e8513e6091466cfc73dc1d2",
+          "system_identity": "system-approved-plan:a68a0c59167898421328893e2e57465b6622b8cd",
           "target_price": "102.00000000",
-          "triggered_exit_at": "2026-11-06 10:53:50.179807+00:00",
+          "triggered_exit_at": "2026-11-06 11:13:48.918400+00:00",
           "triggered_exit_kind": "TARGET",
           "triggered_exit_quote_ask": "102.15000000",
           "triggered_exit_quote_bid": "102.10000000",
-          "triggered_exit_quote_captured_at": "2026-11-06 10:53:49.194302+00:00",
+          "triggered_exit_quote_captured_at": "2026-11-06 11:13:47.929514+00:00",
           "triggered_exit_quote_source": "alpaca-iex"
         },
-        "closed_position_verified_at": "2026-11-06T10:53:50.303088+00:00",
+        "closed_position_verified_at": "2026-11-06T11:13:49.044731+00:00",
         "exit_limit_price": "102.10000000",
         "exit_state": "FILLED",
-        "proposal_id": "PRP-089-PAPER-20261106T105349Z",
+        "proposal_id": "PRP-089-PAPER-20261106T111348Z",
         "target_price": "102.00000000",
         "tick_at_target": [
           [
             "EXIT_CLAIMED",
-            "trigger=TARGET attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105349Z-TARGET generation=0 dispatched=True"
+            "trigger=TARGET attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111348Z-TARGET generation=0 dispatched=True"
           ],
           [
             "EXIT_RECONCILED",
-            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105349Z-TARGET state=ACCEPTED"
+            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111348Z-TARGET state=ACCEPTED"
           ]
         ],
         "tick_below_target": [
@@ -631,21 +689,21 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_16_target_evaluated",
       "outcome": "passed",
       "test": "test_ACC_16_target_evaluated",
-      "timestamp_utc": "2026-11-06T10:53:49.239247+00:00"
+      "timestamp_utc": "2026-11-06T11:13:47.979068+00:00"
     },
     "ACC-17": {
       "acc_id": "ACC-17",
-      "duration_seconds": 0.509,
+      "duration_seconds": 0.514,
       "facts": {
-        "authorized_by": "system-approved-plan:2d9220c5100329a5a3bdff171a90b1f11529edb6",
+        "authorized_by": "system-approved-plan:39bfb8056609ee737a525c1deec28c3bf542e305",
         "broker_position_after": 0,
-        "closed_position_verified_at": "2026-11-06T10:53:51.442718+00:00",
-        "exit_attempt_id": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105351Z-STOP",
-        "exit_client_order_id": "m087-dd7ff099679876848e21b99b787dbd9fd4053d3a",
+        "closed_position_verified_at": "2026-11-06T11:13:50.195145+00:00",
+        "exit_attempt_id": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111349Z-STOP",
+        "exit_client_order_id": "m087-9bfd26293f5ea33bcfb58086347b0397fb24ce87",
         "filled_avg_price": "98.90000000",
         "filled_quantity": "4.00000000",
         "final_state": "FILLED",
-        "proposal_id": "PRP-089-PAPER-20261106T105351Z",
+        "proposal_id": "PRP-089-PAPER-20261106T111349Z",
         "state_after_submit": "ACCEPTED",
         "store_c_event_types": [
           "EXIT_AUTHORIZED",
@@ -663,7 +721,7 @@
           "position_exit_preview": 1
         },
         "wire_post_body": {
-          "client_order_id": "m087-dd7ff099679876848e21b99b787dbd9fd4053d3a",
+          "client_order_id": "m087-9bfd26293f5ea33bcfb58086347b0397fb24ce87",
           "extended_hours": false,
           "limit_price": "98.90000000",
           "qty": "4",
@@ -676,11 +734,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_17_exit_submitted_in_simulation",
       "outcome": "passed",
       "test": "test_ACC_17_exit_submitted_in_simulation",
-      "timestamp_utc": "2026-11-06T10:53:50.391676+00:00"
+      "timestamp_utc": "2026-11-06T11:13:49.135230+00:00"
     },
     "ACC-17b": {
       "acc_id": "ACC-17b",
-      "duration_seconds": 1.283,
+      "duration_seconds": 1.384,
       "facts": {
         "attempt_budget": 5,
         "cancels_sent": 5,
@@ -695,7 +753,7 @@
         "final_tick": [
           [
             "NEEDS_ATTENTION",
-            "EXIT_RETRIES_EXHAUSTED: 5 exit attempt(s) this session and 0 expired session(s) did not close the position; no further orders are sent automatically. The last order (XAT-pg4-c9f2df7f6dfce3b749d46faa33"
+            "EXIT_RETRIES_EXHAUSTED: 5 exit attempt(s) this session and 0 expired session(s) did not close the position; no further orders are sent automatically. The last order (XAT-pg4-44c9fea0964894bcac6a8fbccc"
           ]
         ],
         "generations_sent": 5,
@@ -709,75 +767,75 @@
         "max_live_sells_at_any_tick": 1,
         "retries_exhausted_events": 1,
         "sell_client_order_ids": [
-          "m087-74d8a4c2bf99119f17de3af9d502c0866f2fc177",
-          "m087-7455d2aeb900e250e79b3f3041d736ffe5e68ea3",
-          "m087-6145dedafe33ec0958e54bd807d5c22441469da8",
-          "m087-3168c1e7e6af542185249f8d93b72bf6563caf80",
-          "m087-ff5aefed88e846f4c4503e5ddd5e7f89fe07f92a"
+          "m087-701640d259bdf0e228998aa63dc1534504c8f927",
+          "m087-9bcad64f006b4e45af6728dc41e0624710471377",
+          "m087-4bf7404686c728ce0d7e7b855dc6910a1435e26b",
+          "m087-055bf194b31abef1b2d9c16b1ad73ad71addd7cc",
+          "m087-841af6c582c61ca969a607cab48dfc5f0e971212"
         ],
         "sells_sent_after_budget_spent": 0,
         "tick_inside_minimum_spacing": [
           [
             "EXIT_RECONCILED",
-            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105352Z-STOP state=ACCEPTED"
+            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111350Z-STOP state=ACCEPTED"
           ]
         ],
         "tick_with_unconfirmed_cancel": [
           [
             "EXIT_RECONCILED",
-            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105352Z-STOP state=CANCEL_REQUESTED: cancel requested; the replacement waits until the broker reports this order terminal"
+            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111350Z-STOP state=CANCEL_REQUESTED: cancel requested; the replacement waits until the broker reports this order terminal"
           ]
         ]
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_17b_d3_unfilled_exit_is_repriced_and_replaced_within_bounds",
       "outcome": "passed",
       "test": "test_ACC_17b_d3_unfilled_exit_is_repriced_and_replaced_within_bounds",
-      "timestamp_utc": "2026-11-06T10:53:52.302375+00:00"
+      "timestamp_utc": "2026-11-06T11:13:51.176683+00:00"
     },
     "ACC-17c": {
       "acc_id": "ACC-17c",
-      "duration_seconds": 0.742,
+      "duration_seconds": 0.711,
       "facts": {
         "acknowledgement_ids": [
-          "XACK-2c4693065cd8804f543d49226db4487de9ae8043-1",
-          "XACK-XAT-pg1-bec4c7f07c71229f4c3caef5289d573fdb64-1",
-          "XACK-XAT-pg1-bec4c7f07c71229f4c3caef5289d573fdb64-2",
-          "XACK-2c4693065cd8804f543d49226db4487de9ae8043-2",
-          "XACK-2c4693065cd8804f543d49226db4487de9ae8043-3",
-          "XACK-2c4693065cd8804f543d49226db4487de9ae8043-4",
-          "XACK-2c4693065cd8804f543d49226db4487de9ae8043-5",
-          "XACK-2c4693065cd8804f543d49226db4487de9ae8043-6",
-          "XACK-2c4693065cd8804f543d49226db4487de9ae8043-7"
+          "XACK-39b86ebd630ec256c777038a043ec3a052583ba4-1",
+          "XACK-XAT-pg1-bbeb771a749e5540676c0692003a08bf8873-1",
+          "XACK-XAT-pg1-bbeb771a749e5540676c0692003a08bf8873-2",
+          "XACK-39b86ebd630ec256c777038a043ec3a052583ba4-2",
+          "XACK-39b86ebd630ec256c777038a043ec3a052583ba4-3",
+          "XACK-39b86ebd630ec256c777038a043ec3a052583ba4-4",
+          "XACK-39b86ebd630ec256c777038a043ec3a052583ba4-5",
+          "XACK-39b86ebd630ec256c777038a043ec3a052583ba4-6",
+          "XACK-39b86ebd630ec256c777038a043ec3a052583ba4-7"
         ],
         "acknowledgement_ids_all_distinct": true,
-        "attempt_id": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105354Z-MANDATORY_EXIT",
+        "attempt_id": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111353Z-MANDATORY_EXIT",
         "attempt_id_length": 63,
         "claimed_plan_row_quote_fields": [
           null,
           null
         ],
-        "closed_position_verified_at": "2026-11-06T23:57:21.333845+00:00",
+        "closed_position_verified_at": "2026-11-07T00:57:21.281440+00:00",
         "final_state": "FILLED",
         "generation_states": [
           "CANCELED",
           "ACCEPTED"
         ],
-        "mandatory_exit_deadline": "2026-11-06T23:57:00+00:00",
+        "mandatory_exit_deadline": "2026-11-07T00:57:00+00:00",
         "sell_orders_on_wire": 2,
         "tick_after_mandatory_spacing": [
           [
             "EXIT_SUBMITTED",
-            "trigger=MANDATORY_EXIT attempt=XAT-pg1-bec4c7f07c71229f4c3caef5289d573fdb64 generation=1 dispatched=True"
+            "trigger=MANDATORY_EXIT attempt=XAT-pg1-bbeb771a749e5540676c0692003a08bf8873 generation=1 dispatched=True"
           ]
         ],
         "tick_at_deadline": [
           [
             "EXIT_CLAIMED",
-            "trigger=MANDATORY_EXIT attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105354Z-MANDATORY_EXIT generation=0 dispatched=True"
+            "trigger=MANDATORY_EXIT attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111353Z-MANDATORY_EXIT generation=0 dispatched=True"
           ],
           [
             "EXIT_RECONCILED",
-            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105354Z-MANDATORY_EXIT state=ACCEPTED"
+            "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111353Z-MANDATORY_EXIT state=ACCEPTED"
           ]
         ],
         "tick_before_deadline": [
@@ -790,11 +848,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_17c_mandatory_liquidation_exit_is_submitted_and_reconciled",
       "outcome": "passed",
       "test": "test_ACC_17c_mandatory_liquidation_exit_is_submitted_and_reconciled",
-      "timestamp_utc": "2026-11-06T10:53:53.690545+00:00"
+      "timestamp_utc": "2026-11-06T11:13:52.531093+00:00"
     },
     "ACC-18": {
       "acc_id": "ACC-18",
-      "duration_seconds": 2.017,
+      "duration_seconds": 2.178,
       "facts": {
         "manual_first_then_manager": {
           "manager_outcome": [
@@ -809,16 +867,16 @@
         "manual_review_refused_while_manager_exit_live": "Position requires operator attention before it can be closed safely. an exit is already in progress (ACCEPTED); a second exit cannot be prepared while it is open Nothing was sent.",
         "racing_managers": {
           "loser_error_if_any": [
-            "IntegrityError('(psycopg.errors.UniqueViolation) duplicate key value violates unique constraint \"position_exit_preview_pkey\"\\nDETAIL:  Key (preview_id)=(XPV-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP) already exists.')"
+            "PLAN_EVALUATION_ERROR: evaluating this plan raised FoundationError (caused by IntegrityError); it is retried on the next tick and every other plan was still evaluated: Persistence execute failed in th"
           ],
           "next_tick_after_race": [
             [
               "NOT_ELIGIBLE",
-              "earlier exits already sold the whole attributable quantity; another entry in the same symbol also holds shares (ATT-PRP-089-PAPER-20261106T105359Z); attribution is ambiguous; this position is already "
+              "earlier exits already sold the whole attributable quantity; another entry in the same symbol also holds shares (ATT-PRP-089-PAPER-20261106T111358Z); attribution is ambiguous; this position is already "
             ],
             [
               "EXIT_RECONCILED",
-              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP state=ACCEPTED"
+              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP state=ACCEPTED"
             ]
           ],
           "sell_orders_on_wire": 1,
@@ -827,15 +885,29 @@
             [
               [
                 "NOT_ELIGIBLE",
-                "earlier exits already sold the whole attributable quantity; another entry in the same symbol also holds shares (ATT-PRP-089-PAPER-20261106T105359Z); attribution is ambiguous; this position is already "
+                "earlier exits already sold the whole attributable quantity; another entry in the same symbol also holds shares (ATT-PRP-089-PAPER-20261106T111358Z); attribution is ambiguous; this position is already "
+              ],
+              [
+                "EXIT_ALREADY_CLAIMED",
+                "another evaluation already claimed this plan's exit trigger"
+              ],
+              [
+                "NEEDS_ATTENTION",
+                "PLAN_EVALUATION_ERROR: evaluating this plan raised FoundationError (caused by IntegrityError); it is retried on the next tick and every other plan was still evaluated: Persistence execute failed in th"
+              ]
+            ],
+            [
+              [
+                "NOT_ELIGIBLE",
+                "earlier exits already sold the whole attributable quantity; another entry in the same symbol also holds shares (ATT-PRP-089-PAPER-20261106T111358Z); attribution is ambiguous; this position is already "
               ],
               [
                 "EXIT_CLAIMED",
-                "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP generation=0 dispatched=True"
+                "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP generation=0 dispatched=True"
               ],
               [
                 "EXIT_RECONCILED",
-                "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP state=ACCEPTED"
+                "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP state=ACCEPTED"
               ]
             ]
           ]
@@ -851,14 +923,14 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_18_duplicate_exit_prevented",
       "outcome": "passed",
       "test": "test_ACC_18_duplicate_exit_prevented",
-      "timestamp_utc": "2026-11-06T10:53:56.347354+00:00"
+      "timestamp_utc": "2026-11-06T11:13:55.347243+00:00"
     },
     "ACC-19": {
       "acc_id": "ACC-19",
-      "duration_seconds": 0.778,
+      "duration_seconds": 0.781,
       "facts": {
         "entry_rejection": {
-          "attempt_id": "ATT-PRP-089-PAPER-20261106T105358Z",
+          "attempt_id": "ATT-PRP-089-PAPER-20261106T111357Z",
           "broker_http_status_recorded": 403,
           "broker_message_recorded": "insufficient buying power",
           "buy_orders_on_wire": 1,
@@ -866,7 +938,7 @@
           "manager_outcome": [
             [
               "NOT_ELIGIBLE",
-              "the entry order is REJECTED; only a filled entry, or a cancelled entry that left a proven filled position, can be closed; the entry's filled quantity is not a proven whole number of shares; the broker"
+              "the entry order is REJECTED; only a filled entry, or a cancelled or expired entry that left a proven filled position, can be closed; the entry's filled quantity is not a proven whole number of shares;"
             ]
           ],
           "resend_on_second_confirm": false,
@@ -874,35 +946,35 @@
         },
         "exit_rejection": {
           "distinct_client_order_ids": true,
-          "first_attempt": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP",
+          "first_attempt": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP",
           "first_failure_code": "HTTP_403",
           "first_state": "REJECTED",
           "live_sells": 1,
-          "replacement_attempt": "XAT-pg1-95f58b6ef0b05056eb600b134a1e828aded9",
+          "replacement_attempt": "XAT-pg1-03abfb2d8d2052a74506d0d22d630273d405",
           "replacement_state": "ACCEPTED",
           "sell_orders_on_wire": 2,
           "tick_after_rejection": [
             [
               "NOT_ELIGIBLE",
-              "the entry order is REJECTED; only a filled entry, or a cancelled entry that left a proven filled position, can be closed; the entry's filled quantity is not a proven whole number of shares; another en"
+              "the entry order is REJECTED; only a filled entry, or a cancelled or expired entry that left a proven filled position, can be closed; the entry's filled quantity is not a proven whole number of shares;"
             ],
             [
               "EXIT_CLAIMED",
-              "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP generation=0 dispatched=True"
+              "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP generation=0 dispatched=True"
             ],
             [
               "EXIT_RECONCILED",
-              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP ended REJECTED; the next generation waits for the minimum spacing"
+              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP ended REJECTED; the next generation waits for the minimum spacing"
             ]
           ],
           "tick_after_spacing": [
             [
               "NOT_ELIGIBLE",
-              "the entry order is REJECTED; only a filled entry, or a cancelled entry that left a proven filled position, can be closed; the entry's filled quantity is not a proven whole number of shares; another en"
+              "the entry order is REJECTED; only a filled entry, or a cancelled or expired entry that left a proven filled position, can be closed; the entry's filled quantity is not a proven whole number of shares;"
             ],
             [
               "EXIT_SUBMITTED",
-              "trigger=STOP attempt=XAT-pg1-95f58b6ef0b05056eb600b134a1e828aded9 generation=1 dispatched=True"
+              "trigger=STOP attempt=XAT-pg1-03abfb2d8d2052a74506d0d22d630273d405 generation=1 dispatched=True"
             ]
           ]
         }
@@ -910,11 +982,11 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_19_broker_rejection_handled",
       "outcome": "passed",
       "test": "test_ACC_19_broker_rejection_handled",
-      "timestamp_utc": "2026-11-06T10:53:57.785655+00:00"
+      "timestamp_utc": "2026-11-06T11:13:56.825104+00:00"
     },
     "ACC-20": {
       "acc_id": "ACC-20",
-      "duration_seconds": 1.101,
+      "duration_seconds": 1.069,
       "facts": {
         "broker_read_outage_before_send": {
           "attempt_rows_added": 0,
@@ -950,17 +1022,17 @@
           "tick_that_lost_and_reconciled_it": [
             [
               "EXIT_CLAIMED",
-              "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP generation=0 dispatched=True"
+              "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP generation=0 dispatched=True"
             ],
             [
               "EXIT_RECONCILED",
-              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP state=ACCEPTED"
+              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP state=ACCEPTED"
             ]
           ],
           "tick_that_reconciled": [
             [
               "EXIT_RECONCILED",
-              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105359Z-STOP state=ACCEPTED"
+              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111358Z-STOP state=ACCEPTED"
             ]
           ],
           "unknown_outcome_events": [
@@ -971,15 +1043,25 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_20_connection_loss_handled_without_resend",
       "outcome": "passed",
       "test": "test_ACC_20_connection_loss_handled_without_resend",
-      "timestamp_utc": "2026-11-06T10:53:59.521706+00:00"
+      "timestamp_utc": "2026-11-06T11:13:58.531077+00:00"
     },
     "ACC-21": {
       "acc_id": "ACC-21",
-      "duration_seconds": 0.843,
+      "duration_seconds": 0.937,
       "facts": {
         "buy_orders_on_wire": 1,
         "claim_survived_crash": {
           "sells_on_wire_at_crash": 0,
+          "tick_outcome_at_crash": [
+            [
+              "NEEDS_ATTENTION",
+              "PLAN_EVALUATION_ERROR: evaluating this plan raised RuntimeError; it is retried on the next tick and every other plan was still evaluated: process killed before the SELL left"
+            ],
+            [
+              "NEEDS_ATTENTION",
+              "PLAN_EVALUATION_ERROR: evaluating this plan raised RuntimeError; it is retried on the next tick and every other plan was still evaluated: process killed before the SELL left"
+            ]
+          ],
           "triggered_exit_kind": "STOP"
         },
         "components_rebuilt_each_time": [
@@ -993,30 +1075,30 @@
         "durable_state_identical_across_first_restart": {
           "approved_order_intent": {
             "rows": 1,
-            "sha256": "7419e559ab43b44909c9f1dff01369723eeee8fe7d78ee12fff715dc8425f92c"
+            "sha256": "172651860e91003de16d373cc8002bc35728c92f0756cef5ef858d7ee4ea97fe"
           },
           "approved_plan": {
             "rows": 1,
-            "sha256": "a678b295f0f333b91eba25c83d3204de54d64b0202f556c6fddcb62c585c2d7c"
+            "sha256": "231d960e215a89cc8a796b1f15e40e156ece20245696317147b0edb27b84bb5b"
           },
           "paper_execution_attempt": {
             "rows": 1,
-            "sha256": "4dfa982cd182bf91b41685bc2b3afa31cae8d53ca0d7ab7aa7bc35c0545d69bb"
+            "sha256": "d88493f675e78cd92211801d69e29300d521e94c763be9491b8be0c0b9756020"
           },
           "trade_proposal": {
             "rows": 1,
-            "sha256": "0b96b9ff0d4e62f67e5ca83c919a25ceb134dfddf018eae8dca1bba2a7c3d397"
+            "sha256": "04525f019463b3ad99fce4788764c52ff84bc0b0a67612ff5c7f1185f1d9589b"
           }
         },
         "entry_state_after_restart_reconcile": "PAPER_ACCEPTED",
         "entry_state_before_restart": "SUBMISSION_UNKNOWN",
         "final_exit_state": "FILLED",
         "restarts": 3,
-        "resumed_attempt_id": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105401Z-STOP",
+        "resumed_attempt_id": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111400Z-STOP",
         "resumed_tick": [
           [
             "EXIT_SUBMITTED",
-            "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105401Z-STOP generation=0 dispatched=True"
+            "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111400Z-STOP generation=0 dispatched=True"
           ]
         ],
         "sell_orders_on_wire": 1
@@ -1024,24 +1106,24 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_21_restart_recovery",
       "outcome": "passed",
       "test": "test_ACC_21_restart_recovery",
-      "timestamp_utc": "2026-11-06T10:54:00.997912+00:00"
+      "timestamp_utc": "2026-11-06T11:14:00.164160+00:00"
     },
     "ACC-22": {
       "acc_id": "ACC-22",
-      "duration_seconds": 0.896,
+      "duration_seconds": 1.019,
       "facts": {
         "automatic_exit_while_engaged": {
-          "attempt": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105402Z-STOP",
+          "attempt": "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111402Z-STOP",
           "closed_verified": true,
           "sell_orders": 1,
           "tick": [
             [
               "EXIT_CLAIMED",
-              "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105402Z-STOP generation=0 dispatched=True"
+              "trigger=STOP attempt=XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111402Z-STOP generation=0 dispatched=True"
             ],
             [
               "EXIT_RECONCILED",
-              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105402Z-STOP state=ACCEPTED"
+              "attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111402Z-STOP state=ACCEPTED"
             ]
           ]
         },
@@ -1049,14 +1131,14 @@
         "decision_or_intent_created_while_engaged": false,
         "engage_http_status": 303,
         "entry_after_release": {
-          "client_order_id": "m085-79c8b0b8ae4cf4ba6c3f7e49370c493c04fce798",
+          "client_order_id": "m085-c523d345f7665dd2b4b68c91d5b71029e7295f7f",
           "state": "PAPER_ACCEPTED"
         },
         "entry_refusal": "Execution blocked \u2014 Operator Console Operator Console PAPER Today Active trades History Safety Execution blocked. The kill switch is engaged, so this approval cannot be confirmed. Nothing was sent. Release the kill switch on the Safety page",
         "kill_switch_events": 4,
         "kill_switch_table_after_engage": [
           {
-            "changed_at": "2026-11-06 10:54:04.208516+00:00",
+            "changed_at": "2026-11-06 11:14:03.478810+00:00",
             "changed_by": "owner",
             "engaged": "True",
             "kill_switch_id": "paper-kill-switch-v1",
@@ -1065,18 +1147,18 @@
           }
         ],
         "manual_exit_while_engaged": {
-          "attempt": "XAT-INT-PRP-089-PAPER-20261106T105403Z-1",
+          "attempt": "XAT-INT-PRP-089-PAPER-20261106T111403Z-1",
           "final_state": "FILLED"
         }
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_22_kill_switch_enforced",
       "outcome": "passed",
       "test": "test_ACC_22_kill_switch_enforced",
-      "timestamp_utc": "2026-11-06T10:54:02.524590+00:00"
+      "timestamp_utc": "2026-11-06T11:14:01.872959+00:00"
     },
     "ACC-23": {
       "acc_id": "ACC-23",
-      "duration_seconds": 1.014,
+      "duration_seconds": 1.015,
       "facts": {
         "audit_row_counts": {
           "store_b": {
@@ -1104,19 +1186,19 @@
         "digests": {
           "paper_execution_attempt": {
             "rows": 1,
-            "sha256": "05d0adcff6b6540f04b49b1ea3ab4f9ecd5c981ce7509ea0c28d33df5a052c17"
+            "sha256": "7d41fe1d7f839e451ce930690c2d869037384abe4198bdd1acad8dc86ec8556c"
           },
           "paper_execution_event": {
             "rows": 7,
-            "sha256": "1e5bf62d9eae585e134d7906e34f3676bc23ca8ee7b94dbc39aff0d1429b578a"
+            "sha256": "bfa03bd6ac2430bc56f3e6d043d5f0a7e3479b9ce113f2210e1aa4716d66bdd9"
           },
           "position_exit_attempt": {
             "rows": 2,
-            "sha256": "5c69f713f0d80c456db987cbadf05983a9a54ea42e1373281c1ef49b943f6fa0"
+            "sha256": "832d29bfce9c667ca8d82fab1ad178d8ab696486bb3cd8e6f91ec951648b4a87"
           },
           "position_exit_event": {
             "rows": 12,
-            "sha256": "caf3d8708a2067a9c401c4748a24e43fdea809c0e1c82d36621c2bd6c269b59c"
+            "sha256": "45978783779453111e4ffe2e2808265ace7c54cec8001bd49b88046e7d26671f"
           }
         },
         "entry_event_sequence": [
@@ -1143,43 +1225,43 @@
           "POSITION_CLOSED_VERIFIED"
         ],
         "lifecycle": {
-          "entry_client_order_id": "m085-9a5586b41e80114aa7d012b9916644b2a21e6025",
+          "entry_client_order_id": "m085-1be39db062ecf6a4961896aa10a1262c50ad32ef",
           "exit_attempt_ids": [
-            "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105404Z-STOP",
-            "XAT-pg1-1c90425c2e0c4a27e84b4df369a13a9faff7"
+            "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111403Z-STOP",
+            "XAT-pg1-9ca7b9db96f470338e33cee163a8eb86bf1b"
           ],
-          "intent_id": "INT-PRP-089-PAPER-20261106T105404Z",
-          "proposal_id": "PRP-089-PAPER-20261106T105404Z"
+          "intent_id": "INT-PRP-089-PAPER-20261106T111403Z",
+          "proposal_id": "PRP-089-PAPER-20261106T111403Z"
         },
         "pages_scanned_for_credentials": 5,
         "rewrite_and_delete_attempts_refused_by_database": {
           "entry_ack_delete": "paper_broker_acknowledgement is append-only: DELETE is not permitted",
           "entry_ack_update": "paper_broker_acknowledgement is append-only: UPDATE is not permitted",
-          "entry_attempt_update": "attempt ATT-PRP-089-PAPER-20261106T105404Z is terminal in state FILLED and is immutable",
+          "entry_attempt_update": "attempt ATT-PRP-089-PAPER-20261106T111403Z is terminal in state FILLED and is immutable",
           "entry_event_delete": "paper_execution_event is append-only: DELETE is not permitted",
           "entry_event_update": "paper_execution_event is append-only: UPDATE is not permitted",
           "exit_ack_delete": "position_exit_acknowledgement is append-only: DELETE is not permitted",
-          "exit_attempt_update": "exit attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105404Z-STOP is terminal in state CANCELED and cannot be rewritten",
+          "exit_attempt_update": "exit attempt XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111403Z-STOP is terminal in state CANCELED and cannot be rewritten",
           "exit_event_delete": "position_exit_event is append-only: DELETE is not permitted",
           "exit_event_update": "position_exit_event is append-only: UPDATE is not permitted",
-          "plan_delete": "approved_plan PLAN-INT-PRP-089-PAPER-20261106T105404Z is append-only; DELETE is not permitted"
+          "plan_delete": "approved_plan PLAN-INT-PRP-089-PAPER-20261106T111403Z is append-only; DELETE is not permitted"
         },
         "tables_scanned_for_credentials": 83
       },
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_23_audit_evidence_preserved",
       "outcome": "passed",
       "test": "test_ACC_23_audit_evidence_preserved",
-      "timestamp_utc": "2026-11-06T10:54:04.162498+00:00"
+      "timestamp_utc": "2026-11-06T11:14:03.554074+00:00"
     },
     "ACC-24": {
       "acc_id": "ACC-24",
-      "duration_seconds": 0.731,
+      "duration_seconds": 0.829,
       "facts": {
         "broker_flat": {
           "open_orders": 0,
           "positions": 0
         },
-        "closed_position_verified_at": "2026-11-06T10:54:37.519757+00:00",
+        "closed_position_verified_at": "2026-11-06T11:14:36.956751+00:00",
         "counters": {
           "buy_orders_on_wire": 1,
           "entry_ledger_orders_today": 1,
@@ -1201,41 +1283,41 @@
           "digests_after": {
             "b": {
               "rows": 1,
-              "sha256": "52f89732b4d364dd3fcebd631e1a1c81cb0c4595d5061cc54b6492f77a20960a"
+              "sha256": "79b4bcf05f54abcaa9b22990686ecfa5eecc79fa59c24fd863d88e40a717e290"
             },
             "c": {
               "rows": 2,
-              "sha256": "750907e2484da796c638ae741fea5bbcd85433ad36f5359ce258c286256a920c"
+              "sha256": "3164bd334afd6c72924868a767c847152b8cb42f079949a2ccd61af903cded25"
             },
             "plan": {
               "rows": 1,
-              "sha256": "d398bb541ceb3c86135bedb9bb5646f665945b111a5ad378a40bd21852242782"
+              "sha256": "5e368b54f2e7baf2693fdfd51f7291df3386acc14e0be188fdac03db6fad490a"
             }
           },
           "digests_before": {
             "b": {
               "rows": 1,
-              "sha256": "52f89732b4d364dd3fcebd631e1a1c81cb0c4595d5061cc54b6492f77a20960a"
+              "sha256": "79b4bcf05f54abcaa9b22990686ecfa5eecc79fa59c24fd863d88e40a717e290"
             },
             "c": {
               "rows": 2,
-              "sha256": "750907e2484da796c638ae741fea5bbcd85433ad36f5359ce258c286256a920c"
+              "sha256": "3164bd334afd6c72924868a767c847152b8cb42f079949a2ccd61af903cded25"
             },
             "plan": {
               "rows": 1,
-              "sha256": "d398bb541ceb3c86135bedb9bb5646f665945b111a5ad378a40bd21852242782"
+              "sha256": "5e368b54f2e7baf2693fdfd51f7291df3386acc14e0be188fdac03db6fad490a"
             }
           },
           "tick": []
         },
         "lifecycle": {
-          "entry_client_order_id": "m085-a580cf4ddbc2a76b345312975b268c84552fc7de",
+          "entry_client_order_id": "m085-2192efbcd504fa797a64106459c5680b7d459a88",
           "exit_attempt_ids": [
-            "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T105405Z-STOP",
-            "XAT-pg1-49b78bb32794cc440b45c2dbb1e7c67d53ed"
+            "XAT-plan-PLAN-INT-PRP-089-PAPER-20261106T111405Z-STOP",
+            "XAT-pg1-e9ccb65118a122e90367860d6d402b7a4c1b"
           ],
-          "intent_id": "INT-PRP-089-PAPER-20261106T105405Z",
-          "proposal_id": "PRP-089-PAPER-20261106T105405Z"
+          "intent_id": "INT-PRP-089-PAPER-20261106T111405Z",
+          "proposal_id": "PRP-089-PAPER-20261106T111405Z"
         },
         "next_prepare_readback": {
           "daily_order_count": "1 orders today",
@@ -1258,7 +1340,7 @@
       "node_id": "tests/integration/test_m100_e2e_acceptance_matrix.py::test_ACC_24_final_state_reconciled",
       "outcome": "passed",
       "test": "test_ACC_24_final_state_reconciled",
-      "timestamp_utc": "2026-11-06T10:54:05.532947+00:00"
+      "timestamp_utc": "2026-11-06T11:14:04.986845+00:00"
     }
   },
   "schema": 1
