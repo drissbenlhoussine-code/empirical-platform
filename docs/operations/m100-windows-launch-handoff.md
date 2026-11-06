@@ -103,8 +103,7 @@ and the kill switch **not** engaged-by-surprise. Keep the kill switch reachable.
 
 Submit exactly one whole-share entry (the console enforces whole shares, a notional cap, and Owner approval of
 each order). Do **not** click Prepare twice. Watch `/health` and the Alpaca paper dashboard. If an exit is
-triggered and sits `ACCEPTED` but unfilled, or the console reports `NEEDS_ATTENTION`, **exit manually at the
-broker** (known limitation D3 in the acceptance report). Finish flat.
+triggered and sits `ACCEPTED` but unfilled, or the console reports `NEEDS_ATTENTION`, the manager now cancels a stale exit, waits for the broker to confirm, and re-arms (bounded; see `m100-exit-state-machine.md`). If the console shows `EXIT_UNRESOLVED_RISK` / the kill switch engages by itself, follow that document's Owner runbook (**exit manually at the broker**, record the closure, then release the switch). Finish flat.
 
 ## 10. Evidence to keep
 

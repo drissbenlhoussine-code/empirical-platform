@@ -48,3 +48,7 @@ bounds either. It is purely a new-entry gate.
   — the engaged kill switch does not block confirming a manual exit.
 - `tests/unit/test_v1_kill_switch_semantics.py` — entry-blocked / exit-not-blocked
   matrix, including the automatic position-plan manager.
+
+## M100 addendum: the manager may engage it
+
+When an automatic exit cannot safely complete (`EXIT_UNRESOLVED_RISK`, see `m100-exit-state-machine.md`) the plan manager engages THIS switch, once, to stop new entries. It never disengages it and never reads it for exits. Only the Owner releases it.

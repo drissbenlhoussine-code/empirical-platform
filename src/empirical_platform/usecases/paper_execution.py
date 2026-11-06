@@ -1634,7 +1634,9 @@ class SubmitAuthorizedPaperOrderHandler:
         try:
             now = timing.now()
             limits, day_start = _limits_and_day_start(configuration, now=now)
+            read_started = timing.now()
             evidence = self._broker.fetch_portfolio_risk_evidence(day_start=day_start)
+            read_finished = timing.now()
             in_flight = _in_flight_entries(
                 attempts=self._attempts,
                 intents=self._intents,
@@ -1648,10 +1650,13 @@ class SubmitAuthorizedPaperOrderHandler:
                 "trading limits could not be verified from fresh broker evidence "
                 f"({type(error).__name__}: {error}); the entry is blocked"
             ) from error
-        age = (timing.now() - evidence.captured_at).total_seconds()
-        if age > policy.quote_maximum_age_seconds or age < -policy.quote_maximum_age_seconds:
+        # Freshness is judged on the HOST clock around the read itself (never by comparing the
+        # adapter's own timestamp with the host clock): a read that took longer than the
+        # configured data-age limit is stale by the time it is used.
+        duration = (read_finished - read_started).total_seconds()
+        if duration > policy.quote_maximum_age_seconds or duration < 0:
             raise PaperExecutionRefusedError(
-                f"the portfolio risk evidence is {int(age)}s from now; the entry is blocked"
+                f"reading the portfolio risk evidence took {duration:.0f}s; the entry is blocked"
             )
         if order_price is None:
             raise PaperExecutionRefusedError(

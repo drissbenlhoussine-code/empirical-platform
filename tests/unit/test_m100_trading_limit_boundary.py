@@ -248,17 +248,18 @@ def test_unreadable_risk_evidence_blocks_the_entry(
     assert _orders(world) == 0
 
 
-def test_stale_risk_evidence_blocks_the_entry(
+def test_a_risk_evidence_read_that_took_too_long_blocks_the_entry(
     world: World, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     world.load_day(("AAPL",))
     real = world.broker.fetch_portfolio_risk_evidence
 
-    def _stale(*, day_start: datetime) -> PortfolioRiskEvidence:
+    def _slow(*, day_start: datetime) -> PortfolioRiskEvidence:
         evidence = real(day_start=day_start)
-        return replace(evidence, captured_at=evidence.captured_at.replace(year=2020))
+        world.clock.advance(120)  # the configured data-age limit is 60 s
+        return evidence
 
-    monkeypatch.setattr(world.broker, "fetch_portfolio_risk_evidence", _stale)
+    monkeypatch.setattr(world.broker, "fetch_portfolio_risk_evidence", _slow)
     result = _try_enter(world)
     assert not _sent(result)
     assert _orders(world) == 0

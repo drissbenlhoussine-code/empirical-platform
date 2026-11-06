@@ -1,45 +1,98 @@
-# M100 — Cloud launch closure: acceptance report
+# M100 — Final cloud release closure: acceptance report
 
-Reviewed base: PR #47 head `ac5e649917c5089eafda698d451f32f32242dc80` (base `release/v1-personal-paper` `83ba3dba…`).
-Follow-up commit on `claude/empirical-m100-launch-c492oz`: see `git log` (adds fixes below). Nothing merged by this work.
+Branch `claude/m100-cloud-release-closure-2e3q0o` (identical start point to
+`claude/empirical-m100-launch-c492oz` @ `2b7046f`), target `release/v1-personal-paper`.
+Contains PR #47's head (`ac5e649`), the earlier M100 corrections (`f23c851`, `2b7046f`) and the
+closure work below. PR #47 is **not** merged separately; its content is in this branch's ancestry.
+Nothing here was merged, deployed, or sent to a real broker.
 
-## PR #47 — the four corrections, verified from the diff and CI (not from the description)
-
-| | Claim | Evidence |
-|---|---|---|
-| A | Real positions/open orders reach the risk engine | `paper_operator_console.py` builds `PositionSnapshot`/`OpenOrderSnapshot` from `fetch_position`/`fetch_open_orders`; 5 new HTTP-level tests + 2 candidate-preparation regressions |
-| B | `approved_plan` in integrity checks | backup tool baselines `minimum_approved_plan_rows`; step 9 verifies; PG integration test proves the catch; old manifest → clear refusal (reviewer-confirmed) |
-| C | PYTHONPATH pinned | `main()` passes `PYTHONPATH=<repo>/src`, overriding ambient (reviewer-confirmed) |
-| D | Docs match code | Partly: the `_store_c_config` note was fixed, but step 9 text, resume/recovery text were still wrong — corrected in the follow-up commit |
-
-PR #47 CI on its head: 8/8 check runs success (`verify` ×2 Windows, `temporal-postgres`, `console-postgres`, `exit-postgres`, `paper-exit-postgres`, `v1-deployment-shape-postgres`, `personal-paper-deploy-postgres`). No reviews or comments. PR #46's tree is identical to the release branch (empty diff) → redundant; **left open**, closure needs Owner authorization.
-
-## Consolidated defect register (independent reviews; no P0 found)
+## Defect register (final)
 
 | ID | Sev | Finding | Status |
 |----|-----|---------|--------|
-| D1 | P1 | Daily loss, daily order count, simultaneous-position limits never enforced (hardcoded 0 / single-symbol) — two reviewers | **OPEN** (needs broker daily-P&L/order-count plumbing; see mitigations) |
-| D2 | P1 | Duplicate entry: two Prepares before either send both pass; working-order check only at Prepare | **FIXED** in follow-up (submit/recheck `_gather` folds working orders into exposure) + 2 unit tests + transport-test server route |
-| D3 | P1 | STOP/MANDATORY exit is one DAY limit sell at trigger-time bid; never cancelled/repriced; EXPIRED/CANCELED attempt never re-armed → `NEEDS_ATTENTION` | **OPEN** (design change; manual exit procedure in handoff) |
-| D4 | P1 | No Host-header check → DNS rebinding can read CSRF token and POST console actions | **FIXED** (421 for non-loopback Host) + tests |
-| D5 | P1 | Deploy journal resume skipped gates 1–3,6 without re-checking | **FIXED** (re-evaluated until step 7 completes) + tests |
-| D6 | P1 (conditional) | Autostart wrapper restarts console 10 s after step 5 stop | **MITIGATED** by runbook (disable task first); code unchanged |
-| D7 | doc | Step 9/recovery text wrong ("re-run step N alone", baseline "console stopped") | **FIXED** |
-| D8 | note | URLError after a step-13 failure gave a raw traceback | **FIXED** (journaled refusal) |
+| D1 | P1 | Daily loss / order count / simultaneous positions / exposure never enforced | **CLOSED (PAPER)** — `m100-trading-limits.md` |
+| D2 | P1 | Duplicate entry across Prepares | CLOSED (earlier) + now also covered by the D1 gate |
+| D3 | P1 | One-shot DAY exit never cancelled / re-armed | **CLOSED (PAPER)** — `m100-exit-state-machine.md` |
+| D4 | P1 | DNS rebinding on console | CLOSED (earlier) |
+| D5 | P1 | Deploy resume skipped gates | CLOSED (earlier) |
+| D6 | P1 cond. | Autostart wrapper restarts console after step 5 | MITIGATED by runbook (unchanged) |
 
-**Mitigations for open P1s in PAPER:** per-order Owner approval, one-symbol watchlist, per-order notional cap, whole-share only, kill switch for entries, PAPER money only. These make D1/D3 acceptable for a supervised PAPER first run **only with Owner acknowledgement**; they are LIVE blockers.
+Independent review (four fresh reviewers, code only, no author conclusions) found **no P0**. Confirmed
+P1s were fixed: broker read order (position/order snapshot race), a prepared-but-unclaimed re-arm
+pair latching a generation after a transient failure, and a refused/erroring cancel stalling an exit
+with no escalation. Reviewers also found test-evidence gaps (post-claim gate pass, terminal-Nth
+attempt bound, NOT_SENT exclusion, restart test window); each now has a test that fails when the
+production line is mutated. Remaining P2 items are listed under "Known limits".
 
-## Verification (exact commands, this session, Linux 4 cores, Python 3.13)
+## The 24-step acceptance matrix
 
-Base: `ac5e649`. After fixes: follow-up commit.
-- `ruff format --check .` / `ruff check .` — clean. `python tools/check_architecture.py .` — clean.
-- `mypy` (Linux): only 25 errors, all in `console_control.py` Windows-only attributes (`O_BINARY` etc.); CI type-checks on Windows and was green on the base.
-- `pytest tests/unit tests/architecture tests/integration -n 3` after fixes: **5372 passed, 13 failed, 12 errors, 1395 skipped**. Failures/errors are Linux-environment only: 8+12 depend on dataset fixtures sealed with CRLF bytes (confirmed: the seal matches the CRLF form of `synthetic_multi_period_validation_dataset_bundle.json`), 2 `m098` tests assert Windows-specific error text, 1 deploy integration test needs Windows process semantics; the `m085_send_boundary_transport` pair was caused by my change and fixed. **Not independently proven green here; Windows CI is the authority.**
-- Skipped (1395): Postgres/network opt-in tests. Postgres suites were run by CI on the base head (links above), not locally. Local coverage gate (79%) not reached because of skips — CI configuration governs.
-- Windows CI on the follow-up commit: see final report.
+No 24-step list exists in the repository, so this milestone **defined** one (the Owner's brief named
+the categories: normal execution, rejection, partial fills, duplicate orders, outages, restarts, exits,
+reconciliation). It is `tests/integration/test_m100_acceptance_matrix_postgres.py`: real PostgreSQL
+Store B at the current head (v2 risk triggers) and Store C at its head, real approved-plan table,
+every real handler, **simulated broker only**, controllable clock, no network. Result on the final
+code: **24 passed**. Per-step facts: `m100-acceptance-evidence.json` (values in it are recorded by the
+tests and partly constants the test asserts, not independent measurements).
 
-## Stage 3 acceptance matrix — honest status
+| # | Proves |
+|---|---|
+| 1 | entry chain persists at head with governed v2 risk evidence; nothing sent |
+| 2 | normal execution: one order, attempt recorded |
+| 3 | reconciliation fills; broker holds the position |
+| 4 | duplicate submit never sends a second order |
+| 5 | two concurrent submitters → exactly one order (PostgreSQL claim) |
+| 6 | broker rejection recorded; flat |
+| 7 | partial entry fill blocks exit attribution until entry final |
+| 8 | failure before send leaves nothing; NOT_SENT is not counted by the limit gate |
+| 9 | ambiguous submission → UNKNOWN, never resent, reconciles |
+| 10 | broker outage during limit verification blocks; no attempt; retry works |
+| 11 | restart mid-uncertainty resumes from the database without resend |
+| 12–15 | daily loss, order count, position slots, position/working-order conflicts block at submit |
+| 16 | a claim not yet visible at the broker still holds its slot |
+| 17 | engaged kill switch blocks entries, never exits |
+| 18 | stop exit sells once; position verified closed |
+| 19 | repeated ticks + restarts across re-arms: never overlapping, never oversold |
+| 20 | unfilled exit → cancel requested → broker-confirmed → re-armed → fills |
+| 21 | partial exit fill → remainder only re-armed; total sold == held |
+| 22 | attempts exhausted → durable Store C event + entry kill switch in Store B |
+| 23 | restart mid-cancel resumes without a second exit |
+| 24 | broker outage then market close: no blind action; waits, then escalates |
 
-Reviewers drove the real simulation broker and handlers and reproduced: prepare/approve/submit/fill/position recording, stop/target exit submission, duplicate-exit prevention (claim), broker rejection/uncertain-status handling, kill switch, restart-deterministic ids, partial entry refusal. They did **not** produce a numbered test-ID for each of the 24 items, and a single end-to-end scripted run of all 24 was **not** built. Status: **not formally completed** → `PAPER_END_TO_END = NOT YET TESTED`.
+Limits of this evidence: the broker is a deterministic simulation (it also ignores the day window
+and stages P&L), so real-broker behaviour (fills, `last_equity` semantics, pending states) is
+**unproven**. The post-claim limit pass and the exit machine are additionally covered by in-memory
+unit tests (`tests/unit/test_m100_*`) including mutation-checked cases.
 
-Not performed: real Windows host run, real broker PAPER orders, any LIVE action, deployment-gate-by-gate rehearsal on Windows (the repo's `personal-paper-deploy-postgres` CI job covers the pipeline against disposable Postgres; the unit suite covers failure at every one of the 14 boundaries).
+## The 25 Linux failures/errors — individually diagnosed (earlier run; 28 in this sandbox)
+
+| Count | Tests | Cause | Resolution |
+|---|---|---|---|
+| 20 | M062 validation-study (6), M064 survivorship (12 errors), M065 historical-import tamper (1), M062 independent hash (1) | seals name the CRLF byte form of fixtures committed as LF (reproduced by hashing both forms) | `.gitattributes` `eol=crlf` for the three fixture sets; passes on Linux; unchanged on Windows |
+| 2 | M098 control-token read | **portable defect + code**: POSIX branch reported ENOENT/symlink with the Windows wording | production fix in `console_control.py` (ENOENT → "no readable token"; symlink wording) |
+| 1 | deploy integration (dummy console) | tool locates the listener with `ss` (iproute2) absent in the sandbox; passes with a stand-in `ss` | explicit `skipif` with reason (visible); Windows/ubuntu CI exercise it |
+| 2 | `test_secret_scan_targets` | `detect_secrets` extra not installed | environmental; passes after `pip install .[security]` |
+| 3 | `test_m085_base_pin` | shallow clone (merge-base unavailable) | environmental; pass after `git fetch --unshallow` |
+| (2) | `m085_send_boundary_transport` pair | caused by M100's earlier change | fixed earlier; extended again for D1 evidence routes |
+
+This sandbox also fails `test_m026…test_repr_does_not_expose_real_credentials` only because the local
+throw-away DB user and password are both `empirical` (the test greps the repr for that word).
+
+## Verification record (final code, Linux, Python 3.13, local PostgreSQL 16)
+
+See the PR description for the exact SHA and CI results. Local: ruff format/check clean,
+`tools/check_architecture.py` clean, mypy clean except 25 pre-existing Windows-only attribute errors
+in `console_control.py` (CI type-checks on Windows). Unit+architecture suite green; the PostgreSQL
+integration suites were run on the final code (details in the PR). Windows-specific behaviour is
+verified only by Windows CI, not here.
+
+## Known limits (P2, not release blockers for supervised PAPER)
+
+* Exit orders count toward the daily order limit and appear in the same-symbol conflict check (can
+  only make entries stricter). An in-flight *exit* not yet listed by the broker is not counted.
+* Evidence read just before the send can age by the few reads that follow it; this system's own
+  claims cannot race (durable), a manual broker-side order in that gap can.
+* `suspended` broker status maps to a terminal exit state; a later broker reactivation would be an
+  unmodelled edge.
+* The exit machine's bounds (3 attempts, 90 s rest, 300 s no-reprice-near-close, 120 s cancel
+  confirmation, 120 s unprotected) are engineering defaults awaiting Owner approval.
+* LIVE remains impossible by construction and unassessed: `LIVE_READY = FAIL / not yet tested`.

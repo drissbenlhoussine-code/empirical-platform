@@ -88,10 +88,9 @@
     "title": "stop exit closes the position"
   },
   "STEP-19": {
-    "restarts": 5,
-    "sells": 1,
-    "ticks": 20,
-    "title": "no duplicate exit"
+    "sells": 3,
+    "ticks": 60,
+    "title": "no overlap across restarts"
   },
   "STEP-20": {
     "attempts": 2,

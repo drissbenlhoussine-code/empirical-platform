@@ -71,6 +71,7 @@ def _handler_class(routes: _Routes) -> type[BaseHTTPRequestHandler]:
                         "buying_power": "100000",
                         "cash": "100000",
                         "equity": "100000",
+                        "last_equity": "100000",
                         "multiplier": "4",
                         "shorting_enabled": True,
                         "trading_blocked": False,
@@ -102,6 +103,11 @@ def _handler_class(routes: _Routes) -> type[BaseHTTPRequestHandler]:
                         "fractionable": True,
                     },
                 )
+            elif path == "/v2/positions":
+                # M100 D1: the account-wide risk evidence reads (flat account, no orders today).
+                self._send(200, [])
+            elif path.startswith("/v2/orders?status=all"):
+                self._send(200, [])
             elif path.startswith("/v2/positions/"):
                 self._send(404, {"code": 40410000, "message": "position does not exist"})
             elif path.startswith("/v2/orders?status=open"):
