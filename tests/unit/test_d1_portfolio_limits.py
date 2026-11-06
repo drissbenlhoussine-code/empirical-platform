@@ -486,6 +486,27 @@ class TestEachLimitRefusesAtTheSubmissionBoundary:
         )
         self._refused(world, "simultaneous position limit reached")
 
+    def test_a_portfolio_that_changes_after_the_pre_claim_read_is_still_caught(self) -> None:
+        """M100 final review (P1): the read that matters is the one taken INSIDE the day lock.
+        The pre-claim read sees an empty account (as if a concurrent entry had not been sent
+        yet); by the time the lock is held that other entry is visible, so this one is refused."""
+        world = _world_with(maximum_simultaneous_positions=1)
+        h._authorize(world)
+        broker = world["broker"]
+        reads = {"count": 0}
+
+        def positions() -> tuple[object, ...]:
+            reads["count"] += 1
+            return () if reads["count"] == 1 else (_held("MSFT"),)
+
+        broker.fetch_all_positions = positions
+        result = h._submit(world)
+        assert result.dispatched is False
+        assert result.attempt.failure_code == "NOT_SENT"
+        assert "simultaneous position limit reached" in (result.attempt.failure_detail or "")
+        assert broker.submitted == []
+        assert reads["count"] == 2  # pre-claim read, then the read taken inside the day lock
+
     def test_one_slot_left_dispatches(self) -> None:
         world = _world_with(maximum_simultaneous_positions=2)
         h._authorize(world)
@@ -716,17 +737,18 @@ class _Race:
         )
 
     def overlap_the_threads(self) -> None:
-        """Every thread reads the portfolio (pre-claim, then inside `before_send`) at the
-        SAME time, so all of them have passed every read-only check before any admission."""
+        """Every thread does its pre-claim portfolio read at the SAME time, so all of them
+        have passed every read-only check before any admission. (The read inside the day lock
+        is serialized by design -- M100 final review -- and is deliberately not synchronized.)"""
         broker: FakeBroker = self.shared["broker"]
         original = broker.fetch_all_positions
-        barriers = [threading.Barrier(self.count, timeout=20) for _ in range(2)]
+        barriers = [threading.Barrier(self.count, timeout=20)]
         local = threading.local()
 
         def positions() -> tuple[object, ...]:
             index = getattr(local, "reads", 0)
             local.reads = index + 1
-            if index < 2:
+            if index < 1:
                 barriers[index].wait()
             return original()
 
@@ -766,13 +788,19 @@ class TestSimultaneousSubmissionsCannotBothPassALimitThatAllowsOne:
         for thread in threads:
             thread.join(timeout=60)
         assert not any(thread.is_alive() for thread in threads)
-        assert errors == []
+        # A thread that reaches the PRE-claim check after others were admitted is refused
+        # there (an exception, nothing claimed); the rest are refused at the boundary
+        # (a NOT_SENT outcome). Either way the limit holds and the reason is the right one.
+        for error in errors:
+            assert isinstance(error, PaperExecutionRefusedError), error
+            assert "daily order count limit reached" in str(error)
 
-        sent = [outcome for outcome in outcomes if outcome.dispatched]
-        refused = [outcome for outcome in outcomes if not outcome.dispatched]
+        done = [outcome for outcome in outcomes if outcome is not None]
+        sent = [outcome for outcome in done if outcome.dispatched]
+        refused = [outcome for outcome in done if not outcome.dispatched]
         assert len(sent) == cap
         assert len(race.shared["broker"].submitted) == cap
-        assert len(refused) == count - cap
+        assert len(refused) + len(errors) == count - cap
         for outcome in refused:
             assert outcome.attempt.failure_code == "NOT_SENT"
             assert "daily order count limit reached" in (outcome.attempt.failure_detail or "")
@@ -811,14 +839,17 @@ class TestSimultaneousSubmissionsCannotBothPassALimitThatAllowsOne:
         outcomes: list[Any] = [None] * count
 
         def run(number: int) -> None:
-            outcomes[number] = race.submit(number)
+            try:
+                outcomes[number] = race.submit(number)
+            except PaperExecutionRefusedError:
+                pass  # refused at the pre-claim check after others were admitted
 
         threads = [threading.Thread(target=run, args=(n,)) for n in range(count)]
         for thread in threads:
             thread.start()
         for thread in threads:
             thread.join(timeout=60)
-        assert sum(1 for outcome in outcomes if outcome.dispatched) == 2
+        assert sum(1 for outcome in outcomes if outcome is not None and outcome.dispatched) == 2
         assert len(race.shared["broker"].submitted) == 2
 
     def test_the_in_memory_ledger_serializes_count_and_admit(self) -> None:

@@ -1521,7 +1521,13 @@ class SubmitAuthorizedPaperOrderHandler:
                 #     decision and records the admission before releasing the lock, so two
                 #     simultaneous entries cannot both pass a limit that allows one. It is a
                 #     database write that may block, so time is sampled AFTER it (step 5).
-                portfolio_now = _read_portfolio(self._broker)
+                #     M100 FINAL REVIEW (P1): the whole-account read is taken INSIDE the
+                #     day lock (in `decide`), never before it. A read taken before the lock
+                #     could pre-date a concurrent entry that is admitted, sent and acked
+                #     while this one waits, so that entry would count neither as in-flight
+                #     nor as visible at the broker. Under the lock, every earlier admitted
+                #     entry is either still in flight (ledger) or already visible (broker).
+                portfolio_seen: list[PortfolioEvidence] = []
                 day_start_now, day_end_now = trading_day_bounds(timing.broker_now().latest)
                 if fresh.order.limit_price is None:
                     raise PaperExecutionRefusedError(
@@ -1530,9 +1536,11 @@ class SubmitAuthorizedPaperOrderHandler:
                 order_notional = fresh.order.limit_price * Decimal(fresh.order.quantity)
 
                 def decide(ledger: tuple[EntryLedgerRow, ...]) -> str | None:
+                    portfolio_locked = _read_portfolio(self._broker)
+                    portfolio_seen.append(portfolio_locked)
                     return portfolio_limit_refusal(
                         limits=limits_now,
-                        portfolio=portfolio_now,
+                        portfolio=portfolio_locked,
                         ledger=ledger,
                         attempt_id=attempt.attempt_id,
                         client_order_id=fresh.order.client_order_id,
@@ -1565,7 +1573,7 @@ class SubmitAuthorizedPaperOrderHandler:
                 timing.require_broker_certainty_within(policy_now.quote_maximum_age_seconds)
                 refusal = final_send_refusal(
                     portfolio_limits=limits_now,
-                    portfolio=portfolio_now,
+                    portfolio=portfolio_seen[-1],
                     entry_ledger=self._attempts.entry_ledger(
                         day_start=day_start_now, day_end=day_end_now
                     ),

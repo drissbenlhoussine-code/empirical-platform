@@ -599,3 +599,58 @@ def test_every_exit_is_a_limit_order(world: World) -> None:
     assert _sells(world)
     assert {s.order_type for s in _sells(world)} == {"limit"}
     assert all(s.limit_price is not None for s in _sells(world))
+
+
+# ---------------------------------------------------------------------------
+# M100 final review (P1): non-terminal / unknown broker statuses must FAIL CLOSED
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "suspended",
+        "done_for_day",
+        "replaced",
+        "stopped",
+        "pending_replace",
+        "calculated",
+        "accepted_for_bidding",
+        "some_future_status",
+    ],
+)
+def test_a_non_terminal_or_unknown_broker_status_never_leads_to_a_second_live_sell(
+    world: World, status: str
+) -> None:
+    """`suspended` used to map to REJECTED, which let the re-arm send generation 1 while the
+    first order could still go live. Every status outside the closed terminal set must stop
+    in NEEDS_ATTENTION with exactly one sell ever sent."""
+    import types
+
+    intent, _, manager = _setup(world)
+    _tick(world, manager)
+    (first,) = _sells(world)
+    world.broker.cancel_order = lambda order_id: (422, '{"message":"order not cancelable"}')  # type: ignore[method-assign]
+    original = world.broker.fetch_order_by_client_order_id
+
+    def forced(client_order_id: str) -> tuple[int, object, str]:
+        code, view, sanitized = original(client_order_id)
+        if view is not None and view.client_order_id == first.client_order_id:
+            fields = {
+                k: getattr(view, k)
+                for k in dir(view)
+                if not k.startswith("_") and not callable(getattr(view, k))
+            }
+            fields["status"] = status
+            view = types.SimpleNamespace(**fields)
+        return code, view, sanitized
+
+    world.broker.fetch_order_by_client_order_id = forced  # type: ignore[method-assign]
+    last = None
+    for _ in range(12):
+        last = _tick(world, manager, advance=31)
+    assert len(_sells(world)) == 1, "a second sell must never be sent"
+    assert last is not None and last.kind is PlanOutcomeKind.NEEDS_ATTENTION
+    assert all(
+        a.state.value not in {"REJECTED", "CANCELED", "EXPIRED"} for a in _attempts(world, intent)
+    )

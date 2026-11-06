@@ -148,7 +148,9 @@ _BROKER_STATUS_TO_STATE = MappingProxyType(
         "canceled": PositionExitState.CANCELED,
         "expired": PositionExitState.EXPIRED,
         "rejected": PositionExitState.REJECTED,
-        "suspended": PositionExitState.REJECTED,
+        # `suspended` is deliberately ABSENT (M100 final review, P1): Alpaca documents it as
+        # not eligible for trading but NOT terminal, so it must fail closed (NEEDS_ATTENTION)
+        # rather than count as a rejection that lets a second live sell be sent.
         "pending_cancel": PositionExitState.CANCEL_REQUESTED,
     }
 )
