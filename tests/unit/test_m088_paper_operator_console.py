@@ -268,6 +268,7 @@ class TestOwnerGateAndExactlyOnce:
             time_bases=repositories.time_bases,
             broker=broker,  # type: ignore[arg-type]
             market_data=market_data,  # type: ignore[arg-type]
+            attempts=repositories.attempts,  # type: ignore[arg-type]
             time_source=SystemPaperTimeSource(),
             now=_now(),
         )
@@ -389,6 +390,7 @@ class TestUiIsExplicitAndLeaksNoCredential:
             time_bases=repositories.time_bases,
             broker=broker,
             market_data=market_data,
+            attempts=repositories.attempts,  # type: ignore[arg-type]
             time_source=SystemPaperTimeSource(),
             now=_now(),
         )

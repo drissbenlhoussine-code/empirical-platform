@@ -342,6 +342,13 @@ class SimulatedPositionView:
 
 
 @dataclass(frozen=True, slots=True)
+class SimulatedPortfolioPositionView:
+    symbol: str
+    quantity: str
+    market_value: str
+
+
+@dataclass(frozen=True, slots=True)
 class SimulatedQuoteView:
     symbol: str
     bid: str | None
@@ -485,6 +492,10 @@ class SimulationStore:
     def market_is_open(self) -> bool:
         with self._lock:
             return self._state.market_is_open
+
+    def positions(self) -> dict[str, int]:
+        with self._lock:
+            return {symbol: int(quantity) for symbol, quantity in self._state.positions.items()}
 
     def position(self, symbol: str) -> int:
         with self._lock:
@@ -656,6 +667,8 @@ class SimulatedPaperBroker:
             "buying_power": cash,
             "cash": cash,
             "equity": cash,
+            # The simulation tracks cash only and has no previous close: no daily P&L.
+            "last_equity": cash,
             "multiplier": "1",
             "shorting_enabled": False,
             "trading_blocked": False,
@@ -685,6 +698,26 @@ class SimulatedPaperBroker:
             if quantity == 0
             else SimulatedPositionView(symbol=symbol.upper(), quantity=quantity)
         )
+
+    def fetch_all_positions(self) -> tuple[SimulatedPortfolioPositionView, ...]:
+        """Every simulated position. The simulation has no marks: value uses a staged quote
+        ask where one exists, else zero (synthetic data; the real adapter never defaults)."""
+        views: list[SimulatedPortfolioPositionView] = []
+        for symbol, quantity in self._store.positions().items():
+            if quantity == 0:
+                continue
+            quote = self._store.quote_for(symbol)
+            value = Decimal(quote[1]) * quantity if quote is not None else Decimal(0)
+            views.append(
+                SimulatedPortfolioPositionView(
+                    symbol=symbol, quantity=str(quantity), market_value=str(value)
+                )
+            )
+        return tuple(views)
+
+    def fetch_all_open_orders(self) -> tuple[SimulatedOrderView, ...]:
+        """The simulation fills every order synchronously; nothing is ever left working."""
+        return ()
 
     def fetch_open_orders(self, symbol: str) -> tuple[SimulatedOrderView, ...]:
         """The simulation fills every order synchronously; nothing is ever left working."""

@@ -105,6 +105,12 @@ class FakeOpportunityBroker:
         del symbol
         return ()
 
+    def fetch_all_positions(self) -> tuple[object, ...]:
+        return ()
+
+    def fetch_all_open_orders(self) -> tuple[object, ...]:
+        return ()
+
     def submit_order(self, order: object, *, before_send: object = None) -> tuple[int, object, str]:
         raise AssertionError("GenerateOpportunitiesHandler must never submit an order")
 

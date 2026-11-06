@@ -13,6 +13,7 @@ transitions, because the order is part of what the handlers must get right.
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime, time, timedelta
@@ -49,6 +50,11 @@ from empirical_platform.decision_candidate.paper_execution import (
     bind_intent_time_basis,
     build_submission_preview,
     execution_policy_from_configuration,
+)
+from empirical_platform.decision_candidate.paper_portfolio_limits import (
+    EntryLedgerRow,
+    PortfolioEvidence,
+    PortfolioLimits,
 )
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovedOrderIntent,
@@ -452,6 +458,9 @@ class FakeAttempts:
         self.transitions: list[tuple[str, PaperExecutionState]] = []
         self.claim_refusal: str | None = None
         self.claim_wins = True
+        # FIX D1: the in-memory twin of the Postgres day lock + admission markers.
+        self._admission_lock = threading.Lock()
+        self.admissions: dict[str, tuple[str, Decimal, str]] = {}
 
     def claim_dispatch(
         self,
@@ -558,6 +567,49 @@ class FakeAttempts:
 
     def list_recent(self, limit: int) -> tuple[ExecutionAttempt, ...]:
         return tuple(list(self.rows.values())[:limit])
+
+    def _ledger(self, day_start: datetime, day_end: datetime) -> tuple[EntryLedgerRow, ...]:
+        rows: list[EntryLedgerRow] = []
+        for attempt in sorted(list(self.rows.values()), key=lambda a: (a.claimed_at, a.attempt_id)):
+            if not day_start <= attempt.claimed_at < day_end:
+                continue
+            marker = self.admissions.get(attempt.attempt_id)
+            rows.append(
+                EntryLedgerRow(
+                    attempt_id=attempt.attempt_id,
+                    client_order_id=attempt.client_order_id,
+                    state=attempt.state.value,
+                    failure_code=attempt.failure_code,
+                    admitted=marker is not None,
+                    symbol=None if marker is None else marker[0],
+                    notional=None if marker is None else marker[1],
+                )
+            )
+        return tuple(rows)
+
+    def entry_ledger(self, *, day_start: datetime, day_end: datetime) -> tuple[EntryLedgerRow, ...]:
+        with self._admission_lock:
+            return self._ledger(day_start, day_end)
+
+    def admit_entry(
+        self,
+        *,
+        attempt_id: str,
+        day_start: datetime,
+        day_end: datetime,
+        at: datetime,
+        symbol: str,
+        notional: Decimal,
+        client_order_id: str,
+        decide: Callable[[tuple[EntryLedgerRow, ...]], str | None],
+    ) -> str | None:
+        del at
+        with self._admission_lock:
+            refusal = decide(self._ledger(day_start, day_end))
+            if refusal is not None:
+                return refusal
+            self.admissions.setdefault(attempt_id, (symbol, notional, client_order_id))
+            return None
 
 
 class FakeAcknowledgements:
@@ -832,6 +884,10 @@ class FakeBroker:
         self.account_overrides: dict[str, object] = account_overrides or {}
         self.position = position
         self.open_orders = open_orders
+        #: FIX D1 whole-account reads. `None` derives them from `position` / `open_orders`.
+        self.portfolio_positions: tuple[object, ...] | None = None
+        self.all_open_orders: tuple[object, ...] | None = None
+        self.portfolio_read_raises: BaseException | None = None
         self.submit_raises = submit_raises
         self.submit_status = submit_status
         self.submit_view = submit_view
@@ -858,6 +914,7 @@ class FakeBroker:
             "buying_power": "100000",
             "cash": "100000",
             "equity": "100000",
+            "last_equity": "100000",
             "multiplier": "4",
             "shorting_enabled": True,
             "trading_blocked": False,
@@ -884,6 +941,28 @@ class FakeBroker:
     def fetch_open_orders(self, symbol: str) -> tuple[object, ...]:
         del symbol
         return self.open_orders
+
+    def fetch_all_positions(self) -> tuple[object, ...]:
+        if self.portfolio_read_raises is not None:
+            raise self.portfolio_read_raises
+        if self.portfolio_positions is not None:
+            return self.portfolio_positions
+        if self.position is None:
+            return ()
+        quantity = Decimal(str(getattr(self.position, "quantity", 0)))
+        price = Decimal(str(getattr(self.position, "average_entry_price", "0")))
+        return (
+            FakeView(
+                symbol=getattr(self.position, "symbol", "AAPL"),
+                quantity=str(quantity),
+                market_value=str(quantity * price),
+            ),
+        )
+
+    def fetch_all_open_orders(self) -> tuple[object, ...]:
+        if self.portfolio_read_raises is not None:
+            raise self.portfolio_read_raises
+        return self.open_orders if self.all_open_orders is None else self.all_open_orders
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
@@ -1000,3 +1079,27 @@ class FakeMarketData:
         if self._bars_sequence:
             return self._bars_sequence.pop(0)
         return self._bars
+
+
+def a_portfolio_limits(**overrides: object) -> PortfolioLimits:
+    """FIX D1: roomy portfolio ceilings; a test overrides the one it wants to hit."""
+    fields: dict[str, object] = {
+        "maximum_daily_loss": Decimal("1000"),
+        "maximum_daily_order_count": 20,
+        "maximum_simultaneous_positions": 12,
+        "maximum_deployable_capital": Decimal("100000"),
+    }
+    fields.update(overrides)
+    return PortfolioLimits(**fields)  # type: ignore[arg-type]
+
+
+def a_portfolio(**overrides: object) -> PortfolioEvidence:
+    """FIX D1: a flat, break-even account. A test overrides what it wants to breach."""
+    fields: dict[str, object] = {
+        "equity": Decimal("100000"),
+        "last_equity": Decimal("100000"),
+        "positions": (),
+        "working_buys": (),
+    }
+    fields.update(overrides)
+    return PortfolioEvidence(**fields)  # type: ignore[arg-type]

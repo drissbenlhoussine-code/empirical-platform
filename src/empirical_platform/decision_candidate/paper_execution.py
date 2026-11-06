@@ -68,6 +68,12 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
     OperatorTradingConfiguration,
     OrderType,
 )
+from empirical_platform.decision_candidate.paper_portfolio_limits import (
+    EntryLedgerRow,
+    PortfolioEvidence,
+    PortfolioLimits,
+    portfolio_limit_refusal,
+)
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovalDecision,
     ApprovedOrderIntent,
@@ -2918,8 +2924,20 @@ def final_send_refusal(
     quote_ask: Decimal | None,
     quote_captured_at: datetime | None,
     kill_switch_engaged: bool,
+    portfolio_limits: PortfolioLimits | None,
+    portfolio: PortfolioEvidence | None,
+    entry_ledger: tuple[EntryLedgerRow, ...] | None,
+    attempt_id: str,
 ) -> str | None:
     """Every condition that must hold at the LAST controllable boundary before a send.
+
+    FIX D1. `portfolio_limits`, `portfolio` and `entry_ledger` have no defaults on purpose:
+    a caller that forgets them is a type error, and passing None is a REFUSAL (missing
+    evidence), never a pass. They carry the configuration's daily-loss, daily-order-count,
+    simultaneous-position and total-exposure ceilings, the broker's whole-account state
+    and the trading day's durable order history; this is an ENTRY guard only, risk-reducing
+    exits never reach it. `attempt_id` is the attempt being sent (its own ledger row is
+    not double counted).
 
     CORRECTIVE PASS (item 7). The caller supplies values READ FRESH for this call --
     the kill switch from the database, the configuration re-loaded and re-derived
@@ -2997,10 +3015,23 @@ def final_send_refusal(
     window_refusal = entry_window_refusal(policy=policy_now, broker_now=broker_now)
     if window_refusal is not None:
         return window_refusal
-    return quote_refusal(
+    quote_problem = quote_refusal(
         bid=quote_bid,
         ask=quote_ask,
         captured_at=quote_captured_at,
         policy=policy_now,
         broker_now=broker_now,
+    )
+    if quote_problem is not None:
+        return quote_problem
+    # FIX D1: portfolio ceilings, last, on the same fresh evidence. `limit_price` and
+    # `quantity` were verified above (a LIMIT order with a knowable cost ceiling).
+    return portfolio_limit_refusal(
+        limits=portfolio_limits,
+        portfolio=portfolio,
+        ledger=entry_ledger,
+        attempt_id=attempt_id,
+        client_order_id=authorization.client_order_id,
+        symbol=intent.symbol,
+        order_notional=intent.limit_price * Decimal(intent.quantity),
     )

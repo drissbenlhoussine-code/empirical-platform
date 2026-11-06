@@ -18,7 +18,13 @@ from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
 import pytest
-from tests.unit._m085_fakes import FakeBar, FakeBroker, FakeMarketData, FakeTimeBases
+from tests.unit._m085_fakes import (
+    FakeAttempts,
+    FakeBar,
+    FakeBroker,
+    FakeMarketData,
+    FakeTimeBases,
+)
 from tests.unit._m086_fakes import (
     MemoryConfigurations,
     MemoryContexts,
@@ -160,6 +166,7 @@ def _prepare(
         broker=broker or _open_broker(),
         market_data=resolved_market_data,
         bars=resolved_market_data,
+        attempts=FakeAttempts(),
         time_source=SystemPaperTimeSource(),
         now=now or _now(),
     )
@@ -198,6 +205,7 @@ class TestRealPreparationPath:
                 broker=broker,
                 market_data=market_data,
                 bars=market_data,
+                attempts=FakeAttempts(),
                 time_source=SystemPaperTimeSource(),
                 now=_now(),
             )
@@ -224,6 +232,7 @@ class TestRefusalsWriteNothing:
                 broker=_open_broker(),
                 market_data=FakeMarketData(quote=_LiveQuote()),
                 bars=FakeMarketData(quote=_LiveQuote()),
+                attempts=FakeAttempts(),
                 time_source=SystemPaperTimeSource(),
                 now=_now(),
             )
@@ -254,6 +263,7 @@ class TestRefusalsWriteNothing:
                 broker=_open_broker(clock=_Clock(is_open=False)),
                 market_data=FakeMarketData(quote=_LiveQuote()),
                 bars=FakeMarketData(quote=_LiveQuote()),
+                attempts=FakeAttempts(),
                 time_source=SystemPaperTimeSource(),
                 now=_now(),
             )
@@ -279,6 +289,7 @@ class TestRefusalsWriteNothing:
                 broker=_open_broker(),
                 market_data=FakeMarketData(quote=_WideSpreadQuote()),
                 bars=FakeMarketData(quote=_WideSpreadQuote()),
+                attempts=FakeAttempts(),
                 time_source=SystemPaperTimeSource(),
                 now=_now(),
             )
@@ -331,6 +342,8 @@ class TestRefusalsWriteNothing:
             symbol: str = "AAPL"
             side: str = "buy"
             quantity: str = "1"
+            filled_quantity: str = "0"
+            limit_price: str | None = "4.00"
 
         broker = _open_broker()
         broker.open_orders = (_WorkingOrder(),)

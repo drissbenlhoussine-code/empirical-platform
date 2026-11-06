@@ -62,6 +62,7 @@ def _approved_overdue_backend(
         time_bases=backend._repositories.time_bases,
         broker=backend._broker,  # type: ignore[arg-type]
         market_data=backend._market_data,  # type: ignore[arg-type]
+        attempts=backend._repositories.attempts,
         time_source=backend._time_source,
         now=_now(),
     )
@@ -143,6 +144,7 @@ def test_recovery_landing_refuses_a_position_that_is_not_actually_overdue() -> N
         time_bases=backend._repositories.time_bases,
         broker=backend._broker,  # type: ignore[arg-type]
         market_data=backend._market_data,  # type: ignore[arg-type]
+        attempts=backend._repositories.attempts,
         time_source=backend._time_source,
         now=_now(),
     )

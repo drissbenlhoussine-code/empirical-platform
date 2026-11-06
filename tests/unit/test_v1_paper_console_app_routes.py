@@ -185,6 +185,7 @@ def test_approving_through_http_creates_the_plan_and_renders_it_on_active_and_hi
         time_bases=backend._repositories.time_bases,
         broker=backend._broker,  # type: ignore[arg-type]
         market_data=backend._market_data,  # type: ignore[arg-type]
+        attempts=backend._repositories.attempts,
         time_source=backend._time_source,
         now=_now(),
     )

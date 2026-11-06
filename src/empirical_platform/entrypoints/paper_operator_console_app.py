@@ -285,6 +285,7 @@ def build_paper_application(
                     broker=backend._broker,
                     market_data=backend._market_data,
                     bars=backend._market_data,
+                    attempts=backend._repositories.attempts,
                     time_source=backend._time_source,
                     now=datetime.now(UTC),
                 )

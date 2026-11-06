@@ -24,6 +24,8 @@ from tests.unit._m085_fakes import (
     _NOW,
     a_configuration,
     a_policy,
+    a_portfolio,
+    a_portfolio_limits,
     a_preview,
     a_provenance,
     an_intent,
@@ -484,6 +486,10 @@ def _guard(
         "quote_ask": Decimal("299.70"),
         "quote_captured_at": _NOW - timedelta(seconds=5),
         "kill_switch_engaged": False,
+        "portfolio_limits": a_portfolio_limits(),
+        "portfolio": a_portfolio(),
+        "entry_ledger": (),
+        "attempt_id": "ATT-1",
     }
     arguments.update(overrides)
     return final_send_refusal(**arguments)  # type: ignore[arg-type]

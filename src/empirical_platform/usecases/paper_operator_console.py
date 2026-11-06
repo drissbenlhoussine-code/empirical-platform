@@ -53,9 +53,16 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
 )
 from empirical_platform.decision_candidate.opportunity_engine_repositories import IntradayBarsPort
 from empirical_platform.decision_candidate.paper_execution_repositories import (
+    ExecutionAttemptRepository,
     PaperBrokerPort,
     PaperMarketDataPort,
     TimeBasisRepository,
+)
+from empirical_platform.decision_candidate.paper_portfolio_limits import (
+    PortfolioEvidenceError,
+    ledger_counts_order,
+    read_portfolio_evidence,
+    trading_day_bounds,
 )
 from empirical_platform.decision_candidate.product_market_inputs import (
     AccountSnapshot,
@@ -232,6 +239,82 @@ def _default_configuration(*, now: datetime) -> OperatorTradingConfiguration:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _PrepareRiskInputs:
+    """REAL values for the Prepare path's portfolio-conflict and daily-limit checks (fix D1).
+
+    Replaces the hardcoded `realized_pnl_today=0`, `orders_submitted_today=0`, and a position
+    list that only saw the target symbol. `daily_pnl` is `equity - last_equity` (includes
+    unrealized; conservative) and `orders_today` is the durable local count of entry orders
+    sent today in the market's trading day. `other_positions` / `other_open_orders` are every
+    holding / working order in a symbol OTHER than the target (the target's own are read by
+    the callers' existing per-symbol code).
+    """
+
+    daily_pnl: Decimal
+    orders_today: int
+    other_positions: tuple[PositionSnapshot, ...]
+    other_open_orders: tuple[OpenOrderSnapshot, ...]
+
+
+def _prepare_risk_inputs(
+    *,
+    broker: PaperBrokerPort,
+    attempts: ExecutionAttemptRepository,
+    account_payload: object,
+    symbol: str,
+    now: datetime,
+) -> _PrepareRiskInputs:
+    """Read the real portfolio. Raises `PortfolioEvidenceError` (a refusal) on anything odd."""
+    all_positions = broker.fetch_all_positions()
+    all_orders = broker.fetch_all_open_orders()
+    evidence = read_portfolio_evidence(
+        account_payload=account_payload, positions=all_positions, open_orders=all_orders
+    )
+    day_start, day_end = trading_day_bounds(now)
+    ledger = attempts.entry_ledger(day_start=day_start, day_end=day_end)
+    other_positions: list[PositionSnapshot] = []
+    for position in evidence.positions:
+        if position.symbol == symbol or position.quantity == 0:
+            continue
+        quantity = abs(position.quantity)
+        if quantity != quantity.to_integral_value() or position.market_value == 0:
+            raise PortfolioEvidenceError(
+                f"the {position.symbol} position is fractional or has no market value; "
+                "refusing to reason about it"
+            )
+        other_positions.append(
+            PositionSnapshot(
+                symbol=position.symbol,
+                quantity=int(quantity),
+                average_price=abs(position.market_value) / quantity,
+            )
+        )
+    other_orders: list[OpenOrderSnapshot] = []
+    for order in all_orders:
+        if order.symbol == symbol:
+            continue
+        quantity = Decimal(order.quantity)
+        if quantity != quantity.to_integral_value() or quantity <= 0:
+            raise PortfolioEvidenceError(
+                f"a working {order.symbol} order has a fractional or non-positive quantity"
+            )
+        other_orders.append(
+            OpenOrderSnapshot(
+                order_reference=order.client_order_id,
+                symbol=order.symbol,
+                side=order.side.upper(),
+                quantity=int(quantity),
+            )
+        )
+    return _PrepareRiskInputs(
+        daily_pnl=evidence.daily_pnl,
+        orders_today=sum(1 for row in ledger if ledger_counts_order(row)),
+        other_positions=tuple(other_positions),
+        other_open_orders=tuple(other_orders),
+    )
+
+
 def prepare_paper_candidate(
     *,
     configurations: OperatorTradingConfigurationRepository,
@@ -241,6 +324,7 @@ def prepare_paper_candidate(
     time_bases: TimeBasisRepository,
     broker: PaperBrokerPort,
     market_data: PaperMarketDataPort,
+    attempts: ExecutionAttemptRepository,
     time_source: PaperTimeSource,
     now: datetime,
 ) -> TradeProposal:
@@ -291,6 +375,24 @@ def prepare_paper_candidate(
             f"{MAXIMUM_LIMIT_FRACTION_OF_BID} ceiling; not raised to get past it"
         )
 
+    account_status, account_payload = broker.fetch_account()
+    if account_status != 200:
+        raise PaperCandidateBlockedError(
+            "the account endpoint did not answer; no candidate was prepared"
+        )
+    try:
+        risk_inputs = _prepare_risk_inputs(
+            broker=broker,
+            attempts=attempts,
+            account_payload=account_payload,
+            symbol=APPROVED_SYMBOL,
+            now=now,
+        )
+    except PortfolioEvidenceError as error:
+        raise PaperCandidateBlockedError(
+            f"the real portfolio state could not be established ({error}); nothing was prepared"
+        ) from error
+
     watermark = watermarks.capture(watermark_governance_id=f"WM-088-PAPER-{today}")
     context = build_evaluation_context(
         evaluation_context_id=f"ECX-088-PAPER-{today}",
@@ -338,8 +440,8 @@ def prepare_paper_candidate(
                 base_currency="USD",
                 cash_available=Decimal("5000"),
                 equity_total=Decimal("10000"),
-                realized_pnl_today=Decimal("0"),
-                orders_submitted_today=0,
+                realized_pnl_today=risk_inputs.daily_pnl,
+                orders_submitted_today=risk_inputs.orders_today,
                 observed_at=now - timedelta(seconds=5),
             ),
             session=SessionSnapshot(
@@ -369,8 +471,8 @@ def prepare_paper_candidate(
                 estimated_slippage_percent=Decimal("0.1"),
                 observed_at=now - timedelta(seconds=5),
             ),
-            positions=(),
-            open_orders=(),
+            positions=risk_inputs.other_positions,
+            open_orders=risk_inputs.other_open_orders,
             evidence_age_seconds=Decimal("60"),
         )
     )
@@ -437,6 +539,7 @@ def prepare_v1_paper_candidate(
     broker: PaperBrokerPort,
     market_data: PaperMarketDataPort,
     bars: IntradayBarsPort,
+    attempts: ExecutionAttemptRepository,
     time_source: PaperTimeSource,
     now: datetime,
 ) -> V1PreparedCandidate:
@@ -530,6 +633,22 @@ def prepare_v1_paper_candidate(
     # they are given. A hardcoded empty tuple here would make all three pass unconditionally
     # regardless of real broker state -- including while an earlier, still-unfilled LIMIT BUY
     # for this same symbol sits working at the broker. Both are freshly queried, never cached.
+    #
+    # FIX D1: the daily-loss / daily-order-count / position-count checks get REAL numbers too:
+    # `equity - last_equity`, the durable count of orders sent today, and EVERY position and
+    # working order (not only this symbol's). Anything missing or odd refuses.
+    try:
+        risk_inputs = _prepare_risk_inputs(
+            broker=broker,
+            attempts=attempts,
+            account_payload=account_payload,
+            symbol=symbol,
+            now=now,
+        )
+    except PortfolioEvidenceError as error:
+        raise V1PaperCandidateRefusedError(
+            f"the real portfolio state could not be established ({error}); nothing was prepared"
+        ) from error
     broker_position = broker.fetch_position(symbol)
     positions = (
         ()
@@ -541,8 +660,8 @@ def prepare_v1_paper_candidate(
                 average_price=Decimal(broker_position.average_entry_price),
             ),
         )
-    )
-    open_orders: list[OpenOrderSnapshot] = []
+    ) + risk_inputs.other_positions
+    open_orders: list[OpenOrderSnapshot] = list(risk_inputs.other_open_orders)
     for working_order in broker.fetch_open_orders(symbol):
         order_quantity = Decimal(working_order.quantity)
         if order_quantity != order_quantity.to_integral_value():
@@ -618,8 +737,8 @@ def prepare_v1_paper_candidate(
                 base_currency=str(account_payload.get("currency", configuration.base_currency)),
                 cash_available=Decimal(str(account_payload.get("cash", "0"))),
                 equity_total=Decimal(str(account_payload.get("equity", "0"))),
-                realized_pnl_today=Decimal("0"),
-                orders_submitted_today=0,
+                realized_pnl_today=risk_inputs.daily_pnl,
+                orders_submitted_today=risk_inputs.orders_today,
                 observed_at=now,
             ),
             session=SessionSnapshot(

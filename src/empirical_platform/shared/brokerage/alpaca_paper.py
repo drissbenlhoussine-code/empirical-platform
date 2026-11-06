@@ -421,6 +421,15 @@ class _PositionView:
 
 
 @dataclass(frozen=True, slots=True)
+class _PortfolioPositionView:
+    """One entry of `GET /v2/positions`: decimal TEXT, parsed strictly by the consumer."""
+
+    symbol: str
+    quantity: str
+    market_value: str
+
+
+@dataclass(frozen=True, slots=True)
 class _OrderView:
     broker_order_id: str
     client_order_id: str
@@ -817,6 +826,53 @@ class AlpacaPaperClient:
         return _PositionView(
             symbol=returned, quantity=int(quantity), average_entry_price=average_entry_price
         )
+
+    def fetch_all_positions(self) -> tuple[_PortfolioPositionView, ...]:
+        """Every position the account holds, freshly queried (fix D1 portfolio limits).
+
+        Read-only. `qty` and `market_value` are required decimal strings; anything else
+        (a non-list body, a non-object entry, a missing field) raises, which the caller
+        turns into a refusal. Never defaults a missing value to zero.
+        """
+        status, body, sanitized = self._json("GET", "/v2/positions")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the positions endpoint answered HTTP {status}: {sanitized}"
+            )
+        views: list[_PortfolioPositionView] = []
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("the positions endpoint returned a non-object")
+            views.append(
+                _PortfolioPositionView(
+                    symbol=_require_text(entry, "symbol"),
+                    quantity=_decimal_text(entry.get("qty"), field="qty"),
+                    market_value=_decimal_text(entry.get("market_value"), field="market_value"),
+                )
+            )
+        return tuple(views)
+
+    def fetch_all_open_orders(self) -> tuple[_OrderView, ...]:
+        """Every open order across ALL symbols, freshly queried (fix D1 portfolio limits).
+
+        Alpaca's `status=open` filter excludes every terminal state; `limit` is raised to the
+        documented maximum so a long list is not silently truncated, and a list that fills
+        that page is refused rather than trusted.
+        """
+        page = 500
+        status, body, sanitized = self._json("GET", f"/v2/orders?status=open&limit={page}")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the orders endpoint answered HTTP {status}: {sanitized}"
+            )
+        if len(body) >= page:
+            raise BrokerResponseInvalidError("the open-orders listing may be truncated; refusing")
+        views: list[_OrderView] = []
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("the orders endpoint returned a non-object order")
+            views.append(self._order_view(entry))
+        return tuple(views)
 
     def fetch_open_orders(self, symbol: str) -> tuple[_OrderView, ...]:
         """Every order the broker still considers open for this symbol, freshly queried.
