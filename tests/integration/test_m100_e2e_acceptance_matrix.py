@@ -1494,12 +1494,15 @@ def test_ACC_17c_mandatory_liquidation_exit_is_submitted_and_reconciled(
     world: World, evidence: EvidenceRecorder
 ) -> None:
     """ACC-17c -- the time-driven exit: at the plan's mandatory-liquidation deadline the manager
-    claims MANDATORY_EXIT (no price consulted), sends one SELL, and reconciles it tick after
-    tick until the position is verified closed. REGRESSION for a real defect this matrix found:
-    the attempt id of a plan-minted MANDATORY_EXIT is 63 characters, so the acknowledgement id
-    `XACK-<attempt>-<n>[:64]` lost its sequence and the SECOND acknowledgement collided with the
-    first on the primary key -- every reconcile of a mandatory liquidation raised (and, being
-    unhandled, aborted the whole manager tick for every other plan too)."""
+    claims MANDATORY_EXIT (no price consulted), sends one SELL, reconciles it tick after tick,
+    reprices an unfilled one on the shorter mandatory spacing, and ends verified closed.
+
+    REGRESSION for a real defect this matrix found: the attempt id of a plan-minted
+    MANDATORY_EXIT is 63 characters, so the acknowledgement id `XACK-<attempt>-<n>[:64]` and the
+    reconciliation-round id `XRND-<attempt>-<n>[:64]` lost their sequence and the SECOND
+    acknowledgement / round of that attempt collided with the first on the primary key -- every
+    reconcile of a mandatory liquidation raised (and, unhandled, aborted the whole manager tick
+    for every other plan too)."""
     ex = world.exchange
     with world.stack() as stack:
         proposal_id, intent_id, quantity = world.enter_position(stack)
@@ -1515,14 +1518,24 @@ def test_ACC_17c_mandatory_liquidation_exit_is_submitted_and_reconciled(
         assert len(sell_posts(ex)) == 1
         attempt = stack.exit_attempts(intent_id)[-1]
         assert len(attempt.attempt_id) == 63
-        for _ in range(2):  # every further tick appends another acknowledgement
+        for _ in range(2):  # every further tick appends another acknowledgement and round
             stack.tick()
-        ex.fill(attempt.client_order_id, quantity, "99.90")
+        assert len(sell_posts(ex)) == 1
+        # unfilled past the (shorter, 15 s) mandatory spacing: cancel -> confirm -> replace
+        world.clock.advance(16)
+        replaced = outcome_row(stack.tick())
+        assert any(kind == PlanOutcomeKind.EXIT_SUBMITTED.value for kind, _ in replaced), replaced
+        assert len(sell_posts(ex)) == 2 and len(ex.open_orders()) == 1
+        generations = stack.exit_attempts(intent_id)
+        assert [a.state for a in generations][0] is PositionExitState.CANCELED
+        replacement = generations[-1]
+        ex.fill(replacement.client_order_id, quantity, "99.85")
         stack.tick()
         closed = stack.exit_attempts(intent_id)[-1]
+        assert closed.attempt_id == replacement.attempt_id
         assert closed.state is PositionExitState.FILLED
         assert closed.closed_position_verified_at is not None
-        assert len(sell_posts(ex)) == 1 and ex.positions == {}
+        assert len(sell_posts(ex)) == 2 and ex.positions == {}
         ack_ids = [
             r["acknowledgement_id"]
             for r in rows(
@@ -1542,7 +1555,9 @@ def test_ACC_17c_mandatory_liquidation_exit_is_submitted_and_reconciled(
         tick_at_deadline=claimed,
         attempt_id=attempt.attempt_id,
         attempt_id_length=len(attempt.attempt_id),
-        sell_orders_on_wire=1,
+        tick_after_mandatory_spacing=replaced,
+        sell_orders_on_wire=2,
+        generation_states=[a.state for a in generations],
         final_state=closed.state,
         closed_position_verified_at=closed.closed_position_verified_at,
         acknowledgement_ids=ack_ids,
