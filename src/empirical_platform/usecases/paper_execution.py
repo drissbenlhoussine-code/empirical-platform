@@ -34,6 +34,9 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 
+from empirical_platform.decision_candidate.operator_trading_configuration import (
+    OperatorTradingConfiguration,
+)
 from empirical_platform.decision_candidate.paper_execution import (
     BOUND_ORDER_STATES,
     MINIMUM_CONSECUTIVE_NOT_FOUND_OBSERVATIONS,
@@ -109,6 +112,13 @@ from empirical_platform.decision_candidate.product_repositories import (
     TradeProposalRepository,
 )
 from empirical_platform.decision_candidate.trade_approval import ApprovedOrderIntent
+from empirical_platform.decision_candidate.trading_limit_gate import (
+    InFlightEntry,
+    ProposedEntry,
+    TradingLimits,
+    entry_limit_refusals,
+    trading_day_start,
+)
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
     BrokerIdentityExistsError,
@@ -263,14 +273,13 @@ class PaperEvidence:
     kill_switch_engaged: bool
 
 
-def _policy_for(
+def _load_configuration(
     intent: ApprovedOrderIntent, configurations: OperatorTradingConfigurationRepository
-) -> ExecutionPolicy:
-    """The send-time policy of the EXACT configuration version the intent names.
+) -> OperatorTradingConfiguration:
+    """The EXACT configuration version the intent names, read from the append-only store.
 
-    Read from the append-only configuration store every time it is needed, never
-    from a caller. A missing version is a refusal: without it there are no limits,
-    and no limits is not the same thing as no refusals.
+    A missing version is a refusal: without it there are no limits, and no limits is not the
+    same thing as no refusals.
     """
     configuration = configurations.get(
         intent.configuration_governance_id, intent.configuration_version
@@ -286,7 +295,18 @@ def _policy_for(
         and configuration.risk_contract_version != 2
     ):
         raise PaperExecutionRefusedError("legacy configuration cannot authorize current v1 entry")
-    return execution_policy_from_configuration(configuration)
+    return configuration
+
+
+def _policy_for(
+    intent: ApprovedOrderIntent, configurations: OperatorTradingConfigurationRepository
+) -> ExecutionPolicy:
+    """The send-time policy of the EXACT configuration version the intent names.
+
+    Read from the append-only configuration store every time it is needed, never
+    from a caller.
+    """
+    return execution_policy_from_configuration(_load_configuration(intent, configurations))
 
 
 def _read_account_snapshot(
@@ -346,6 +366,68 @@ def _read_account_snapshot(
     )
 
 
+# ---------------------------------------------------------------------------
+# M100 D1 -- the trading-limit gate at the broker submission boundary
+# ---------------------------------------------------------------------------
+
+
+def _limits_and_day_start(
+    configuration: OperatorTradingConfiguration, *, now: datetime
+) -> tuple[TradingLimits, datetime]:
+    """The limits of one configuration version, and the start of "today".
+
+    "Today" begins at the EARLIER of operator-local midnight and New York midnight, so the
+    order-count window is never narrower than either calendar the broker or the operator uses.
+    """
+    try:
+        limits = TradingLimits.from_configuration(configuration)
+    except ValueError as error:
+        raise PaperExecutionRefusedError(
+            f"required trading limits are missing or invalid ({error}); new entries stay blocked "
+            "until they are configured and explicitly approved"
+        ) from error
+    return limits, trading_day_start(now, configuration.operator_timezone)
+
+
+def _in_flight_entries(
+    *,
+    attempts: ExecutionAttemptRepository,
+    intents: ApprovedOrderIntentRepository,
+    exclude_attempt_id: str | None,
+    day_start: datetime,
+) -> tuple[InFlightEntry, ...]:
+    """Entries this system has durably claimed today that the broker may not list yet.
+
+    Read from the same database the claim is written to, so a concurrent submitter in ANOTHER
+    process is seen too. A NOT_SENT rejection provably created nothing and is excluded; every
+    other attempt is included and de-duplicated against the broker's own list by client_order_id.
+    """
+    result: list[InFlightEntry] = []
+    for attempt in attempts.list_recent(500):
+        if attempt.attempt_id == exclude_attempt_id or attempt.claimed_at < day_start:
+            continue
+        if attempt.state is PaperExecutionState.REJECTED and attempt.failure_code == "NOT_SENT":
+            continue
+        intent = intents.get(attempt.intent_governance_id)
+        if intent is None:
+            raise PaperExecutionRefusedError(
+                f"attempt {attempt.attempt_id} names an unreadable intent; entries stay blocked"
+            )
+        notional = (
+            None if intent.limit_price is None else Decimal(intent.quantity) * intent.limit_price
+        )
+        result.append(
+            InFlightEntry(
+                client_order_id=attempt.client_order_id,
+                symbol=intent.symbol,
+                quantity=intent.quantity,
+                notional=notional,
+                counted_as_order_today=True,
+            )
+        )
+    return tuple(result)
+
+
 def _gather(
     *,
     broker: PaperBrokerPort,
@@ -371,6 +453,22 @@ def _gather(
     timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
     asset = broker.fetch_asset(symbol)
     position = broker.fetch_position(symbol)
+    # M100 FOLLOW-UP (independent review, P1): Prepare checks for a working order, but two
+    # proposals prepared BEFORE either was sent both passed it. Submit/recheck time is the
+    # choke point, so it must see working orders too. Fail closed: any working order in this
+    # symbol is folded into the "already exposed" quantity, which refuses the dispatch.
+    # Alpaca's `status=open` listing is queried fresh; fractional quantities round UP so a
+    # working order can never read as zero exposure.
+    held = 0 if position is None else position.quantity
+    working_quantity = 0
+    for working_order in broker.fetch_open_orders(symbol):
+        try:
+            quantity = Decimal(str(working_order.quantity))
+        except InvalidOperation as error:
+            raise PaperExecutionRefusedError(
+                f"a working order for {symbol} has an unreadable quantity; refusing"
+            ) from error
+        working_quantity += max(1, int(quantity.to_integral_value(rounding="ROUND_CEILING")))
     quote = market_data.fetch_quote(symbol)
     return PaperEvidence(
         account=account,
@@ -386,7 +484,7 @@ def _gather(
         asset_class=asset.asset_class,
         asset_exchange=asset.exchange,
         asset_fractionable=asset.fractionable,
-        existing_position_quantity=0 if position is None else position.quantity,
+        existing_position_quantity=held + working_quantity,
         kill_switch_engaged=kill_switch.is_engaged(),
     )
 
@@ -1246,7 +1344,8 @@ class SubmitAuthorizedPaperOrderHandler:
         binding_refusal = authorization_binding_refusal(authorization=authorization, preview=shown)
         if binding_refusal is not None:
             raise PaperExecutionRefusedError(f"this dispatch is not authorized: {binding_refusal}")
-        policy = _policy_for(intent, self._configurations)
+        configuration = _load_configuration(intent, self._configurations)
+        policy = execution_policy_from_configuration(configuration)
         if policy.fingerprint != authorization.policy_fingerprint:
             raise PaperExecutionRefusedError(
                 "this dispatch is not authorized: the execution policy of the intent's "
@@ -1368,6 +1467,17 @@ class SubmitAuthorizedPaperOrderHandler:
         if pre_claim_refusal is not None:
             raise PaperExecutionRefusedError(f"this dispatch is not permitted: {pre_claim_refusal}")
 
+        # M100 D1, first pass: the entry limits, before the authorization is spent.
+        self._enforce_trading_limits(
+            intent=intent,
+            configuration=configuration,
+            policy=policy,
+            timing=timing,
+            order_quantity=fresh.order.quantity,
+            order_price=fresh.order.limit_price,
+            exclude_attempt_id=None,
+        )
+
         # CLAIM BEFORE THE NETWORK. Everything above is a check; this is the
         # commitment, and it happens while nothing has been sent.
         claim = self._attempts.claim_dispatch(
@@ -1441,7 +1551,20 @@ class SubmitAuthorizedPaperOrderHandler:
                         sanitized_body=lookup_body,
                     )
                 # 2. The remaining reads: configuration, broker clock, quote.
-                policy_now = _policy_for(intent, self._configurations)
+                configuration_now = _load_configuration(intent, self._configurations)
+                policy_now = execution_policy_from_configuration(configuration_now)
+                # M100 D1, the real boundary: the limits again, on fresh reads, AFTER this
+                # attempt's claim is durable (so a concurrent submitter sees it) and before
+                # the send-capable boundary is entered. A refusal here sends nothing.
+                self._enforce_trading_limits(
+                    intent=intent,
+                    configuration=configuration_now,
+                    policy=policy_now,
+                    timing=timing,
+                    order_quantity=fresh.order.quantity,
+                    order_price=fresh.order.limit_price,
+                    exclude_attempt_id=attempt.attempt_id,
+                )
                 sent_monotonic = timing.read_monotonic()
                 clock = self._broker.fetch_clock()
                 received_monotonic = timing.read_monotonic()
@@ -1488,6 +1611,71 @@ class SubmitAuthorizedPaperOrderHandler:
             before_send=before_send,
             timing=timing,
         )
+
+    def _enforce_trading_limits(
+        self,
+        *,
+        intent: ApprovedOrderIntent,
+        configuration: OperatorTradingConfiguration,
+        policy: ExecutionPolicy,
+        timing: PaperTimeWindow,
+        order_quantity: int,
+        order_price: Decimal | None,
+        exclude_attempt_id: str | None,
+    ) -> None:
+        """M100 D1. Raise ``PaperExecutionRefusedError`` unless every entry limit allows it.
+
+        Called twice per dispatch: once before the claim (so a doomed order does not spend the
+        authorization) and once AFTER the claim, inside ``before_send``, on fresh reads. The second
+        call is the real boundary: it sees every other claimed attempt in the database, so of two
+        concurrent submitters at least one always sees the other. Any failure to read or prove the
+        evidence is a refusal, never a pass.
+        """
+        try:
+            now = timing.now()
+            limits, day_start = _limits_and_day_start(configuration, now=now)
+            read_started = timing.now()
+            evidence = self._broker.fetch_portfolio_risk_evidence(day_start=day_start)
+            read_finished = timing.now()
+            in_flight = _in_flight_entries(
+                attempts=self._attempts,
+                intents=self._intents,
+                exclude_attempt_id=exclude_attempt_id,
+                day_start=day_start,
+            )
+        except PaperExecutionRefusedError:
+            raise
+        except Exception as error:  # noqa: BLE001 - unverifiable limits are a refusal
+            raise PaperExecutionRefusedError(
+                "trading limits could not be verified from fresh broker evidence "
+                f"({type(error).__name__}: {error}); the entry is blocked"
+            ) from error
+        # Freshness is judged on the HOST clock around the read itself (never by comparing the
+        # adapter's own timestamp with the host clock): a read that took longer than the
+        # configured data-age limit is stale by the time it is used.
+        duration = (read_finished - read_started).total_seconds()
+        if duration > policy.quote_maximum_age_seconds or duration < 0:
+            raise PaperExecutionRefusedError(
+                f"reading the portfolio risk evidence took {duration:.0f}s; the entry is blocked"
+            )
+        if order_price is None:
+            raise PaperExecutionRefusedError(
+                "the order has no price, so exposure cannot be computed"
+            )
+        refusals = entry_limit_refusals(
+            proposed=ProposedEntry(
+                symbol=intent.symbol,
+                quantity=order_quantity,
+                notional=Decimal(order_quantity) * order_price,
+            ),
+            limits=limits,
+            evidence=evidence,
+            in_flight=in_flight,
+        )
+        if refusals:
+            raise PaperExecutionRefusedError(
+                "a trading limit forbids this entry: " + "; ".join(refusals)
+            )
 
     def _dispatch(
         self,

@@ -88,6 +88,12 @@ def test_real_dump_restore_retention_and_loss_refusal(tmp_path: Path) -> None:
                     conn.execute(
                         sql.SQL("INSERT INTO {} VALUES (1),(2),(3)").format(sql.Identifier(table))
                     )
+                    if store == "B":
+                        # `backup()` also baselines approved_plan's row count (adversarial
+                        # review follow-up) -- this minimal fixture needs the table to exist,
+                        # same reasoning as paper_execution_attempt above.
+                        conn.execute("CREATE TABLE approved_plan (id integer PRIMARY KEY)")
+                        conn.execute("INSERT INTO approved_plan VALUES (1)")
             command = [
                 sys.executable,
                 "tools/personal_paper_backup.py",

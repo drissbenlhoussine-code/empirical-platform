@@ -1881,7 +1881,12 @@ class CancelPositionExitHandler:
         if status not in {200, 202, 204}:
             self._events.append(
                 PositionExitEvent(
-                    event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REFUSED", str(status)),
+                    event_id=_event_id(
+                        attempt.attempt_id,
+                        "EXIT_CANCEL_REFUSED",
+                        str(status),
+                        command.at.isoformat(),
+                    ),
                     entry_intent_governance_id=attempt.entry_intent_governance_id,
                     attempt_id=attempt.attempt_id,
                     event_type="EXIT_CANCEL_REFUSED",
@@ -1895,7 +1900,9 @@ class CancelPositionExitHandler:
         )
         self._events.append(
             PositionExitEvent(
-                event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REQUESTED"),
+                event_id=_event_id(
+                    attempt.attempt_id, "EXIT_CANCEL_REQUESTED", command.at.isoformat()
+                ),
                 entry_intent_governance_id=attempt.entry_intent_governance_id,
                 attempt_id=attempt.attempt_id,
                 event_type="EXIT_CANCEL_REQUESTED",

@@ -63,6 +63,8 @@ from empirical_platform.decision_candidate.product_market_inputs import (
     InstrumentMetadata,
     LiquiditySnapshot,
     MarketStatus,
+    OpenOrderSnapshot,
+    PositionSnapshot,
     QuoteSnapshot,
     SessionSnapshot,
     TradingCostEstimate,
@@ -73,6 +75,7 @@ from empirical_platform.decision_candidate.product_repositories import (
     TradeProposalRepository,
 )
 from empirical_platform.decision_candidate.trade_proposal import RiskCheckOutcome, TradeProposal
+from empirical_platform.decision_candidate.trading_limit_gate import trading_day_start
 from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
 from empirical_platform.usecases.operator_console_fixtures import simulation_timezone_for
 from empirical_platform.usecases.paper_execution import (
@@ -523,6 +526,46 @@ def prepare_v1_paper_candidate(
             "the account endpoint did not answer; nothing was prepared"
         )
 
+    # PORTFOLIO-CONFLICT EVIDENCE GAP FOLLOW-UP: `evaluate_trade_proposal`'s
+    # no_existing_position/no_open_order/position_count checks are only as honest as what
+    # they are given. A hardcoded empty tuple here would make all three pass unconditionally
+    # regardless of real broker state -- including while an earlier, still-unfilled LIMIT BUY
+    # for this same symbol sits working at the broker. Both are freshly queried, never cached.
+    # M100 D1: the WHOLE account, not one symbol. Positions, working orders, today's order count
+    # and today's P&L all come from one fresh broker read; if any of it cannot be read or proven
+    # complete, nothing is prepared (the submission boundary re-checks it again before any send).
+    try:
+        risk_evidence = broker.fetch_portfolio_risk_evidence(
+            day_start=trading_day_start(now, configuration.operator_timezone)
+        )
+    except Exception as error:  # noqa: BLE001 - unverifiable limits block new entries
+        raise V1PaperCandidateRefusedError(
+            "today's positions, orders and P&L could not be verified from the broker "
+            f"({type(error).__name__}); nothing was prepared"
+        ) from error
+    positions = tuple(
+        PositionSnapshot(
+            symbol=held.symbol,
+            quantity=held.quantity,
+            average_price=held.cost_basis / held.quantity,
+        )
+        for held in risk_evidence.positions
+        if held.quantity != 0
+    )
+    open_orders: list[OpenOrderSnapshot] = [
+        OpenOrderSnapshot(
+            order_reference=working.client_order_id,
+            symbol=working.symbol,
+            side=working.side.upper(),
+            quantity=working.quantity,
+        )
+        for working in risk_evidence.working_orders
+    ]
+    # The engine's single "realized pnl" input is the WORSE of realized and whole-day P&L, the
+    # same fail-closed reading the submission-boundary gate uses.
+    worst_pnl_today = min(risk_evidence.realized_pnl_today, risk_evidence.day_pnl)
+    orders_today = risk_evidence.orders_today
+
     spread_percent = ((ask - bid) / ask * Decimal("100")).quantize(Decimal("0.0001"))
 
     stamp = now.strftime("%Y%m%dT%H%M%SZ")
@@ -581,8 +624,8 @@ def prepare_v1_paper_candidate(
                 base_currency=str(account_payload.get("currency", configuration.base_currency)),
                 cash_available=Decimal(str(account_payload.get("cash", "0"))),
                 equity_total=Decimal(str(account_payload.get("equity", "0"))),
-                realized_pnl_today=Decimal("0"),
-                orders_submitted_today=0,
+                realized_pnl_today=worst_pnl_today,
+                orders_submitted_today=orders_today,
                 observed_at=now,
             ),
             session=SessionSnapshot(
@@ -612,8 +655,8 @@ def prepare_v1_paper_candidate(
                 estimated_slippage_percent=spread_percent,
                 observed_at=now,
             ),
-            positions=(),
-            open_orders=(),
+            positions=positions,
+            open_orders=tuple(open_orders),
             evidence_age_seconds=evidence_age_seconds,
         )
     )

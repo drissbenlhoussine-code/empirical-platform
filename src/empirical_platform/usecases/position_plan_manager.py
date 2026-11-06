@@ -47,6 +47,7 @@ release mission's "one console instance" requirement.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from collections.abc import Callable, Sequence
@@ -72,7 +73,13 @@ from empirical_platform.decision_candidate.external_position_closure_repositorie
 )
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
+    ExecutionKillSwitchRepository,
     PaperMarketDataPort,
+)
+from empirical_platform.decision_candidate.position_exit import (
+    PositionExitAttempt,
+    PositionExitEvent,
+    PositionExitState,
 )
 from empirical_platform.decision_candidate.position_exit_repositories import (
     ExitBrokerPort,
@@ -95,6 +102,8 @@ from empirical_platform.usecases.position_exit import (
     AssessPositionExitHandler,
     AuthorizePositionExitCommand,
     AuthorizePositionExitHandler,
+    CancelPositionExitCommand,
+    CancelPositionExitHandler,
     PositionExitRefusedError,
     PreviewPositionExitCommand,
     PreviewPositionExitHandler,
@@ -161,6 +170,48 @@ EXIT_QUOTE_CORROBORATION_MINIMUM_SAMPLE = 5
 #: single stray tick in either direction.
 EXIT_QUOTE_CORROBORATION_MINIMUM_FRACTION = Decimal("0.90")
 
+# ---------------------------------------------------------------------------------------------
+# M100 D3 -- the bounded exit state machine. OPERATIONAL bounds, not financial thresholds: they
+# say how long to wait and how many times to try, never what price or size is acceptable. Every
+# re-arm is priced by the SAME preview handler as the first attempt (fresh bid, same freshness
+# and spread gates, LIMIT/DAY only) -- there is no market order and no discretionary repricing.
+# They are pending Owner approval (see docs/operations/m100-exit-state-machine.md).
+# ---------------------------------------------------------------------------------------------
+
+#: Total exit attempts per plan: the first dispatch plus (N-1) re-arms. When they are spent and
+#: the position is still open, the plan is escalated -- never retried again.
+EXIT_MAXIMUM_ATTEMPTS = 3
+
+#: How long a working (ACCEPTED / PARTIALLY_FILLED) exit may rest at the broker before it is
+#: cancelled so it can be re-armed at the current bid.
+EXIT_WORKING_REST_SECONDS = 90
+
+#: Cancel-for-reprice is only attempted while at least this long remains before the close. Closer
+#: than that, a cancel could leave NO working exit when the session ends, so the resting order is
+#: left in place instead.
+EXIT_MINIMUM_SECONDS_TO_CLOSE_FOR_REPRICE = 300
+
+#: A cancel the broker has not confirmed within this long is an unresolved risk.
+EXIT_CANCEL_CONFIRMATION_SECONDS = 120
+
+#: A position with NO working exit (terminal, unfilled) that cannot be re-armed for this long is
+#: an unresolved risk. Shorter gaps are ordinary transient refusals (stale quote, spread).
+EXIT_UNPROTECTED_ESCALATION_SECONDS = 120
+
+_ESCALATION_ACTOR = "plan-manager"
+
+#: A prepared-but-unclaimed re-arm pair older than this is superseded by a fresh one (the preview's
+#: quote limit is 60 s by default and the authorization lives 300 s).
+_PREPARED_PAIR_MAX_AGE_SECONDS = 30
+_MAXIMUM_PREPARED_PAIRS = 50
+
+#: The ONLY broker statuses on which the manager will cancel a resting exit. Any other vocabulary
+#: (a status this product has never mapped, or none at all) is an unexpected broker response:
+#: nothing is cancelled or replaced on the strength of it.
+_CANCELLABLE_BROKER_STATUSES = frozenset(
+    {"new", "accepted", "pending_new", "held", "partially_filled"}
+)
+
 
 class PlanOutcomeKind(StrEnum):
     MONITORING = "MONITORING"
@@ -183,6 +234,15 @@ class PlanOutcomeKind(StrEnum):
     #: `usecases.record_external_position_closure`). The manager will never evaluate a
     #: trigger, claim one, or attempt Preview/Authorize/Submit for this plan again.
     EXTERNALLY_CLOSED = "EXTERNALLY_CLOSED"
+    #: M100 D3: the working exit rested too long; a cancel was REQUESTED (not assumed).
+    EXIT_CANCEL_REQUESTED = "EXIT_CANCEL_REQUESTED"
+    #: M100 D3: a previous attempt is confirmed terminal and unfilled; a new generation was sent.
+    EXIT_REARMED = "EXIT_REARMED"
+    #: M100 D3: the market is closed; nothing is sent until it opens (and the gap is visible).
+    EXIT_WAITING_FOR_MARKET = "EXIT_WAITING_FOR_MARKET"
+    #: M100 D3: an exit cannot safely complete. Durable event written, entries blocked, Owner
+    #: must act. The position stays visible as "Needs attention" until it is closed.
+    EXIT_UNRESOLVED_RISK = "EXIT_UNRESOLVED_RISK"
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,15 +253,43 @@ class PlanEvaluationOutcome:
     detail: str
 
 
-def _preview_id(plan: ApprovedPlan, kind: ExitTriggerKind) -> str:
+def _generation_suffix(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int, salt: int = 0
+) -> str:
+    """Identity material for re-arm generations (>= 1).
+
+    A digest, not a concatenation: the base identifiers are already close to the 64-character
+    identifier limit, so a readable suffix could overflow it. Deterministic, so a restart, a
+    second worker and a reconciliation all derive the SAME identity for the same generation.
+    """
+    material = f"{plan.plan_id}|{kind.value}|{generation}"
+    if salt:
+        # A salt > 0 supersedes a prepared-but-never-claimed pair whose evidence went stale.
+        material += f"|{salt}"
+    return hashlib.sha256(material.encode()).hexdigest()[:40]
+
+
+def _preview_id(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0, salt: int = 0
+) -> str:
+    if generation:
+        return f"XPV-{_generation_suffix(plan, kind, generation, salt)}"
     return f"XPV-plan-{plan.plan_id}-{kind.value}"
 
 
-def _authorization_id(plan: ApprovedPlan, kind: ExitTriggerKind) -> str:
+def _authorization_id(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0, salt: int = 0
+) -> str:
+    if generation:
+        return f"XAU-{_generation_suffix(plan, kind, generation, salt)}"
     return f"XAU-plan-{plan.plan_id}-{kind.value}"
 
 
-def _attempt_id(plan: ApprovedPlan, kind: ExitTriggerKind) -> str:
+def _attempt_id(
+    plan: ApprovedPlan, kind: ExitTriggerKind, generation: int = 0, salt: int = 0
+) -> str:
+    if generation:
+        return f"XAT-{_generation_suffix(plan, kind, generation, salt)}"
     return f"XAT-plan-{plan.plan_id}-{kind.value}"
 
 
@@ -221,6 +309,10 @@ class PositionPlanManager:
         "_authorize_handler",
         "_submit_handler",
         "_reconcile_handler",
+        "_cancel_handler",
+        "_events",
+        "_broker",
+        "_entry_kill_switch",
     )
 
     def __init__(
@@ -241,7 +333,14 @@ class PositionPlanManager:
         configurations: OperatorTradingConfigurationRepository,
         environment: str,
         time_source: PaperTimeSource | None = None,
+        entry_kill_switch: ExecutionKillSwitchRepository | None = None,
     ) -> None:
+        self._events = events
+        self._broker = broker
+        #: M100 D3: engaged ONLY to stop new ENTRIES when an exit cannot safely complete. It is
+        #: never given to the exit handlers (exits ignore the kill switch), so engaging it can
+        #: never block a position-reducing order.
+        self._entry_kill_switch = entry_kill_switch
         self._plans = plans
         self._external_closures = external_closures
         self._previews = previews
@@ -300,16 +399,42 @@ class PositionPlanManager:
             broker=broker,
             time_source=time_source,
         )
+        self._cancel_handler = CancelPositionExitHandler(
+            attempts=exit_attempts,
+            acknowledgements=acknowledgements,
+            events=events,
+            broker=broker,
+        )
 
     def evaluate_once(self, *, now: datetime) -> tuple[PlanEvaluationOutcome, ...]:
         """One poll tick. Safe to call repeatedly, from any process, at any time -- every
         decision it makes is re-derived from durable state, never remembered in RAM."""
         outcomes: list[PlanEvaluationOutcome] = []
         for plan in self._plans.list_unclaimed(500):
-            outcomes.append(self._evaluate_unclaimed(plan, now=now))
+            outcomes.append(self._guarded(plan, self._evaluate_unclaimed, now))
         for plan in self._list_claimed_unresolved(limit=500):
-            outcomes.append(self._resume_claimed(plan, now=now))
+            outcomes.append(self._guarded(plan, self._resume_claimed, now))
         return tuple(outcomes)
+
+    @staticmethod
+    def _guarded(
+        plan: ApprovedPlan,
+        step: Callable[..., PlanEvaluationOutcome],
+        now: datetime,
+    ) -> PlanEvaluationOutcome:
+        """M100 D3: one plan's broker outage or unexpected response must not abort the tick for
+        every other plan. The failure becomes a visible NEEDS_ATTENTION outcome and nothing is
+        cancelled, replaced or re-armed on its strength; the next tick tries again."""
+        try:
+            return step(plan, now=now)
+        except Exception as error:  # noqa: BLE001 - isolate per plan, report, retry next tick
+            _LOG.warning("plan %s tick failed: %s: %s", plan.plan_id, type(error).__name__, error)
+            return PlanEvaluationOutcome(
+                plan.plan_id,
+                plan.entry_intent_governance_id,
+                PlanOutcomeKind.NEEDS_ATTENTION,
+                f"{type(error).__name__}: {error}; no exit action was taken on this tick",
+            )
 
     # -- unclaimed plans: decide whether a trigger fires ------------------------------
 
@@ -445,44 +570,360 @@ class PositionPlanManager:
         return tuple(unresolved)
 
     def _resume_claimed(self, plan: ApprovedPlan, *, now: datetime) -> PlanEvaluationOutcome:
+        """M100 D3: drive a claimed plan's exit through a bounded, fail-closed state machine.
+
+        Every decision is re-derived from DURABLE state (the plan's attempt history and the
+        broker), so a restart, a second worker or a crashed tick resumes exactly here. The rules:
+
+        * Broker truth first: a non-terminal attempt is reconciled before anything else, and an
+          order is never treated as cancelled or filled until the broker says so.
+        * Uncertain attempts (unknown, claimed, in progress) are only reconciled -- never
+          cancelled, replaced or duplicated.
+        * A working exit that has rested too long is CANCEL-REQUESTED once; the next ticks
+          reconcile; only a broker-confirmed CANCELED/EXPIRED/REJECTED attempt can be re-armed,
+          so two exit orders can never be live together and the position cannot be oversold.
+        * Re-arms are bounded (`EXIT_MAXIMUM_ATTEMPTS`) and priced by the ordinary preview.
+        * Anything that cannot safely complete is ESCALATED: a durable event, a visible
+          NEEDS_ATTENTION state, and the entry kill switch -- never silence.
+        """
         closure = self._external_closures.for_entry(plan.entry_intent_governance_id)
         if closure is not None:
             return self._externally_closed_outcome(plan, closure)
-        attempt = self._attempts.active_for_entry(plan.entry_intent_governance_id)
-        if attempt is not None and not attempt.is_terminal:
-            reconciled = self._reconcile_handler.handle(
-                ReconcilePositionExitCommand(attempt_id=attempt.attempt_id, at=now)
+        history = self._attempts.for_entry(plan.entry_intent_governance_id)
+        if not history:
+            return self._attempt_exit(plan, now=now, just_claimed=False)
+        latest = history[-1]
+        if not latest.is_terminal:
+            return self._supervise_working(plan, latest, len(history), now=now)
+        if latest.state is PositionExitState.FILLED:
+            # Verify the broker position is flat (the reconcile of a terminal FILLED attempt does
+            # exactly that and nothing else).
+            verified = self._reconcile_handler.handle(
+                ReconcilePositionExitCommand(attempt_id=latest.attempt_id, at=now)
             )
+            if verified.position_closed:
+                return PlanEvaluationOutcome(
+                    plan.plan_id,
+                    plan.entry_intent_governance_id,
+                    PlanOutcomeKind.EXIT_RECONCILED,
+                    f"attempt {verified.attempt_id} state=FILLED position verified closed",
+                )
+            return PlanEvaluationOutcome(
+                plan.plan_id,
+                plan.entry_intent_governance_id,
+                PlanOutcomeKind.EXIT_ALREADY_IN_PROGRESS,
+                f"attempt {verified.attempt_id} filled; the broker position is not yet verified "
+                "flat",
+            )
+        return self._rearm_or_escalate(plan, latest, len(history), now=now)
+
+    def _supervise_working(
+        self, plan: ApprovedPlan, attempt: PositionExitAttempt, attempts_made: int, *, now: datetime
+    ) -> PlanEvaluationOutcome:
+        reconciled = self._reconcile_handler.handle(
+            ReconcilePositionExitCommand(attempt_id=attempt.attempt_id, at=now)
+        )
+
+        def reconciled_outcome(note: str) -> PlanEvaluationOutcome:
             return PlanEvaluationOutcome(
                 plan.plan_id,
                 plan.entry_intent_governance_id,
                 PlanOutcomeKind.EXIT_RECONCILED,
-                f"attempt {reconciled.attempt_id} state={reconciled.state.value}",
+                f"attempt {reconciled.attempt_id} state={reconciled.state.value}{note}",
             )
-        return self._attempt_exit(plan, now=now, just_claimed=False)
+
+        state = reconciled.state
+        if reconciled.is_terminal:
+            return reconciled_outcome("; decided on the next tick")
+        if state in (
+            PositionExitState.SUBMISSION_UNKNOWN,
+            PositionExitState.DISPATCH_CLAIMED,
+            PositionExitState.SUBMISSION_IN_PROGRESS,
+        ):
+            # Never cancel, replace or duplicate an order whose existence is not established.
+            return reconciled_outcome("; outcome not established, reconciling only")
+        if state is PositionExitState.CANCEL_REQUESTED:
+            requested_at = self._cancel_requested_at(reconciled)
+            overdue = (
+                (now - requested_at).total_seconds() > EXIT_CANCEL_CONFIRMATION_SECONDS
+                if requested_at is not None
+                # No request event (cancel made at the broker, or a crash before the event): fall
+                # back to the attempt's age so the escalation can never be skipped.
+                else (now - (reconciled.acknowledged_at or reconciled.claimed_at)).total_seconds()
+                > EXIT_WORKING_REST_SECONDS + EXIT_CANCEL_CONFIRMATION_SECONDS
+            )
+            if overdue:
+                return self._escalate(
+                    plan,
+                    reconciled,
+                    now=now,
+                    key="cancel-unconfirmed",
+                    reason=(
+                        f"the broker has not confirmed the cancel of exit {reconciled.attempt_id} "
+                        f"within {EXIT_CANCEL_CONFIRMATION_SECONDS}s; the order may still be live"
+                    ),
+                )
+            return reconciled_outcome("; awaiting broker confirmation of the cancel")
+
+        rest_started = (
+            reconciled.acknowledged_at or reconciled.submitted_at or reconciled.claimed_at
+        )
+        resting = (now - rest_started).total_seconds()
+        if resting < EXIT_WORKING_REST_SECONDS:
+            return reconciled_outcome(f"; resting {int(resting)}s")
+        if reconciled.broker_status not in _CANCELLABLE_BROKER_STATUSES:
+            return self._escalate(
+                plan,
+                reconciled,
+                now=now,
+                key="final-attempt-resting",
+                reason=(
+                    f"the broker reports exit {reconciled.attempt_id} as "
+                    f"{reconciled.broker_status!r}, which this product does not recognise as "
+                    "a working order; nothing was cancelled or replaced"
+                ),
+            )
+        if attempts_made >= EXIT_MAXIMUM_ATTEMPTS:
+            # The last allowed attempt is still working: it is still real protection, so it is
+            # left alone -- but an operator must know it has not filled.
+            return self._escalate(
+                plan,
+                reconciled,
+                now=now,
+                key="unrecognised-status",
+                reason=(
+                    f"the final allowed exit attempt {reconciled.attempt_id} has rested "
+                    f"{int(resting)}s without filling"
+                ),
+            )
+        if not self._can_reprice_safely(now):
+            return reconciled_outcome("; not repriced (market closed, closing, or clock unknown)")
+        try:
+            cancelled = self._cancel_handler.handle(
+                CancelPositionExitCommand(attempt_id=reconciled.attempt_id, at=now)
+            )
+        except Exception as error:  # noqa: BLE001 - an erroring cancel is an unmet cancel
+            cancelled = reconciled
+            _LOG.warning("plan %s: cancel request raised %s", plan.plan_id, type(error).__name__)
+        if cancelled.state is not PositionExitState.CANCEL_REQUESTED:
+            # The broker refused (or did not accept) the cancel: the order is still live at its
+            # stale price. Retry on later ticks; if it keeps failing, make it an escalation.
+            if resting >= EXIT_WORKING_REST_SECONDS + EXIT_CANCEL_CONFIRMATION_SECONDS:
+                return self._escalate(
+                    plan,
+                    reconciled,
+                    now=now,
+                    key="cancel-refused",
+                    reason=(
+                        f"the broker has not accepted a cancel of exit {reconciled.attempt_id} "
+                        f"in {int(resting)}s; the stale order is still working"
+                    ),
+                )
+            return PlanEvaluationOutcome(
+                plan.plan_id,
+                plan.entry_intent_governance_id,
+                PlanOutcomeKind.NEEDS_ATTENTION,
+                f"the cancel of {cancelled.attempt_id} was not accepted; will retry",
+            )
+        return PlanEvaluationOutcome(
+            plan.plan_id,
+            plan.entry_intent_governance_id,
+            PlanOutcomeKind.EXIT_CANCEL_REQUESTED,
+            f"attempt {cancelled.attempt_id} state={cancelled.state.value}; a cancel was "
+            "requested after resting too long -- the replacement waits for the broker to "
+            "confirm it",
+        )
+
+    def _rearm_or_escalate(
+        self, plan: ApprovedPlan, latest: PositionExitAttempt, attempts_made: int, *, now: datetime
+    ) -> PlanEvaluationOutcome:
+        unprotected = (now - (latest.terminal_at or latest.claimed_at)).total_seconds()
+        assessment = self._assess.handle(plan.entry_intent_governance_id, at=now)
+        if not assessment.eligible:
+            # The position no longer matches what this plan can safely sell (closed or resized
+            # outside this platform, attribution ambiguous, ...). Selling anyway could oversell.
+            return self._escalate(
+                plan,
+                latest,
+                now=now,
+                key="position-not-reexitable",
+                reason="the position cannot be safely re-exited: " + "; ".join(assessment.refusals),
+            )
+        if attempts_made >= EXIT_MAXIMUM_ATTEMPTS:
+            return self._escalate(
+                plan,
+                latest,
+                now=now,
+                key="attempts-spent",
+                reason=(
+                    f"{attempts_made} exit attempts were spent (last: {latest.state.value}) and "
+                    "the position is still open"
+                ),
+            )
+        if not self._market_is_open(now):
+            if unprotected > EXIT_UNPROTECTED_ESCALATION_SECONDS:
+                return self._escalate(
+                    plan,
+                    latest,
+                    now=now,
+                    key="market-closed",
+                    reason=(
+                        f"exit {latest.attempt_id} ended {latest.state.value} with the position "
+                        "still open and the market is closed (or its state is unknown)"
+                    ),
+                )
+            return PlanEvaluationOutcome(
+                plan.plan_id,
+                plan.entry_intent_governance_id,
+                PlanOutcomeKind.EXIT_WAITING_FOR_MARKET,
+                f"exit {latest.attempt_id} ended {latest.state.value}; waiting for the market",
+            )
+        outcome = self._attempt_exit(plan, now=now, just_claimed=False, generation=attempts_made)
+        if outcome.kind is PlanOutcomeKind.NEEDS_ATTENTION:
+            if unprotected > EXIT_UNPROTECTED_ESCALATION_SECONDS:
+                return self._escalate(
+                    plan,
+                    latest,
+                    now=now,
+                    key="refused-while-unprotected",
+                    reason=(
+                        f"no exit has been working for {int(unprotected)}s and a new one was "
+                        f"refused: {outcome.detail}"
+                    ),
+                )
+            return outcome
+        return PlanEvaluationOutcome(
+            plan.plan_id,
+            plan.entry_intent_governance_id,
+            PlanOutcomeKind.EXIT_REARMED,
+            f"generation {attempts_made} after {latest.attempt_id} ({latest.state.value}): "
+            + outcome.detail,
+        )
+
+    # -- helpers for the exit state machine ------------------------------------------------
+
+    def _market_is_open(self, now: datetime) -> bool:
+        """True only on a positive, readable broker answer. Anything else is "not open"."""
+        del now
+        try:
+            return bool(self._broker.fetch_clock().is_open)
+        except Exception:  # noqa: BLE001 - an unreadable clock is not permission to act
+            return False
+
+    def _can_reprice_safely(self, now: datetime) -> bool:
+        try:
+            clock = self._broker.fetch_clock()
+        except Exception:  # noqa: BLE001 - unknown is not safe
+            return False
+        if not clock.is_open or clock.next_close is None:
+            return False
+        remaining = (clock.next_close - now).total_seconds()
+        return remaining >= EXIT_MINIMUM_SECONDS_TO_CLOSE_FOR_REPRICE
+
+    def _cancel_requested_at(self, attempt: PositionExitAttempt) -> datetime | None:
+        requested = [
+            event.occurred_at
+            for event in self._events.for_entry(attempt.entry_intent_governance_id)
+            if event.attempt_id == attempt.attempt_id
+            and event.event_type == "EXIT_CANCEL_REQUESTED"
+        ]
+        return max(requested) if requested else None
+
+    def _escalate(
+        self,
+        plan: ApprovedPlan,
+        attempt: PositionExitAttempt,
+        *,
+        now: datetime,
+        key: str,
+        reason: str,
+    ) -> PlanEvaluationOutcome:
+        """Make an unresolved exit risk durable, visible and entry-blocking.
+
+        Idempotent per (plan, attempt, ``key``): the key names the KIND of risk, so a reason
+        that embeds a changing number (seconds rested) is recorded once, not once per tick.
+        """
+        digest = hashlib.sha256(f"{plan.plan_id}|{attempt.attempt_id}|{key}".encode()).hexdigest()
+        event_id = f"XEV-risk-{digest[:40]}"
+        known = {e.event_id for e in self._events.for_entry(plan.entry_intent_governance_id)}
+        first_time = event_id not in known
+        if first_time:
+            self._events.append(
+                PositionExitEvent(
+                    event_id=event_id,
+                    entry_intent_governance_id=plan.entry_intent_governance_id,
+                    attempt_id=attempt.attempt_id,
+                    event_type="EXIT_UNRESOLVED_RISK",
+                    occurred_at=now,
+                    detail=reason[:500],
+                )
+            )
+        blocked = "entries blocked (recorded earlier; only the Owner releases it)"
+        # Engaged ONCE, when the risk is first recorded: an Owner who releases the switch is not
+        # overridden every tick.
+        if first_time and self._entry_kill_switch is not None:
+            try:
+                self._entry_kill_switch.engage(
+                    changed_by=_ESCALATION_ACTOR,
+                    changed_at=now,
+                    reason=f"unresolved exit risk for plan {plan.plan_id}"[:500],
+                )
+                blocked = "new entries blocked (kill switch engaged)"
+            except Exception as error:  # noqa: BLE001 - never let escalation itself raise
+                blocked = f"FAILED to block new entries ({type(error).__name__})"
+                _LOG.error("plan %s: cannot engage the entry kill switch: %s", plan.plan_id, error)
+        _LOG.warning("plan %s UNRESOLVED EXIT RISK: %s; %s", plan.plan_id, reason, blocked)
+        return PlanEvaluationOutcome(
+            plan.plan_id,
+            plan.entry_intent_governance_id,
+            PlanOutcomeKind.EXIT_UNRESOLVED_RISK,
+            f"{reason}; {blocked}; the Owner must act",
+        )
+
+    def _fresh_salt(
+        self, plan: ApprovedPlan, kind: ExitTriggerKind, generation: int, now: datetime
+    ) -> int:
+        """The smallest salt whose prepared preview is absent or still fresh.
+
+        A preview/authorization prepared for a re-arm but never claimed (a transient outage or
+        refusal between prepare and send) freezes a quote that ages out and an authorization that
+        expires; reusing it forever would latch the failure. After `_PREPARED_PAIR_MAX_AGE_SECONDS`
+        an unclaimed pair is superseded by a new deterministic identity. A pair that was claimed
+        is an attempt, so it is already counted in the history and never reaches this function.
+        """
+        for salt in range(_MAXIMUM_PREPARED_PAIRS):
+            existing = self._previews.get(_preview_id(plan, kind, generation, salt))
+            if existing is None:
+                return salt
+            if (now - existing.created_at).total_seconds() <= _PREPARED_PAIR_MAX_AGE_SECONDS:
+                return salt
+        return _MAXIMUM_PREPARED_PAIRS - 1
 
     # -- the shared, idempotent Preview -> Authorize -> Submit sequence ---------------
 
     def _attempt_exit(
-        self, plan: ApprovedPlan, *, now: datetime, just_claimed: bool
+        self, plan: ApprovedPlan, *, now: datetime, just_claimed: bool, generation: int = 0
     ) -> PlanEvaluationOutcome:
         assert plan.triggered_exit_kind is not None
         kind = plan.triggered_exit_kind
+        salt = self._fresh_salt(plan, kind, generation, now) if generation else 0
         try:
-            preview = self._previews.get(_preview_id(plan, kind))
+            preview = self._previews.get(_preview_id(plan, kind, generation, salt))
             if preview is None:
                 preview = self._preview_handler.handle(
                     PreviewPositionExitCommand(
                         entry_intent_governance_id=plan.entry_intent_governance_id,
-                        preview_id=_preview_id(plan, kind),
+                        preview_id=_preview_id(plan, kind, generation, salt),
                         created_at=now,
                     )
                 )
-            authorization = self._authorizations.get(_authorization_id(plan, kind))
+            authorization = self._authorizations.get(
+                _authorization_id(plan, kind, generation, salt)
+            )
             if authorization is None:
                 authorization = self._authorize_handler.handle(
                     AuthorizePositionExitCommand(
-                        authorization_id=_authorization_id(plan, kind),
+                        authorization_id=_authorization_id(plan, kind, generation, salt),
                         preview_id=preview.preview_id,
                         expected_request_fingerprint=preview.request_fingerprint,
                         # RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: derived
@@ -500,7 +941,7 @@ class PositionPlanManager:
             result = self._submit_handler.handle(
                 SubmitAuthorizedPositionExitCommand(
                     entry_intent_governance_id=plan.entry_intent_governance_id,
-                    attempt_id=_attempt_id(plan, kind),
+                    attempt_id=_attempt_id(plan, kind, generation, salt),
                     at=now,
                 )
             )
@@ -758,6 +1199,7 @@ class PlanManagerThread:
                         in (
                             PlanOutcomeKind.NEEDS_ATTENTION,
                             PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
+                            PlanOutcomeKind.EXIT_UNRESOLVED_RISK,
                         )
                         else logging.INFO
                     )

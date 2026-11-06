@@ -71,6 +71,7 @@ from empirical_platform.usecases.position_plan_manager import (
 from empirical_platform.usecases.v1_management_status import (
     ApprovedPlan,
     PositionExitAttempt,
+    latest_exit_attempt,
     management_status,
 )
 
@@ -389,7 +390,7 @@ def build_paper_application(
                     plan = backend._plans.for_entry(row.intent_id)
                     if plan is None:
                         continue
-                    attempt = backend._exits.attempts.active_for_entry(row.intent_id)
+                    attempt = latest_exit_attempt(backend._exits.attempts, row.intent_id)
                     quote = backend._market_data.fetch_quote(row.symbol)
                     # RELEASE v1 VISIBILITY FIX: the SAME assessment
                     # `AssessPositionExitHandler` would reach for this entry right now --
@@ -449,7 +450,7 @@ def build_paper_application(
                     plan = backend._plans.for_entry(row.intent_id)
                     if plan is None:
                         continue
-                    attempt = backend._exits.attempts.active_for_entry(row.intent_id)
+                    attempt = latest_exit_attempt(backend._exits.attempts, row.intent_id)
                     cell = history_plan_cell_for_row(plan, attempt, row.price)
                     if cell is not None:
                         plan_cells[row.intent_id] = cell

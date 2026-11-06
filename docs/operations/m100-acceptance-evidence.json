@@ -1,0 +1,123 @@
+{
+  "STEP-01": {
+    "intent": "INT-100-0001",
+    "quantity": 5,
+    "title": "entry chain persisted"
+  },
+  "STEP-02": {
+    "orders": 1,
+    "state": "PAPER_ACCEPTED",
+    "title": "one order dispatched"
+  },
+  "STEP-03": {
+    "filled": "5.00000000",
+    "position": 5,
+    "title": "entry filled"
+  },
+  "STEP-04": {
+    "orders": 1,
+    "title": "duplicate submit refused"
+  },
+  "STEP-05": {
+    "attempts": 1,
+    "orders": 1,
+    "title": "concurrent submitters"
+  },
+  "STEP-06": {
+    "position": 0,
+    "state": "REJECTED",
+    "title": "broker rejection"
+  },
+  "STEP-07": {
+    "exit_sent": false,
+    "filled": 2,
+    "title": "partial entry"
+  },
+  "STEP-08": {
+    "later_entry_allowed": true,
+    "orders_before_retry": 0,
+    "title": "failure before send"
+  },
+  "STEP-09": {
+    "final": "FILLED",
+    "orders": 1,
+    "title": "ambiguous submission"
+  },
+  "STEP-10": {
+    "attempts_during_outage": 0,
+    "retry_dispatched": true,
+    "title": "outage blocks entry"
+  },
+  "STEP-11": {
+    "final": "FILLED",
+    "orders": 1,
+    "title": "restart mid-uncertainty"
+  },
+  "STEP-12": {
+    "limit": "500",
+    "observed": "-500",
+    "orders": 0,
+    "title": "daily loss limit"
+  },
+  "STEP-13": {
+    "limit": 10,
+    "observed": 10,
+    "title": "daily order count"
+  },
+  "STEP-14": {
+    "held": 3,
+    "limit": 3,
+    "title": "simultaneous positions"
+  },
+  "STEP-15": {
+    "blocked": 2,
+    "title": "position and working-order conflicts"
+  },
+  "STEP-16": {
+    "second_order_sent": false,
+    "title": "in-flight claim under broker lag"
+  },
+  "STEP-17": {
+    "entry_blocked": true,
+    "sells": 1,
+    "title": "exit proceeds under kill switch"
+  },
+  "STEP-18": {
+    "closed": true,
+    "sells": 1,
+    "title": "stop exit closes the position"
+  },
+  "STEP-19": {
+    "sells": 3,
+    "ticks": 60,
+    "title": "no overlap across restarts"
+  },
+  "STEP-20": {
+    "attempts": 2,
+    "closed": true,
+    "title": "cancel, confirm, re-arm"
+  },
+  "STEP-21": {
+    "first_fill": 2,
+    "second_qty": 3,
+    "title": "partial exit then remainder",
+    "total": 5
+  },
+  "STEP-22": {
+    "attempts": 3,
+    "entries_blocked": true,
+    "risk_events": 1,
+    "title": "unresolved exit risk"
+  },
+  "STEP-23": {
+    "closed": true,
+    "sells": 2,
+    "title": "restart mid-cancel"
+  },
+  "STEP-24": {
+    "entries_blocked": true,
+    "escalated": true,
+    "sells": 1,
+    "title": "outage then market close"
+  }
+}

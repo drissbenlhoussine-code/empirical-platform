@@ -51,3 +51,14 @@ external-review/MILESTONE-085/*.txt text eol=lf
 # mode the *.py rule above exists to prevent, just for a non-Python file the
 # ruff-format rule doesn't cover.
 tools/personal_paper_deploy_migration_f3a7c9e2b164.sql text eol=lf
+
+# M100 portable-test fix: the M062/M064/M065 dataset-bundle seals were recorded from a Windows
+# working-tree materialization (CRLF) of objects committed as LF, so they validated only where
+# core.autocrlf=true and failed on every clean LF (Linux) checkout. Pinning CRLF here makes every
+# platform -- Windows CI included, which already materializes CRLF -- produce the byte form the
+# seals name. Seals and committed blobs are unchanged. (M063 took the opposite, equally valid
+# route: `-text` plus an LF seal.)
+tests/fixtures/m062_validation_study/*.json text eol=crlf
+tests/fixtures/m064_survivorship_aware/*.json text eol=crlf
+tests/fixtures/m065_corporate_action_mechanics/*.json text eol=crlf
+tests/fixtures/m065_corporate_action_mechanics/*.csv text eol=crlf

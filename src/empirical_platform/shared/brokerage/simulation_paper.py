@@ -52,11 +52,18 @@ from empirical_platform.decision_candidate.paper_execution import (
     PaperOrderRequest,
 )
 from empirical_platform.decision_candidate.position_exit import PositionExitRequest
+from empirical_platform.decision_candidate.trading_limit_gate import (
+    BrokerPositionExposure,
+    BrokerWorkingOrder,
+    PortfolioRiskEvidence,
+    is_working_status,
+)
 from empirical_platform.shared.brokerage.alpaca_paper import (
     BrokerAmbiguousDispatchError,
     BrokerIdentityExistsError,
     BrokerIdentityUnresolvedError,
     BrokerNotSentError,
+    BrokerResponseInvalidError,
 )
 
 __all__ = [
@@ -335,6 +342,10 @@ class SimulatedAssetView:
 class SimulatedPositionView:
     symbol: str
     quantity: int
+    #: The simulation store never tracks a cost basis -- there is no real fill price to
+    #: report. Present only so this satisfies `BrokerPositionView` structurally; nothing in
+    #: the simulation capability's own candidate-preparation path reads it.
+    average_entry_price: str = "0"
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +368,10 @@ class _State:
     cash: str = "100000"
     market_is_open: bool = True
     counter: int = 0
+    #: M100 D1: the day's account P&L the simulated broker reports. Staged by tests/drills;
+    #: the simulation never invents a loss on its own.
+    realized_pnl_today: str = "0"
+    day_pnl: str = "0"
 
 
 class SimulationStore:
@@ -391,6 +406,9 @@ class SimulationStore:
             state.market_is_open = raw["market_is_open"]
         if isinstance(raw.get("counter"), int):
             state.counter = raw["counter"]
+        for name in ("realized_pnl_today", "day_pnl"):
+            if isinstance(raw.get(name), str):
+                setattr(state, name, raw[name])
         return state
 
     def _save(self) -> None:
@@ -443,6 +461,23 @@ class SimulationStore:
             self._state.cash = cash
             self._state.market_is_open = market_is_open
             self._save()
+
+    def stage_day_pnl(self, *, realized: str, whole_day: str) -> None:
+        """M100 D1: fix the realized and whole-day P&L the simulated account reports."""
+        Decimal(realized)
+        Decimal(whole_day)
+        with self._lock:
+            self._state.realized_pnl_today = realized
+            self._state.day_pnl = whole_day
+            self._save()
+
+    def day_pnl(self) -> tuple[str, str]:
+        with self._lock:
+            return self._state.realized_pnl_today, self._state.day_pnl
+
+    def positions(self) -> dict[str, int]:
+        with self._lock:
+            return {symbol: int(quantity) for symbol, quantity in self._state.positions.items()}
 
     def set_market_open(self, is_open: bool) -> None:
         with self._lock:
@@ -682,6 +717,72 @@ class SimulatedPaperBroker:
             else SimulatedPositionView(symbol=symbol.upper(), quantity=quantity)
         )
 
+    def fetch_open_orders(self, symbol: str) -> tuple[SimulatedOrderView, ...]:
+        """Every order in ``symbol`` the simulated broker has not finished (M100: truthful)."""
+        wanted = symbol.upper()
+        return tuple(
+            order.view()
+            for order in self._store.orders()
+            if order.symbol == wanted and is_working_status(order.status)
+        )
+
+    def fetch_portfolio_risk_evidence(self, *, day_start: datetime) -> PortfolioRiskEvidence:
+        """M100 D1: the simulated account's risk evidence, derived only from the store."""
+        del day_start  # the simulation holds one trading day
+        orders = self._store.orders()
+        positions: list[BrokerPositionExposure] = []
+        for symbol, quantity in sorted(self._store.positions().items()):
+            fills = [
+                o
+                for o in orders
+                if o.symbol == symbol
+                and o.side.lower() == "buy"
+                and o.filled_avg_price is not None
+                and Decimal(o.filled_quantity) > 0
+            ]
+            if fills:
+                price = Decimal(fills[-1].filled_avg_price or "0")
+            else:
+                quote = self._store.quote_for(symbol)
+                if quote is None:
+                    raise BrokerResponseInvalidError(
+                        f"the simulated position in {symbol} has no fill or quote to price it"
+                    )
+                price = Decimal(quote[1])
+            positions.append(
+                BrokerPositionExposure(
+                    symbol=symbol, quantity=quantity, cost_basis=price * quantity
+                )
+            )
+        working: list[BrokerWorkingOrder] = []
+        for order in orders:
+            if not is_working_status(order.status):
+                continue
+            order_quantity = Decimal(order.quantity)
+            working.append(
+                BrokerWorkingOrder(
+                    client_order_id=order.client_order_id,
+                    symbol=order.symbol,
+                    side=order.side,
+                    quantity=max(
+                        1, int(order_quantity.to_integral_value(rounding="ROUND_CEILING"))
+                    ),
+                    notional=None
+                    if order.limit_price is None
+                    else order_quantity * Decimal(order.limit_price),
+                )
+            )
+        realized, whole_day = self._store.day_pnl()
+        return PortfolioRiskEvidence(
+            captured_at=self._clock(),
+            positions=tuple(positions),
+            working_orders=tuple(working),
+            orders_today=len(orders),
+            order_client_ids_today=frozenset(o.client_order_id for o in orders),
+            realized_pnl_today=Decimal(realized),
+            day_pnl=Decimal(whole_day),
+        )
+
     # -- orders ------------------------------------------------------------------
 
     def submit_order(
@@ -898,7 +999,7 @@ class SimulatedPaperBroker:
             return 404, json.dumps(
                 {"code": 40410000, "message": "order not found", "simulation": True}
             )
-        if order.status in {"filled", "canceled", "rejected"}:
+        if order.status in {"filled", "canceled", "rejected", "expired"}:
             return 422, json.dumps(
                 {
                     "code": 42210000,
@@ -920,7 +1021,7 @@ class SimulatedPaperBroker:
         """
         lookups = order.lookups + 1
         behaviour = _PROGRESSION.get(order.scenario, "fill")
-        if order.status in {"filled", "canceled", "rejected"}:
+        if order.status in {"filled", "canceled", "rejected", "expired"}:
             return replace(order, lookups=lookups)
         if order.cancel_requested:
             if behaviour == "race":

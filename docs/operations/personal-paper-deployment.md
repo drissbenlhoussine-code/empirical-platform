@@ -34,10 +34,13 @@ the reviewed, auditable, narrowly-scoped tool that performs the deployment anywa
    post-migration head already in place and does nothing.
 8. **Verify schema** -- the new head, the 4 new columns, the 2 new CHECK constraints and the
    updated guard function are all independently re-queried and confirmed present.
-9. **Verify unchanged** -- Store B's `paper_execution_attempt` and Store C's
-   `position_exit_attempt` row counts are compared against the manifest's own
-   `minimum_attempts` (set by step 4's backup, under REPEATABLE READ, with the console already
-   stopped) -- not against an in-process value, which would not survive a crash between steps.
+9. **Verify unchanged** -- Store B's `paper_execution_attempt` and `approved_plan` row counts
+   and Store C's `position_exit_attempt` row count are compared against the manifest's own
+   `minimum_attempts` / `minimum_approved_plan_rows` (set by step 4's backup under REPEATABLE
+   READ) -- not against an in-process value, which would not survive a crash between steps.
+   NOTE: step 4 runs BEFORE step 5 stops the console, so the console must already be idle
+   (no approvals, no submissions) during steps 2-6; a write in that window fails step 9
+   closed AFTER the migration is applied (manifest still on the old head; see recovery).
 10. **Manifest update** -- atomic rewrite: Store B's recorded head moves to `f3a7c9e2b164`, a
     `last_migration` audit record is added (revision, timestamp, release head, migration SQL
     hash, backup location, pre/post heads), and a byte-for-byte copy of the pre-change manifest
@@ -88,6 +91,15 @@ environment never sets `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST`/`_PORT`/`_U
   topology where the two stores are split across servers.
 - Setting `_PORT`/`_USER`/`_PASSWORD` without `_HOST` is refused (ambiguous partial
   override) rather than silently mixed with Store B's values.
+
+**ADVERSARIAL REVIEW FOLLOW-UP (2026-11-05):** only the first bullet above is actually
+mirrored by the real console entrypoint. The second (independent-host) branch exists only in
+this script; `resolve_paper_exit_postgres_config` has no such branch today and will keep
+reusing Store B's host even if `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` is ever set,
+silently pointing the live console at a different server than this script backs up/migrates/
+verifies. Harmless today only because the real environment never sets that variable; it must
+not be treated as a ready-made split-server escape hatch until the console entrypoint grows
+the equivalent branch.
 
 An earlier version of this script always required the fully independent form, which the
 real environment never satisfies -- invoking it against production crashed with an
@@ -234,7 +246,12 @@ targets production.
 Every step writes a `started`/`completed`/`failed` record (with a timestamp and a human-
 readable detail) to the journal file before and after it runs. Re-running the script with
 the same `--journal-path` skips steps already marked `completed` and resumes from the first
-incomplete one. Every step is independently idempotent to being re-run, and the parts of
+incomplete one. EXCEPTION (M100): until step 7 (migrate) has completed, the read-only gates
+1 (broker flat), 2 (no in-flight), 3 (release head) and 6 (console stopped) are ALWAYS
+re-evaluated on a resume, because hours may have passed. If the console was restarted since
+the backup (by anyone, or by the autostart task), delete the journal and start over so a
+fresh backup is taken. There is no step selector: "re-run step N" below means "re-run the
+same command with the same journal; completed steps are skipped". Every step is independently idempotent to being re-run, and the parts of
 state a later step needs that would not survive a crash (the backup location for step 10, the
 pre-migration row-count baseline for step 9) are re-derived from durable sources -- the backup
 directory on disk, the manifest's own `minimum_attempts` -- rather than passed as in-memory
@@ -252,9 +269,9 @@ Summary by phase:
 | Before/after shutdown | Console state is checked, never assumed | Confirm process/port by hand, re-run |
 | Before migration | Store B still at the pre-migration head | Re-run once the refusal reason is fixed |
 | During migration | The SQL is one transaction (BEGIN/COMMIT); a failure before COMMIT leaves Store B unchanged -- verify directly, don't assume | **Never** downgrade or restore without separate Owner authorization |
-| After migration, before manifest update | Schema is migrated; manifest still says the old head | Re-run step 10 alone; it re-derives everything it needs from disk |
+| After migration, before manifest update | Schema is migrated; manifest still says the old head | Re-run the same command (resumes at step 10); it re-derives everything it needs from disk |
 | After manifest update, before restart | Manifest and schema agree; console still stopped | Fix the worktree/process state, nothing DB-related needs touching again |
-| During recovery-mode startup | Migration and manifest are already correct | Check the captured log, confirm the port is free, re-run step 12 |
+| During recovery-mode startup | Migration and manifest are already correct | Check the captured log, confirm the port is free, re-run the same command (resumes at step 12) |
 
 **Rolling back an applied migration is never assumed safe and this script never attempts it.**
 The pre-migration backup from step 4 is always preserved; restoring from it is a separate,

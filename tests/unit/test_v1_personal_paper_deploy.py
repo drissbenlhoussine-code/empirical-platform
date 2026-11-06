@@ -911,7 +911,8 @@ def test_resuming_after_a_crash_skips_already_completed_steps_and_continues(
         _run(cfg, journal_path)
     assert calls == list(deploy.STEP_ORDER[:7])  # steps 1-6 completed, 7 attempted+failed
 
-    # "Resume": step 7 now succeeds, and a fresh run must NOT re-execute steps 1-6.
+    # "Resume": step 7 now succeeds. M100: until step 7 completes, the read-only pre-migration
+    # gates (1, 2, 3, 6) are re-evaluated; the backup (4) and shutdown (5) are NOT repeated.
     calls.clear()
 
     def _fixed_step7(*_a: object, **_k: object) -> str:
@@ -920,7 +921,53 @@ def test_resuming_after_a_crash_skips_already_completed_steps_and_continues(
 
     monkeypatch.setattr(deploy, "step7_migrate", _fixed_step7)
     _run(cfg, journal_path)
-    assert calls == list(deploy.STEP_ORDER[6:])  # only step 7 onward re-ran
+    assert calls == [
+        deploy.STEP_1_BROKER_VERIFY,
+        deploy.STEP_2_NO_INFLIGHT,
+        deploy.STEP_3_RELEASE_HEAD,
+        deploy.STEP_6_VERIFY_STOPPED,
+        *deploy.STEP_ORDER[6:],
+    ]
+
+
+def test_resume_after_migration_completed_does_not_re_run_any_earlier_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _patch_all_steps_to_succeed(monkeypatch)
+    cfg = deploy_config_stub(backup_root=tmp_path)
+    journal_path = tmp_path / "journal.json"
+
+    def _fail_step10(*_a: object, **_k: object) -> str:
+        raise deploy.DeploymentBlockedError(deploy.STEP_10_MANIFEST_UPDATE, "simulated crash")
+
+    monkeypatch.setattr(deploy, "step10_manifest_update", _fail_step10)
+    with pytest.raises(deploy.DeploymentBlockedError):
+        _run(cfg, journal_path)
+    calls.clear()
+    monkeypatch.setattr(
+        deploy, "step10_manifest_update", lambda *_a, **_k: calls.append("s10") or "ok"
+    )
+    _run(cfg, journal_path)
+    assert calls[0] == "s10"
+    assert deploy.STEP_1_BROKER_VERIFY not in calls
+
+
+def test_an_unexpected_transport_error_is_a_clean_journaled_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_all_steps_to_succeed(monkeypatch)
+
+    def _refused(*_a: object, **_k: object) -> str:
+        raise ConnectionRefusedError("console is not listening")
+
+    monkeypatch.setattr(deploy, "step13_verify_startup", _refused)
+    cfg = deploy_config_stub(backup_root=tmp_path)
+    journal_path = tmp_path / "journal.json"
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        _run(cfg, journal_path)
+    assert excinfo.value.step == deploy.STEP_13_VERIFY_STARTUP
+    last = deploy.DeploymentJournal.load_or_new(journal_path).last()
+    assert last is not None and last.status == "failed"
 
 
 def test_resume_false_re_runs_every_step_even_if_previously_completed(

@@ -181,8 +181,39 @@ def _seed_position_exit_attempt(engine: Engine, *, attempt_id: str, state: str =
         connection.execute(text("ALTER TABLE public.position_exit_attempt ENABLE TRIGGER ALL"))
 
 
+_PLAN_INSERT_SQL = (
+    "INSERT INTO public.approved_plan (plan_id, candidate_id, entry_intent_governance_id, "
+    "symbol, approved_quantity, stop_price, target_price, mandatory_liquidation_at, "
+    "owner_approval_id, system_identity, created_at) "
+    "VALUES (:plan_id, :plan_id, :plan_id, 'AAPL', 1, 95, 110, now() + interval '2 hours', "
+    ":plan_id, :system_identity, now())"
+)
+
+
+def _seed_approved_plan(engine: Engine, *, plan_id: str) -> None:
+    """See `_seed_paper_execution_attempt`'s docstring: same reasoning, applied to Store B's
+    OTHER historical table -- the one the pending migration (and step9's approved_plan row-
+    count check, added as an adversarial-review follow-up) actually covers."""
+    from empirical_platform.decision_candidate.approved_plan import derive_system_identity
+
+    system_identity = derive_system_identity(plan_id=plan_id, owner_approval_id=plan_id)
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE public.approved_plan DISABLE TRIGGER ALL"))
+        connection.execute(
+            text(_PLAN_INSERT_SQL), {"plan_id": plan_id, "system_identity": system_identity}
+        )
+        connection.execute(text("ALTER TABLE public.approved_plan ENABLE TRIGGER ALL"))
+
+
 def _write_manifest(
-    path: Path, *, identity_b: str, identity_c: str, head_b: str, attempts_b: int, attempts_c: int
+    path: Path,
+    *,
+    identity_b: str,
+    identity_c: str,
+    head_b: str,
+    attempts_b: int,
+    attempts_c: int,
+    approved_plan_rows: int = 0,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -197,6 +228,7 @@ def _write_manifest(
                 "identity": identity_b,
                 "head": head_b,
                 "minimum_attempts": attempts_b,
+                "minimum_approved_plan_rows": approved_plan_rows,
             },
             "C": {
                 "database": store_c_config().database,
@@ -259,7 +291,7 @@ def test_full_migration_and_manifest_update_pipeline(
     assert head == deploy.MIGRATION_POST_HEAD
 
     assert "4 columns + 2 constraints + guard clause" in deploy.step8_verify_schema(cfg)
-    assert "both unchanged vs. the backup baseline" in deploy.step9_verify_unchanged(cfg)
+    assert "all unchanged vs. the backup baseline" in deploy.step9_verify_unchanged(cfg)
 
     manifest_detail = deploy.step10_manifest_update(
         cfg,
@@ -359,6 +391,36 @@ def test_step9_detects_a_historical_row_that_appeared_after_the_backup_baseline(
         deploy.step9_verify_unchanged(cfg)
     assert excinfo.value.step == deploy.STEP_9_VERIFY_UNCHANGED
     assert "changed" in excinfo.value.reason
+
+
+def test_step9_detects_an_approved_plan_row_that_appeared_after_the_backup_baseline(
+    store_b: Engine, store_c: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADVERSARIAL REVIEW FOLLOW-UP: step9 originally only ever compared
+    paper_execution_attempt/position_exit_attempt row counts -- never approved_plan, the ONE
+    table this migration (and any Store B migration) actually touches. Proves the new check
+    catches exactly the loss this step is meant to guard against, the same way the sibling
+    test above already does for paper_execution_attempt."""
+    identity_b, identity_c = _fake_identity_b(), _fake_identity_c()
+    _patch_identity_seam(monkeypatch, identity_b=identity_b, identity_c=identity_c)
+    _seed_approved_plan(store_b, plan_id="PLAN-1")
+    manifest_path = tmp_path / "manifest.json"
+    # Baseline claims 0 approved_plan rows existed at backup time -- but 1 already does.
+    _write_manifest(
+        manifest_path,
+        identity_b=identity_b,
+        identity_c=identity_c,
+        head_b=deploy.MIGRATION_PRE_HEAD,
+        attempts_b=0,
+        attempts_c=0,
+        approved_plan_rows=0,
+    )
+    cfg = _deploy_config(tmp_path, manifest_path)
+    deploy.step7_migrate(cfg)
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        deploy.step9_verify_unchanged(cfg)
+    assert excinfo.value.step == deploy.STEP_9_VERIFY_UNCHANGED
+    assert "approved_plan" in excinfo.value.reason
 
 
 def test_resume_after_a_simulated_crash_between_migration_and_manifest_update(
@@ -567,6 +629,11 @@ def _free_tcp_port() -> int:
         return probe.getsockname()[1]
 
 
+@pytest.mark.skipif(
+    os.name != "nt" and shutil.which("ss") is None,
+    reason="the deploy tool locates a POSIX listener with iproute2's `ss`, which this host lacks "
+    "(the GitHub ubuntu runner has it; Windows uses the native TCP table)",
+)
 def test_real_shutdown_then_real_recovery_start_against_a_dummy_console(tmp_path: Path) -> None:
     """Pure OS process/TCP port mechanics -- deliberately needs no Postgres opt-in at all,
     so this test runs in the repository-wide `pytest` too, not just this file's own isolated

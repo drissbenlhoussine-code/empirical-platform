@@ -12,9 +12,13 @@ from __future__ import annotations
 
 from empirical_platform.decision_candidate.approved_plan import ApprovedPlan
 from empirical_platform.decision_candidate.position_exit import PositionExitAttempt
+from empirical_platform.decision_candidate.position_exit_repositories import (
+    PositionExitAttemptRepository,
+)
 
 __all__ = [
     "MANAGEMENT_STATUS_VALUES",
+    "latest_exit_attempt",
     "ApprovedPlan",
     "PositionExitAttempt",
     "management_status",
@@ -69,3 +73,16 @@ def management_status(
     if not attempt.outcome_is_known:
         return "Needs attention"
     return "Exit submitted"
+
+
+def latest_exit_attempt(
+    attempts: PositionExitAttemptRepository, entry_intent_governance_id: str
+) -> PositionExitAttempt | None:
+    """M100 D3: the MOST RECENT exit attempt, not merely the active one.
+
+    `active_for_entry` is None once an attempt ends CANCELED/EXPIRED/REJECTED, which used to make
+    an exit that never filled look like a healthy "triggered" plan. The latest attempt is always
+    the one whose state the Owner must see.
+    """
+    history = attempts.for_entry(entry_intent_governance_id)
+    return history[-1] if history else None

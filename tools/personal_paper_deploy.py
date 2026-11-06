@@ -196,11 +196,11 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
     ),
     STEP_9_VERIFY_UNCHANGED: (
         "The new schema looks correct, but a historical row count changed where it must not "
-        "have (Store B's approved_plan or Store C's position_exit_attempt). Do NOT update the "
-        "manifest. This is treated as a possible concurrent write during the maintenance "
-        "window (the console should have been stopped in step 5/6) and needs investigation "
-        "before any further step; preserve the step-4 backup and do not restore without "
-        "separate Owner authorization."
+        "have (Store B's paper_execution_attempt or approved_plan, or Store C's "
+        "position_exit_attempt). Do NOT update the manifest. This is treated as a possible "
+        "concurrent write during the maintenance window (the console should have been "
+        "stopped in step 5/6) and needs investigation before any further step; preserve the "
+        "step-4 backup and do not restore without separate Owner authorization."
     ),
     STEP_10_MANIFEST_UPDATE: (
         "Store B's schema IS already migrated (steps 7-9 passed) but the manifest update did "
@@ -1060,13 +1060,32 @@ def step9_verify_unchanged(cfg: DeployConfig) -> str:
     manifest = read_manifest(cfg.manifest_path)
     expected_b = manifest["stores"]["B"]["minimum_attempts"]
     expected_c = manifest["stores"]["C"]["minimum_attempts"]
+    # ADVERSARIAL REVIEW FOLLOW-UP: paper_execution_attempt is NOT the table this migration
+    # (or any Store B migration) actually modifies -- approved_plan is. Checking only
+    # paper_execution_attempt's row count could not have caught a loss of approved_plan rows.
+    # A manifest from before this baseline existed has no such key: refuse clearly rather
+    # than guess (a bare KeyError here would be this exact fail-closed refusal, just opaque).
+    expected_approved_plan = manifest["stores"]["B"].get("minimum_approved_plan_rows")
+    if expected_approved_plan is None:
+        raise DeploymentBlockedError(
+            STEP_9_VERIFY_UNCHANGED,
+            "manifest has no approved_plan row-count baseline; step 4 must run (or be "
+            "re-run) before step 9 can verify approved_plan was unchanged",
+        )
     post_b = _row_count(cfg.store_b_config, "paper_execution_attempt")
     post_c = _row_count(cfg.store_c_config, "position_exit_attempt")
+    post_approved_plan = _row_count(cfg.store_b_config, "approved_plan")
     _, head_c = _identity_and_head(cfg.store_c_config)
     if post_b != expected_b:
         raise DeploymentBlockedError(
             STEP_9_VERIFY_UNCHANGED,
             f"Store B paper_execution_attempt row count changed: {expected_b} -> {post_b}",
+        )
+    if post_approved_plan != expected_approved_plan:
+        raise DeploymentBlockedError(
+            STEP_9_VERIFY_UNCHANGED,
+            f"Store B approved_plan row count changed: {expected_approved_plan} -> "
+            f"{post_approved_plan}",
         )
     if post_c != expected_c:
         raise DeploymentBlockedError(
@@ -1078,8 +1097,9 @@ def step9_verify_unchanged(cfg: DeployConfig) -> str:
             STEP_9_VERIFY_UNCHANGED, f"Store C head changed: now {head_c!r}"
         )
     return (
-        f"Store B paper_execution_attempt={post_b} rows, "
-        f"Store C position_exit_attempt={post_c} rows, both unchanged vs. the backup baseline"
+        f"Store B paper_execution_attempt={post_b} rows, approved_plan={post_approved_plan} "
+        f"rows, Store C position_exit_attempt={post_c} rows, all unchanged vs. the backup "
+        "baseline"
     )
 
 
@@ -1284,6 +1304,20 @@ def run_deployment(
     skipped (each step function is itself idempotent too, so a step re-run after a crash
     mid-step is also safe)."""
     completed = journal.completed_steps() if resume else set()
+    if STEP_7_MIGRATE not in completed:
+        # M100 FOLLOW-UP (independent review, P1): until the migration has actually been
+        # applied, a resumed run must NOT trust that the pre-migration safety gates still hold
+        # -- hours may have passed, the console (or its autostart wrapper) may have been
+        # restarted, the broker may no longer be flat. These four gates are read-only and
+        # cheap, so they are always re-evaluated. (Steps 4/5 are not repeated: a fresh backup
+        # after a half-applied migration would be refused by the identity/head check, and
+        # step 6 re-verifies the console is still stopped.)
+        completed = completed - {
+            STEP_1_BROKER_VERIFY,
+            STEP_2_NO_INFLIGHT,
+            STEP_3_RELEASE_HEAD,
+            STEP_6_VERIFY_STOPPED,
+        }
     backup_location: Path | None = None
 
     def record(step: str, status: StepStatus, detail: str) -> None:
@@ -1343,6 +1377,13 @@ def run_deployment(
         except DeploymentBlockedError as blocked:
             record(step, "failed", blocked.reason)
             raise
+        except OSError as transport_error:
+            # M100 FOLLOW-UP: a refused connection / timeout (urllib's URLError is an OSError)
+            # must be a clean, journaled, fail-closed refusal -- never a raw traceback that
+            # leaves the journal's last record stuck at "started".
+            reason = f"unexpected I/O failure ({type(transport_error).__name__}): {transport_error}"
+            record(step, "failed", reason)
+            raise DeploymentBlockedError(step, reason) from transport_error
         record(step, "completed", detail)
 
     return journal
@@ -1401,17 +1442,26 @@ _DEFAULT_STORE_C_DATABASE: Final = "empirical_platform_paper_exit"
 def _store_c_config(
     store_b_config: PostgreSQLConfigSnapshot, environ: Mapping[str, str]
 ) -> PostgreSQLConfigSnapshot:
-    """Store C's connectivity, resolved the SAME way the real console resolves it.
+    """Store C's connectivity.
 
-    Independent Store C configuration is opt-in and signaled by
-    `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` being set: when it is, every
-    `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` field is resolved independently via
-    `_env_config`, exactly as this script always has. When it is absent -- the real topology
-    today, one Postgres server for both stores -- Store C reuses Store B's host/port/user/
-    password verbatim, with only the database name taken from
+    When `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` is absent -- the real topology today,
+    one Postgres server for both stores -- Store C reuses Store B's host/port/user/password
+    verbatim, with only the database name taken from
     `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE` (or the same default the real console
-    entrypoint uses). `_PORT`/`_USER`/`_PASSWORD` set WITHOUT `_HOST` is refused rather than
-    silently mixed with Store B's values: that combination cannot mean anything safe.
+    entrypoint uses). This fallback branch genuinely matches
+    `_paper_position_exit_composition.resolve_paper_exit_postgres_config`, and
+    `test_store_c_fallback_constants_match_the_real_console_entrypoint` pins its variable
+    name and default together with that module.
+
+    ADVERSARIAL REVIEW FOLLOW-UP (2026-11-05): the branch below -- independent Store C
+    configuration, opt-in via `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` being set -- is
+    NOT mirrored by the real console entrypoint at all: `resolve_paper_exit_postgres_config`
+    has no such branch and will keep silently reusing Store B's host even if that variable is
+    set. This script would then back up/migrate/verify a different server than the one the
+    live console actually talks to, with nothing surfacing the mismatch. Dormant today only
+    because the real environment never sets this variable; before it ever is, the real
+    console entrypoint needs the equivalent branch implemented first -- this script's own
+    handling of it is not evidence that doing so is safe.
     """
     independent = _PAPER_EXIT_HOST_VARIABLE in environ
     partially_configured = any(
@@ -1531,7 +1581,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             "/paper",
             "--no-browser",
         ],
-        env=dict(os.environ),
+        # ADVERSARIAL REVIEW FOLLOW-UP: steps 3/11 rigorously verify the git ref is at the
+        # exact expected commit, but nothing enforced that the LAUNCHED process actually
+        # imports code from this same `--repo-path` -- an ambient PYTHONPATH left over from
+        # another of this machine's many worktrees would silently resolve `empirical_platform`
+        # to a different branch's code, with the git-level checks reporting success regardless.
+        # Always override PYTHONPATH to this exact repo's `src/`, never trust the ambient value.
+        env={**os.environ, "PYTHONPATH": str(arguments.repo_path / "src")},
         log_path=arguments.backup_root.parent / "recovery-console.log",
     )
     journal = DeploymentJournal.load_or_new(arguments.journal_path)

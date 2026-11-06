@@ -85,6 +85,12 @@ from empirical_platform.decision_candidate.position_exit import (
     PositionExitRequest,
     exit_order_terms_mismatches,
 )
+from empirical_platform.decision_candidate.trading_limit_gate import (
+    BrokerPositionExposure,
+    BrokerWorkingOrder,
+    PortfolioRiskEvidence,
+    is_working_status,
+)
 
 __all__ = [
     "ALLOWED_PAPER_PORTS",
@@ -417,6 +423,7 @@ class _AssetView:
 class _PositionView:
     symbol: str
     quantity: int
+    average_entry_price: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -812,7 +819,137 @@ class AlpacaPaperClient:
                 f"the {symbol} position {quantity_text} is fractional; this product "
                 "only reasons about whole shares"
             )
-        return _PositionView(symbol=returned, quantity=int(quantity))
+        average_entry_price = _decimal_text(payload.get("avg_entry_price"), field="avg_entry_price")
+        return _PositionView(
+            symbol=returned, quantity=int(quantity), average_entry_price=average_entry_price
+        )
+
+    def fetch_open_orders(self, symbol: str) -> tuple[_OrderView, ...]:
+        """Every order the broker still considers open for this symbol, freshly queried.
+
+        RISK-CHECK EVIDENCE GAP FOLLOW-UP: `evaluate_trade_proposal`'s `no_open_order`/
+        `OPEN_ORDER_CONFLICT` check is only as good as what it is given; before this method
+        existed, every real caller passed it a hardcoded empty tuple regardless of broker
+        state. Alpaca's own `status=open` filter already excludes every terminal state
+        (filled/canceled/expired/rejected/done_for_day), so nothing further is filtered here.
+        """
+        self._require_plain_symbol(symbol)
+        status, body, sanitized = self._json("GET", f"/v2/orders?status=open&symbols={symbol}")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the orders endpoint answered HTTP {status} for {symbol}: {sanitized}"
+            )
+        views: list[_OrderView] = []
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError(
+                    f"the orders endpoint returned a non-object order entry for {symbol}"
+                )
+            view = self._order_view(entry)
+            if view.symbol != symbol:
+                raise BrokerResponseInvalidError(
+                    f"asked for {symbol}'s open orders and was told about {view.symbol}"
+                )
+            views.append(view)
+        return tuple(views)
+
+    #: Alpaca's documented maximum page for GET /v2/orders. A response that FILLS the page may
+    #: have been truncated, so it can never be trusted to be a complete daily order count.
+    _ORDERS_PAGE_LIMIT = 500
+
+    def fetch_portfolio_risk_evidence(self, *, day_start: datetime) -> PortfolioRiskEvidence:
+        """M100 D1: the account-wide facts the trading-limit gate needs, read FRESH from the broker.
+
+        Three independent reads -- account, every position, every order since ``day_start`` --
+        reduced to a typed snapshot. Anything unreadable, missing, fractional, short, or possibly
+        truncated raises ``BrokerResponseInvalidError``: the caller treats that as "limits cannot
+        be verified" and refuses the entry. Nothing is defaulted to zero.
+        """
+        if day_start.tzinfo is None:
+            raise ValueError("day_start must be timezone-aware")
+        status, account, sanitized = self._json("GET", "/v2/account")
+        if status != 200 or not isinstance(account, dict):
+            raise BrokerResponseInvalidError(
+                f"the account endpoint answered HTTP {status}: {sanitized}"
+            )
+        equity = Decimal(_decimal_text(account.get("equity"), field="equity"))
+        last_equity = Decimal(_decimal_text(account.get("last_equity"), field="last_equity"))
+
+        # ORDER MATTERS: orders are read BEFORE positions, so an order that fills between the
+        # two reads is seen as working AND as a position (counted twice, conservative), never
+        # as neither.
+        after = day_start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        status, orders, sanitized = self._json(
+            "GET",
+            f"/v2/orders?status=all&limit={self._ORDERS_PAGE_LIMIT}&direction=desc&after={after}",
+        )
+        if status != 200 or not isinstance(orders, list):
+            raise BrokerResponseInvalidError(
+                f"the orders endpoint answered HTTP {status}: {sanitized}"
+            )
+        if len(orders) >= self._ORDERS_PAGE_LIMIT:
+            raise BrokerResponseInvalidError(
+                "the day's order list filled a whole page and may be truncated; the daily order "
+                "count cannot be proven"
+            )
+        status, body, sanitized = self._json("GET", "/v2/positions")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the positions endpoint answered HTTP {status}: {sanitized}"
+            )
+        positions: list[BrokerPositionExposure] = []
+        unrealized_intraday = Decimal(0)
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError(
+                    "the positions endpoint returned a non-object entry"
+                )
+            quantity = Decimal(_decimal_text(entry.get("qty"), field="qty"))
+            if quantity <= 0:
+                raise BrokerResponseInvalidError(
+                    "a short or empty position is outside this product's model"
+                )
+            average = Decimal(_decimal_text(entry.get("avg_entry_price"), field="avg_entry_price"))
+            unrealized_intraday += Decimal(
+                _decimal_text(entry.get("unrealized_intraday_pl"), field="unrealized_intraday_pl")
+            )
+            positions.append(
+                BrokerPositionExposure(
+                    symbol=_require_text(entry, "symbol"),
+                    quantity=int(quantity.to_integral_value(rounding="ROUND_CEILING")),
+                    cost_basis=quantity * average,
+                )
+            )
+
+        client_ids: set[str] = set()
+        working: list[BrokerWorkingOrder] = []
+        for entry in orders:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("the orders endpoint returned a non-object order")
+            view = self._order_view(entry)
+            client_ids.add(view.client_order_id)
+            if is_working_status(view.status):
+                price_text = view.limit_price
+                quantity = Decimal(view.quantity)
+                working.append(
+                    BrokerWorkingOrder(
+                        client_order_id=view.client_order_id,
+                        symbol=view.symbol,
+                        side=view.side,
+                        quantity=max(1, int(quantity.to_integral_value(rounding="ROUND_CEILING"))),
+                        notional=None if price_text is None else quantity * Decimal(price_text),
+                    )
+                )
+        day_pnl = equity - last_equity
+        return PortfolioRiskEvidence(
+            captured_at=datetime.now(UTC),
+            positions=tuple(positions),
+            working_orders=tuple(working),
+            orders_today=len(orders),
+            order_client_ids_today=frozenset(client_ids),
+            realized_pnl_today=day_pnl - unrealized_intraday,
+            day_pnl=day_pnl,
+        )
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
