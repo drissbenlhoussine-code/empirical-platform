@@ -1,11 +1,11 @@
-<?xml version="1.0" encoding="UTF-16"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <!--
-RELEASE v1 -- Windows Task Scheduler definition for autostarting the Paper console
-(currently `run-v1-console.ps1`, which wraps the existing M088/M089 console -- see that
+RELEASE v1 - Windows Task Scheduler definition for autostarting the Paper console
+(currently `run-v1-console.ps1`, which wraps the existing M088/M089 console - see that
 script's header for exactly what "v1 console" means today vs. what remains to be built).
 
 THIS FILE IS A COMMITTED ARTIFACT ONLY. It is NOT registered against this machine by any
-engineering step in this release -- registering a Windows autostart task is an Owner
+engineering step in this release - registering a Windows autostart task is an Owner
 action, taken deliberately, never something a coding agent does to a live machine on its
 own initiative.
 
@@ -25,6 +25,7 @@ exits 0 on every intentional stop, so a deployment or a deliberate shutdown neve
 Belt and braces during a deployment: Disable-ScheduledTask -TaskName EmpiricalPlatformV1Console.
 
 To remove it: Task Scheduler -> find "EmpiricalPlatformV1Console" -> Delete.
+
 -->
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>

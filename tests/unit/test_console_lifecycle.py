@@ -352,3 +352,13 @@ def test_task_xml_restart_is_bounded_and_keeps_the_owner_only_header() -> None:
     count = int(re.search(r"<Count>(\d+)</Count>", text).group(1))  # type: ignore[union-attr]
     assert count <= 3
     assert "Owner" in text and "NOT registered" in text
+
+
+def test_task_xml_is_well_formed_and_declares_its_real_encoding() -> None:
+    """M100 final review (P1): the file declared UTF-16 while being ASCII and its header comment
+    contained `--`, so Task Scheduler's Import Task rejected it."""
+    from xml.dom import minidom
+
+    raw = TASK_XML.read_bytes()
+    assert raw.startswith(b'<?xml version="1.0" encoding="UTF-8"?>')
+    minidom.parseString(raw)

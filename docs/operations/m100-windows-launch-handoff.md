@@ -38,7 +38,7 @@ Stop if the worktree is dirty or the SHA is not the one the Owner approved.
 $env:PYTHONPATH = "$PWD\src"
 .\.venv\Scripts\python.exe -c "import empirical_platform,sys;print(empirical_platform.__file__)"   # must be under this worktree\src
 ```
-Required variables (set in the shell; never commit them): `EMPIRICAL_PLATFORM_POSTGRES_HOST/PORT/DATABASE/USER/PASSWORD`,
+Required variables (never commit them; for the autostart task to work after logon they must ALSO be persistent *user* environment variables, because neither the wrapper nor the task XML sets any `EMPIRICAL_*` value): `EMPIRICAL_PLATFORM_POSTGRES_HOST/PORT/DATABASE/USER/PASSWORD`,
 `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE` (leave `_PAPER_EXIT_POSTGRES_HOST` **unset** — see the
 deployment doc's follow-up note), `EMPIRICAL_ALPACA_PAPER_API_KEY`, `EMPIRICAL_ALPACA_PAPER_SECRET_KEY`,
 `EMPIRICAL_ALPACA_PAPER_BASE_URL` (the paper host only; the client refuses anything else).
@@ -67,7 +67,7 @@ and has none of this protection, and the console you are about to stop was start
 
 ```powershell
 Disable-ScheduledTask -TaskName "EmpiricalPlatformV1Console"   # only if it is registered; ignore "not found"
-Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*run-v1-console.ps1*" } | Select-Object ProcessId,CommandLine  # an OLD loop must be ended (Stop-Process on that powershell PID only, never the console)
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*run-v1-console.ps1*" } | Select-Object ProcessId,CommandLine  # ignore your own PowerShell PID in this list; an OLD loop must be ended (Stop-Process on that powershell PID only, never the console)
 ```
 An old loop (if any) must be ended before step 5, otherwise it relaunches a full-mode console ~10 s after the stop.
 The new hold/lock make such a relaunch refuse itself, but do not rely on that for an old loop's first iteration.
@@ -94,6 +94,8 @@ recovery text and a journal; do **not** edit the manifest or restore a backup wi
 - The maintenance hold stays in place after step 14 (and after any failure). That is deliberate: nothing can start a
   full-mode console until the Owner releases it in phase 8.
 
+> If step 12 reports the console "did not begin listening" right after the step-5 shutdown, Windows may be holding port 8189 in TIME_WAIT under the exclusive-bind setting (untested on the host): wait a few minutes and re-run the same command (it resumes at step 12).
+
 ## 6. Verify recovery mode (read-only)
 
 `http://127.0.0.1:8189/safety` (Plan Manager **not** running), `/health` (flat position). Save both pages.
@@ -105,7 +107,15 @@ recovery text and a journal; do **not** edit the manifest or restore a backup wi
 
 ## 8. Normal PAPER start (needs A5)
 
-First the Owner releases the maintenance hold. Stop the recovery-mode console first (only one console may run). The
+First the Owner releases the maintenance hold. Stop the recovery-mode console first (only one console may run; a second one exits 73 at the lock, which is safe). The recovery console is read-only and was started detached, so Ctrl+C will not reach it:
+
+```powershell
+$pid8189 = (Get-NetTCPConnection -LocalPort 8189 -State Listen).OwningProcess
+Stop-Process -Id $pid8189      # read-only recovery console: no orders or positions at risk; wait until the port is free
+Get-NetTCPConnection -LocalPort 8189 -State Listen -ErrorAction SilentlyContinue   # must print nothing
+```
+
+Then release the hold. The
 command refuses unless the deploy journal shows steps 12-14 completed, or the Owner passes the explicit
 `--owner-override` flag instead of `--journal-path`:
 
