@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -1104,7 +1105,7 @@ def deploy_config_stub(
     return deploy.DeployConfig(
         repo_path=repo_path,
         expected_release_head=expected_release_head,
-        manifest_path=manifest_path or Path("manifest.json"),
+        manifest_path=manifest_path or Path(tempfile.mkdtemp()) / "manifest.json",
         backup_root=backup_root or Path("."),
         pg_bin=Path("."),
         store_b_config=placeholder,
@@ -1423,3 +1424,131 @@ def test_owning_pid_refuses_two_different_listeners(monkeypatch: pytest.MonkeyPa
     )
     with pytest.raises(RuntimeError, match="more than one process"):
         deploy.RealNetworkPort().owning_pid("127.0.0.1", 8189)
+
+
+# ---------------------------------------------------------------------------------------
+# RELEASE v1 hardening: the maintenance hold. Created BEFORE the console is stopped, kept in
+# place through step 14, never removed by this tool.
+# ---------------------------------------------------------------------------------------
+
+
+def _hold_file(cfg: deploy.DeployConfig) -> Path:
+    return cfg.manifest_path.parent / "console-control" / "maintenance-hold.json"
+
+
+def test_step5_creates_the_hold_before_the_console_is_stopped(tmp_path: Path) -> None:
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(
+        console_pid=4242,
+        backup_root=tmp_path,
+        manifest_path=tmp_path / "safety" / "m.json",
+        shutdown_timeout_seconds=1.0,
+    )
+    network.owners[cfg.console_port] = 4242
+    seen_at_stop: list[bool] = []
+    original = process.graceful_stop
+
+    def _stop(pid: int, **kwargs: object) -> None:
+        seen_at_stop.append(_hold_file(cfg).exists())
+        original(pid, **kwargs)  # type: ignore[arg-type]
+
+    process.graceful_stop = _stop  # type: ignore[method-assign]
+    deploy.step5_shutdown(cfg, _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network))
+    assert seen_at_stop == [True]
+    assert json.loads(_hold_file(cfg).read_text())["reason"].startswith("personal_paper_deploy")
+
+
+def test_step5_creates_the_hold_even_when_nothing_is_running(tmp_path: Path) -> None:
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(
+        console_pid=None, backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json"
+    )
+    network.free_ports.add(cfg.console_port)
+    deploy.step5_shutdown(cfg, _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network))
+    assert _hold_file(cfg).exists()
+
+
+def test_step5_fails_closed_without_stopping_when_the_hold_cannot_be_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from empirical_platform.shared import console_lifecycle
+
+    def _boom(*_a: object, **_k: object) -> bool:
+        raise console_lifecycle.MaintenanceHoldError("disk full")
+
+    monkeypatch.setattr(console_lifecycle, "create_maintenance_hold", _boom)
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 4242
+    with pytest.raises(deploy.DeploymentBlockedError, match="NOT stopped"):
+        deploy.step5_shutdown(cfg, _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network))
+    assert process.graceful_stop_calls == []
+
+
+def test_the_hold_is_idempotent_and_survives_a_full_run_to_step_14(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for index, fn_name in enumerate(_STEP_FUNCTION_NAMES):
+        if fn_name == "step5_shutdown":
+            continue
+        step = deploy.STEP_ORDER[index]
+        result: object = ("ok", tmp_path) if step == deploy.STEP_4_BACKUP else "ok"
+        if step == deploy.STEP_12_RECOVERY_START:
+            result = ("ok", 1234)
+        monkeypatch.setattr(deploy, fn_name, lambda *_a, _r=result, **_k: _r)
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(
+        console_pid=4242, backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json"
+    )
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    journal_path = tmp_path / "journal.json"
+    launch = deploy.RecoveryConsoleLaunch(executable=("x",), env={}, log_path=journal_path)
+    journal = deploy.run_deployment(
+        cfg, ports, deploy.DeploymentJournal.load_or_new(journal_path), journal_path, launch=launch
+    )
+    assert deploy.STEP_14_STOP_BEFORE_ACTIVE in journal.completed_steps()
+    assert _hold_file(cfg).exists()  # never removed by the tool
+    first = _hold_file(cfg).read_text()
+    deploy.step5_shutdown(cfg, ports)  # re-invocation keeps the original hold untouched
+    assert _hold_file(cfg).read_text() == first
+
+
+def test_a_failure_after_step5_leaves_the_hold_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_all_steps_to_succeed(monkeypatch)
+    cfg = deploy_config_stub(backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json")
+    deploy._ensure_maintenance_hold(cfg)  # noqa: SLF001 - what a real step 5 did
+    monkeypatch.setattr(
+        deploy,
+        "step7_migrate",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            deploy.DeploymentBlockedError(deploy.STEP_7_MIGRATE, "boom")
+        ),
+    )
+    with pytest.raises(deploy.DeploymentBlockedError):
+        _run(cfg, tmp_path / "journal.json")
+    assert _hold_file(cfg).exists()
+
+
+def test_resuming_past_step5_re_establishes_a_missing_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_all_steps_to_succeed(monkeypatch)
+    cfg = deploy_config_stub(backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json")
+    journal_path = tmp_path / "journal.json"
+    journal = deploy.DeploymentJournal()
+    for step in deploy.STEP_ORDER[:5]:
+        journal.append(step, "completed", "", now=datetime.now(UTC))
+    journal.save(journal_path)
+    assert not _hold_file(cfg).exists()
+    with pytest.raises(deploy.DeploymentBlockedError):  # step 10 has no real backup to find
+        _run(cfg, journal_path)
+    assert _hold_file(cfg).exists()

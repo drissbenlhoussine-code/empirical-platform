@@ -14,6 +14,10 @@ WHAT THIS IS. A reviewed, auditable, 14-step deployment procedure (`STEP_ORDER` 
        schema that is now actually live (never the other way around),
   12-13. starts the console in `--recovery-mode` (read-only; the automatic Plan Manager is not
        built) and verifies it came up correctly, and
+  5.   (HOLD) before stopping the console, durably creates the maintenance hold
+       (`console_lifecycle.create_maintenance_hold`) so neither the autostart wrapper nor a
+       FULL-mode console can restart it mid-deployment. The hold is NEVER removed by this tool
+       (not on success, not on failure): the Owner removes it as part of PAPER activation.
   14.  STOPS. There is no step that transitions to Active Mode -- that is always a separate,
        later, explicitly Owner-authorized action outside this script.
 
@@ -72,7 +76,7 @@ from typing import Any, Final, Literal, Protocol
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from empirical_platform.shared import console_control
+from empirical_platform.shared import console_control, console_lifecycle
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.database_safety import (
     IDENTITY_QUERY,
@@ -170,7 +174,10 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
     STEP_5_SHUTDOWN: (
         "The console may still be running or may be mid-shutdown. Do NOT start a second "
         "console on the same port. Check process state by hand before re-running; a hung "
-        "shutdown needs investigation (in-flight reconciliation?), not a force-kill from here."
+        "shutdown needs investigation (in-flight reconciliation?), not a force-kill from here. "
+        "The maintenance hold (console-control/maintenance-hold.json) is in place and stays: "
+        "the autostart wrapper and any FULL-mode console will refuse to start until the Owner "
+        "releases it."
     ),
     STEP_6_VERIFY_STOPPED: (
         "The prior console process or port 8189 did not clear in time. The migration has NOT "
@@ -238,7 +245,9 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
     STEP_14_STOP_BEFORE_ACTIVE: (
         "Deployment completed through recovery-mode startup and verification. This script "
         "stops here by construction -- transitioning to Active Mode is always a separate, "
-        "explicit, Owner-authorized action taken outside this script."
+        "explicit, Owner-authorized action taken outside this script. The maintenance hold is "
+        "STILL IN PLACE (this script never removes it); the Owner releases it with `python -m "
+        "empirical_platform.entrypoints.release_maintenance_hold` when authorizing PAPER."
     ),
 }
 
@@ -838,12 +847,30 @@ def _pg_restore_executable(pg_bin: Path) -> Path:
     return executable
 
 
+def _ensure_maintenance_hold(cfg: DeployConfig) -> bool:
+    """Idempotently creates the maintenance hold in the console's control directory (the
+    manifest's directory). Fails closed: if it cannot be created, nothing is stopped."""
+    try:
+        return console_lifecycle.create_maintenance_hold(
+            cfg.manifest_path.parent, reason="personal_paper_deploy: console stop + migration"
+        )
+    except console_lifecycle.MaintenanceHoldError as error:
+        raise DeploymentBlockedError(
+            STEP_5_SHUTDOWN,
+            f"cannot create the maintenance hold, so the console is NOT stopped: {error}",
+        ) from error
+
+
 def step5_shutdown(cfg: DeployConfig, ports: Ports) -> str:
-    """MILESTONE-098: the PID to stop is the process that ACTUALLY owns `cfg.console_port`
+    """The maintenance hold is created FIRST (see `_ensure_maintenance_hold`), before anything
+    is stopped, then:
+
+    MILESTONE-098: the PID to stop is the process that ACTUALLY owns `cfg.console_port`
     right now, freshly queried at the OS level -- never a blindly-trusted `--console-pid`.
     If `--console-pid` was also given, it must match exactly, or this refuses rather than
     guess which process to signal (rejects a stale or otherwise incorrect PID, including the
     case where the OS has since reused that PID for an unrelated process)."""
+    _ensure_maintenance_hold(cfg)
     if ports.network.port_is_free(cfg.console_host, cfg.console_port):
         if cfg.console_pid is not None and ports.process.is_running(cfg.console_pid):
             raise DeploymentBlockedError(
@@ -1319,6 +1346,9 @@ def run_deployment(
             STEP_6_VERIFY_STOPPED,
         }
     backup_location: Path | None = None
+    if STEP_5_SHUTDOWN in completed:
+        # Resumed past the shutdown: the hold must still be in place for steps 6+.
+        _ensure_maintenance_hold(cfg)
 
     def record(step: str, status: StepStatus, detail: str) -> None:
         journal.append(step, status, detail, now=now())

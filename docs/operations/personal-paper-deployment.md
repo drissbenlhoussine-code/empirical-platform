@@ -21,7 +21,9 @@ the reviewed, auditable, narrowly-scoped tool that performs the deployment anywa
 4. **Backup** -- a fresh Store B+C backup via `tools/personal_paper_backup.py`, with its
    SHA-256 and structural readability (`pg_restore --list`) independently re-verified here,
    not just trusted from the backup tool's own report.
-5. **Graceful shutdown** -- POSIX: `SIGTERM`. Windows (MILESTONE-098): an authenticated local
+5. **Maintenance hold, then graceful shutdown** -- FIRST the tool durably creates the
+   maintenance hold (see "Maintenance hold and single-instance lock" below); if that fails,
+   nothing is stopped. THEN, POSIX: `SIGTERM`. Windows (MILESTONE-098): an authenticated local
    HTTP request to the console's own `/control/shutdown` route -- see "Graceful shutdown on
    Windows (M098 fix)" below for why `CTRL_BREAK_EVENT` was replaced. Either way, this step
    first independently confirms, at the OS level, which PID actually owns the configured
@@ -56,7 +58,42 @@ the reviewed, auditable, narrowly-scoped tool that performs the deployment anywa
     `/health` confirms a flat broker position, and the schema identity/head are re-checked one
     more time against the manifest.
 14. **Stop.** There is no step 15. Transitioning to Active Mode is always a separate, explicit,
-    Owner-authorized action taken outside this script.
+    Owner-authorized action taken outside this script. The maintenance hold created in step 5
+    is deliberately STILL IN PLACE.
+
+## Maintenance hold and single-instance lock
+
+All files live in the console's control directory, `<safety dir>/console-control/` (the same
+owner-only directory as the M098 shutdown token; `%LOCALAPPDATA%\EmpiricalPlatform\safety\
+console-control` on the real host). Code: `empirical_platform.shared.console_lifecycle`.
+
+- **`maintenance-hold.json`** -- created atomically (exclusive create, owner-only) by step 5
+  before the console is stopped (and re-established on a resume that is already past step 5).
+  The deploy tool NEVER removes it -- not on success, not on failure; leaving it is the safe
+  default. While it exists: the autostart wrapper refuses to launch (exits, no sleep-and-retry);
+  a FULL-mode (`--capability paper-exit` without `--recovery-mode`) console exits 74 without
+  opening anything; `--recovery-mode` is still allowed (step 12 needs it). The Owner removes it
+  when authorizing normal PAPER start:
+  `python -m empirical_platform.entrypoints.release_maintenance_hold --journal-path <journal>`
+  (refuses unless the journal shows steps 12, 13, 14 completed) or, with explicit
+  responsibility, `--owner-override`.
+- **`paper-exit-console.lock`** -- an OS file lock (`msvcrt.locking` on Windows, `fcntl.flock`
+  on POSIX), taken before the database/broker composition and before the listener, for both
+  normal and recovery mode. The OS drops it if the process dies, so there are no stale locks.
+  A second instance exits 73 ("another PAPER Operator Console already holds ...") without
+  touching state. PID and start time are recorded in the file for diagnostics only.
+- **Port exclusivity** -- on Windows the listener sets `SO_EXCLUSIVEADDRUSE` and does not set
+  `SO_REUSEADDR` (which on Windows would let a second process bind the same port); on POSIX
+  `SO_REUSEADDR` stays on (restart through TIME_WAIT; it never permits two live listeners).
+- **Exit codes** (the contract with `deploy/windows/run-v1-console.ps1`): 0 Ctrl+C, **64**
+  authenticated deliberate shutdown (M098 route), 2 refused at startup, 73 lock held, 74
+  hold present -- all mean "do not restart". Anything else is a crash: the wrapper restarts it
+  with exponential backoff (10 s doubling to 300 s) and stops (circuit breaker) after more than
+  5 crash restarts within 600 s. The task XML's `RestartOnFailure` is bounded to 3 tries 5 min
+  apart and only covers the wrapper itself failing; the wrapper exits 0 on every intentional
+  stop.
+- A console or wrapper loop started from code older than this change has none of the above;
+  end it by hand before step 5 (see the launch handoff, phase 4).
 
 ## Usage
 
@@ -266,7 +303,7 @@ Summary by phase:
 | Boundary | What's guaranteed | Recovery |
 |---|---|---|
 | Before/during backup | Nothing in Store B/C touched | Investigate, re-run from the top |
-| Before/after shutdown | Console state is checked, never assumed | Confirm process/port by hand, re-run |
+| Before/after shutdown | Console state is checked, never assumed; the maintenance hold exists from step 5 on (if it cannot be created the console is NOT stopped) | Confirm process/port by hand, re-run. The hold stays until the Owner releases it |
 | Before migration | Store B still at the pre-migration head | Re-run once the refusal reason is fixed |
 | During migration | The SQL is one transaction (BEGIN/COMMIT); a failure before COMMIT leaves Store B unchanged -- verify directly, don't assume | **Never** downgrade or restore without separate Owner authorization |
 | After migration, before manifest update | Schema is migrated; manifest still says the old head | Re-run the same command (resumes at step 10); it re-derives everything it needs from disk |
@@ -295,6 +332,12 @@ explicit, Owner-authorized, out-of-band action.
   The rest require `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1` and a disposable Postgres server;
   see the module docstring for why it does NOT use `install_test_connection_guard()` the way
   other Postgres suites do, and why it is its own isolated pytest invocation in CI.
+- `tests/unit/test_console_lifecycle.py` -- the single-instance lock (conflict, release, stale
+  and killed holders across real processes, acquired before composition/listener), the
+  maintenance hold and its release CLI, the 64/73/74 exit codes, the Windows port-exclusivity
+  decision, and string-level assertions on the wrapper and task XML. The deploy tests in
+  `test_v1_personal_paper_deploy.py` cover hold-before-stop, fail-closed on hold failure, hold
+  present after step 14 and after a mid-run failure.
 - `tests/unit/test_m098_console_shutdown_control.py` -- `shared.console_control`'s token
   read/write/remove contract (round-trip, capability/port/PID/start-fingerprint mismatches,
   malformed/missing files, a stale token defeated by fingerprint even when the bare PID now

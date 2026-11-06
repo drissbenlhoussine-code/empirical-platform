@@ -130,6 +130,8 @@ __all__ = [
     "ControlTokenPermissionError",
     "close_process_handle",
     "control_token_path",
+    "create_owner_only_file_exclusively",
+    "ensure_control_directory",
     "open_process_for_shutdown",
     "process_handle_fingerprint",
     "process_start_fingerprint",
@@ -1002,6 +1004,34 @@ def _read_token_text_without_toctou(path: Path, *, label: str) -> str:
             _kernel32.CloseHandle(handle)
     with os.fdopen(fd, "r", encoding="utf-8") as stream:
         return stream.read()
+
+
+def ensure_control_directory(safety_directory: Path) -> Path:
+    """Creates (or re-verifies) the owner-only `console-control` directory and returns it.
+
+    The same directory `write_control_token` uses; shared with the single-instance lock and
+    the maintenance-hold marker (`shared.console_lifecycle`). Fails closed with
+    `ControlTokenPermissionError` on a symlink/reparse point or when owner-only permissions
+    cannot be established and verified."""
+    _reject_if_symlink(safety_directory, label="the safety directory")
+    directory = safety_directory / "console-control"
+    if os.name == "nt":
+        user_sid = _current_windows_user_sid()
+        safety_directory.mkdir(parents=True, exist_ok=True)
+        _reject_if_symlink(directory, label="the console-control directory")
+        _create_owner_only_directory(directory, user_sid)
+    else:
+        directory.mkdir(parents=True, exist_ok=True)
+        _reject_if_symlink(directory, label="the console-control directory")
+        _restrict_to_current_user(directory, posix_mode=0o700)
+    return directory
+
+
+def create_owner_only_file_exclusively(path: Path, text: str, *, label: str) -> None:
+    """Atomically creates `path` (fails if anything exists there) with `text`, owner-only.
+    Raises `ControlTokenPermissionError` on any failure; never leaves a partial file."""
+    user_sid = _current_windows_user_sid() if os.name == "nt" else ""
+    _create_token_text_exclusively(path, text, label=label, user_sid=user_sid)
 
 
 def write_control_token(safety_directory: Path, *, pid: int, port: int, capability: str) -> str:

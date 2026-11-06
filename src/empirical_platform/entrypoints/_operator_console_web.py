@@ -26,6 +26,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import socket
+import sys
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -42,8 +44,10 @@ __all__ = [
     "Router",
     "SecuritySession",
     "ThreadingWSGIServer",
+    "apply_exclusive_bind",
     "html_response",
     "redirect",
+    "reuse_address_allowed",
     "serve",
 ]
 
@@ -305,11 +309,33 @@ def _read_request(environ: dict[str, Any]) -> Request:
     )
 
 
+def reuse_address_allowed(platform: str) -> bool:
+    """False on Windows (SO_REUSEADDR permits a second live listener there), True elsewhere."""
+    return platform != "win32"
+
+
+def apply_exclusive_bind(sock: Any, platform: str) -> None:  # noqa: ANN401
+    """On Windows, forbid any other socket from binding this port (SO_EXCLUSIVEADDRUSE)."""
+    if platform == "win32":
+        option = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if option is None:  # pragma: no cover - always present on Windows
+            raise OSError("SO_EXCLUSIVEADDRUSE is unavailable; refusing to bind a shared port")
+        sock.setsockopt(socket.SOL_SOCKET, option, 1)
+
+
 class ThreadingWSGIServer(WSGIServer):
     """One thread per request, so a slow page never blocks the kill switch."""
 
     daemon_threads = True
-    allow_reuse_address = True
+    # EXPLICIT PORT-BINDING DECISION (RELEASE v1 hardening). On POSIX SO_REUSEADDR only lets a
+    # restart bind through TIME_WAIT; it never allows two live listeners, so it stays on. On
+    # Windows SO_REUSEADDR DOES let a second process bind the same listening port, so it is
+    # off there and SO_EXCLUSIVEADDRUSE is set instead (see `server_bind`).
+    allow_reuse_address = reuse_address_allowed(sys.platform)
+
+    def server_bind(self) -> None:
+        apply_exclusive_bind(self.socket, sys.platform)
+        super().server_bind()
 
     def process_request(self, request: Any, client_address: Any) -> None:  # noqa: ANN401
         thread = threading.Thread(

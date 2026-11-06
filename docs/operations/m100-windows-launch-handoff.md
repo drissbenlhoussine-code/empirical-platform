@@ -54,13 +54,23 @@ PostgreSQL preflight: `& "C:\Program Files\PostgreSQL\16\bin\pg_isready.exe" -h 
 
 ## 4. Stop the console and the autostart task (needs A2)
 
-The autostart wrapper (`deploy/windows/run-v1-console.ps1`) **restarts the console 10 s after any exit**, which
-would undo the deploy tool's graceful stop and start a full-mode console mid-migration. Therefore first:
+The deploy tool now creates a **maintenance hold** (`%LOCALAPPDATA%\EmpiricalPlatform\safety\console-control\maintenance-hold.json`)
+*before* it stops the console (step 5), and never removes it. The updated autostart wrapper
+(`deploy/windows/run-v1-console.ps1`) checks that file before every launch and exits instead of relaunching; it also
+treats the console's deliberate-shutdown exit code (64) as "do not restart", restarts only after real crashes (bounded
+backoff, max 5 restarts per 600 s), and a full-mode console itself refuses to start (exit 74) while the hold exists.
+A PAPER console also takes an exclusive OS file lock (`console-control\paper-exit-console.lock`), so a second
+instance exits 73 without touching state.
+
+**Belt and braces (still required):** a wrapper loop that is *already running* was started from the OLD script text
+and has none of this protection, and the console you are about to stop was started by it. So first:
 
 ```powershell
 Disable-ScheduledTask -TaskName "EmpiricalPlatformV1Console"   # only if it is registered; ignore "not found"
-Get-Process | Where-Object { $_.ProcessName -like "powershell*" } | Select-Object Id,CommandLine  # confirm no run-v1-console.ps1 loop is alive; end that loop by hand (never force-kill the console)
+Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*run-v1-console.ps1*" } | Select-Object ProcessId,CommandLine  # an OLD loop must be ended (Stop-Process on that powershell PID only, never the console)
 ```
+An old loop (if any) must be ended before step 5, otherwise it relaunches a full-mode console ~10 s after the stop.
+The new hold/lock make such a relaunch refuse itself, but do not rely on that for an old loop's first iteration.
 Record the console PID: `Get-NetTCPConnection -LocalPort 8189 -State Listen | Select OwningProcess`.
 
 ## 5. Backup, shutdown, migrate, verify, recovery start — one tool run (needs A3 and A4)
@@ -81,6 +91,8 @@ Step 5 *is* the M098 authenticated-shutdown validation against the real console.
 recovery text and a journal; do **not** edit the manifest or restore a backup without separate Owner authorization.
 - Re-run after a failure: the *same command* (same journal) resumes. Until step 7 completes, steps 1, 2, 3, 6 are re-checked.
 - If the console was restarted by anyone after the backup, delete the journal and start from scratch.
+- The maintenance hold stays in place after step 14 (and after any failure). That is deliberate: nothing can start a
+  full-mode console until the Owner releases it in phase 8.
 
 ## 6. Verify recovery mode (read-only)
 
@@ -92,6 +104,16 @@ recovery text and a journal; do **not** edit the manifest or restore a backup wi
 (fast; the full suite already ran in CI on the same SHA — do not repeat it).
 
 ## 8. Normal PAPER start (needs A5)
+
+First the Owner releases the maintenance hold. Stop the recovery-mode console first (only one console may run). The
+command refuses unless the deploy journal shows steps 12-14 completed, or the Owner passes the explicit
+`--owner-override` flag instead of `--journal-path`:
+
+```powershell
+.\.venv\Scripts\python.exe -m empirical_platform.entrypoints.release_maintenance_hold `
+  --journal-path "$env:LOCALAPPDATA\EmpiricalPlatform\deploy-journal.json"
+```
+Then start normal mode:
 
 ```powershell
 .\.venv\Scripts\python.exe -m empirical_platform.entrypoints.operator_console --capability paper-exit --no-browser
