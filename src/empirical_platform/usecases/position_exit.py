@@ -160,6 +160,7 @@ _ENTRY_HOLDING_STATES: frozenset[PaperExecutionState] = frozenset(
         PaperExecutionState.FILLED,
         PaperExecutionState.PARTIALLY_FILLED,
         PaperExecutionState.CANCELED,
+        PaperExecutionState.EXPIRED,
         PaperExecutionState.CANCEL_REQUESTED,
     }
 )

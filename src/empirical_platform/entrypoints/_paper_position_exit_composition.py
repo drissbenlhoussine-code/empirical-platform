@@ -68,6 +68,7 @@ from empirical_platform.shared.persistence.postgres_repositories.paper_position_
 from empirical_platform.shared.persistence.postgres_repositories.position_exit_repositories import (  # noqa: E501
     PostgresPositionExitRuntime,
 )
+from empirical_platform.usecases.entry_remainder_protection import EntryRemainderProtector
 from empirical_platform.usecases.operator_console import (
     ConsoleRepositories,
     HmacSigner,
@@ -219,6 +220,18 @@ def paper_operator_console_with_exit_runtime(
                     configurations=repositories.configurations,
                     environment=PAPER_CAPABILITY.capability.value,
                     time_source=store_b.time_source,
+                    # PARTIAL ENTRY PROTECTION: cancels a partially filled entry's remainder
+                    # (bounded) so the filled shares can be protected by stop/target/mandatory.
+                    entry_remainder_protector=EntryRemainderProtector(
+                        attempts=repositories.attempts,
+                        acknowledgements=repositories.acknowledgements,
+                        events=repositories.events,
+                        rounds=repositories.rounds,
+                        authorizations=repositories.authorizations,
+                        previews=repositories.previews,
+                        broker=store_b.broker,
+                        time_source=store_b.time_source,
+                    ),
                 )
             )
             # RELEASE v1 SAFETY VISIBILITY (`/safety` manager-status field). ALWAYS created,

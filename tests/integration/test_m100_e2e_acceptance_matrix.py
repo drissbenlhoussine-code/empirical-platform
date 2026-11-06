@@ -1149,6 +1149,86 @@ def test_ACC_12_partial_fill_reconciled(world: World, evidence: EvidenceRecorder
     )
 
 
+def test_ACC_12b_partial_entry_remainder_is_cancelled_then_the_stop_sells_the_filled_quantity(
+    world: World, evidence: EvidenceRecorder
+) -> None:
+    """ACC-12b -- NEW control (partial-entry protection). A PARTIALLY FILLED entry (2 of 4)
+    leaves filled shares with no exit while the remainder can still fill. When the approved
+    STOP condition is met, the manager cancels the entry REMAINDER (one DELETE for the entry
+    order, never a second BUY), reconciles the entry to CANCELED with its filled quantity, and
+    only then sells exactly the FILLED quantity (2, not the approved 4) under the plan's stop."""
+    ex = world.exchange
+    with world.stack() as stack:
+        proposal_id = stack.prepare().proposal.proposal_governance_id
+        assert stack.approve_via_route(proposal_id).code == 303
+        attempt = stack.entry_attempt(proposal_id)
+        assert attempt is not None
+        ex.fill(attempt.client_order_id, 2, "100.00")
+        stack.refresh()
+        partial = stack.entry_attempt(proposal_id)
+        assert partial is not None and partial.state is PaperExecutionState.PARTIALLY_FILLED
+        intent = stack.repositories.intents.for_proposal(proposal_id)
+        assert intent is not None
+        assert not stack.service.exits.assess(intent.intent_governance_id).eligible
+        plan = stack.plan_for(proposal_id)
+        assert plan is not None
+
+        # No trigger and well inside the proactive window: nothing is cancelled.
+        ex.set_quote("100.00", "100.10")
+        quiet = outcome_row(stack.tick())
+        assert quiet[0][0] == PlanOutcomeKind.NOT_ELIGIBLE.value
+        assert ex.count("DELETE", "/v2/orders/") == 0 and sell_posts(ex) == []
+
+        # The approved stop is breached while the entry is still partially filled.
+        ex.set_quote("98.90", "99.00")
+        breach = outcome_row(stack.tick())
+        assert breach[0][0] == PlanOutcomeKind.EXIT_CLAIMED.value and "trigger=STOP" in breach[0][1]
+        assert ex.count("DELETE", "/v2/orders/") == 1
+        entry = stack.entry_attempt(proposal_id)
+        assert entry is not None and entry.state is PaperExecutionState.CANCELED
+        assert entry.filled_quantity == Decimal(2)
+        order = ex.order_by_client_id(entry.client_order_id)
+        assert order is not None and order.status == "canceled" and order.filled_qty == Decimal(2)
+        assert len(buy_posts(ex)) == 1, "the entry is never resent"
+        sells = sell_posts(ex)
+        assert len(sells) == 1 and sells[0]["qty"] == "2" and sells[0]["side"] == "sell"
+        exit_attempt = stack.exit_attempts(intent.intent_governance_id)[-1]
+        assert exit_attempt.state is PositionExitState.ACCEPTED
+        ex.fill(exit_attempt.client_order_id, 2, "98.90")
+        stack.tick()
+        closed = stack.exit_attempts(intent.intent_governance_id)[-1]
+        assert closed.state is PositionExitState.FILLED
+        assert closed.closed_position_verified_at is not None
+        assert ex.positions == {} and ex.open_orders() == []
+        entry_events = [
+            r["event_type"]
+            for r in rows(
+                world.engine_b,
+                "SELECT event_type FROM public.paper_execution_event "
+                "ORDER BY occurred_at, event_id",
+            )
+        ]
+        assert "CANCEL_REQUESTED" in entry_events
+    evidence.record(
+        proposal_id=proposal_id,
+        plan_id=plan.plan_id,
+        entry_client_order_id=attempt.client_order_id,
+        state_before_cancel=partial.state,
+        filled_before_cancel=partial.filled_quantity,
+        tick_before_trigger=quiet,
+        tick_at_stop_breach=breach,
+        entry_state_after=entry.state,
+        entry_filled_quantity_after=entry.filled_quantity,
+        entry_cancel_requests_on_wire=1,
+        buy_orders_on_wire=1,
+        sell_order_on_wire=sells[0],
+        sell_quantity_equals_filled_quantity=True,
+        exit_state_after_fill=closed.state,
+        broker_position_after=0,
+        entry_event_types=entry_events,
+    )
+
+
 def test_ACC_13_full_fill_reconciled(world: World, evidence: EvidenceRecorder) -> None:
     """ACC-13 -- the remaining shares fill: the attempt becomes FILLED with the volume-weighted
     average price, a terminal_at, and from then on the row is IMMUTABLE (the database refuses
@@ -1652,13 +1732,20 @@ def test_ACC_18_duplicate_exit_prevented(world: World, evidence: EvidenceRecorde
         raced = len(sell_posts(ex)) - sells_before
         assert raced == 1, f"{raced} SELL orders reached the wire from two racing managers"
         assert len(first.exit_attempts(third_intent)) == 1
-        # The LOSER of the race may surface the database's uniqueness refusal on the shared,
-        # deterministic preview id (the database, not the Python, is what makes the second
-        # exit impossible). Nothing else may go wrong, and the next tick must be clean.
-        loser_errors = [repr(e.__cause__) for e in errors]
+        # PLAN ISOLATION: nothing escapes the tick. The LOSER of the race may hit the database's
+        # uniqueness refusal on the shared, deterministic preview id (the database, not the
+        # Python, is what makes the second exit impossible); that is contained to its plan as a
+        # NEEDS_ATTENTION outcome naming PLAN_EVALUATION_ERROR, never an exception.
+        assert errors == [], errors
+        loser_errors = [
+            detail
+            for tick in results
+            for kind, detail in tick
+            if kind == PlanOutcomeKind.NEEDS_ATTENTION.value and "PLAN_EVALUATION_ERROR" in detail
+        ]
+        assert len(loser_errors) <= 1
         for text_ in loser_errors:
-            assert "UniqueViolation" in text_ and "position_exit_" in text_, text_
-        assert len(errors) <= 1
+            assert "IntegrityError" in text_, text_
         quiet = outcome_row(first.tick())
         assert len(sell_posts(ex)) - sells_before == 1
     evidence.record(
@@ -1944,8 +2031,12 @@ def test_ACC_21_restart_recovery(world: World, evidence: EvidenceRecorder) -> No
         world.monkeypatch.setattr(
             manager_module.SubmitAuthorizedPositionExitHandler, "handle", killed
         )
-        with pytest.raises(RuntimeError, match="process killed"):
-            after.tick()
+        # PLAN ISOLATION: the crash is contained to the plan (NEEDS_ATTENTION + a durable event).
+        crashed = outcome_row(after.tick())
+        assert any(
+            kind == PlanOutcomeKind.NEEDS_ATTENTION.value and "RuntimeError" in detail
+            for kind, detail in crashed
+        ), crashed
         world.monkeypatch.setattr(
             manager_module.SubmitAuthorizedPositionExitHandler, "handle", real_submit
         )
@@ -1983,6 +2074,7 @@ def test_ACC_21_restart_recovery(world: World, evidence: EvidenceRecorder) -> No
         claim_survived_crash={
             "triggered_exit_kind": claimed_row["triggered_exit_kind"],
             "sells_on_wire_at_crash": 0,
+            "tick_outcome_at_crash": crashed,
         },
         resumed_tick=outcomes,
         resumed_attempt_id=working.attempt_id,

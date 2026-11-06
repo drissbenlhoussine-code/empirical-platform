@@ -509,9 +509,11 @@ class PositionSnapshot:
 POSITION_NEEDS_ATTENTION = "Position requires operator attention before it can be closed safely."
 
 #: Entry states from which a stable attributable position can exist. FILLED is the normal
-#: case; CANCELED covers a partially filled entry whose remainder was cancelled and can no
-#: longer fill. PARTIALLY_FILLED is deliberately absent: the remainder may still fill.
-_STABLE_ENTRY_STATES: frozenset[str] = frozenset({"FILLED", "CANCELED"})
+#: case; CANCELED and EXPIRED cover a partially filled entry whose remainder was cancelled or
+#: expired (a DAY limit entry that part-fills and then lapses at the close) and can no
+#: longer fill. Either with zero fills is still refused by the `filled <= 0` check below.
+#: PARTIALLY_FILLED is deliberately absent: the remainder may still fill.
+_STABLE_ENTRY_STATES: frozenset[str] = frozenset({"FILLED", "CANCELED", "EXPIRED"})
 
 
 def exit_eligibility(
@@ -553,7 +555,7 @@ def exit_eligibility(
     elif snapshot.entry_state not in _STABLE_ENTRY_STATES:
         refusals.append(
             f"the entry order is {snapshot.entry_state}; only a filled entry, or a cancelled "
-            "entry that left a proven filled position, can be closed"
+            "or expired entry that left a proven filled position, can be closed"
         )
     filled = _whole(snapshot.entry_filled_quantity)
     if snapshot.entry_filled_quantity is None or filled is None:

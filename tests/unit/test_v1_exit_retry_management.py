@@ -564,8 +564,10 @@ def test_a_crash_between_authorize_and_submit_of_a_replacement_resumes_the_same_
 
     manager._submit_handler = _Crash()  # type: ignore[assignment]
     world.clock.advance(30)
-    with pytest.raises(RuntimeError):
-        manager.evaluate_once(now=world.clock.utc)
+    # PLAN ISOLATION: the crash is contained to this plan as a loud NEEDS_ATTENTION outcome.
+    crashed = manager.evaluate_once(now=world.clock.utc)
+    assert crashed[-1].kind is PlanOutcomeKind.NEEDS_ATTENTION
+    assert "RuntimeError" in crashed[-1].detail
     assert len(_attempts(world, intent)) == 1, "no replacement attempt was claimed"
     assert _attempts(world, intent)[0].state is PositionExitState.CANCELED
     restarted = _manager(world, plans)

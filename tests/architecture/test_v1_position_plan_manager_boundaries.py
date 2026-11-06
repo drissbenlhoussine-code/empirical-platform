@@ -96,3 +96,23 @@ def test_approved_plan_domain_is_pure_no_io_no_broker_no_clock_reads() -> None:
         assert forbidden not in code, forbidden
     names = _imports(PLAN_DOMAIN)
     assert not any(n.startswith("empirical_platform.shared.brokerage") for n in names)
+
+
+def test_the_entry_remainder_protector_can_only_cancel_and_reconcile_never_send() -> None:
+    """The partial-entry protection (`entry_remainder_protection`) is the one place the
+    automatic path touches an ENTRY order, so pin that it only cancels/reconciles it."""
+    path = Path("src/empirical_platform/usecases/entry_remainder_protection.py")
+    code = _code_only(path)
+    for forbidden in (
+        "submit_order",
+        "SubmitAuthorizedPaperOrderHandler",
+        "PaperOrderRequest",
+        "IssuePaperBoundOrderIntentHandler",
+        "PreparePaperBoundTradeProposalHandler",
+        "kill_switch",
+        "AlpacaLiveClient",
+    ):
+        assert forbidden not in code, forbidden
+    names = _imports(path)
+    assert "empirical_platform.usecases.paper_execution.CancelPaperOrderHandler" in names
+    assert "empirical_platform.usecases.paper_execution.ReconcilePaperOrderHandler" in names

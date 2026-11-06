@@ -106,6 +106,11 @@ from empirical_platform.shared.brokerage.paper_time import (
     PaperTimeSource,
     PaperTimeUncertainError,
 )
+from empirical_platform.usecases.entry_remainder_protection import (
+    EntryRemainderProtector,
+    EntryRemainderStatus,
+    entry_remainder_applies,
+)
 from empirical_platform.usecases.position_exit import (
     MAXIMUM_EXIT_PREVIEW_AGE_SECONDS,
     AssessPositionExitHandler,
@@ -131,6 +136,7 @@ __all__ = [
     "ManagerStatusView",
     "ManagerThreadHandle",
     "PlanEvaluationOutcome",
+    "PLAN_EVALUATION_ERROR_EVENT_TYPE",
     "PlanManagerThread",
     "PositionPlanManager",
     "manager_liveness_alert",
@@ -204,6 +210,10 @@ class PlanOutcomeKind(StrEnum):
     #: `usecases.record_external_position_closure`). The manager will never evaluate a
     #: trigger, claim one, or attempt Preview/Authorize/Submit for this plan again.
     EXTERNALLY_CLOSED = "EXTERNALLY_CLOSED"
+    #: PARTIAL ENTRY PROTECTION: the entry is partially filled and its remainder is being
+    #: cancelled (see `usecases.entry_remainder_protection`). Exit management for the filled
+    #: shares starts the tick the broker reports the entry terminal.
+    ENTRY_REMAINDER_CANCEL_REQUESTED = "ENTRY_REMAINDER_CANCEL_REQUESTED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +223,10 @@ class PlanEvaluationOutcome:
     kind: PlanOutcomeKind
     detail: str
 
+
+#: Durable event recorded (at most once per plan, error type and hour) when evaluating a plan
+#: raised unexpectedly.
+PLAN_EVALUATION_ERROR_EVENT_TYPE = "PLAN_EVALUATION_ERROR"
 
 #: Generation slots a plan can ever use (abandoned stale slots included). A hard bound.
 _MAX_PLAN_SLOTS = 64
@@ -296,6 +310,7 @@ class PositionPlanManager:
         "_submit_handler",
         "_reconcile_handler",
         "_cancel_handler",
+        "_entry_protector",
     )
 
     def __init__(
@@ -316,7 +331,11 @@ class PositionPlanManager:
         configurations: OperatorTradingConfigurationRepository,
         environment: str,
         time_source: PaperTimeSource | None = None,
+        entry_remainder_protector: EntryRemainderProtector | None = None,
     ) -> None:
+        #: PARTIAL ENTRY PROTECTION. `None` disables it (a composition with no Store B entry
+        #: repositories); every production composition passes one.
+        self._entry_protector = entry_remainder_protector
         self._plans = plans
         self._external_closures = external_closures
         self._previews = previews
@@ -389,10 +408,50 @@ class PositionPlanManager:
         decision it makes is re-derived from durable state, never remembered in RAM."""
         outcomes: list[PlanEvaluationOutcome] = []
         for plan in self._plans.list_unclaimed(500):
-            outcomes.append(self._evaluate_unclaimed(plan, now=now))
+            outcomes.append(self._isolated(plan, now, self._evaluate_unclaimed))
         for plan in self._list_claimed_unresolved(limit=500):
-            outcomes.append(self._resume_claimed(plan, now=now))
+            outcomes.append(self._isolated(plan, now, self._resume_claimed))
         return tuple(outcomes)
+
+    def _isolated(
+        self,
+        plan: ApprovedPlan,
+        now: datetime,
+        evaluate: Callable[..., PlanEvaluationOutcome],
+    ) -> PlanEvaluationOutcome:
+        """PLAN ISOLATION. One plan's unexpected exception (a lost uniqueness race, a broker
+        error, a bad row) becomes a NEEDS_ATTENTION outcome for THAT plan, a durable event
+        and a log line -- and the loop moves on, so it can never starve the other plans.
+        `KeyboardInterrupt`/`SystemExit` are `BaseException`s and are deliberately NOT caught."""
+        try:
+            return evaluate(plan, now=now)
+        except Exception as error:  # noqa: BLE001 - isolation is the point
+            name = type(error).__name__
+            if error.__cause__ is not None:
+                name = f"{name} (caused by {type(error.__cause__).__name__})"
+            message = str(error)[:200]
+            _LOG.warning("plan %s evaluation raised %s: %s", plan.plan_id, name, message)
+            detail = (
+                f"{PLAN_EVALUATION_ERROR_EVENT_TYPE}: evaluating this plan raised {name}; it "
+                "is retried on the next tick and every other plan was still evaluated"
+            )
+            try:
+                self._record_event(
+                    plan,
+                    None,
+                    PLAN_EVALUATION_ERROR_EVENT_TYPE,
+                    f"{detail}: {message}",
+                    now,
+                    suffix=f"{name}|{now:%Y%m%dT%H}",
+                    once=True,
+                )
+            except Exception as record_error:  # noqa: BLE001 - the log line above stands
+                _LOG.warning(
+                    "plan %s: the error event could not be recorded (%s)",
+                    plan.plan_id,
+                    type(record_error).__name__,
+                )
+            return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, f"{detail}: {message}")
 
     # -- unclaimed plans: decide whether a trigger fires ------------------------------
 
@@ -401,6 +460,26 @@ class PositionPlanManager:
         if closure is not None:
             return self._externally_closed_outcome(plan, closure)
         assessment = self._assess.handle(plan.entry_intent_governance_id, at=now)
+        if (
+            not assessment.eligible
+            and self._entry_protector is not None
+            and assessment.entry_attempt is not None
+            and entry_remainder_applies(assessment.entry_attempt)
+        ):
+            # PARTIAL ENTRY PROTECTION: the filled shares have no exit until the entry is
+            # final, so cancel the remainder (bounded) and continue normally once it is.
+            step = self._entry_protector.step(
+                assessment.entry_attempt, now=now, urgent_reason=self._entry_urgency(plan, now=now)
+            )
+            if step.status is EntryRemainderStatus.CANCEL_REQUESTED:
+                return self._outcome(
+                    plan, PlanOutcomeKind.ENTRY_REMAINDER_CANCEL_REQUESTED, step.detail
+                )
+            if step.status is EntryRemainderStatus.NEEDS_ATTENTION:
+                return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, step.detail)
+            if step.status is EntryRemainderStatus.WAITING:
+                return self._outcome(plan, PlanOutcomeKind.NOT_ELIGIBLE, step.detail)
+            assessment = self._assess.handle(plan.entry_intent_governance_id, at=now)
         if not assessment.eligible:
             return PlanEvaluationOutcome(
                 plan.plan_id,
@@ -473,6 +552,23 @@ class PositionPlanManager:
             )
         return self._attempt_exit(claimed, now=now, just_claimed=True)
 
+    def _entry_urgency(self, plan: ApprovedPlan, *, now: datetime) -> str | None:
+        """Why a partial entry's remainder must be cancelled NOW: a STOP/TARGET condition is
+        met on the current bid, or the mandatory-liquidation deadline has arrived. Pure of
+        side effects; a missing quote simply means no price trigger is evidenced."""
+        if now >= plan.mandatory_exit_deadline:
+            return "the mandatory-liquidation deadline has arrived"
+        try:
+            last_price = _bid_as_decimal(self._market_data.fetch_quote(plan.symbol))
+        except Exception:  # noqa: BLE001 - no quote => no price trigger evidenced
+            return None
+        if last_price is None:
+            return None
+        trigger = evaluate_exit_trigger(plan, last_price=last_price, now=now)
+        if trigger is None:
+            return None
+        return f"a {trigger.value} condition is met (bid {last_price})"
+
     def _corroborate_price_trigger(
         self, kind: ExitTriggerKind, *, plan: ApprovedPlan, now: datetime
     ) -> tuple[bool, str]:
@@ -522,7 +618,11 @@ class PositionPlanManager:
         claimed = self._plans.list_claimed(limit)
         unresolved = []
         for plan in claimed:
-            attempt = self._attempts.active_for_entry(plan.entry_intent_governance_id)
+            try:
+                attempt = self._attempts.active_for_entry(plan.entry_intent_governance_id)
+            except Exception:  # noqa: BLE001 - unreadable => treat as unresolved; resume isolates
+                unresolved.append(plan)
+                continue
             if attempt is None or not attempt.position_closed:
                 unresolved.append(plan)
         return tuple(unresolved)

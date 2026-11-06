@@ -39,6 +39,7 @@ STEPS: dict[str, str] = {
     "ACC-10": "PAPER order simulated",
     "ACC-11": "Broker acknowledgement handled",
     "ACC-12": "Partial fill reconciled",
+    "ACC-12b": "Partial fill, NEW control: remainder cancelled, then the stop sells the filled qty",
     "ACC-13": "Full fill reconciled",
     "ACC-14": "Position recorded",
     "ACC-15": "Stop-loss evaluated",
@@ -62,16 +63,21 @@ FINDINGS: tuple[str, ...] = (
     "attempt id of a plan-minted MANDATORY_EXIT is 63 characters, so the sequence was cut off "
     "and the SECOND acknowledgement / round of that attempt collided with the first on the "
     "primary key: every reconcile of an automatic mandatory liquidation raised, and because "
-    "`PositionPlanManager.evaluate_once` does not isolate plans from each other, the same tick "
-    "never reached later plans. Ids that already fit are unchanged; longer ones are digested "
+    "`PositionPlanManager.evaluate_once` then did not isolate plans from each other, the "
+    "same tick never reached later plans (now isolated, see ACC-18). "
+    "Ids that already fit are unchanged; longer ones are digested "
     "(`usecases/position_exit.py::_acknowledgement_id`, "
     "`position_exit_repositories.py::_round_id`; unit tests in "
     "`tests/unit/test_m100_exit_acknowledgement_id.py`).",
-    "**OPEN -- a partially filled entry that stays working is not protected (ACC-12).** While "
-    "the remainder can still fill, the exit assessment refuses ('cancel the remainder and wait "
-    "until the entry is final'), so the plan manager answers NOT_ELIGIBLE and the filled "
-    "shares carry no automatic stop or target until the entry is final. This is by design, "
-    "not a regression, but the Owner must cancel the remainder to get protection.",
+    "**FIXED -- a partially filled entry that stays working was not protected (ACC-12, "
+    "ACC-12b).** While the remainder can still fill the exit assessment refuses, so the filled "
+    "shares used to carry no automatic stop, target or mandatory exit until the entry was "
+    "final. `PositionPlanManager` now cancels the entry REMAINDER (bounded: at most 5 cancel "
+    "requests, 15 s apart, only while the market is open; immediately on a STOP/TARGET "
+    "condition or the mandatory deadline, otherwise after 120 s), reconciles by "
+    "client_order_id until the entry is terminal, and only then sells the FILLED quantity "
+    "(`usecases/entry_remainder_protection.py`). An entry with zero fills is never cancelled. "
+    "A partially filled entry that EXPIRES is likewise a holding entry now.",
     "**OPEN -- a blocked approval shows no reason on the v1 console.** The v1 "
     "`/confirm-approval` override (`paper_operator_console_app.py`) does not put the "
     "`ActionOutcome` into the page flash the base route uses, so after 'approved, execution "
@@ -79,10 +85,11 @@ FINDINGS: tuple[str, ...] = (
     "(`paper_submission_preview.refusals`; quoted in ACC-04b, ACC-05, ACC-06, ACC-07). The same "
     "path also creates the ApprovedPlan for an approved entry that was never sent (the manager "
     "then reports NOT_ELIGIBLE).",
-    "**OPEN (low) -- two managers racing one trigger (ACC-18).** Exactly one SELL reaches the "
-    "wire (the database refuses the second preview/attempt), but the loser's tick ends with an "
-    "unhandled uniqueness error instead of a handled outcome. The single-instance lock makes "
-    "this a multi-process-only case.",
+    "**FIXED -- two managers racing one trigger (ACC-18).** Exactly one SELL reaches the "
+    "wire (the database refuses the second preview/attempt). The loser's uniqueness error used "
+    "to abort the whole tick; `PositionPlanManager.evaluate_once` now isolates each plan, so "
+    "the error becomes a NEEDS_ATTENTION outcome plus a durable PLAN_EVALUATION_ERROR event "
+    "for that plan and the remaining plans are still evaluated.",
     "**OPEN (low) -- a refused Prepare leaves its evaluation-context row (ACC-04, harness note).** "
     "Ids carry whole seconds, so pressing Prepare again within the same second raises a raw "
     "persistence error rather than the friendly refusal; the harness moves its clock 1.1 s "

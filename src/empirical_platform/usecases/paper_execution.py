@@ -225,7 +225,12 @@ _BROKER_STATUS_TO_STATE = MappingProxyType(
         "canceled": PaperExecutionState.CANCELED,
         "expired": PaperExecutionState.EXPIRED,
         "rejected": PaperExecutionState.REJECTED,
-        "suspended": PaperExecutionState.REJECTED,
+        # `suspended` is deliberately ABSENT (M100 final review, P1): Alpaca documents it as
+        # not eligible for trading but NOT terminal, so an entry that may still go live must
+        # never be recorded as REJECTED (never sent => an untracked, unprotected position and
+        # a freed symbol). Unmapped => the state is left alone (non-terminal, still counted by
+        # the duplicate/D1 guards) and the reconciler records a loud UNMAPPED_BROKER_STATUS
+        # event for the Owner.
         "pending_cancel": PaperExecutionState.CANCEL_REQUESTED,
     }
 )
@@ -2393,6 +2398,8 @@ class ReconcilePaperOrderHandler:
             )
 
         target = _BROKER_STATUS_TO_STATE.get(view.status)
+        if target is None:
+            self._note_unmapped_status(attempt, view.status, command.at)
         if target is None or target is attempt.state:
             return self._attempts.transition(
                 attempt_id=attempt.attempt_id,
@@ -2421,6 +2428,34 @@ class ReconcilePaperOrderHandler:
             broker_status=view.status,
             filled_quantity=view.filled_quantity,
             filled_avg_price=view.filled_avg_price,
+        )
+
+    def _note_unmapped_status(self, attempt: ExecutionAttempt, status: str, at: datetime) -> None:
+        """A status this product does not map (e.g. `suspended`) is NOT terminal and NOT
+        known: the attempt keeps its non-terminal state and a durable event tells the Owner,
+        once per (attempt, status). The order may still go live, so nothing is freed."""
+        import hashlib
+
+        digest = hashlib.sha256(f"{attempt.attempt_id}|{status}".encode()).hexdigest()[:40]
+        event_id = f"EVT-UNMAPPED-{digest}"
+        if any(
+            e.event_id == event_id for e in self._events.for_intent(attempt.intent_governance_id)
+        ):
+            return
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=event_id,
+                intent_governance_id=attempt.intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type="UNMAPPED_BROKER_STATUS",
+                occurred_at=at,
+                detail=(
+                    f"the broker reports status {status!r}, which this product does not map to "
+                    "a terminal outcome; the order may still become live, so the attempt stays "
+                    f"{attempt.state.value} and blocks a new entry in this symbol until the "
+                    "Owner resolves it"
+                )[:500],
+            )
         )
 
     def _sample_broker_clock(self, window: PaperTimeWindow) -> BoundedInstant:
