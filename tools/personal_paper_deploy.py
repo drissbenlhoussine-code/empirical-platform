@@ -1304,6 +1304,20 @@ def run_deployment(
     skipped (each step function is itself idempotent too, so a step re-run after a crash
     mid-step is also safe)."""
     completed = journal.completed_steps() if resume else set()
+    if STEP_7_MIGRATE not in completed:
+        # M100 FOLLOW-UP (independent review, P1): until the migration has actually been
+        # applied, a resumed run must NOT trust that the pre-migration safety gates still hold
+        # -- hours may have passed, the console (or its autostart wrapper) may have been
+        # restarted, the broker may no longer be flat. These four gates are read-only and
+        # cheap, so they are always re-evaluated. (Steps 4/5 are not repeated: a fresh backup
+        # after a half-applied migration would be refused by the identity/head check, and
+        # step 6 re-verifies the console is still stopped.)
+        completed = completed - {
+            STEP_1_BROKER_VERIFY,
+            STEP_2_NO_INFLIGHT,
+            STEP_3_RELEASE_HEAD,
+            STEP_6_VERIFY_STOPPED,
+        }
     backup_location: Path | None = None
 
     def record(step: str, status: StepStatus, detail: str) -> None:
@@ -1363,6 +1377,13 @@ def run_deployment(
         except DeploymentBlockedError as blocked:
             record(step, "failed", blocked.reason)
             raise
+        except OSError as transport_error:
+            # M100 FOLLOW-UP: a refused connection / timeout (urllib's URLError is an OSError)
+            # must be a clean, journaled, fail-closed refusal -- never a raw traceback that
+            # leaves the journal's last record stuck at "started".
+            reason = f"unexpected I/O failure ({type(transport_error).__name__}): {transport_error}"
+            record(step, "failed", reason)
+            raise DeploymentBlockedError(step, reason) from transport_error
         record(step, "completed", detail)
 
     return journal

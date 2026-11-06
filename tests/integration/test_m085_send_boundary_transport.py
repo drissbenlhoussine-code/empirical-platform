@@ -104,6 +104,9 @@ def _handler_class(routes: _Routes) -> type[BaseHTTPRequestHandler]:
                 )
             elif path.startswith("/v2/positions/"):
                 self._send(404, {"code": 40410000, "message": "position does not exist"})
+            elif path.startswith("/v2/orders?status=open"):
+                # M100: the submit-time working-order guard lists open orders (none here).
+                self._send(200, [])
             elif path.startswith("/v2/orders:by_client_order_id"):
                 if routes.lookup_delay_seconds:
                     time.sleep(routes.lookup_delay_seconds)

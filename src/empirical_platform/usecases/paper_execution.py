@@ -371,6 +371,22 @@ def _gather(
     timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
     asset = broker.fetch_asset(symbol)
     position = broker.fetch_position(symbol)
+    # M100 FOLLOW-UP (independent review, P1): Prepare checks for a working order, but two
+    # proposals prepared BEFORE either was sent both passed it. Submit/recheck time is the
+    # choke point, so it must see working orders too. Fail closed: any working order in this
+    # symbol is folded into the "already exposed" quantity, which refuses the dispatch.
+    # Alpaca's `status=open` listing is queried fresh; fractional quantities round UP so a
+    # working order can never read as zero exposure.
+    held = 0 if position is None else position.quantity
+    working_quantity = 0
+    for working_order in broker.fetch_open_orders(symbol):
+        try:
+            quantity = Decimal(str(working_order.quantity))
+        except InvalidOperation as error:
+            raise PaperExecutionRefusedError(
+                f"a working order for {symbol} has an unreadable quantity; refusing"
+            ) from error
+        working_quantity += max(1, int(quantity.to_integral_value(rounding="ROUND_CEILING")))
     quote = market_data.fetch_quote(symbol)
     return PaperEvidence(
         account=account,
@@ -386,7 +402,7 @@ def _gather(
         asset_class=asset.asset_class,
         asset_exchange=asset.exchange,
         asset_fractionable=asset.fractionable,
-        existing_position_quantity=0 if position is None else position.quantity,
+        existing_position_quantity=held + working_quantity,
         kill_switch_engaged=kill_switch.is_engaged(),
     )
 

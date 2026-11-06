@@ -175,6 +175,16 @@ class Router:
     def __call__(
         self, environ: dict[str, Any], start_response: Callable[..., Any]
     ) -> Iterable[bytes]:
+        # M100 FOLLOW-UP (independent review, P1): without a Host check, a DNS-rebinding page
+        # is same-origin with this loopback console, can read a fresh CSRF token and then
+        # POST approve/submit/kill-switch actions. A browser always sends Host; refuse any
+        # that does not name this machine's loopback.
+        if not _host_header_is_loopback(environ.get("HTTP_HOST")):
+            start_response(
+                "421 Misdirected Request",
+                [("Content-Type", "text/plain; charset=utf-8"), *_SECURITY_HEADERS],
+            )
+            return [b"Refused: this console only answers requests addressed to localhost."]
         request = _read_request(environ)
         service_entry = self._service_routes.get((request.method, request.path))
         if service_entry is not None:
@@ -233,6 +243,25 @@ class Router:
             headers.append(("Set-Cookie", cookie.output(header="").strip()))
         start_response(response.status, headers)
         return [response.body]
+
+
+_LOOPBACK_HOST_NAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+
+def _host_header_is_loopback(host_header: object) -> bool:
+    """True when the Host header names a loopback host (any port). A missing header (an
+    HTTP/1.0 client or a direct WSGI call, never a browser) is not an attack vector for DNS
+    rebinding, which always carries the attacker's hostname."""
+    if host_header is None:
+        return True
+    if not isinstance(host_header, str):
+        return False
+    host = host_header.strip().lower()
+    if host.startswith("["):
+        name = host.split("]", 1)[0] + "]"
+    else:
+        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    return name in _LOOPBACK_HOST_NAMES
 
 
 def _read_request(environ: dict[str, Any]) -> Request:
