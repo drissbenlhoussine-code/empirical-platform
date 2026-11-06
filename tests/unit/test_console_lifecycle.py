@@ -361,4 +361,4 @@ def test_task_xml_is_well_formed_and_declares_its_real_encoding() -> None:
 
     raw = TASK_XML.read_bytes()
     assert raw.startswith(b'<?xml version="1.0" encoding="UTF-8"?>')
-    minidom.parseString(raw)
+    minidom.parseString(raw)  # noqa: S318 -- our own committed file, not untrusted input
