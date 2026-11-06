@@ -1367,10 +1367,11 @@ class OperatorConsoleService:
             if intent is None:
                 continue
             if attempt is not None and attempt.is_terminal and not position_is_open(attempt):
-                # A cancelled entry that had filled shares still holds a position (M087).
+                # A cancelled or expired entry that had filled shares still holds a position
+                # (M087; EXPIRED added by the M100 final review).
                 if not (
                     self._exits is not None
-                    and attempt.state is PaperExecutionState.CANCELED
+                    and attempt.state in (PaperExecutionState.CANCELED, PaperExecutionState.EXPIRED)
                     and attempt.filled_quantity is not None
                     and attempt.filled_quantity > 0
                 ):

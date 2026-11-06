@@ -557,3 +557,32 @@ def test_a_suspended_entry_never_becomes_rejected_and_still_blocks_a_new_entry(
         "entry order is PAPER" in r
         for r in world.service.exits.assess(intent).refusals  # type: ignore[union-attr]
     )
+
+
+# ---------------------------------------------------------------------------
+# M100 final review (P1): the Owner console must show an EXPIRED-with-fills entry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("state", "filled", "expected"),
+    [
+        ("CANCELED", 3, True),
+        ("EXPIRED", 3, True),
+        ("EXPIRED", 0, False),
+        ("EXPIRED", None, False),
+        ("REJECTED", 3, False),
+    ],
+)
+def test_console_treats_an_expired_entry_with_fills_as_an_open_position(
+    state: str, filled: int | None, expected: bool
+) -> None:
+    from types import SimpleNamespace
+
+    from empirical_platform.usecases.operator_console_exits import position_is_open_after_cancel
+
+    entry = SimpleNamespace(
+        state=SimpleNamespace(value=state),
+        filled_quantity=None if filled is None else Decimal(filled),
+    )
+    assert position_is_open_after_cancel(entry) is expected  # type: ignore[arg-type]
