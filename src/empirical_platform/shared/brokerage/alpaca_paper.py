@@ -875,6 +875,22 @@ class AlpacaPaperClient:
         equity = Decimal(_decimal_text(account.get("equity"), field="equity"))
         last_equity = Decimal(_decimal_text(account.get("last_equity"), field="last_equity"))
 
+        # ORDER MATTERS: orders are read BEFORE positions, so an order that fills between the two
+        # reads is seen as working AND as a position (counted twice = conservative), never as neither.
+        after = day_start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        status, orders, sanitized = self._json(
+            "GET",
+            f"/v2/orders?status=all&limit={self._ORDERS_PAGE_LIMIT}&direction=desc&after={after}",
+        )
+        if status != 200 or not isinstance(orders, list):
+            raise BrokerResponseInvalidError(
+                f"the orders endpoint answered HTTP {status}: {sanitized}"
+            )
+        if len(orders) >= self._ORDERS_PAGE_LIMIT:
+            raise BrokerResponseInvalidError(
+                "the day's order list filled a whole page and may be truncated; the daily order "
+                "count cannot be proven"
+            )
         status, body, sanitized = self._json("GET", "/v2/positions")
         if status != 200 or not isinstance(body, list):
             raise BrokerResponseInvalidError(
@@ -904,20 +920,6 @@ class AlpacaPaperClient:
                 )
             )
 
-        after = day_start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-        status, orders, sanitized = self._json(
-            "GET",
-            f"/v2/orders?status=all&limit={self._ORDERS_PAGE_LIMIT}&direction=desc&after={after}",
-        )
-        if status != 200 or not isinstance(orders, list):
-            raise BrokerResponseInvalidError(
-                f"the orders endpoint answered HTTP {status}: {sanitized}"
-            )
-        if len(orders) >= self._ORDERS_PAGE_LIMIT:
-            raise BrokerResponseInvalidError(
-                "the day's order list filled a whole page and may be truncated; the daily order "
-                "count cannot be proven"
-            )
         client_ids: set[str] = set()
         working: list[BrokerWorkingOrder] = []
         for entry in orders:

@@ -984,7 +984,6 @@ class TestPortfolioRiskEvidence:
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_json_response(200, self._account()))  # day pnl = -200
-        hostile.then(_json_response(200, [self._position()]))  # unrealized -50
         hostile.then(
             _json_response(
                 200,
@@ -995,6 +994,7 @@ class TestPortfolioRiskEvidence:
                 ],
             )
         )
+        hostile.then(_json_response(200, [self._position()]))  # unrealized -50
         evidence = client.fetch_portfolio_risk_evidence(day_start=self._day_start())
         assert evidence.day_pnl == Decimal("-200")
         assert evidence.realized_pnl_today == Decimal("-150")
@@ -1002,15 +1002,15 @@ class TestPortfolioRiskEvidence:
         assert evidence.order_client_ids_today == {"a-1", "a-2", "a-3"}
         assert [o.client_order_id for o in evidence.working_orders] == ["a-1"]
         assert evidence.positions[0].cost_basis == Decimal("2000.00")
-        assert "after=2026-11-05T05:00:00Z" in hostile.requests[2]["path"]
-        assert "status=all" in hostile.requests[2]["path"]
+        assert "after=2026-11-05T05:00:00Z" in hostile.requests[1]["path"]
+        assert "status=all" in hostile.requests[1]["path"]
 
     def test_an_unknown_order_status_counts_as_working(
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_json_response(200, self._account()))
-        hostile.then(_json_response(200, []))
         hostile.then(_json_response(200, [an_order_payload(status="some_new_status")]))
+        hostile.then(_json_response(200, []))
         evidence = client.fetch_portfolio_risk_evidence(day_start=self._day_start())
         assert len(evidence.working_orders) == 1
 
@@ -1027,12 +1027,14 @@ class TestPortfolioRiskEvidence:
         position = self._position()
         del position["unrealized_intraday_pl"]
         hostile.then(_json_response(200, self._account()))
+        hostile.then(_json_response(200, []))
         hostile.then(_json_response(200, [position]))
         with pytest.raises(BrokerResponseInvalidError):
             client.fetch_portfolio_risk_evidence(day_start=self._day_start())
 
     def test_a_short_position_is_refused(self, client: AlpacaPaperClient, hostile: _Script) -> None:
         hostile.then(_json_response(200, self._account()))
+        hostile.then(_json_response(200, []))
         hostile.then(_json_response(200, [self._position(qty="-3")]))
         with pytest.raises(BrokerResponseInvalidError, match="short"):
             client.fetch_portfolio_risk_evidence(day_start=self._day_start())
@@ -1041,7 +1043,6 @@ class TestPortfolioRiskEvidence:
         self, client: AlpacaPaperClient, hostile: _Script
     ) -> None:
         hostile.then(_json_response(200, self._account()))
-        hostile.then(_json_response(200, []))
         page = [
             an_order_payload(client_order_id=f"o-{index}", status="filled") for index in range(500)
         ]
