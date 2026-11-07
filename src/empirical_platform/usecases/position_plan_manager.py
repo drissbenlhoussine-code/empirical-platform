@@ -73,6 +73,7 @@ from empirical_platform.decision_candidate.external_position_closure_repositorie
 )
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
+    PaperExecutionEventRepository,
     PaperMarketDataPort,
 )
 from empirical_platform.decision_candidate.position_exit import (
@@ -113,6 +114,7 @@ from empirical_platform.usecases.entry_remainder_protection import (
 )
 from empirical_platform.usecases.position_exit import (
     MAXIMUM_EXIT_PREVIEW_AGE_SECONDS,
+    QUOTE_UNUSABLE_FOR_EXIT_MARKER,
     AssessPositionExitHandler,
     AuthorizePositionExitCommand,
     AuthorizePositionExitHandler,
@@ -128,7 +130,10 @@ from empirical_platform.usecases.position_exit import (
 )
 
 __all__ = [
+    "ATTENTION_QUOTE_GATE_GRACE_SECONDS",
     "DEFAULT_POLL_INTERVAL_SECONDS",
+    "AttentionBoard",
+    "AttentionItem",
     "ApprovedPlanRepository",
     "ExternalPositionClosureRepository",
     "ManagerHeartbeat",
@@ -139,6 +144,7 @@ __all__ = [
     "PLAN_EVALUATION_ERROR_EVENT_TYPE",
     "PlanManagerThread",
     "PositionPlanManager",
+    "MANAGER_TICK_ATTENTION_KEY",
     "manager_liveness_alert",
     "manager_status",
     "manager_status_detail",
@@ -329,6 +335,7 @@ class PositionPlanManager:
         "_reconcile_handler",
         "_cancel_handler",
         "_entry_protector",
+        "_entry_events",
     )
 
     def __init__(
@@ -350,7 +357,11 @@ class PositionPlanManager:
         environment: str,
         time_source: PaperTimeSource | None = None,
         entry_remainder_protector: EntryRemainderProtector | None = None,
+        entry_events: PaperExecutionEventRepository | None = None,
     ) -> None:
+        #: OWNER-VISIBLE ESCALATION: read-only access to the ENTRY audit trail, used only to
+        #: surface an `UNMAPPED_BROKER_STATUS` on a plan's entry. `None` disables that read.
+        self._entry_events = entry_events
         #: PARTIAL ENTRY PROTECTION. `None` disables it (a composition with no Store B entry
         #: repositories); every production composition passes one.
         self._entry_protector = entry_remainder_protector
@@ -478,6 +489,9 @@ class PositionPlanManager:
         if closure is not None:
             return self._externally_closed_outcome(plan, closure)
         assessment = self._assess.handle(plan.entry_intent_governance_id, at=now)
+        unmapped = self._unmapped_entry_status(plan, assessment)
+        if unmapped is not None:
+            return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, unmapped)
         if (
             not assessment.eligible
             and self._entry_protector is not None
@@ -569,6 +583,24 @@ class PositionPlanManager:
                 "another evaluation already claimed this plan's exit trigger",
             )
         return self._attempt_exit(claimed, now=now, just_claimed=True)
+
+    def _unmapped_entry_status(self, plan: ApprovedPlan, assessment: object) -> str | None:
+        """OWNER-VISIBLE ESCALATION (entry side). The entry reconciler records a durable
+        `UNMAPPED_BROKER_STATUS` event when the broker reports a status this product does not
+        map (e.g. `suspended`); the entry then stays non-terminal and the position cannot be
+        protected. Read-only: returns the reason while that entry is still non-terminal."""
+        if self._entry_events is None or getattr(assessment, "eligible", True):
+            return None
+        entry = getattr(assessment, "entry_attempt", None)
+        if entry is None or entry.is_terminal:
+            return None
+        for event in self._entry_events.for_intent(plan.entry_intent_governance_id):
+            if (
+                event.event_type == "UNMAPPED_BROKER_STATUS"
+                and event.attempt_id == entry.attempt_id
+            ):
+                return f"UNMAPPED_BROKER_STATUS (entry order): {event.detail}"
+        return None
 
     def _entry_urgency(self, plan: ApprovedPlan, *, now: datetime) -> str | None:
         """Why a partial entry's remainder must be cancelled NOW: a STOP/TARGET condition is
@@ -1168,6 +1200,98 @@ def manager_liveness_alert(
     return None
 
 
+#: OWNER-VISIBLE ESCALATION. A triggered exit blocked by the quote spread/age gate is shown
+#: to the Owner only once it has stayed blocked for longer than this (a single wide-spread
+#: tick is routine and heals by itself). The gate itself is NOT touched by this constant.
+ATTENTION_QUOTE_GATE_GRACE_SECONDS = 60
+
+#: `AttentionBoard` key used for a failure of the whole manager tick (no plan involved).
+MANAGER_TICK_ATTENTION_KEY = "__manager_tick__"
+
+_QUOTE_GATE_REASON = (
+    "a triggered STOP/TARGET/MANDATORY exit cannot be priced: quote spread/age gate; "
+    "position remains open"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AttentionItem:
+    """One plan (or the manager tick itself) whose automatic management has stopped making
+    progress. `key` is the entry intent id (or `MANAGER_TICK_ATTENTION_KEY`)."""
+
+    key: str
+    plan_id: str | None
+    kind: str
+    reason: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+class AttentionBoard:
+    """In-process, thread-safe record of what automatic exit management is stuck on.
+
+    NOT durable and not a source of truth: it is re-derived from the next manager tick after
+    any restart. The manager thread writes the LATEST outcome per plan each tick; an entry is
+    removed as soon as a later tick returns a non-attention outcome for that plan (or the plan
+    is no longer evaluated at all), so it heals itself. Read-only for every other caller."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._items: dict[str, AttentionItem] = {}
+        self._quote_blocked_since: dict[str, datetime] = {}
+
+    def items(self) -> tuple[AttentionItem, ...]:
+        with self._lock:
+            return tuple(self._items.values())
+
+    def for_entry(self, entry_intent_id: str) -> AttentionItem | None:
+        with self._lock:
+            return self._items.get(entry_intent_id)
+
+    def record_tick(self, outcomes: Sequence[PlanEvaluationOutcome], *, now: datetime) -> None:
+        latest: dict[str, PlanEvaluationOutcome] = {}
+        for outcome in outcomes:  # a plan can appear twice in one tick; the last one wins
+            latest[outcome.entry_intent_governance_id] = outcome
+        with self._lock:
+            self._items.pop(MANAGER_TICK_ATTENTION_KEY, None)
+            blocked: dict[str, datetime] = {}
+            kept: dict[str, AttentionItem] = {}
+            for key, outcome in latest.items():
+                if outcome.kind is not PlanOutcomeKind.NEEDS_ATTENTION:
+                    continue
+                if QUOTE_UNUSABLE_FOR_EXIT_MARKER.strip() in outcome.detail:
+                    since = self._quote_blocked_since.get(key, now)
+                    blocked[key] = since
+                    seconds = int((now - since).total_seconds())
+                    if seconds <= ATTENTION_QUOTE_GATE_GRACE_SECONDS:
+                        continue
+                    kind = "QUOTE_GATE_BLOCKED"
+                    reason = (
+                        f"{_QUOTE_GATE_REASON} (blocked for {seconds}s). {outcome.detail.strip()}"
+                    )
+                else:
+                    kind = outcome.kind.value
+                    reason = outcome.detail
+                previous = self._items.get(key)
+                first = previous.first_seen_at if previous and previous.kind == kind else now
+                kept[key] = AttentionItem(key, outcome.plan_id, kind, reason[:600], first, now)
+            self._quote_blocked_since = blocked
+            self._items = kept
+
+    def record_tick_error(self, message: str, *, now: datetime) -> None:
+        with self._lock:
+            previous = self._items.get(MANAGER_TICK_ATTENTION_KEY)
+            self._items[MANAGER_TICK_ATTENTION_KEY] = AttentionItem(
+                MANAGER_TICK_ATTENTION_KEY,
+                None,
+                "MANAGER_TICK_ERROR",
+                f"the automatic position manager's tick failed: {message[:300]}. No plan was "
+                "evaluated this tick; it retries on its own schedule",
+                previous.first_seen_at if previous else now,
+                now,
+            )
+
+
 class PlanManagerThread:
     """Runs `PositionPlanManager.evaluate_once` on a fixed interval, inside THIS process.
 
@@ -1190,7 +1314,9 @@ class PlanManagerThread:
         *,
         now: Callable[[], datetime],
         interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS,
+        attention: AttentionBoard | None = None,
     ) -> None:
+        self._attention = attention
         self._manager = manager
         self._now = now
         self._interval = interval_seconds
@@ -1223,36 +1349,7 @@ class PlanManagerThread:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            error: str | None = None
-            try:
-                outcomes = self._manager.evaluate_once(now=self._now())
-                # EXIT SIGNAL QUALITY GATE / Phase 3 observability requirement (2026-10-21):
-                # the 2026-10-20 incident's own trigger evidence (the exact bid that claimed
-                # it) was never logged anywhere -- `evaluate_once`'s return value used to be
-                # discarded here entirely. Every outcome is now logged, routine ones at INFO
-                # and anything requiring attention at WARNING, so a future incident is
-                # reconstructible from the process log even before touching Postgres.
-                for outcome in outcomes:
-                    level = (
-                        logging.WARNING
-                        if outcome.kind
-                        in (
-                            PlanOutcomeKind.NEEDS_ATTENTION,
-                            PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
-                        )
-                        else logging.INFO
-                    )
-                    _LOG.log(
-                        level,
-                        "plan %s [%s] %s: %s",
-                        outcome.plan_id,
-                        outcome.entry_intent_governance_id,
-                        outcome.kind.value,
-                        outcome.detail,
-                    )
-            except Exception as exc:  # noqa: BLE001 - one bad tick must never stop the loop
-                _LOG.exception("position plan manager tick failed")
-                error = f"{type(exc).__name__}: {exc}"
+            error = self._tick_once()
             with self._lock:
                 previous = self._heartbeat
                 self._heartbeat = ManagerHeartbeat(
@@ -1262,6 +1359,46 @@ class PlanManagerThread:
                     ticks_completed=(previous.ticks_completed if previous is not None else 0) + 1,
                 )
             self._stop.wait(self._interval)
+
+    def _tick_once(self) -> str | None:
+        """One evaluation tick; returns the tick-level error text (or `None`)."""
+        error: str | None = None
+        try:
+            tick_at = self._now()
+            outcomes = self._manager.evaluate_once(now=tick_at)
+            # EXIT SIGNAL QUALITY GATE / Phase 3 observability requirement (2026-10-21):
+            # the 2026-10-20 incident's own trigger evidence (the exact bid that claimed
+            # it) was never logged anywhere -- `evaluate_once`'s return value used to be
+            # discarded here entirely. Every outcome is now logged, routine ones at INFO
+            # and anything requiring attention at WARNING, so a future incident is
+            # reconstructible from the process log even before touching Postgres.
+            for outcome in outcomes:
+                level = (
+                    logging.WARNING
+                    if outcome.kind
+                    in (
+                        PlanOutcomeKind.NEEDS_ATTENTION,
+                        PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
+                    )
+                    else logging.INFO
+                )
+                _LOG.log(
+                    level,
+                    "plan %s [%s] %s: %s",
+                    outcome.plan_id,
+                    outcome.entry_intent_governance_id,
+                    outcome.kind.value,
+                    outcome.detail,
+                )
+            # OWNER-VISIBLE ESCALATION: the same outcomes, latest per plan, for the console.
+            if self._attention is not None:
+                self._attention.record_tick(outcomes, now=tick_at)
+        except Exception as exc:  # noqa: BLE001 - one bad tick must never stop the loop
+            _LOG.exception("position plan manager tick failed")
+            error = f"{type(exc).__name__}: {exc}"
+            if self._attention is not None:
+                self._attention.record_tick_error(error, now=self._now())
+        return error
 
 
 class ManagerThreadHandle:
@@ -1287,10 +1424,13 @@ class ManagerThreadHandle:
     `None` there, which `manager_status` reads as `manager_supported=False` -> `UNKNOWN`.
     """
 
-    __slots__ = ("thread",)
+    __slots__ = ("attention", "thread")
 
     def __init__(self) -> None:
         self.thread: PlanManagerThread | None = None
+        #: OWNER-VISIBLE ESCALATION: created with the handle so the console routes and the
+        #: manager thread (started later) share ONE board without any other wiring.
+        self.attention = AttentionBoard()
 
     def heartbeat(self) -> ManagerHeartbeat | None:
         return None if self.thread is None else self.thread.heartbeat()

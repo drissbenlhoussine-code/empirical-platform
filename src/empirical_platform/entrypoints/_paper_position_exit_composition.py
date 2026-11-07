@@ -220,6 +220,7 @@ def paper_operator_console_with_exit_runtime(
                     configurations=repositories.configurations,
                     environment=PAPER_CAPABILITY.capability.value,
                     time_source=store_b.time_source,
+                    entry_events=repositories.events,
                     # PARTIAL ENTRY PROTECTION: cancels a partially filled entry's remainder
                     # (bounded) so the filled shares can be protected by stop/target/mandatory.
                     entry_remainder_protector=EntryRemainderProtector(

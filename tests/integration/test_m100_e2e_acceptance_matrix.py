@@ -1458,6 +1458,9 @@ def test_ACC_17_exit_submitted_in_simulation(world: World, evidence: EvidenceRec
         assert closed.state is PositionExitState.FILLED
         assert closed.closed_position_verified_at is not None
         assert ex.positions == {} and ex.open_orders() == []
+        # AUDIT A / P1-1: a healthy stop -> fill flow raises no Owner-visible escalation.
+        assert stack.attention_items() == ()
+        assert "AUTOMATIC EXIT STOPPED" not in stack.client.get("/active").body
         store_c = {
             t: count(world.engine_c, t)
             for t in (
@@ -1548,6 +1551,13 @@ def test_ACC_17b_d3_unfilled_exit_is_repriced_and_replaced_within_bounds(
             "WHERE event_type = 'EXIT_RETRIES_EXHAUSTED'",
         )[0]["n"]
         assert exhausted >= 1
+        # AUDIT A / P1-1: the exhausted exit is NOT log-only -- /active shows the red banner
+        # (page top and trade card) and /safety lists the plan.
+        active_body = stack.client.get("/active").body
+        assert active_body.count("AUTOMATIC EXIT STOPPED — CLOSE THIS POSITION MANUALLY") >= 2
+        assert "EXIT_RETRIES_EXHAUSTED" in active_body
+        safety_body = stack.client.get("/safety").body
+        assert "Plans needing attention" in safety_body and "EXIT_RETRIES_EXHAUSTED" in safety_body
         attempts = stack.exit_attempts(intent_id)
         states = [a.state.value for a in attempts]
         sells_at_end = len(sell_posts(ex))
@@ -1617,6 +1627,7 @@ def test_ACC_17c_mandatory_liquidation_exit_is_submitted_and_reconciled(
         assert closed.state is PositionExitState.FILLED
         assert closed.closed_position_verified_at is not None
         assert len(sell_posts(ex)) == 2 and ex.positions == {}
+        assert stack.attention_items() == (), "a healthy mandatory exit raises no escalation"
         ack_ids = [
             r["acknowledgement_id"]
             for r in rows(

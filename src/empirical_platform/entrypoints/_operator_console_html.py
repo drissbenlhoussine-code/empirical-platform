@@ -29,7 +29,12 @@ from empirical_platform.usecases.operator_console import (
 from empirical_platform.usecases.operator_console_exits import ExitReviewView, ExitSummary
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
 from empirical_platform.usecases.paper_operator_console import PaperHealthView
-from empirical_platform.usecases.position_plan_manager import ManagerStatus, ManagerStatusView
+from empirical_platform.usecases.position_plan_manager import (
+    MANAGER_TICK_ATTENTION_KEY,
+    AttentionItem,
+    ManagerStatus,
+    ManagerStatusView,
+)
 
 __all__ = [
     "STYLESHEET",
@@ -41,6 +46,9 @@ __all__ = [
     "history_page",
     "kill_switch_confirmation_page",
     "loaded_day_page",
+    "attention_banner",
+    "attention_card_alert",
+    "attention_section",
     "manager_status_card",
     "message_page",
     "opportunity_page",
@@ -642,6 +650,89 @@ def _execution_block(
     )
 
 
+ATTENTION_HEADLINE = "AUTOMATIC EXIT STOPPED — CLOSE THIS POSITION MANUALLY AT THE BROKER"
+ATTENTION_TICK_HEADLINE = (
+    "AUTOMATIC EXIT MANAGEMENT FAILED — CHECK EVERY OPEN POSITION MANUALLY AT THE BROKER"
+)
+
+
+def _attention_what_you_can_do(review_url: str | None) -> str:
+    base = (
+        "What you can do: close the position yourself at the broker (Alpaca Paper); "
+        "do not rely on any further automatic order for it."
+    )
+    if review_url:
+        return (
+            f'{_e(base)} <a href="{_e(review_url)}">REVIEW MANUAL EXIT</a> '
+            "(a human-authorized exit through this console)."
+        )
+    return _e(base)
+
+
+def attention_banner(
+    items: Iterable[AttentionItem],
+    *,
+    details: Mapping[str, tuple[str, str | None]] = MappingProxyType({}),
+) -> str:
+    """OWNER-VISIBLE ESCALATION banner (top of `/active`): one red block per plan whose
+    automatic exit management stopped making progress. `details` maps an entry intent id to
+    (symbol, manual-exit review URL or None). Empty string when there is nothing to show."""
+    blocks = []
+    for item in items:
+        if item.key == MANAGER_TICK_ATTENTION_KEY:
+            blocks.append(
+                '<div class="banner banner-danger attention-banner" role="alert">'
+                f"<strong>{_e(ATTENTION_TICK_HEADLINE)}</strong>"
+                f"<br>{_e(item.reason)}</div>"
+            )
+            continue
+        symbol, review_url = details.get(item.key, ("", None))
+        label = f" — {_e(symbol)}" if symbol else ""
+        blocks.append(
+            '<div class="banner banner-danger attention-banner" role="alert">'
+            f"<strong>{_e(ATTENTION_HEADLINE)}</strong>{label}"
+            f"<br>Reason: {_e(item.reason)}"
+            f"<br>{_attention_what_you_can_do(review_url)}</div>"
+        )
+    return "".join(blocks)
+
+
+def attention_card_alert(item: AttentionItem, *, review_manual_exit_url: str | None) -> str:
+    """The same escalation on the affected trade card (inside the approved-plan block)."""
+    return (
+        '<p class="note note-danger attention-alert" role="alert">'
+        f"<strong>{_e(ATTENTION_HEADLINE)}</strong><br>Reason: {_e(item.reason)}"
+        f"<br>{_attention_what_you_can_do(review_manual_exit_url)}</p>"
+    )
+
+
+def attention_section(items: Iterable[AttentionItem]) -> str:
+    """`/safety`: every plan needing attention, or an explicit 'none'."""
+    listed = list(items)
+    if not listed:
+        body = (
+            '<p class="banner banner-good"><strong>None</strong> — no plan currently '
+            "needs attention.</p>"
+        )
+    else:
+        entries = "".join(
+            "<li><strong>"
+            + _e(
+                "automatic manager tick"
+                if i.key == MANAGER_TICK_ATTENTION_KEY
+                else f"entry {i.key}"
+            )
+            + f"</strong> [{_e(i.kind)}] since {_e(i.first_seen_at.isoformat(timespec='seconds'))}: "
+            f"{_e(i.reason)}</li>"
+            for i in listed
+        )
+        body = (
+            f'<div class="banner banner-danger"><strong>{_e(ATTENTION_HEADLINE)}</strong>'
+            f"</div><ul>{entries}</ul>"
+        )
+    return f'<section class="card"><h2>Plans needing attention</h2>{body}</section>'
+
+
 def approved_plan_block(
     *,
     quantity: str,
@@ -655,6 +746,7 @@ def approved_plan_block(
     management_status: str,
     review_manual_exit_url: str | None,
     blocked_exit_alert: str | None = None,
+    attention_alert: str = "",
 ) -> str:
     """RELEASE v1 -- the APPROVED PLAN block on an Active Trade card.
 
@@ -681,6 +773,7 @@ def approved_plan_block(
     return (
         '<section class="card plan-card">'
         f'<h3>Approved plan <span class="chip">{_e(management_status)}</span></h3>'
+        f"{attention_alert}"
         f"{alert}"
         '<p class="note note-info">Automatic management is limited to the Owner-approved '
         "Paper plan.</p>"
@@ -750,6 +843,7 @@ def active_page(
     flash: ActionOutcome | None,
     *,
     plan_blocks: Mapping[str, str] = MappingProxyType({}),
+    attention: str = "",
     base_path: str = "",
 ) -> str:
     refresh = (
@@ -776,7 +870,7 @@ def active_page(
         cards = "".join(sections)
     else:
         cards = '<section class="empty"><h2>No active trades or open positions</h2><p>Every execution has reached a final state and no filled position is held. Closed positions are in History.</p></section>'
-    body = f'<div class="title-row"><h1>Active trades</h1>{refresh}</div>{cards}'
+    body = f'{attention}<div class="title-row"><h1>Active trades</h1>{refresh}</div>{cards}'
     return _layout(
         title="Active trades",
         active="/active",
@@ -1255,6 +1349,7 @@ def safety_page(
     flash: ActionOutcome | None,
     *,
     manager_status: ManagerStatusView | None = None,
+    attention: tuple[AttentionItem, ...] | None = None,
     base_path: str = "",
 ) -> str:
     capabilities = "".join(
@@ -1308,6 +1403,8 @@ def safety_page(
         "</ul></section>"
     )
     manager_card = manager_status_card(manager_status) if manager_status is not None else ""
+    if attention is not None:
+        manager_card += attention_section(attention)
     body = (
         "<h1>Safety</h1>"
         f'<section class="card env-card"><div class="{_env_badge_class(view.active_capability.capability.value)} env-badge-large">{_e(view.active_capability.capability.value)}</div>'

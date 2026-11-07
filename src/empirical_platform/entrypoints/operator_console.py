@@ -303,7 +303,13 @@ def _serve_with_reconciler(
             reconciler = _Reconciler(refresh, reconcile_every)
             reconciler.start()
         if plan_manager is not None:
-            manager_thread = PlanManagerThread(plan_manager, now=_utc_now)
+            manager_thread = PlanManagerThread(
+                plan_manager,
+                now=_utc_now,
+                attention=None
+                if manager_thread_handle is None
+                else manager_thread_handle.attention,
+            )
             manager_thread.start()
             if manager_thread_handle is not None:
                 manager_thread_handle.thread = manager_thread

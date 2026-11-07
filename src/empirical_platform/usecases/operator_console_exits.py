@@ -104,6 +104,7 @@ __all__ = [
     "CATEGORY_WORKING_ENTRY",
     "DEADLINE_MISSED_TRUTH",
     "EXIT_ACTION",
+    "PLAN_MANAGED_ATTEMPT_PREFIXES",
     "ExitRepositories",
     "ExitReviewView",
     "ExitSummary",
@@ -115,6 +116,10 @@ __all__ = [
 ]
 
 EXIT_ACTION = "EXIT"
+#: Attempt-id prefixes the AUTOMATIC plan manager mints (`position_plan_manager._attempt_id`:
+#: slot 0 `XAT-plan-...`, later generations `XAT-pg<slot>-...`). An Owner-confirmed manual
+#: exit is `XAT-<intent id>-<version>` and never matches. Pinned by a unit test.
+PLAN_MANAGED_ATTEMPT_PREFIXES = ("XAT-plan-", "XAT-pg")
 CATEGORY_WORKING_ENTRY = "Working entry order"
 CATEGORY_OPEN_POSITION = "Open position"
 CATEGORY_EXIT_IN_PROGRESS = "Exit in progress"

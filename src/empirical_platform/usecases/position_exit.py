@@ -123,6 +123,7 @@ __all__ = [
     "CancelPositionExitHandler",
     "ExitSubmissionResult",
     "POSITION_NEEDS_ATTENTION",
+    "QUOTE_UNUSABLE_FOR_EXIT_MARKER",
     "PositionAssessment",
     "PositionExitRefusedError",
     "PreviewPositionExitCommand",
@@ -132,6 +133,11 @@ __all__ = [
     "SubmitAuthorizedPositionExitCommand",
     "SubmitAuthorizedPositionExitHandler",
 ]
+
+#: The exact wording `PreviewPositionExitHandler` refuses with when the quote spread/age gate
+#: blocks pricing an exit. Shared so the plan manager's attention board can recognise a
+#: quote-gate block without paraphrasing (the gate itself is unchanged).
+QUOTE_UNUSABLE_FOR_EXIT_MARKER = " The quote is not usable to price this exit: "
 
 #: A review page older than this cannot be authorized: the position must be re-reviewed.
 MAXIMUM_EXIT_PREVIEW_AGE_SECONDS = 900
@@ -457,7 +463,7 @@ class PreviewPositionExitHandler:
         if stale is not None:
             raise PositionExitRefusedError(
                 POSITION_NEEDS_ATTENTION
-                + " The quote is not usable to price this exit: "
+                + QUOTE_UNUSABLE_FOR_EXIT_MARKER
                 + stale
                 + ". Nothing was prepared."
             )

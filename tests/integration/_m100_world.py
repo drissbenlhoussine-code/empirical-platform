@@ -228,7 +228,17 @@ class Stack:
     def tick(self) -> tuple[PlanEvaluationOutcome, ...]:
         """One plan-manager poll at the virtual 'now' (exactly what PlanManagerThread does)."""
         assert self.manager is not None
-        return self.manager.evaluate_once(now=self.world.clock.now())
+        now = self.world.clock.now()
+        outcomes = self.manager.evaluate_once(now=now)
+        # AUDIT A / P1-1: feed the Owner-visible attention board exactly as the thread does.
+        handle = self.backend._manager_thread_handle  # noqa: SLF001
+        if handle is not None:
+            handle.attention.record_tick(outcomes, now=now)
+        return outcomes
+
+    def attention_items(self) -> tuple[Any, ...]:
+        handle = self.backend._manager_thread_handle  # noqa: SLF001
+        return () if handle is None else handle.attention.items()
 
     def exit_attempts(self, intent_id: str) -> list[PositionExitAttempt]:
         return list(self.exits.attempts.for_entry(intent_id))

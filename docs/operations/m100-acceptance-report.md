@@ -31,6 +31,36 @@ It contains PR #47's two commits unchanged (`205e906`, `ac5e649`) plus the follo
 | P2-7 | Racing managers: a loser raised a raw `FoundationError` on a slot primary-key collision | **ALREADY-FIXED / mitigated** | Per-plan isolation turns any exception (including a uniqueness violation) into a NEEDS_ATTENTION outcome with a durable `PLAN_EVALUATION_ERROR` event for that plan only; every other plan is still evaluated. Test: `test_one_plans_exception_does_not_starve_the_next_plan` (`"duplicate key value violates unique constraint"`). A second manager is also prevented by the cross-process single-instance lock |
 | P2-8 | Alpaca specifics untested against the real service: `pending_cancel` latency, DAY-expiry status naming, real `last_equity` semantics (daily P&L proxy = equity - last_equity includes unrealized) | **DEFERRED (needs the real service)** | Unknown statuses fail closed (`UNMAPPED_BROKER_STATUS`); the daily-loss figure is conservative (includes unrealized loss). Verify against a real PAPER account during the supervised run |
 
+## Owner-visible escalations (Audit A, P1-1)
+
+Automatic exit management used to escalate `NEEDS_ATTENTION` outcomes to the process log only. They now reach an in-process
+`AttentionBoard` (re-derived every tick, not durable, cleared by the next non-attention outcome or when the plan is no longer
+evaluated) that `/active` renders as a red banner at the top and on the affected trade card, and `/safety` lists under
+"Plans needing attention" (or "None"). Headline: **AUTOMATIC EXIT STOPPED -- CLOSE THIS POSITION MANUALLY AT THE BROKER**,
+followed by the specific reason and, when the position is held, the manual-exit review link.
+
+| Source | Reason shown |
+|--------|--------------|
+| Exit retry budget spent (`EXIT_RETRIES_EXHAUSTED`) | "... did not close the position; no further orders are sent automatically ... The Owner must close or review this position." |
+| Cancel budget spent / cancel acknowledgement unknown (`EXIT_CANCEL_ERROR`) | "... N cancel requests were not confirmed by the broker; no replacement is sent ..." |
+| Send unresolved longer than 120 s | "... has been unresolved for Ns; it is reconciled by client_order_id every tick and is NEVER re-sent automatically" |
+| Market closed / broker clock unreadable while an exit is triggered | "The market is not in a regular trading session ..." / "The broker clock could not be read ..." |
+| Plan evaluation raised (`PLAN_EVALUATION_ERROR`) | "evaluating this plan raised <type> ..." |
+| Quote spread/age gate blocks a triggered STOP/TARGET/MANDATORY exit for more than 60 s | "a triggered STOP/TARGET/MANDATORY exit cannot be priced: quote spread/age gate; position remains open" + the gate's own reason |
+| Entry remainder cancel budget spent (`ENTRY_REMAINDER_CANCEL_EXHAUSTED`) | the protector's detail |
+| Entry `UNMAPPED_BROKER_STATUS` on a still-non-terminal entry | "UNMAPPED_BROKER_STATUS (entry order): the broker reports status ..." |
+| Whole manager tick raised | banner "AUTOMATIC EXIT MANAGEMENT FAILED -- CHECK EVERY OPEN POSITION MANUALLY AT THE BROKER" |
+
+The Active-card sentence "Exit in progress -- nothing further is sent without your confirmation" was false for plan-managed exits;
+for those it now says the manager sends and reprices on its own within bounded limits and the Owner may still close manually. The
+confirmation wording remains only for Owner-confirmed manual exits. Tests: `tests/unit/test_v1_owner_escalation_board.py`;
+matrix steps ACC-17 / ACC-17b / ACC-17c assert the board is empty on healthy flows and the banner appears on exhaustion.
+
+**OWNER DECISION (not done): the quote gate can block a mandatory exit.** `PreviewPositionExitHandler` reuses the entry quote
+spread/age gate for exits, so a triggered STOP/TARGET/MANDATORY exit is never sent while the spread or quote age is outside the
+gate (for example bid 229.00 / ask 245.00) and the position stays open. This is now visible (banner after 60 s) but not changed:
+exempting exits from the spread gate is a policy change; not done.
+
 ## Verification record
 
 See the "Final report" delivered with PR #49 for exact SHA, commands and counts. Evidence of the 24-step matrix:
