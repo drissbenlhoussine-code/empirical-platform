@@ -74,9 +74,11 @@ from empirical_platform.decision_candidate.position_exit import (
     exit_attempt_may_have_transmitted,
     exit_authorization_binding_refusal,
     exit_eligibility,
+    exit_limit_price,
     exit_order_terms_mismatches,
     exit_request_fingerprint,
     exit_send_boundary_binding,
+    is_exit_transition_allowed,
 )
 from empirical_platform.decision_candidate.position_exit_repositories import (
     ExitBrokerPort,
@@ -121,6 +123,7 @@ __all__ = [
     "CancelPositionExitHandler",
     "ExitSubmissionResult",
     "POSITION_NEEDS_ATTENTION",
+    "QUOTE_UNUSABLE_FOR_EXIT_MARKER",
     "PositionAssessment",
     "PositionExitRefusedError",
     "PreviewPositionExitCommand",
@@ -130,6 +133,11 @@ __all__ = [
     "SubmitAuthorizedPositionExitCommand",
     "SubmitAuthorizedPositionExitHandler",
 ]
+
+#: The exact wording `PreviewPositionExitHandler` refuses with when the quote spread/age gate
+#: blocks pricing an exit. Shared so the plan manager's attention board can recognise a
+#: quote-gate block without paraphrasing (the gate itself is unchanged).
+QUOTE_UNUSABLE_FOR_EXIT_MARKER = " The quote is not usable to price this exit: "
 
 #: A review page older than this cannot be authorized: the position must be re-reviewed.
 MAXIMUM_EXIT_PREVIEW_AGE_SECONDS = 900
@@ -146,7 +154,9 @@ _BROKER_STATUS_TO_STATE = MappingProxyType(
         "canceled": PositionExitState.CANCELED,
         "expired": PositionExitState.EXPIRED,
         "rejected": PositionExitState.REJECTED,
-        "suspended": PositionExitState.REJECTED,
+        # `suspended` is deliberately ABSENT (M100 final review, P1): Alpaca documents it as
+        # not eligible for trading but NOT terminal, so it must fail closed (NEEDS_ATTENTION)
+        # rather than count as a rejection that lets a second live sell be sent.
         "pending_cancel": PositionExitState.CANCEL_REQUESTED,
     }
 )
@@ -156,6 +166,7 @@ _ENTRY_HOLDING_STATES: frozenset[PaperExecutionState] = frozenset(
         PaperExecutionState.FILLED,
         PaperExecutionState.PARTIALLY_FILLED,
         PaperExecutionState.CANCELED,
+        PaperExecutionState.EXPIRED,
         PaperExecutionState.CANCEL_REQUESTED,
     }
 )
@@ -361,6 +372,10 @@ class PreviewPositionExitCommand:
     entry_intent_governance_id: str
     preview_id: str
     created_at: datetime
+    #: RELIABLE EXIT MANAGEMENT: 0 prices the LIMIT at the bid (the original behaviour);
+    #: `g > 0` concedes a bounded number of basis points below the CURRENT bid
+    #: (`position_exit.exit_limit_price`). Still a LIMIT order, never a market order.
+    reprice_generation: int = 0
 
 
 class PreviewPositionExitHandler:
@@ -448,7 +463,7 @@ class PreviewPositionExitHandler:
         if stale is not None:
             raise PositionExitRefusedError(
                 POSITION_NEEDS_ATTENTION
-                + " The quote is not usable to price this exit: "
+                + QUOTE_UNUSABLE_FOR_EXIT_MARKER
                 + stale
                 + ". Nothing was prepared."
             )
@@ -458,7 +473,9 @@ class PreviewPositionExitHandler:
             side=EXIT_SIDE,
             quantity=quantity,
             order_type=OrderType.LIMIT,
-            limit_price=bid,
+            limit_price=exit_limit_price(bid, generation=command.reprice_generation)
+            if bid is not None
+            else None,
             time_in_force="DAY",
             extended_hours=False,
             client_order_id=derive_exit_client_order_id(
@@ -1475,6 +1492,21 @@ class SubmitAuthorizedPositionExitHandler:
         )
 
 
+def _acknowledgement_id(attempt_id: str, sequence: int) -> str:
+    """A UNIQUE acknowledgement id that always fits the 64-character identifier limit.
+
+    The readable form is kept whenever it fits (so every id already persisted is unchanged).
+    It used to be cut with `[:64]` instead, which for a plan-minted MANDATORY_EXIT attempt id
+    (63 characters) dropped the sequence suffix: the SECOND acknowledgement of that attempt
+    then collided with the first on the primary key, and every reconcile of the mandatory
+    liquidation raised. A longer attempt id is digested rather than truncated.
+    """
+    readable = f"XACK-{attempt_id}-{sequence}"
+    if len(readable) <= 64:
+        return readable
+    return f"XACK-{_digest(attempt_id)[:40]}-{sequence}"
+
+
 def _acknowledge(
     repository: PositionExitAcknowledgementRepository,
     attempt_id: str,
@@ -1487,7 +1519,7 @@ def _acknowledge(
     sequence = repository.next_sequence(attempt_id)
     repository.append(
         BrokerAcknowledgement(
-            acknowledgement_id=f"XACK-{attempt_id}-{sequence}"[:64],
+            acknowledgement_id=_acknowledgement_id(attempt_id, sequence),
             attempt_id=attempt_id,
             sequence=sequence,
             kind=kind,
@@ -1510,9 +1542,16 @@ def _apply_status(
     at: datetime,
 ) -> PositionExitAttempt:
     target = _BROKER_STATUS_TO_STATE.get(view.status)
+    # A stale or out-of-order broker status (e.g. `accepted` after a cancel request) that the
+    # closed transition table does not allow is RECORDED but never forced into the state.
+    keep = (
+        target is None
+        or target is attempt.state
+        or not is_exit_transition_allowed(attempt.state, target)
+    )
     return attempts.transition(
         attempt_id=attempt.attempt_id,
-        target=attempt.state if target is None or target is attempt.state else target,
+        target=attempt.state if keep or target is None else target,
         at=at,
         broker_order_id=view.broker_order_id,
         broker_status=view.status,
@@ -1879,31 +1918,41 @@ class CancelPositionExitHandler:
             self._acknowledgements, attempt.attempt_id, "CANCEL", command.at, status, None, body
         )
         if status not in {200, 202, 204}:
-            self._events.append(
-                PositionExitEvent(
-                    event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REFUSED", str(status)),
-                    entry_intent_governance_id=attempt.entry_intent_governance_id,
-                    attempt_id=attempt.attempt_id,
-                    event_type="EXIT_CANCEL_REFUSED",
-                    occurred_at=command.at,
-                    detail=f"HTTP {status}"[:500],
-                )
-            )
+            self._append(attempt, "EXIT_CANCEL_REFUSED", f"HTTP {status}", command.at, str(status))
             return attempt
         moved = self._attempts.transition(
             attempt_id=attempt.attempt_id, target=PositionExitState.CANCEL_REQUESTED, at=command.at
         )
-        self._events.append(
-            PositionExitEvent(
-                event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REQUESTED"),
-                entry_intent_governance_id=attempt.entry_intent_governance_id,
-                attempt_id=attempt.attempt_id,
-                event_type="EXIT_CANCEL_REQUESTED",
-                occurred_at=command.at,
-                detail=f"cancel requested for broker_order_id={attempt.broker_order_id}"[:500],
-            )
+        self._append(
+            attempt,
+            "EXIT_CANCEL_REQUESTED",
+            f"cancel requested for broker_order_id={attempt.broker_order_id}",
+            command.at,
+            "",
         )
         return moved
+
+    def _append(
+        self, attempt: PositionExitAttempt, event_type: str, detail: str, at: datetime, suffix: str
+    ) -> None:
+        """Append one audit event. A repeated cancel request on the same attempt (the reliable
+        exit manager may ask more than once, bounded) gets a time-suffixed id instead of
+        colliding with the first one."""
+        parts = (attempt.attempt_id, event_type, *((suffix,) if suffix else ()))
+        event_id = _event_id(*parts)
+        existing = {e.event_id for e in self._events.for_entry(attempt.entry_intent_governance_id)}
+        if event_id in existing:
+            event_id = _event_id(*parts, at.isoformat())
+        self._events.append(
+            PositionExitEvent(
+                event_id=event_id,
+                entry_intent_governance_id=attempt.entry_intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type=event_type,
+                occurred_at=at,
+                detail=detail[:500],
+            )
+        )
 
 
 def broker_now_for(timing: PaperTimeWindow) -> BoundedInstant:

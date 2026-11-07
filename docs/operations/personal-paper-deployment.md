@@ -21,7 +21,9 @@ the reviewed, auditable, narrowly-scoped tool that performs the deployment anywa
 4. **Backup** -- a fresh Store B+C backup via `tools/personal_paper_backup.py`, with its
    SHA-256 and structural readability (`pg_restore --list`) independently re-verified here,
    not just trusted from the backup tool's own report.
-5. **Graceful shutdown** -- POSIX: `SIGTERM`. Windows (MILESTONE-098): an authenticated local
+5. **Maintenance hold, then graceful shutdown** -- FIRST the tool durably creates the
+   maintenance hold (see "Maintenance hold and single-instance lock" below); if that fails,
+   nothing is stopped. THEN, POSIX: `SIGTERM`. Windows (MILESTONE-098): an authenticated local
    HTTP request to the console's own `/control/shutdown` route -- see "Graceful shutdown on
    Windows (M098 fix)" below for why `CTRL_BREAK_EVENT` was replaced. Either way, this step
    first independently confirms, at the OS level, which PID actually owns the configured
@@ -34,10 +36,13 @@ the reviewed, auditable, narrowly-scoped tool that performs the deployment anywa
    post-migration head already in place and does nothing.
 8. **Verify schema** -- the new head, the 4 new columns, the 2 new CHECK constraints and the
    updated guard function are all independently re-queried and confirmed present.
-9. **Verify unchanged** -- Store B's `paper_execution_attempt` and Store C's
-   `position_exit_attempt` row counts are compared against the manifest's own
-   `minimum_attempts` (set by step 4's backup, under REPEATABLE READ, with the console already
-   stopped) -- not against an in-process value, which would not survive a crash between steps.
+9. **Verify unchanged** -- Store B's `paper_execution_attempt` and `approved_plan` row counts
+   and Store C's `position_exit_attempt` row count are compared against the manifest's own
+   `minimum_attempts` / `minimum_approved_plan_rows` (set by step 4's backup under REPEATABLE
+   READ) -- not against an in-process value, which would not survive a crash between steps.
+   NOTE: step 4 runs BEFORE step 5 stops the console, so the console must already be idle
+   (no approvals, no submissions) during steps 2-6; a write in that window fails step 9
+   closed AFTER the migration is applied (manifest still on the old head; see recovery).
 10. **Manifest update** -- atomic rewrite: Store B's recorded head moves to `f3a7c9e2b164`, a
     `last_migration` audit record is added (revision, timestamp, release head, migration SQL
     hash, backup location, pre/post heads), and a byte-for-byte copy of the pre-change manifest
@@ -53,7 +58,42 @@ the reviewed, auditable, narrowly-scoped tool that performs the deployment anywa
     `/health` confirms a flat broker position, and the schema identity/head are re-checked one
     more time against the manifest.
 14. **Stop.** There is no step 15. Transitioning to Active Mode is always a separate, explicit,
-    Owner-authorized action taken outside this script.
+    Owner-authorized action taken outside this script. The maintenance hold created in step 5
+    is deliberately STILL IN PLACE.
+
+## Maintenance hold and single-instance lock
+
+All files live in the console's control directory, `<safety dir>/console-control/` (the same
+owner-only directory as the M098 shutdown token; `%LOCALAPPDATA%\EmpiricalPlatform\safety\
+console-control` on the real host). Code: `empirical_platform.shared.console_lifecycle`.
+
+- **`maintenance-hold.json`** -- created atomically (exclusive create, owner-only) by step 5
+  before the console is stopped (and re-established on a resume that is already past step 5).
+  The deploy tool NEVER removes it -- not on success, not on failure; leaving it is the safe
+  default. While it exists: the autostart wrapper refuses to launch (exits, no sleep-and-retry);
+  a FULL-mode (`--capability paper-exit` without `--recovery-mode`) console exits 74 without
+  opening anything; `--recovery-mode` is still allowed (step 12 needs it). The Owner removes it
+  when authorizing normal PAPER start:
+  `python -m empirical_platform.entrypoints.release_maintenance_hold --journal-path <journal>`
+  (refuses unless the journal shows steps 12, 13, 14 completed) or, with explicit
+  responsibility, `--owner-override`.
+- **`paper-exit-console.lock`** -- an OS file lock (`msvcrt.locking` on Windows, `fcntl.flock`
+  on POSIX), taken before the database/broker composition and before the listener, for both
+  normal and recovery mode. The OS drops it if the process dies, so there are no stale locks.
+  A second instance exits 73 ("another PAPER Operator Console already holds ...") without
+  touching state. PID and start time are recorded in the file for diagnostics only.
+- **Port exclusivity** -- on Windows the listener sets `SO_EXCLUSIVEADDRUSE` and does not set
+  `SO_REUSEADDR` (which on Windows would let a second process bind the same port); on POSIX
+  `SO_REUSEADDR` stays on (restart through TIME_WAIT; it never permits two live listeners).
+- **Exit codes** (the contract with `deploy/windows/run-v1-console.ps1`): 0 Ctrl+C, **64**
+  authenticated deliberate shutdown (M098 route), 2 refused at startup, 73 lock held, 74
+  hold present -- all mean "do not restart". Anything else is a crash: the wrapper restarts it
+  with exponential backoff (10 s doubling to 300 s) and stops (circuit breaker) after more than
+  5 crash restarts within 600 s. The task XML's `RestartOnFailure` is bounded to 3 tries 5 min
+  apart and only covers the wrapper itself failing; the wrapper exits 0 on every intentional
+  stop.
+- A console or wrapper loop started from code older than this change has none of the above;
+  end it by hand before step 5 (see the launch handoff, phase 4).
 
 ## Usage
 
@@ -88,6 +128,15 @@ environment never sets `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST`/`_PORT`/`_U
   topology where the two stores are split across servers.
 - Setting `_PORT`/`_USER`/`_PASSWORD` without `_HOST` is refused (ambiguous partial
   override) rather than silently mixed with Store B's values.
+
+**ADVERSARIAL REVIEW FOLLOW-UP (2026-11-05):** only the first bullet above is actually
+mirrored by the real console entrypoint. The second (independent-host) branch exists only in
+this script; `resolve_paper_exit_postgres_config` has no such branch today and will keep
+reusing Store B's host even if `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` is ever set,
+silently pointing the live console at a different server than this script backs up/migrates/
+verifies. Harmless today only because the real environment never sets that variable; it must
+not be treated as a ready-made split-server escape hatch until the console entrypoint grows
+the equivalent branch.
 
 An earlier version of this script always required the fully independent form, which the
 real environment never satisfies -- invoking it against production crashed with an
@@ -234,7 +283,12 @@ targets production.
 Every step writes a `started`/`completed`/`failed` record (with a timestamp and a human-
 readable detail) to the journal file before and after it runs. Re-running the script with
 the same `--journal-path` skips steps already marked `completed` and resumes from the first
-incomplete one. Every step is independently idempotent to being re-run, and the parts of
+incomplete one. EXCEPTION (M100): until step 7 (migrate) has completed, the read-only gates
+1 (broker flat), 2 (no in-flight), 3 (release head) and 6 (console stopped) are ALWAYS
+re-evaluated on a resume, because hours may have passed. If the console was restarted since
+the backup (by anyone, or by the autostart task), delete the journal and start over so a
+fresh backup is taken. There is no step selector: "re-run step N" below means "re-run the
+same command with the same journal; completed steps are skipped". Every step is independently idempotent to being re-run, and the parts of
 state a later step needs that would not survive a crash (the backup location for step 10, the
 pre-migration row-count baseline for step 9) are re-derived from durable sources -- the backup
 directory on disk, the manifest's own `minimum_attempts` -- rather than passed as in-memory
@@ -249,12 +303,12 @@ Summary by phase:
 | Boundary | What's guaranteed | Recovery |
 |---|---|---|
 | Before/during backup | Nothing in Store B/C touched | Investigate, re-run from the top |
-| Before/after shutdown | Console state is checked, never assumed | Confirm process/port by hand, re-run |
+| Before/after shutdown | Console state is checked, never assumed; the maintenance hold exists from step 5 on (if it cannot be created the console is NOT stopped) | Confirm process/port by hand, re-run. The hold stays until the Owner releases it |
 | Before migration | Store B still at the pre-migration head | Re-run once the refusal reason is fixed |
 | During migration | The SQL is one transaction (BEGIN/COMMIT); a failure before COMMIT leaves Store B unchanged -- verify directly, don't assume | **Never** downgrade or restore without separate Owner authorization |
-| After migration, before manifest update | Schema is migrated; manifest still says the old head | Re-run step 10 alone; it re-derives everything it needs from disk |
+| After migration, before manifest update | Schema is migrated; manifest still says the old head | Re-run the same command (resumes at step 10); it re-derives everything it needs from disk |
 | After manifest update, before restart | Manifest and schema agree; console still stopped | Fix the worktree/process state, nothing DB-related needs touching again |
-| During recovery-mode startup | Migration and manifest are already correct | Check the captured log, confirm the port is free, re-run step 12 |
+| During recovery-mode startup | Migration and manifest are already correct | Check the captured log, confirm the port is free, re-run the same command (resumes at step 12) |
 
 **Rolling back an applied migration is never assumed safe and this script never attempts it.**
 The pre-migration backup from step 4 is always preserved; restoring from it is a separate,
@@ -278,6 +332,12 @@ explicit, Owner-authorized, out-of-band action.
   The rest require `EMPIRICAL_PLATFORM_RUN_POSTGRES_TESTS=1` and a disposable Postgres server;
   see the module docstring for why it does NOT use `install_test_connection_guard()` the way
   other Postgres suites do, and why it is its own isolated pytest invocation in CI.
+- `tests/unit/test_console_lifecycle.py` -- the single-instance lock (conflict, release, stale
+  and killed holders across real processes, acquired before composition/listener), the
+  maintenance hold and its release CLI, the 64/73/74 exit codes, the Windows port-exclusivity
+  decision, and string-level assertions on the wrapper and task XML. The deploy tests in
+  `test_v1_personal_paper_deploy.py` cover hold-before-stop, fail-closed on hold failure, hold
+  present after step 14 and after a mid-run failure.
 - `tests/unit/test_m098_console_shutdown_control.py` -- `shared.console_control`'s token
   read/write/remove contract (round-trip, capability/port/PID/start-fingerprint mismatches,
   malformed/missing files, a stale token defeated by fingerprint even when the bare PID now

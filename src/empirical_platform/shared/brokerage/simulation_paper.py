@@ -335,6 +335,17 @@ class SimulatedAssetView:
 class SimulatedPositionView:
     symbol: str
     quantity: int
+    #: The simulation store never tracks a cost basis -- there is no real fill price to
+    #: report. Present only so this satisfies `BrokerPositionView` structurally; nothing in
+    #: the simulation capability's own candidate-preparation path reads it.
+    average_entry_price: str = "0"
+
+
+@dataclass(frozen=True, slots=True)
+class SimulatedPortfolioPositionView:
+    symbol: str
+    quantity: str
+    market_value: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -481,6 +492,10 @@ class SimulationStore:
     def market_is_open(self) -> bool:
         with self._lock:
             return self._state.market_is_open
+
+    def positions(self) -> dict[str, int]:
+        with self._lock:
+            return {symbol: int(quantity) for symbol, quantity in self._state.positions.items()}
 
     def position(self, symbol: str) -> int:
         with self._lock:
@@ -652,6 +667,8 @@ class SimulatedPaperBroker:
             "buying_power": cash,
             "cash": cash,
             "equity": cash,
+            # The simulation tracks cash only and has no previous close: no daily P&L.
+            "last_equity": cash,
             "multiplier": "1",
             "shorting_enabled": False,
             "trading_blocked": False,
@@ -668,7 +685,11 @@ class SimulatedPaperBroker:
             is_open=is_open,
             timestamp=now,
             next_open=None if is_open else now + timedelta(hours=12),
-            next_close=now + timedelta(hours=4) if is_open else None,
+            # The simulation has no market calendar and never closes by itself (the store's
+            # open flag is its only control). Its fixtures liquidate as late as 23:59, so the
+            # reported close must lie beyond any same-day mandatory-exit deadline plus the
+            # session-close entry buffer (Audit A P1-2); 30h clears it at every time of day.
+            next_close=now + timedelta(hours=30) if is_open else None,
         )
 
     def fetch_asset(self, symbol: str) -> SimulatedAssetView:
@@ -681,6 +702,31 @@ class SimulatedPaperBroker:
             if quantity == 0
             else SimulatedPositionView(symbol=symbol.upper(), quantity=quantity)
         )
+
+    def fetch_all_positions(self) -> tuple[SimulatedPortfolioPositionView, ...]:
+        """Every simulated position. The simulation has no marks: value uses a staged quote
+        ask where one exists, else zero (synthetic data; the real adapter never defaults)."""
+        views: list[SimulatedPortfolioPositionView] = []
+        for symbol, quantity in self._store.positions().items():
+            if quantity == 0:
+                continue
+            quote = self._store.quote_for(symbol)
+            value = Decimal(quote[1]) * quantity if quote is not None else Decimal(0)
+            views.append(
+                SimulatedPortfolioPositionView(
+                    symbol=symbol, quantity=str(quantity), market_value=str(value)
+                )
+            )
+        return tuple(views)
+
+    def fetch_all_open_orders(self) -> tuple[SimulatedOrderView, ...]:
+        """The simulation fills every order synchronously; nothing is ever left working."""
+        return ()
+
+    def fetch_open_orders(self, symbol: str) -> tuple[SimulatedOrderView, ...]:
+        """The simulation fills every order synchronously; nothing is ever left working."""
+        del symbol
+        return ()
 
     # -- orders ------------------------------------------------------------------
 
@@ -898,7 +944,7 @@ class SimulatedPaperBroker:
             return 404, json.dumps(
                 {"code": 40410000, "message": "order not found", "simulation": True}
             )
-        if order.status in {"filled", "canceled", "rejected"}:
+        if order.status in {"filled", "canceled", "rejected", "expired"}:
             return 422, json.dumps(
                 {
                     "code": 42210000,
@@ -920,7 +966,7 @@ class SimulatedPaperBroker:
         """
         lookups = order.lookups + 1
         behaviour = _PROGRESSION.get(order.scenario, "fill")
-        if order.status in {"filled", "canceled", "rejected"}:
+        if order.status in {"filled", "canceled", "rejected", "expired"}:
             return replace(order, lookups=lookups)
         if order.cancel_requested:
             if behaviour == "race":

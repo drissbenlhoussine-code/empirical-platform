@@ -64,6 +64,7 @@ def _prepare_real_candidate(backend: object, broker: object = None) -> str:
         broker=broker or backend._broker,  # type: ignore[attr-defined]
         market_data=backend._market_data,  # type: ignore[attr-defined]
         bars=backend._market_data,  # type: ignore[attr-defined]
+        attempts=backend._repositories.attempts,  # type: ignore[attr-defined]
         time_source=backend._time_source,  # type: ignore[attr-defined]
         now=_now(),
     )

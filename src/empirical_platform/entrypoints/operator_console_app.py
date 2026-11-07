@@ -38,7 +38,7 @@ from empirical_platform.usecases.operator_console import (
 )
 from empirical_platform.usecases.operator_console_fixtures import SimulationDayReport
 from empirical_platform.usecases.paper_execution import PaperExecutionRefusedError
-from empirical_platform.usecases.position_plan_manager import ManagerStatusView
+from empirical_platform.usecases.position_plan_manager import AttentionItem, ManagerStatusView
 
 __all__ = ["ConsoleBackend", "build_application"]
 
@@ -93,6 +93,9 @@ def build_application(
     #: ever supplies one; it is called fresh per request so the status always reflects the
     #: CURRENT `ManagerHeartbeat`, never one captured at startup.
     manager_status_provider: Callable[[], ManagerStatusView] | None = None,
+    #: OWNER-VISIBLE ESCALATION (`/safety`: "Plans needing attention"). Same `None` rule as
+    #: `manager_status_provider`.
+    attention_provider: Callable[[], tuple[AttentionItem, ...]] | None = None,
 ) -> Router:
     # RELEASE v1 Release Blocker (/paper base-path escape): fail closed at composition time,
     # not per-request -- exactly `_opportunity_engine_html.validate_base_path`'s own contract.
@@ -353,6 +356,7 @@ def build_application(
                 csrf,
                 flash.take(session_of(request)),
                 manager_status=manager_status_view,
+                attention=attention_provider() if attention_provider is not None else None,
                 base_path=base_path,
             )
         )
@@ -420,6 +424,7 @@ def build_application(
             "403 Forbidden",
         )
 
+    router.outcome_sink = lambda request, outcome: flash.put(session_of(request), outcome)
     router.get("/static/console.css", stylesheet)
     router.get("/", guarded(home))
     router.get("/today", guarded(today))

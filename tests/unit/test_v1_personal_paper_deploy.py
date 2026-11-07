@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -911,7 +912,8 @@ def test_resuming_after_a_crash_skips_already_completed_steps_and_continues(
         _run(cfg, journal_path)
     assert calls == list(deploy.STEP_ORDER[:7])  # steps 1-6 completed, 7 attempted+failed
 
-    # "Resume": step 7 now succeeds, and a fresh run must NOT re-execute steps 1-6.
+    # "Resume": step 7 now succeeds. M100: until step 7 completes, the read-only pre-migration
+    # gates (1, 2, 3, 6) are re-evaluated; the backup (4) and shutdown (5) are NOT repeated.
     calls.clear()
 
     def _fixed_step7(*_a: object, **_k: object) -> str:
@@ -920,7 +922,53 @@ def test_resuming_after_a_crash_skips_already_completed_steps_and_continues(
 
     monkeypatch.setattr(deploy, "step7_migrate", _fixed_step7)
     _run(cfg, journal_path)
-    assert calls == list(deploy.STEP_ORDER[6:])  # only step 7 onward re-ran
+    assert calls == [
+        deploy.STEP_1_BROKER_VERIFY,
+        deploy.STEP_2_NO_INFLIGHT,
+        deploy.STEP_3_RELEASE_HEAD,
+        deploy.STEP_6_VERIFY_STOPPED,
+        *deploy.STEP_ORDER[6:],
+    ]
+
+
+def test_resume_after_migration_completed_does_not_re_run_any_earlier_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = _patch_all_steps_to_succeed(monkeypatch)
+    cfg = deploy_config_stub(backup_root=tmp_path)
+    journal_path = tmp_path / "journal.json"
+
+    def _fail_step10(*_a: object, **_k: object) -> str:
+        raise deploy.DeploymentBlockedError(deploy.STEP_10_MANIFEST_UPDATE, "simulated crash")
+
+    monkeypatch.setattr(deploy, "step10_manifest_update", _fail_step10)
+    with pytest.raises(deploy.DeploymentBlockedError):
+        _run(cfg, journal_path)
+    calls.clear()
+    monkeypatch.setattr(
+        deploy, "step10_manifest_update", lambda *_a, **_k: calls.append("s10") or "ok"
+    )
+    _run(cfg, journal_path)
+    assert calls[0] == "s10"
+    assert deploy.STEP_1_BROKER_VERIFY not in calls
+
+
+def test_an_unexpected_transport_error_is_a_clean_journaled_refusal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_all_steps_to_succeed(monkeypatch)
+
+    def _refused(*_a: object, **_k: object) -> str:
+        raise ConnectionRefusedError("console is not listening")
+
+    monkeypatch.setattr(deploy, "step13_verify_startup", _refused)
+    cfg = deploy_config_stub(backup_root=tmp_path)
+    journal_path = tmp_path / "journal.json"
+    with pytest.raises(deploy.DeploymentBlockedError) as excinfo:
+        _run(cfg, journal_path)
+    assert excinfo.value.step == deploy.STEP_13_VERIFY_STARTUP
+    last = deploy.DeploymentJournal.load_or_new(journal_path).last()
+    assert last is not None and last.status == "failed"
 
 
 def test_resume_false_re_runs_every_step_even_if_previously_completed(
@@ -1057,7 +1105,7 @@ def deploy_config_stub(
     return deploy.DeployConfig(
         repo_path=repo_path,
         expected_release_head=expected_release_head,
-        manifest_path=manifest_path or Path("manifest.json"),
+        manifest_path=manifest_path or Path(tempfile.mkdtemp()) / "manifest.json",
         backup_root=backup_root or Path("."),
         pg_bin=Path("."),
         store_b_config=placeholder,
@@ -1376,3 +1424,181 @@ def test_owning_pid_refuses_two_different_listeners(monkeypatch: pytest.MonkeyPa
     )
     with pytest.raises(RuntimeError, match="more than one process"):
         deploy.RealNetworkPort().owning_pid("127.0.0.1", 8189)
+
+
+# ---------------------------------------------------------------------------------------
+# RELEASE v1 hardening: the maintenance hold. Created BEFORE the console is stopped, kept in
+# place through step 14, never removed by this tool.
+# ---------------------------------------------------------------------------------------
+
+
+def _hold_file(cfg: deploy.DeployConfig) -> Path:
+    return cfg.manifest_path.parent / "console-control" / "maintenance-hold.json"
+
+
+def test_step5_creates_the_hold_before_the_console_is_stopped(tmp_path: Path) -> None:
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(
+        console_pid=4242,
+        backup_root=tmp_path,
+        manifest_path=tmp_path / "safety" / "m.json",
+        shutdown_timeout_seconds=1.0,
+    )
+    network.owners[cfg.console_port] = 4242
+    seen_at_stop: list[bool] = []
+    original = process.graceful_stop
+
+    def _stop(pid: int, **kwargs: object) -> None:
+        seen_at_stop.append(_hold_file(cfg).exists())
+        original(pid, **kwargs)  # type: ignore[arg-type]
+
+    process.graceful_stop = _stop  # type: ignore[method-assign]
+    deploy.step5_shutdown(cfg, _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network))
+    assert seen_at_stop == [True]
+    assert json.loads(_hold_file(cfg).read_text())["reason"].startswith("personal_paper_deploy")
+
+
+def test_step5_creates_the_hold_even_when_nothing_is_running(tmp_path: Path) -> None:
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(
+        console_pid=None, backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json"
+    )
+    network.free_ports.add(cfg.console_port)
+    deploy.step5_shutdown(cfg, _ports(_FakeBroker(_FLAT_SNAPSHOT), _FakeProcess(), network))
+    assert _hold_file(cfg).exists()
+
+
+def test_step5_fails_closed_without_stopping_when_the_hold_cannot_be_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from empirical_platform.shared import console_lifecycle
+
+    def _boom(*_a: object, **_k: object) -> bool:
+        raise console_lifecycle.MaintenanceHoldError("disk full")
+
+    monkeypatch.setattr(console_lifecycle, "create_maintenance_hold", _boom)
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(console_pid=4242, backup_root=tmp_path)
+    network.owners[cfg.console_port] = 4242
+    with pytest.raises(deploy.DeploymentBlockedError, match="NOT stopped"):
+        deploy.step5_shutdown(cfg, _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network))
+    assert process.graceful_stop_calls == []
+
+
+def test_the_hold_is_idempotent_and_survives_a_full_run_to_step_14(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for index, fn_name in enumerate(_STEP_FUNCTION_NAMES):
+        if fn_name == "step5_shutdown":
+            continue
+        step = deploy.STEP_ORDER[index]
+        result: object = ("ok", tmp_path) if step == deploy.STEP_4_BACKUP else "ok"
+        if step == deploy.STEP_12_RECOVERY_START:
+            result = ("ok", 1234)
+        monkeypatch.setattr(deploy, fn_name, lambda *_a, _r=result, **_k: _r)
+    process = _FakeProcess()
+    process.running[4242] = True
+    network = _FakeNetwork()
+    cfg = deploy_config_stub(
+        console_pid=4242, backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json"
+    )
+    network.owners[cfg.console_port] = 4242
+    ports = _ports(_FakeBroker(_FLAT_SNAPSHOT), process, network)
+    journal_path = tmp_path / "journal.json"
+    launch = deploy.RecoveryConsoleLaunch(executable=("x",), env={}, log_path=journal_path)
+    journal = deploy.run_deployment(
+        cfg, ports, deploy.DeploymentJournal.load_or_new(journal_path), journal_path, launch=launch
+    )
+    assert deploy.STEP_14_STOP_BEFORE_ACTIVE in journal.completed_steps()
+    assert _hold_file(cfg).exists()  # never removed by the tool
+    first = _hold_file(cfg).read_text()
+    deploy.step5_shutdown(cfg, ports)  # re-invocation keeps the original hold untouched
+    assert _hold_file(cfg).read_text() == first
+
+
+def test_a_failure_after_step5_leaves_the_hold_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_all_steps_to_succeed(monkeypatch)
+    cfg = deploy_config_stub(backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json")
+    deploy._ensure_maintenance_hold(cfg)  # noqa: SLF001 - what a real step 5 did
+    monkeypatch.setattr(
+        deploy,
+        "step7_migrate",
+        lambda *_a, **_k: (_ for _ in ()).throw(
+            deploy.DeploymentBlockedError(deploy.STEP_7_MIGRATE, "boom")
+        ),
+    )
+    with pytest.raises(deploy.DeploymentBlockedError):
+        _run(cfg, tmp_path / "journal.json")
+    assert _hold_file(cfg).exists()
+
+
+def test_resuming_past_step5_re_establishes_a_missing_hold(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _patch_all_steps_to_succeed(monkeypatch)
+    cfg = deploy_config_stub(backup_root=tmp_path, manifest_path=tmp_path / "safety" / "m.json")
+    journal_path = tmp_path / "journal.json"
+    journal = deploy.DeploymentJournal()
+    for step in deploy.STEP_ORDER[:5]:
+        journal.append(step, "completed", "", now=datetime.now(UTC))
+    journal.save(journal_path)
+    assert not _hold_file(cfg).exists()
+    with pytest.raises(deploy.DeploymentBlockedError):  # step 10 has no real backup to find
+        _run(cfg, journal_path)
+    assert _hold_file(cfg).exists()
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", "{", '{"records":[{"step":"x"}]}', '{"records":"no"}', "[1]", "null"],
+)
+def test_a_corrupt_journal_raises_only_the_exceptions_main_turns_into_a_clean_refusal(
+    tmp_path: Path, content: str
+) -> None:
+    """M100 final audit: `main()` catches (ValueError, TypeError, AttributeError, KeyError) from
+    `DeploymentJournal.load_or_new` and refuses with exit code 2 and a no-touch message. Any other
+    exception type would escape as a raw traceback, so pin the contract."""
+    journal = tmp_path / "journal.json"
+    journal.write_text(content, encoding="utf-8")
+    with pytest.raises((ValueError, TypeError, AttributeError, KeyError)):
+        deploy.DeploymentJournal.load_or_new(journal)
+
+
+def test_the_atomic_json_write_is_durable_and_leaves_no_temporary_file(tmp_path: Path) -> None:
+    target = tmp_path / "sub" / "journal.json"
+    deploy._atomic_write_json(target, {"records": []})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"records": []}
+    assert not (tmp_path / "sub" / "journal.json.tmp").exists()
+
+
+def test_step2_treats_every_non_terminal_state_as_in_flight() -> None:
+    """M100 final audit (P1): the old allow-list missed DISPATCH_CLAIMED, SUBMISSION_IN_PROGRESS,
+    PAPER_ACCEPTED, CANCEL_REQUESTED (Store B) and those plus SUBMITTED/ACCEPTED (Store C)."""
+    from empirical_platform.decision_candidate.paper_execution import (
+        TERMINAL_PAPER_STATES,
+        PaperExecutionState,
+    )
+    from empirical_platform.decision_candidate.position_exit import (
+        TERMINAL_EXIT_STATES,
+        PositionExitState,
+    )
+
+    assert set(deploy._TERMINAL_EXECUTION_STATES) == {s.value for s in TERMINAL_PAPER_STATES}
+    assert set(deploy._TERMINAL_EXECUTION_STATES) == {s.value for s in TERMINAL_EXIT_STATES}
+    in_flight_b = {s.value for s in PaperExecutionState} - set(deploy._TERMINAL_EXECUTION_STATES)
+    in_flight_c = {s.value for s in PositionExitState} - set(deploy._TERMINAL_EXECUTION_STATES)
+    for state in (
+        "DISPATCH_CLAIMED",
+        "SUBMISSION_IN_PROGRESS",
+        "PAPER_ACCEPTED",
+        "CANCEL_REQUESTED",
+    ):
+        assert state in in_flight_b
+    for state in ("DISPATCH_CLAIMED", "SUBMISSION_IN_PROGRESS", "SUBMITTED", "ACCEPTED"):
+        assert state in in_flight_c

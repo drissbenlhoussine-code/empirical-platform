@@ -122,6 +122,7 @@ class PaperConsoleBackend:
             time_bases=self._repositories.time_bases,
             broker=self._broker,
             market_data=self._market_data,
+            attempts=self._repositories.attempts,
             time_source=self._time_source,
             now=_utc_now(),
         )

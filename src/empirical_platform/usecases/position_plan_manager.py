@@ -47,6 +47,7 @@ release mission's "one console instance" requirement.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from collections.abc import Callable, Sequence
@@ -72,7 +73,22 @@ from empirical_platform.decision_candidate.external_position_closure_repositorie
 )
 from empirical_platform.decision_candidate.paper_execution_repositories import (
     ExecutionAttemptRepository,
+    PaperExecutionEventRepository,
     PaperMarketDataPort,
+)
+from empirical_platform.decision_candidate.position_exit import (
+    EXIT_CANCEL_EVENT_TYPES,
+    EXIT_MAX_ATTEMPTS_PER_SESSION,
+    EXIT_MAX_CANCEL_REQUESTS_PER_ATTEMPT,
+    EXIT_MAX_EXPIRED_SESSIONS,
+    EXIT_REPRICE_MIN_SPACING_MANDATORY_SECONDS,
+    EXIT_REPRICE_MIN_SPACING_SECONDS,
+    EXIT_RETRIES_EXHAUSTED_EVENT_TYPE,
+    EXIT_UNRESOLVED_ALERT_SECONDS,
+    POSITION_NEEDS_ATTENTION,
+    PositionExitAttempt,
+    PositionExitEvent,
+    PositionExitState,
 )
 from empirical_platform.decision_candidate.position_exit_repositories import (
     ExitBrokerPort,
@@ -91,10 +107,19 @@ from empirical_platform.shared.brokerage.paper_time import (
     PaperTimeSource,
     PaperTimeUncertainError,
 )
+from empirical_platform.usecases.entry_remainder_protection import (
+    EntryRemainderProtector,
+    EntryRemainderStatus,
+    entry_remainder_applies,
+)
 from empirical_platform.usecases.position_exit import (
+    MAXIMUM_EXIT_PREVIEW_AGE_SECONDS,
+    QUOTE_UNUSABLE_FOR_EXIT_MARKER,
     AssessPositionExitHandler,
     AuthorizePositionExitCommand,
     AuthorizePositionExitHandler,
+    CancelPositionExitCommand,
+    CancelPositionExitHandler,
     PositionExitRefusedError,
     PreviewPositionExitCommand,
     PreviewPositionExitHandler,
@@ -105,7 +130,10 @@ from empirical_platform.usecases.position_exit import (
 )
 
 __all__ = [
+    "ATTENTION_QUOTE_GATE_GRACE_SECONDS",
     "DEFAULT_POLL_INTERVAL_SECONDS",
+    "AttentionBoard",
+    "AttentionItem",
     "ApprovedPlanRepository",
     "ExternalPositionClosureRepository",
     "ManagerHeartbeat",
@@ -113,8 +141,10 @@ __all__ = [
     "ManagerStatusView",
     "ManagerThreadHandle",
     "PlanEvaluationOutcome",
+    "PLAN_EVALUATION_ERROR_EVENT_TYPE",
     "PlanManagerThread",
     "PositionPlanManager",
+    "MANAGER_TICK_ATTENTION_KEY",
     "manager_liveness_alert",
     "manager_status",
     "manager_status_detail",
@@ -171,6 +201,9 @@ class PlanOutcomeKind(StrEnum):
     EXIT_SUBMITTED = "EXIT_SUBMITTED"
     EXIT_ALREADY_IN_PROGRESS = "EXIT_ALREADY_IN_PROGRESS"
     EXIT_RECONCILED = "EXIT_RECONCILED"
+    #: RELIABLE EXIT MANAGEMENT: a previous exit generation ended unfilled (or is live) and
+    #: the next send/replace is deliberately waiting for the next regular session.
+    EXIT_WAITING_FOR_MARKET = "EXIT_WAITING_FOR_MARKET"
     NEEDS_ATTENTION = "NEEDS_ATTENTION"
     #: EXIT SIGNAL QUALITY GATE (2026-10-21): a STOP/TARGET candidate's own single quote
     #: snapshot is NOT corroborated by its short recent quote history (see
@@ -183,6 +216,10 @@ class PlanOutcomeKind(StrEnum):
     #: `usecases.record_external_position_closure`). The manager will never evaluate a
     #: trigger, claim one, or attempt Preview/Authorize/Submit for this plan again.
     EXTERNALLY_CLOSED = "EXTERNALLY_CLOSED"
+    #: PARTIAL ENTRY PROTECTION: the entry is partially filled and its remainder is being
+    #: cancelled (see `usecases.entry_remainder_protection`). Exit management for the filled
+    #: shares starts the tick the broker reports the entry terminal.
+    ENTRY_REMAINDER_CANCEL_REQUESTED = "ENTRY_REMAINDER_CANCEL_REQUESTED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,16 +230,89 @@ class PlanEvaluationOutcome:
     detail: str
 
 
-def _preview_id(plan: ApprovedPlan, kind: ExitTriggerKind) -> str:
-    return f"XPV-plan-{plan.plan_id}-{kind.value}"
+#: Durable event recorded (at most once per plan, error type and hour) when evaluating a plan
+#: raised unexpectedly.
+PLAN_EVALUATION_ERROR_EVENT_TYPE = "PLAN_EVALUATION_ERROR"
+
+#: Generation slots a plan can ever use (abandoned stale slots included). A hard bound.
+_MAX_PLAN_SLOTS = 64
+
+_INACTIVE_STATES: frozenset[PositionExitState] = frozenset(
+    {PositionExitState.CANCELED, PositionExitState.REJECTED, PositionExitState.EXPIRED}
+)
+#: States in which the outcome of a send is not yet known: reconcile, never resend.
+_UNRESOLVED_STATES: frozenset[PositionExitState] = frozenset(
+    {
+        PositionExitState.DISPATCH_CLAIMED,
+        PositionExitState.SUBMISSION_IN_PROGRESS,
+        PositionExitState.SUBMISSION_UNKNOWN,
+    }
+)
+
+_MARKET_CLOSED_DETAIL = (
+    POSITION_NEEDS_ATTENTION
+    + " The market is not in a regular trading session; exits are not dispatched outside "
+    "regular hours. Nothing was sent; this attempt will be retried the next time the plan is "
+    "evaluated."
+)
 
 
-def _authorization_id(plan: ApprovedPlan, kind: ExitTriggerKind) -> str:
-    return f"XAU-plan-{plan.plan_id}-{kind.value}"
+def _spacing_seconds(kind: ExitTriggerKind) -> int:
+    return (
+        EXIT_REPRICE_MIN_SPACING_MANDATORY_SECONDS
+        if kind is ExitTriggerKind.MANDATORY_EXIT
+        else EXIT_REPRICE_MIN_SPACING_SECONDS
+    )
 
 
-def _attempt_id(plan: ApprovedPlan, kind: ExitTriggerKind) -> str:
-    return f"XAT-plan-{plan.plan_id}-{kind.value}"
+_MAX_IDENTIFIER_LENGTH = 64
+
+
+def _slot_token(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int) -> str:
+    material = f"{plan.plan_id}|{kind.value}|{slot}"
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:36]
+
+
+# Slot 0 keeps the ORIGINAL ids (every already-claimed plan resumes unchanged); slot g >= 1 is
+# a digest, so the id can never overflow the 64-character identifier limit.
+def _preview_id(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int = 0) -> str:
+    if slot == 0:
+        original = f"XPV-plan-{plan.plan_id}-{kind.value}"
+        # M100 final audit: a long plan id (e.g. a same-second Prepare suffix) must never push the
+        # id past the 64-character column; such ids use the digest form. Ids that already fit are
+        # unchanged, so every already-claimed plan resumes with its original ids.
+        if len(original) <= _MAX_IDENTIFIER_LENGTH:
+            return original
+    return f"XPV-pg{slot}-{_slot_token(plan, kind, slot)}"
+
+
+def _authorization_id(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int = 0) -> str:
+    if slot == 0:
+        original = f"XAU-plan-{plan.plan_id}-{kind.value}"
+        # M100 final audit: a long plan id (e.g. a same-second Prepare suffix) must never push the
+        # id past the 64-character column; such ids use the digest form. Ids that already fit are
+        # unchanged, so every already-claimed plan resumes with its original ids.
+        if len(original) <= _MAX_IDENTIFIER_LENGTH:
+            return original
+    return f"XAU-pg{slot}-{_slot_token(plan, kind, slot)}"
+
+
+def _attempt_id(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int = 0) -> str:
+    if slot == 0:
+        original = f"XAT-plan-{plan.plan_id}-{kind.value}"
+        # M100 final audit: a long plan id (e.g. a same-second Prepare suffix) must never push the
+        # id past the 64-character column; such ids use the digest form. Ids that already fit are
+        # unchanged, so every already-claimed plan resumes with its original ids.
+        if len(original) <= _MAX_IDENTIFIER_LENGTH:
+            return original
+    return f"XAT-pg{slot}-{_slot_token(plan, kind, slot)}"
+
+
+def _slot_of(plan: ApprovedPlan, kind: ExitTriggerKind, attempt_id: str) -> int | None:
+    for slot in range(_MAX_PLAN_SLOTS):
+        if _attempt_id(plan, kind, slot) == attempt_id:
+            return slot
+    return None
 
 
 class PositionPlanManager:
@@ -216,11 +326,16 @@ class PositionPlanManager:
         "_previews",
         "_authorizations",
         "_attempts",
+        "_events",
+        "_broker",
         "_market_data",
         "_preview_handler",
         "_authorize_handler",
         "_submit_handler",
         "_reconcile_handler",
+        "_cancel_handler",
+        "_entry_protector",
+        "_entry_events",
     )
 
     def __init__(
@@ -241,12 +356,22 @@ class PositionPlanManager:
         configurations: OperatorTradingConfigurationRepository,
         environment: str,
         time_source: PaperTimeSource | None = None,
+        entry_remainder_protector: EntryRemainderProtector | None = None,
+        entry_events: PaperExecutionEventRepository | None = None,
     ) -> None:
+        #: OWNER-VISIBLE ESCALATION: read-only access to the ENTRY audit trail, used only to
+        #: surface an `UNMAPPED_BROKER_STATUS` on a plan's entry. `None` disables that read.
+        self._entry_events = entry_events
+        #: PARTIAL ENTRY PROTECTION. `None` disables it (a composition with no Store B entry
+        #: repositories); every production composition passes one.
+        self._entry_protector = entry_remainder_protector
         self._plans = plans
         self._external_closures = external_closures
         self._previews = previews
         self._authorizations = authorizations
         self._attempts = exit_attempts
+        self._events = events
+        self._broker = broker
         self._market_data = market_data
         self._assess = AssessPositionExitHandler(
             intents=intents,
@@ -300,16 +425,62 @@ class PositionPlanManager:
             broker=broker,
             time_source=time_source,
         )
+        self._cancel_handler = CancelPositionExitHandler(
+            attempts=exit_attempts,
+            acknowledgements=acknowledgements,
+            events=events,
+            broker=broker,
+        )
 
     def evaluate_once(self, *, now: datetime) -> tuple[PlanEvaluationOutcome, ...]:
         """One poll tick. Safe to call repeatedly, from any process, at any time -- every
         decision it makes is re-derived from durable state, never remembered in RAM."""
         outcomes: list[PlanEvaluationOutcome] = []
         for plan in self._plans.list_unclaimed(500):
-            outcomes.append(self._evaluate_unclaimed(plan, now=now))
+            outcomes.append(self._isolated(plan, now, self._evaluate_unclaimed))
         for plan in self._list_claimed_unresolved(limit=500):
-            outcomes.append(self._resume_claimed(plan, now=now))
+            outcomes.append(self._isolated(plan, now, self._resume_claimed))
         return tuple(outcomes)
+
+    def _isolated(
+        self,
+        plan: ApprovedPlan,
+        now: datetime,
+        evaluate: Callable[..., PlanEvaluationOutcome],
+    ) -> PlanEvaluationOutcome:
+        """PLAN ISOLATION. One plan's unexpected exception (a lost uniqueness race, a broker
+        error, a bad row) becomes a NEEDS_ATTENTION outcome for THAT plan, a durable event
+        and a log line -- and the loop moves on, so it can never starve the other plans.
+        `KeyboardInterrupt`/`SystemExit` are `BaseException`s and are deliberately NOT caught."""
+        try:
+            return evaluate(plan, now=now)
+        except Exception as error:  # noqa: BLE001 - isolation is the point
+            name = type(error).__name__
+            if error.__cause__ is not None:
+                name = f"{name} (caused by {type(error.__cause__).__name__})"
+            message = str(error)[:200]
+            _LOG.warning("plan %s evaluation raised %s: %s", plan.plan_id, name, message)
+            detail = (
+                f"{PLAN_EVALUATION_ERROR_EVENT_TYPE}: evaluating this plan raised {name}; it "
+                "is retried on the next tick and every other plan was still evaluated"
+            )
+            try:
+                self._record_event(
+                    plan,
+                    None,
+                    PLAN_EVALUATION_ERROR_EVENT_TYPE,
+                    f"{detail}: {message}",
+                    now,
+                    suffix=f"{name}|{now:%Y%m%dT%H}",
+                    once=True,
+                )
+            except Exception as record_error:  # noqa: BLE001 - the log line above stands
+                _LOG.warning(
+                    "plan %s: the error event could not be recorded (%s)",
+                    plan.plan_id,
+                    type(record_error).__name__,
+                )
+            return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, f"{detail}: {message}")
 
     # -- unclaimed plans: decide whether a trigger fires ------------------------------
 
@@ -318,6 +489,29 @@ class PositionPlanManager:
         if closure is not None:
             return self._externally_closed_outcome(plan, closure)
         assessment = self._assess.handle(plan.entry_intent_governance_id, at=now)
+        unmapped = self._unmapped_entry_status(plan, assessment)
+        if unmapped is not None:
+            return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, unmapped)
+        if (
+            not assessment.eligible
+            and self._entry_protector is not None
+            and assessment.entry_attempt is not None
+            and entry_remainder_applies(assessment.entry_attempt)
+        ):
+            # PARTIAL ENTRY PROTECTION: the filled shares have no exit until the entry is
+            # final, so cancel the remainder (bounded) and continue normally once it is.
+            step = self._entry_protector.step(
+                assessment.entry_attempt, now=now, urgent_reason=self._entry_urgency(plan, now=now)
+            )
+            if step.status is EntryRemainderStatus.CANCEL_REQUESTED:
+                return self._outcome(
+                    plan, PlanOutcomeKind.ENTRY_REMAINDER_CANCEL_REQUESTED, step.detail
+                )
+            if step.status is EntryRemainderStatus.NEEDS_ATTENTION:
+                return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, step.detail)
+            if step.status is EntryRemainderStatus.WAITING:
+                return self._outcome(plan, PlanOutcomeKind.NOT_ELIGIBLE, step.detail)
+            assessment = self._assess.handle(plan.entry_intent_governance_id, at=now)
         if not assessment.eligible:
             return PlanEvaluationOutcome(
                 plan.plan_id,
@@ -390,6 +584,41 @@ class PositionPlanManager:
             )
         return self._attempt_exit(claimed, now=now, just_claimed=True)
 
+    def _unmapped_entry_status(self, plan: ApprovedPlan, assessment: object) -> str | None:
+        """OWNER-VISIBLE ESCALATION (entry side). The entry reconciler records a durable
+        `UNMAPPED_BROKER_STATUS` event when the broker reports a status this product does not
+        map (e.g. `suspended`); the entry then stays non-terminal and the position cannot be
+        protected. Read-only: returns the reason while that entry is still non-terminal."""
+        if self._entry_events is None or getattr(assessment, "eligible", True):
+            return None
+        entry = getattr(assessment, "entry_attempt", None)
+        if entry is None or entry.is_terminal:
+            return None
+        for event in self._entry_events.for_intent(plan.entry_intent_governance_id):
+            if (
+                event.event_type == "UNMAPPED_BROKER_STATUS"
+                and event.attempt_id == entry.attempt_id
+            ):
+                return f"UNMAPPED_BROKER_STATUS (entry order): {event.detail}"
+        return None
+
+    def _entry_urgency(self, plan: ApprovedPlan, *, now: datetime) -> str | None:
+        """Why a partial entry's remainder must be cancelled NOW: a STOP/TARGET condition is
+        met on the current bid, or the mandatory-liquidation deadline has arrived. Pure of
+        side effects; a missing quote simply means no price trigger is evidenced."""
+        if now >= plan.mandatory_exit_deadline:
+            return "the mandatory-liquidation deadline has arrived"
+        try:
+            last_price = _bid_as_decimal(self._market_data.fetch_quote(plan.symbol))
+        except Exception:  # noqa: BLE001 - no quote => no price trigger evidenced
+            return None
+        if last_price is None:
+            return None
+        trigger = evaluate_exit_trigger(plan, last_price=last_price, now=now)
+        if trigger is None:
+            return None
+        return f"a {trigger.value} condition is met (bid {last_price})"
+
     def _corroborate_price_trigger(
         self, kind: ExitTriggerKind, *, plan: ApprovedPlan, now: datetime
     ) -> tuple[bool, str]:
@@ -439,7 +668,11 @@ class PositionPlanManager:
         claimed = self._plans.list_claimed(limit)
         unresolved = []
         for plan in claimed:
-            attempt = self._attempts.active_for_entry(plan.entry_intent_governance_id)
+            try:
+                attempt = self._attempts.active_for_entry(plan.entry_intent_governance_id)
+            except Exception:  # noqa: BLE001 - unreadable => treat as unresolved; resume isolates
+                unresolved.append(plan)
+                continue
             if attempt is None or not attempt.position_closed:
                 unresolved.append(plan)
         return tuple(unresolved)
@@ -449,40 +682,320 @@ class PositionPlanManager:
         if closure is not None:
             return self._externally_closed_outcome(plan, closure)
         attempt = self._attempts.active_for_entry(plan.entry_intent_governance_id)
-        if attempt is not None and not attempt.is_terminal:
+        if attempt is not None:
+            # ALWAYS reconcile first, by the attempt's own deterministic client_order_id: no
+            # decision below (cancel, replace, alert) is ever taken on stale local state.
             reconciled = self._reconcile_handler.handle(
                 ReconcilePositionExitCommand(attempt_id=attempt.attempt_id, at=now)
             )
-            return PlanEvaluationOutcome(
-                plan.plan_id,
-                plan.entry_intent_governance_id,
-                PlanOutcomeKind.EXIT_RECONCILED,
-                f"attempt {reconciled.attempt_id} state={reconciled.state.value}",
+            if reconciled.state not in _INACTIVE_STATES:
+                return self._manage_live(plan, reconciled, now=now)
+        return self._rearm(plan, now=now)
+
+    # -- RELIABLE EXIT MANAGEMENT: bounded cancel -> confirm -> new generation -------------
+    #
+    # STATE MACHINE (every transition re-derived from durable rows each tick):
+    #
+    #   (no attempt) --send g0--> LIVE --fills--> FILLED --verify zero--> closed
+    #   LIVE (SUBMITTED/ACCEPTED/PARTIALLY_FILLED), unfilled for >= spacing, budget left,
+    #        market open --cancel--> CANCEL_REQUESTED --broker reports canceled--> CANCELED
+    #   CANCELED / EXPIRED / REJECTED (broker-confirmed terminal) --new generation g+1, a new
+    #        preview/authorization/attempt/client_order_id, remaining quantity only--> LIVE
+    #   SUBMISSION_UNKNOWN / IN_PROGRESS / CLAIMED: reconcile by client_order_id only; NEVER
+    #        a resend; loud alert after EXIT_UNRESOLVED_ALERT_SECONDS
+    #   budget spent (EXIT_MAX_ATTEMPTS_PER_SESSION, or EXIT_MAX_EXPIRED_SESSIONS) --> loud
+    #        NEEDS_ATTENTION (+ durable EXIT_RETRIES_EXHAUSTED event); no further sends
+    #
+    # AT MOST ONE LIVE SELL: a new generation is sent only when `active_for_entry` is None,
+    # i.e. every earlier attempt is CANCELED/REJECTED/EXPIRED as REPORTED BY THE BROKER for
+    # that very order; the database additionally refuses a second active attempt per entry.
+
+    def _manage_live(
+        self, plan: ApprovedPlan, attempt: PositionExitAttempt, *, now: datetime
+    ) -> PlanEvaluationOutcome:
+        base = f"attempt {attempt.attempt_id} state={attempt.state.value}"
+        if attempt.is_terminal:  # FILLED (verified or awaiting verification)
+            return self._outcome(plan, PlanOutcomeKind.EXIT_RECONCILED, base)
+        kind = plan.triggered_exit_kind
+        assert kind is not None
+        if _slot_of(plan, kind, attempt.attempt_id) is None:
+            # Not an attempt this plan minted (an Owner's manual exit): reconcile only.
+            return self._outcome(plan, PlanOutcomeKind.EXIT_RECONCILED, base)
+        age = (now - attempt.claimed_at).total_seconds()
+        if attempt.state in _UNRESOLVED_STATES:
+            if age >= EXIT_UNRESOLVED_ALERT_SECONDS:
+                return self._outcome(
+                    plan,
+                    PlanOutcomeKind.NEEDS_ATTENTION,
+                    f"{base} has been unresolved for {int(age)}s; it is reconciled by "
+                    "client_order_id every tick and is NEVER re-sent automatically",
+                )
+            return self._outcome(plan, PlanOutcomeKind.EXIT_RECONCILED, base)
+        if age < _spacing_seconds(kind):
+            return self._outcome(plan, PlanOutcomeKind.EXIT_RECONCILED, base)
+        return self._cancel_step(plan, attempt, now=now, base=base)
+
+    def _cancel_step(
+        self, plan: ApprovedPlan, attempt: PositionExitAttempt, *, now: datetime, base: str
+    ) -> PlanEvaluationOutcome:
+        kind = plan.triggered_exit_kind
+        assert kind is not None
+        session, expired = self._session_view(plan, kind)
+        if len(session) >= EXIT_MAX_ATTEMPTS_PER_SESSION:
+            return self._exhausted(plan, session, expired, now=now, live=attempt)
+        if self._market_is_open() is not True:
+            return self._outcome(
+                plan,
+                PlanOutcomeKind.EXIT_WAITING_FOR_MARKET,
+                f"{base}: not repriced while the market is not confirmed open",
             )
-        return self._attempt_exit(plan, now=now, just_claimed=False)
+        events = self._events.for_entry(plan.entry_intent_governance_id)
+        cancels = [
+            e
+            for e in events
+            if e.attempt_id == attempt.attempt_id and e.event_type in EXIT_CANCEL_EVENT_TYPES
+        ]
+        if len(cancels) >= EXIT_MAX_CANCEL_REQUESTS_PER_ATTEMPT:
+            return self._outcome(
+                plan,
+                PlanOutcomeKind.NEEDS_ATTENTION,
+                f"{base}: {len(cancels)} cancel requests were not confirmed by the broker; "
+                "no replacement is sent while this order may still be live",
+            )
+        if cancels:
+            last_cancel = max(e.occurred_at for e in cancels)
+            if (now - last_cancel).total_seconds() < _spacing_seconds(kind):
+                return self._outcome(
+                    plan, PlanOutcomeKind.EXIT_RECONCILED, f"{base}: cancel pending"
+                )
+        try:
+            self._cancel_handler.handle(CancelPositionExitCommand(attempt.attempt_id, at=now))
+        except PositionExitRefusedError as error:
+            return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, f"{base}: {error}")
+        except Exception as error:  # noqa: BLE001 - cancel acknowledgement unknown
+            # The DELETE may or may not have reached the broker. State is NOT advanced; the
+            # attempt is reconciled by client_order_id next tick and no replacement is sent.
+            self._record_event(
+                plan,
+                attempt,
+                "EXIT_CANCEL_ERROR",
+                f"cancel request raised {type(error).__name__}; outcome unknown",
+                now,
+                suffix=now.isoformat(),
+            )
+            return self._outcome(
+                plan,
+                PlanOutcomeKind.NEEDS_ATTENTION,
+                f"{base}: cancel acknowledgement unknown ({type(error).__name__}); reconciling "
+                "by client_order_id, no replacement until the broker reports it terminal",
+            )
+        # Observe the result NOW (still by client_order_id): an order that fills while the
+        # cancel is in flight is FILLED here, and then no replacement exists to send.
+        after = self._reconcile_handler.handle(
+            ReconcilePositionExitCommand(attempt_id=attempt.attempt_id, at=now)
+        )
+        if after.state in _INACTIVE_STATES:
+            return self._rearm(plan, now=now)
+        return self._outcome(
+            plan,
+            PlanOutcomeKind.EXIT_RECONCILED,
+            f"attempt {after.attempt_id} state={after.state.value}: cancel requested; the "
+            "replacement waits until the broker reports this order terminal",
+        )
+
+    def _rearm(self, plan: ApprovedPlan, *, now: datetime) -> PlanEvaluationOutcome:
+        """No live attempt exists (none yet, or every one broker-confirmed CANCELED /
+        REJECTED / EXPIRED): send the next generation if the bounded budget allows."""
+        kind = plan.triggered_exit_kind
+        assert kind is not None
+        session, expired = self._session_view(plan, kind)
+        if len(session) >= EXIT_MAX_ATTEMPTS_PER_SESSION or expired >= EXIT_MAX_EXPIRED_SESSIONS:
+            return self._exhausted(plan, session, expired, now=now, live=None)
+        if session and (now - session[-1].claimed_at).total_seconds() < _spacing_seconds(kind):
+            return self._outcome(
+                plan,
+                PlanOutcomeKind.EXIT_RECONCILED,
+                f"attempt {session[-1].attempt_id} ended {session[-1].state.value}; the next "
+                "generation waits for the minimum spacing",
+            )
+        if (session or expired) and self._market_is_open() is not True:
+            return self._outcome(
+                plan,
+                PlanOutcomeKind.EXIT_WAITING_FOR_MARKET,
+                "the previous exit ended without closing the position; the next generation is "
+                "armed for the next regular session",
+            )
+        return self._attempt_exit(plan, now=now, just_claimed=False, generation=len(session))
+
+    def _session_view(
+        self, plan: ApprovedPlan, kind: ExitTriggerKind
+    ) -> tuple[list[PositionExitAttempt], int]:
+        """This plan's attempts in the CURRENT session (after the last EXPIRED one) and the
+        number of sessions that already expired. Derived from durable rows only."""
+        ours = [
+            a
+            for a in self._attempts.for_entry(plan.entry_intent_governance_id)
+            if _slot_of(plan, kind, a.attempt_id) is not None
+        ]
+        expired = sum(1 for a in ours if a.state is PositionExitState.EXPIRED)
+        last_expired = max(
+            (i for i, a in enumerate(ours) if a.state is PositionExitState.EXPIRED), default=-1
+        )
+        return ours[last_expired + 1 :], expired
+
+    def _exhausted(
+        self,
+        plan: ApprovedPlan,
+        session: Sequence[PositionExitAttempt],
+        expired: int,
+        *,
+        now: datetime,
+        live: PositionExitAttempt | None,
+    ) -> PlanEvaluationOutcome:
+        detail = (
+            f"{EXIT_RETRIES_EXHAUSTED_EVENT_TYPE}: {len(session)} exit attempt(s) this session "
+            f"and {expired} expired session(s) did not close the position; no further orders "
+            "are sent automatically"
+            + (
+                f". The last order ({live.attempt_id}, {live.state.value}) is left working at "
+                "the broker and is still reconciled every tick"
+                if live is not None
+                else ""
+            )
+            + ". The Owner must close or review this position."
+        )
+        self._record_event(
+            plan,
+            None,
+            EXIT_RETRIES_EXHAUSTED_EVENT_TYPE,
+            detail,
+            now,
+            suffix=f"{len(session)}|{expired}",
+            once=True,
+        )
+        return self._outcome(plan, PlanOutcomeKind.NEEDS_ATTENTION, detail)
+
+    def _market_is_open(self) -> bool | None:
+        try:
+            return bool(self._broker.fetch_clock().is_open)
+        except Exception:  # noqa: BLE001 - an unreadable clock is "not confirmed open"
+            return None
+
+    def _select_slot(self, plan: ApprovedPlan, kind: ExitTriggerKind, now: datetime) -> int | None:
+        """The generation slot to (re)use. Slot ids are deterministic in `(plan, kind, slot)`.
+        A slot whose attempt exists is spent; one whose preview/authorization went stale
+        without ever being used is ABANDONED (a fresh one is minted); otherwise it is
+        resumed, so a crash between Preview, Authorize and Submit never mints a duplicate."""
+        for slot in range(_MAX_PLAN_SLOTS):
+            if self._attempts.get(_attempt_id(plan, kind, slot)) is not None:
+                continue
+            preview = self._previews.get(_preview_id(plan, kind, slot))
+            if preview is None:
+                return slot
+            if (now - preview.created_at).total_seconds() > MAXIMUM_EXIT_PREVIEW_AGE_SECONDS:
+                continue
+            authorization = self._authorizations.get(_authorization_id(plan, kind, slot))
+            if authorization is None:
+                return slot
+            if authorization.is_consumed or now >= authorization.expires_at:
+                continue
+            # P2-5: the submit handler spends the entry's LATEST authorization, not this
+            # slot's. If a later one exists (e.g. an Owner's manual exit authorized after
+            # this slot was pre-minted) and is itself unusable, resuming this slot would be
+            # refused ("no unused human exit authorization exists") on every tick until this
+            # authorization expires (<= 300 s) -- a stall that must not touch a mandatory
+            # exit. Abandon the slot instead; the next one is minted fresh (its authorization
+            # becomes the latest). A usable later authorization keeps the old behaviour.
+            latest = self._authorizations.latest_for_entry(plan.entry_intent_governance_id)
+            if (
+                latest is not None
+                and latest.authorization_id != authorization.authorization_id
+                and (latest.is_consumed or now >= latest.expires_at)
+            ):
+                continue
+            return slot
+        return None
+
+    def _record_event(
+        self,
+        plan: ApprovedPlan,
+        attempt: PositionExitAttempt | None,
+        event_type: str,
+        detail: str,
+        at: datetime,
+        *,
+        suffix: str = "",
+        once: bool = False,
+    ) -> None:
+        digest = hashlib.sha256(
+            "|".join(
+                (plan.plan_id, attempt.attempt_id if attempt else "-", event_type, suffix)
+            ).encode("utf-8")
+        ).hexdigest()
+        event_id = f"XEV-{digest[:40]}"
+        if once and any(
+            e.event_id == event_id for e in self._events.for_entry(plan.entry_intent_governance_id)
+        ):
+            return
+        self._events.append(
+            PositionExitEvent(
+                event_id=event_id,
+                entry_intent_governance_id=plan.entry_intent_governance_id,
+                attempt_id=None if attempt is None else attempt.attempt_id,
+                event_type=event_type,
+                occurred_at=at,
+                detail=detail[:500],
+            )
+        )
+
+    @staticmethod
+    def _outcome(plan: ApprovedPlan, kind: PlanOutcomeKind, detail: str) -> PlanEvaluationOutcome:
+        return PlanEvaluationOutcome(plan.plan_id, plan.entry_intent_governance_id, kind, detail)
 
     # -- the shared, idempotent Preview -> Authorize -> Submit sequence ---------------
 
     def _attempt_exit(
-        self, plan: ApprovedPlan, *, now: datetime, just_claimed: bool
+        self, plan: ApprovedPlan, *, now: datetime, just_claimed: bool, generation: int = 0
     ) -> PlanEvaluationOutcome:
         assert plan.triggered_exit_kind is not None
         kind = plan.triggered_exit_kind
+        # The regular-hours gate (also enforced inside the submit handler, unchanged) is
+        # checked FIRST so a shut market never mints a preview/authorization that would
+        # only expire unused.
+        market = self._market_is_open()
+        if market is not True:
+            return self._outcome(
+                plan,
+                PlanOutcomeKind.NEEDS_ATTENTION,
+                _MARKET_CLOSED_DETAIL
+                if market is False
+                else POSITION_NEEDS_ATTENTION
+                + " The broker clock could not be read; nothing was sent and this attempt "
+                "will be retried the next time the plan is evaluated.",
+            )
+        slot = self._select_slot(plan, kind, now)
+        if slot is None:
+            return self._outcome(
+                plan,
+                PlanOutcomeKind.NEEDS_ATTENTION,
+                "every exit generation slot for this plan is spent or stale; nothing was sent",
+            )
         try:
-            preview = self._previews.get(_preview_id(plan, kind))
+            preview = self._previews.get(_preview_id(plan, kind, slot))
             if preview is None:
                 preview = self._preview_handler.handle(
                     PreviewPositionExitCommand(
                         entry_intent_governance_id=plan.entry_intent_governance_id,
-                        preview_id=_preview_id(plan, kind),
+                        preview_id=_preview_id(plan, kind, slot),
                         created_at=now,
+                        reprice_generation=generation,
                     )
                 )
-            authorization = self._authorizations.get(_authorization_id(plan, kind))
+            authorization = self._authorizations.get(_authorization_id(plan, kind, slot))
             if authorization is None:
                 authorization = self._authorize_handler.handle(
                     AuthorizePositionExitCommand(
-                        authorization_id=_authorization_id(plan, kind),
+                        authorization_id=_authorization_id(plan, kind, slot),
                         preview_id=preview.preview_id,
                         expected_request_fingerprint=preview.request_fingerprint,
                         # RELEASE v1 LEGACY APPROVED PLAN IDENTITY COMPATIBILITY: derived
@@ -500,7 +1013,7 @@ class PositionPlanManager:
             result = self._submit_handler.handle(
                 SubmitAuthorizedPositionExitCommand(
                     entry_intent_governance_id=plan.entry_intent_governance_id,
-                    attempt_id=_attempt_id(plan, kind),
+                    attempt_id=_attempt_id(plan, kind, slot),
                     at=now,
                 )
             )
@@ -539,7 +1052,7 @@ class PositionPlanManager:
         )
         detail = (
             f"trigger={kind.value} attempt={result.attempt.attempt_id} "
-            f"dispatched={result.dispatched}"
+            f"generation={generation} dispatched={result.dispatched}"
         )
         return PlanEvaluationOutcome(
             plan.plan_id, plan.entry_intent_governance_id, kind_label, detail
@@ -687,6 +1200,98 @@ def manager_liveness_alert(
     return None
 
 
+#: OWNER-VISIBLE ESCALATION. A triggered exit blocked by the quote spread/age gate is shown
+#: to the Owner only once it has stayed blocked for longer than this (a single wide-spread
+#: tick is routine and heals by itself). The gate itself is NOT touched by this constant.
+ATTENTION_QUOTE_GATE_GRACE_SECONDS = 60
+
+#: `AttentionBoard` key used for a failure of the whole manager tick (no plan involved).
+MANAGER_TICK_ATTENTION_KEY = "__manager_tick__"
+
+_QUOTE_GATE_REASON = (
+    "a triggered STOP/TARGET/MANDATORY exit cannot be priced: quote spread/age gate; "
+    "position remains open"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class AttentionItem:
+    """One plan (or the manager tick itself) whose automatic management has stopped making
+    progress. `key` is the entry intent id (or `MANAGER_TICK_ATTENTION_KEY`)."""
+
+    key: str
+    plan_id: str | None
+    kind: str
+    reason: str
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+class AttentionBoard:
+    """In-process, thread-safe record of what automatic exit management is stuck on.
+
+    NOT durable and not a source of truth: it is re-derived from the next manager tick after
+    any restart. The manager thread writes the LATEST outcome per plan each tick; an entry is
+    removed as soon as a later tick returns a non-attention outcome for that plan (or the plan
+    is no longer evaluated at all), so it heals itself. Read-only for every other caller."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._items: dict[str, AttentionItem] = {}
+        self._quote_blocked_since: dict[str, datetime] = {}
+
+    def items(self) -> tuple[AttentionItem, ...]:
+        with self._lock:
+            return tuple(self._items.values())
+
+    def for_entry(self, entry_intent_id: str) -> AttentionItem | None:
+        with self._lock:
+            return self._items.get(entry_intent_id)
+
+    def record_tick(self, outcomes: Sequence[PlanEvaluationOutcome], *, now: datetime) -> None:
+        latest: dict[str, PlanEvaluationOutcome] = {}
+        for outcome in outcomes:  # a plan can appear twice in one tick; the last one wins
+            latest[outcome.entry_intent_governance_id] = outcome
+        with self._lock:
+            self._items.pop(MANAGER_TICK_ATTENTION_KEY, None)
+            blocked: dict[str, datetime] = {}
+            kept: dict[str, AttentionItem] = {}
+            for key, outcome in latest.items():
+                if outcome.kind is not PlanOutcomeKind.NEEDS_ATTENTION:
+                    continue
+                if QUOTE_UNUSABLE_FOR_EXIT_MARKER.strip() in outcome.detail:
+                    since = self._quote_blocked_since.get(key, now)
+                    blocked[key] = since
+                    seconds = int((now - since).total_seconds())
+                    if seconds <= ATTENTION_QUOTE_GATE_GRACE_SECONDS:
+                        continue
+                    kind = "QUOTE_GATE_BLOCKED"
+                    reason = (
+                        f"{_QUOTE_GATE_REASON} (blocked for {seconds}s). {outcome.detail.strip()}"
+                    )
+                else:
+                    kind = outcome.kind.value
+                    reason = outcome.detail
+                previous = self._items.get(key)
+                first = previous.first_seen_at if previous and previous.kind == kind else now
+                kept[key] = AttentionItem(key, outcome.plan_id, kind, reason[:600], first, now)
+            self._quote_blocked_since = blocked
+            self._items = kept
+
+    def record_tick_error(self, message: str, *, now: datetime) -> None:
+        with self._lock:
+            previous = self._items.get(MANAGER_TICK_ATTENTION_KEY)
+            self._items[MANAGER_TICK_ATTENTION_KEY] = AttentionItem(
+                MANAGER_TICK_ATTENTION_KEY,
+                None,
+                "MANAGER_TICK_ERROR",
+                f"the automatic position manager's tick failed: {message[:300]}. No plan was "
+                "evaluated this tick; it retries on its own schedule",
+                previous.first_seen_at if previous else now,
+                now,
+            )
+
+
 class PlanManagerThread:
     """Runs `PositionPlanManager.evaluate_once` on a fixed interval, inside THIS process.
 
@@ -709,7 +1314,9 @@ class PlanManagerThread:
         *,
         now: Callable[[], datetime],
         interval_seconds: int = DEFAULT_POLL_INTERVAL_SECONDS,
+        attention: AttentionBoard | None = None,
     ) -> None:
+        self._attention = attention
         self._manager = manager
         self._now = now
         self._interval = interval_seconds
@@ -742,36 +1349,7 @@ class PlanManagerThread:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            error: str | None = None
-            try:
-                outcomes = self._manager.evaluate_once(now=self._now())
-                # EXIT SIGNAL QUALITY GATE / Phase 3 observability requirement (2026-10-21):
-                # the 2026-10-20 incident's own trigger evidence (the exact bid that claimed
-                # it) was never logged anywhere -- `evaluate_once`'s return value used to be
-                # discarded here entirely. Every outcome is now logged, routine ones at INFO
-                # and anything requiring attention at WARNING, so a future incident is
-                # reconstructible from the process log even before touching Postgres.
-                for outcome in outcomes:
-                    level = (
-                        logging.WARNING
-                        if outcome.kind
-                        in (
-                            PlanOutcomeKind.NEEDS_ATTENTION,
-                            PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
-                        )
-                        else logging.INFO
-                    )
-                    _LOG.log(
-                        level,
-                        "plan %s [%s] %s: %s",
-                        outcome.plan_id,
-                        outcome.entry_intent_governance_id,
-                        outcome.kind.value,
-                        outcome.detail,
-                    )
-            except Exception as exc:  # noqa: BLE001 - one bad tick must never stop the loop
-                _LOG.exception("position plan manager tick failed")
-                error = f"{type(exc).__name__}: {exc}"
+            error = self._tick_once()
             with self._lock:
                 previous = self._heartbeat
                 self._heartbeat = ManagerHeartbeat(
@@ -781,6 +1359,46 @@ class PlanManagerThread:
                     ticks_completed=(previous.ticks_completed if previous is not None else 0) + 1,
                 )
             self._stop.wait(self._interval)
+
+    def _tick_once(self) -> str | None:
+        """One evaluation tick; returns the tick-level error text (or `None`)."""
+        error: str | None = None
+        try:
+            tick_at = self._now()
+            outcomes = self._manager.evaluate_once(now=tick_at)
+            # EXIT SIGNAL QUALITY GATE / Phase 3 observability requirement (2026-10-21):
+            # the 2026-10-20 incident's own trigger evidence (the exact bid that claimed
+            # it) was never logged anywhere -- `evaluate_once`'s return value used to be
+            # discarded here entirely. Every outcome is now logged, routine ones at INFO
+            # and anything requiring attention at WARNING, so a future incident is
+            # reconstructible from the process log even before touching Postgres.
+            for outcome in outcomes:
+                level = (
+                    logging.WARNING
+                    if outcome.kind
+                    in (
+                        PlanOutcomeKind.NEEDS_ATTENTION,
+                        PlanOutcomeKind.TRIGGER_EVIDENCE_UNCERTAIN,
+                    )
+                    else logging.INFO
+                )
+                _LOG.log(
+                    level,
+                    "plan %s [%s] %s: %s",
+                    outcome.plan_id,
+                    outcome.entry_intent_governance_id,
+                    outcome.kind.value,
+                    outcome.detail,
+                )
+            # OWNER-VISIBLE ESCALATION: the same outcomes, latest per plan, for the console.
+            if self._attention is not None:
+                self._attention.record_tick(outcomes, now=tick_at)
+        except Exception as exc:  # noqa: BLE001 - one bad tick must never stop the loop
+            _LOG.exception("position plan manager tick failed")
+            error = f"{type(exc).__name__}: {exc}"
+            if self._attention is not None:
+                self._attention.record_tick_error(error, now=self._now())
+        return error
 
 
 class ManagerThreadHandle:
@@ -806,10 +1424,13 @@ class ManagerThreadHandle:
     `None` there, which `manager_status` reads as `manager_supported=False` -> `UNKNOWN`.
     """
 
-    __slots__ = ("thread",)
+    __slots__ = ("attention", "thread")
 
     def __init__(self) -> None:
         self.thread: PlanManagerThread | None = None
+        #: OWNER-VISIBLE ESCALATION: created with the handle so the console routes and the
+        #: manager thread (started later) share ONE board without any other wiring.
+        self.attention = AttentionBoard()
 
     def heartbeat(self) -> ManagerHeartbeat | None:
         return None if self.thread is None else self.thread.heartbeat()

@@ -64,6 +64,7 @@ from empirical_platform.usecases.paper_operator_console import (
     prepare_v1_paper_candidate,
 )
 from empirical_platform.usecases.position_plan_manager import (
+    AttentionItem,
     ManagerStatusView,
     manager_status,
     manager_status_detail,
@@ -105,6 +106,7 @@ def active_plan_block_for_row(
     quote_bid: str | None,
     *,
     assessment_refusals: tuple[str, ...] = (),
+    attention: AttentionItem | None = None,
     base_path: str = "",
 ) -> str | None:
     """The APPROVED PLAN block HTML for one Active-trade row, or `None` if this row has no
@@ -126,6 +128,11 @@ def active_plan_block_for_row(
         if entry_avg is not None
         else "Not available"
     )
+    review_url = (
+        html.url_for(base_path, f"/exit/review?intent={row.intent_id}")
+        if row.can_review_exit
+        else None
+    )
     return html.approved_plan_block(
         quantity=str(plan.approved_quantity),
         entry_avg_fill=row.filled_avg_price,
@@ -141,10 +148,11 @@ def active_plan_block_for_row(
             assessment_refusals=assessment_refusals,
             position_open=row.position_open,
         ),
-        review_manual_exit_url=(
-            html.url_for(base_path, f"/exit/review?intent={row.intent_id}")
-            if row.can_review_exit
-            else None
+        review_manual_exit_url=review_url,
+        attention_alert=(
+            html.attention_card_alert(attention, review_manual_exit_url=review_url)
+            if attention is not None
+            else ""
         ),
     )
 
@@ -223,11 +231,19 @@ def build_paper_application(
         if backend._manager_thread_handle is not None
         else None
     )
+    # OWNER-VISIBLE ESCALATION: the in-process attention board (see `AttentionBoard`); `None`
+    # for a composition with no plan-manager concept, so `/safety` is unchanged there.
+    attention_provider = (
+        backend._manager_thread_handle.attention.items
+        if backend._manager_thread_handle is not None
+        else None
+    )
     router = build_application(
         backend,
         security=security,
         base_path=base_path,
         manager_status_provider=manager_status_provider,
+        attention_provider=attention_provider,
     )
     service = backend.service
 
@@ -285,6 +301,7 @@ def build_paper_application(
                     broker=backend._broker,
                     market_data=backend._market_data,
                     bars=backend._market_data,
+                    attempts=backend._repositories.attempts,
                     time_source=backend._time_source,
                     now=datetime.now(UTC),
                 )
@@ -364,6 +381,10 @@ def build_paper_application(
             except Exception as error:  # noqa: BLE001 - never a traceback to the browser
                 print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
                 return refusal(error, "500 Internal Server Error")
+            # P2-1: the outcome (notably "Approved, execution blocked: <reasons>. Nothing was
+            # sent.") used to be dropped here, so a blocked approval showed the Owner nothing.
+            if router.outcome_sink is not None:
+                router.outcome_sink(request, result.approval)
             if result.plan is not None:
                 print(
                     f"paper-console: plan {result.plan.plan_id} for {proposal} "
@@ -385,6 +406,9 @@ def build_paper_application(
                 assert backend._exits is not None
                 rows = backend.service.active_trades()
                 plan_blocks: dict[str, str] = {}
+                handle = backend._manager_thread_handle
+                board_items = () if handle is None else handle.attention.items()
+                by_key = {item.key: item for item in board_items}
                 for row in rows:
                     plan = backend._plans.for_entry(row.intent_id)
                     if plan is None:
@@ -411,10 +435,21 @@ def build_paper_application(
                         attempt,
                         quote.bid if quote is not None else None,
                         assessment_refusals=refusals,
+                        attention=by_key.get(row.intent_id),
                         base_path=base_path,
                     )
                     if block is not None:
                         plan_blocks[row.intent_id] = block
+                details = {
+                    row.intent_id: (
+                        row.symbol,
+                        html.url_for(base_path, f"/exit/review?intent={row.intent_id}")
+                        if row.can_review_exit
+                        else None,
+                    )
+                    for row in rows
+                }
+                banner = html.attention_banner(board_items, details=details)
             except _REFUSED as error:
                 return refusal(error, "400 Bad Request")
             except Exception as error:  # noqa: BLE001 - never a traceback to the browser
@@ -422,7 +457,14 @@ def build_paper_application(
                 return refusal(error, "500 Internal Server Error")
             return html_response(
                 html.active_page(
-                    rows, csrf, label(), False, None, plan_blocks=plan_blocks, base_path=base_path
+                    rows,
+                    csrf,
+                    label(),
+                    False,
+                    None,
+                    plan_blocks=plan_blocks,
+                    attention=banner,
+                    base_path=base_path,
                 )
             )
 

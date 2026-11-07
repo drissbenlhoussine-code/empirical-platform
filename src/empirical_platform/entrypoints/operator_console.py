@@ -63,7 +63,7 @@ from empirical_platform.entrypoints._position_exit_composition import (
 )
 from empirical_platform.entrypoints.operator_console_app import build_application
 from empirical_platform.entrypoints.paper_operator_console_app import build_paper_application
-from empirical_platform.shared import console_control
+from empirical_platform.shared import console_control, console_lifecycle
 from empirical_platform.shared.brokerage.simulation_paper import SimulationStateLockedError
 from empirical_platform.shared.persistence.database_safety import manifest_path
 from empirical_platform.usecases.position_plan_manager import (
@@ -117,7 +117,7 @@ _LOOPBACK_REMOTE_ADDRESSES: Final = ("127.0.0.1", "::1")
 
 def _install_shutdown_control(
     router: Router, server: ThreadingWSGIServer, *, safety_directory: Path
-) -> None:
+) -> threading.Event | None:
     """Writes this process's control token and registers the one route that accepts it.
 
     `server.shutdown()` is documented as safe to call from a thread other than the one
@@ -148,7 +148,7 @@ def _install_shutdown_control(
             "until this is fixed (fail closed, per MILESTONE-098 hardening).",
             file=sys.stderr,
         )
-        return
+        return None
 
     expected = token.encode("ascii")
     stopping = threading.Event()
@@ -186,6 +186,7 @@ def _install_shutdown_control(
         )
 
     router.service_post("/control/shutdown", handle_shutdown, authorize=authorize)
+    return stopping
 
 
 def _utc_now() -> datetime:
@@ -271,8 +272,11 @@ def _serve_with_reconciler(
     manager_thread_handle: ManagerThreadHandle | None = None,
     base_path: str = "",
     shutdown_control: ShutdownControl | None = None,
-) -> None:
-    """Shared by both capabilities: start the reconciler, serve, and shut down in order.
+) -> int:
+    """Returns `console_lifecycle.EXIT_DELIBERATE_SHUTDOWN` when the server stopped because of
+    an authenticated `/control/shutdown` request, else 0 (e.g. Ctrl+C).
+
+    Shared by both capabilities: start the reconciler, serve, and shut down in order.
 
     Order matters, in both capabilities alike: no new requests, then the reconciler is
     stopped AND joined until it has actually terminated, and only THEN does the server close
@@ -293,12 +297,19 @@ def _serve_with_reconciler(
     """
     reconciler: _Reconciler | None = None
     manager_thread: PlanManagerThread | None = None
+    shutdown_requested: threading.Event | None = None
     try:
         if reconcile_every > 0:
             reconciler = _Reconciler(refresh, reconcile_every)
             reconciler.start()
         if plan_manager is not None:
-            manager_thread = PlanManagerThread(plan_manager, now=_utc_now)
+            manager_thread = PlanManagerThread(
+                plan_manager,
+                now=_utc_now,
+                attention=None
+                if manager_thread_handle is None
+                else manager_thread_handle.attention,
+            )
             manager_thread.start()
             if manager_thread_handle is not None:
                 manager_thread_handle.thread = manager_thread
@@ -309,7 +320,7 @@ def _serve_with_reconciler(
             # process). base_path only shapes the URLs this process generates in its own pages.
             url = f"http://{host}:{server.server_port}/today"
             if shutdown_control is not None:
-                _install_shutdown_control(
+                shutdown_requested = _install_shutdown_control(
                     application, server, safety_directory=shutdown_control.safety_directory
                 )
             print("=" * 72)
@@ -342,6 +353,36 @@ def _serve_with_reconciler(
             reconciler.stop()
         if manager_thread is not None:
             manager_thread.stop()
+    if shutdown_requested is not None and shutdown_requested.is_set():
+        return console_lifecycle.EXIT_DELIBERATE_SHUTDOWN
+    return 0
+
+
+def _paper_exit_gate(
+    *, recovery_mode: bool, safety_directory: Path
+) -> console_lifecycle.ConsoleInstanceLock | int:
+    """Runs BEFORE the database/broker composition and the listener. Returns an exit code
+    (nothing opened, nothing changed) or the held single-instance lock."""
+    if not recovery_mode and console_lifecycle.maintenance_hold_active(safety_directory):
+        print(
+            "REFUSED: a maintenance hold is in place "
+            f"({console_lifecycle.hold_path(safety_directory)}), so the PAPER console will not "
+            "start in FULL mode (automatic Plan Manager). --recovery-mode is still allowed. "
+            "The Owner releases the hold with `python -m "
+            "empirical_platform.entrypoints.release_maintenance_hold`. Nothing was started.",
+            file=sys.stderr,
+        )
+        return console_lifecycle.EXIT_MAINTENANCE_HOLD
+    lock = console_lifecycle.ConsoleInstanceLock(safety_directory)
+    try:
+        lock.acquire()
+    except console_lifecycle.ConsoleAlreadyRunningError as refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        return console_lifecycle.EXIT_ALREADY_RUNNING
+    except console_lifecycle.MaintenanceHoldError as refused:
+        print(f"REFUSED: {refused}. Nothing was started.", file=sys.stderr)
+        return 2
+    return lock
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -437,50 +478,58 @@ def main(argv: list[str] | None = None) -> int:
             # MILESTONE-089: the ONLY difference from --capability paper is which composition
             # function opens Store C alongside Store B and wires the exit console; the routes,
             # the app and the banner's first two lines are otherwise identical.
-            with paper_operator_console_with_exit_runtime(
-                recovery_mode=arguments.recovery_mode
-            ) as backend:
-                application = build_paper_application(
-                    backend, security=SecuritySession(), base_path=base_path
-                )
-                banner = (
-                    (
-                        "  OPERATOR CONSOLE -- PAPER, RECOVERY MODE. Read-only startup: Paper "
-                        "review, reconciliation and safety visibility only.",
-                        "  The automatic Plan Manager is NOT running. No exit can be "
-                        "confirmed or sent, automatically or manually.",
-                        "  Restart WITHOUT --recovery-mode, with the Owner present, to "
-                        "resume exits.",
-                        "  Live -- not authorized.",
+            safety_directory = arguments.safety_directory or manifest_path().parent
+            gate = _paper_exit_gate(
+                recovery_mode=arguments.recovery_mode, safety_directory=safety_directory
+            )
+            if isinstance(gate, int):
+                return gate
+            instance_lock = gate
+            try:
+                with paper_operator_console_with_exit_runtime(
+                    recovery_mode=arguments.recovery_mode
+                ) as backend:
+                    application = build_paper_application(
+                        backend, security=SecuritySession(), base_path=base_path
                     )
-                    if arguments.recovery_mode
-                    else (
-                        "  OPERATOR CONSOLE -- PAPER. Orders reach the real Alpaca PAPER "
-                        "endpoint only.",
-                        "  Not real money. Every submission requires explicit Owner approval.",
-                        "  MILESTONE-089: SELL_TO_CLOSE is enabled for attributable PAPER "
-                        "positions.",
-                        "  RELEASE v1: an Owner-approved full plan is managed automatically "
-                        "(stop/target/mandatory exit) -- see /safety.",
-                        "  Live -- not authorized.",
+                    banner = (
+                        (
+                            "  OPERATOR CONSOLE -- PAPER, RECOVERY MODE. Read-only startup: Paper "
+                            "review, reconciliation and safety visibility only.",
+                            "  The automatic Plan Manager is NOT running. No exit can be "
+                            "confirmed or sent, automatically or manually.",
+                            "  Restart WITHOUT --recovery-mode, with the Owner present, to "
+                            "resume exits.",
+                            "  Live -- not authorized.",
+                        )
+                        if arguments.recovery_mode
+                        else (
+                            "  OPERATOR CONSOLE -- PAPER. Orders reach the real Alpaca PAPER "
+                            "endpoint only.",
+                            "  Not real money. Every submission requires explicit Owner approval.",
+                            "  MILESTONE-089: SELL_TO_CLOSE is enabled for attributable PAPER "
+                            "positions.",
+                            "  RELEASE v1: an Owner-approved full plan is managed automatically "
+                            "(stop/target/mandatory exit) -- see /safety.",
+                            "  Live -- not authorized.",
+                        )
                     )
-                )
-                _serve_with_reconciler(
-                    application,
-                    refresh=backend.service.refresh_executions,
-                    host=host,
-                    port=arguments.port,
-                    no_browser=arguments.no_browser,
-                    reconcile_every=arguments.reconcile_every,
-                    banner=banner,
-                    plan_manager=backend._plan_manager,
-                    manager_thread_handle=backend._manager_thread_handle,
-                    base_path=base_path,
-                    shutdown_control=ShutdownControl(
-                        safety_directory=arguments.safety_directory or manifest_path().parent
-                    ),
-                )
-            return 0
+                    exit_code = _serve_with_reconciler(
+                        application,
+                        refresh=backend.service.refresh_executions,
+                        host=host,
+                        port=arguments.port,
+                        no_browser=arguments.no_browser,
+                        reconcile_every=arguments.reconcile_every,
+                        banner=banner,
+                        plan_manager=backend._plan_manager,
+                        manager_thread_handle=backend._manager_thread_handle,
+                        base_path=base_path,
+                        shutdown_control=ShutdownControl(safety_directory=safety_directory),
+                    )
+            finally:
+                instance_lock.release()
+            return exit_code
         with paper_operator_console_runtime() as backend:
             application = build_paper_application(
                 backend, security=SecuritySession(), base_path=base_path

@@ -14,6 +14,10 @@ WHAT THIS IS. A reviewed, auditable, 14-step deployment procedure (`STEP_ORDER` 
        schema that is now actually live (never the other way around),
   12-13. starts the console in `--recovery-mode` (read-only; the automatic Plan Manager is not
        built) and verifies it came up correctly, and
+  5.   (HOLD) before stopping the console, durably creates the maintenance hold
+       (`console_lifecycle.create_maintenance_hold`) so neither the autostart wrapper nor a
+       FULL-mode console can restart it mid-deployment. The hold is NEVER removed by this tool
+       (not on success, not on failure): the Owner removes it as part of PAPER activation.
   14.  STOPS. There is no step that transitions to Active Mode -- that is always a separate,
        later, explicitly Owner-authorized action outside this script.
 
@@ -72,7 +76,7 @@ from typing import Any, Final, Literal, Protocol
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
-from empirical_platform.shared import console_control
+from empirical_platform.shared import console_control, console_lifecycle
 from empirical_platform.shared.config.settings import PostgreSQLConfigSnapshot
 from empirical_platform.shared.persistence.database_safety import (
     IDENTITY_QUERY,
@@ -170,11 +174,17 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
     STEP_5_SHUTDOWN: (
         "The console may still be running or may be mid-shutdown. Do NOT start a second "
         "console on the same port. Check process state by hand before re-running; a hung "
-        "shutdown needs investigation (in-flight reconciliation?), not a force-kill from here."
+        "shutdown needs investigation (in-flight reconciliation?), not a force-kill from here. "
+        "The maintenance hold (console-control/maintenance-hold.json) is in place and stays: "
+        "the autostart wrapper and any FULL-mode console will refuse to start until the Owner "
+        "releases it."
     ),
     STEP_6_VERIFY_STOPPED: (
         "The prior console process or port 8189 did not clear in time. The migration has NOT "
-        "started. Confirm no process is listening and no stale lock remains before re-running; "
+        "started. Confirm no process is listening on the configured port and that no OTHER "
+        "console (a different port or --safety-directory, which this step does not see) is "
+        "running, and that "
+        "no stale backup lock remains, before re-running; "
         "do not proceed to migration while this is ambiguous."
     ),
     STEP_7_MIGRATE: (
@@ -196,11 +206,11 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
     ),
     STEP_9_VERIFY_UNCHANGED: (
         "The new schema looks correct, but a historical row count changed where it must not "
-        "have (Store B's approved_plan or Store C's position_exit_attempt). Do NOT update the "
-        "manifest. This is treated as a possible concurrent write during the maintenance "
-        "window (the console should have been stopped in step 5/6) and needs investigation "
-        "before any further step; preserve the step-4 backup and do not restore without "
-        "separate Owner authorization."
+        "have (Store B's paper_execution_attempt or approved_plan, or Store C's "
+        "position_exit_attempt). Do NOT update the manifest. This is treated as a possible "
+        "concurrent write during the maintenance window (the console should have been "
+        "stopped in step 5/6) and needs investigation before any further step; preserve the "
+        "step-4 backup and do not restore without separate Owner authorization."
     ),
     STEP_10_MANIFEST_UPDATE: (
         "Store B's schema IS already migrated (steps 7-9 passed) but the manifest update did "
@@ -226,7 +236,11 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
         "time. Check for a stale process already holding the port, check captured "
         "stdout/stderr for a startup exception (most likely `require_personal_identity` "
         "refusing a mismatch -- re-verify the manifest head against the live schema head by "
-        "hand), and re-run step 12 alone once the port is confirmed free."
+        "hand), and re-run the same command (it resumes at step 12) once the port is "
+        "confirmed free. "
+        "If the recovery console started LATE (after the 30 s wait) it now holds the port: stop "
+        "that read-only console first. On Windows the port can also sit in TIME_WAIT for a few "
+        "minutes after the step-5 shutdown; wait and re-run."
     ),
     STEP_13_VERIFY_STARTUP: (
         "The console is running but did not verify cleanly (an HTTP check failed, broker was "
@@ -238,7 +252,9 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
     STEP_14_STOP_BEFORE_ACTIVE: (
         "Deployment completed through recovery-mode startup and verification. This script "
         "stops here by construction -- transitioning to Active Mode is always a separate, "
-        "explicit, Owner-authorized action taken outside this script."
+        "explicit, Owner-authorized action taken outside this script. The maintenance hold is "
+        "STILL IN PLACE (this script never removes it); the Owner releases it with `python -m "
+        "empirical_platform.entrypoints.release_maintenance_hold` when authorizing PAPER."
     ),
 }
 
@@ -316,7 +332,15 @@ class DeploymentJournal:
 def _atomic_write_json(path: Path, value: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    # M100 final audit: flush to disk before the rename, so a power loss cannot leave an empty or
+    # truncated file where a journal / manifest used to be.
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(descriptor, payload)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
     temporary.replace(path)
 
 
@@ -726,12 +750,12 @@ def step1_broker_verify(cfg: DeployConfig, ports: Ports) -> str:
     return "broker ACTIVE, not blocked, positions=0 open_orders=0 unknown=0"
 
 
-_NON_TERMINAL_EXECUTION_STATES: Final = (
-    "NOT_SUBMITTED",
-    "PAPER_SUBMITTED",
-    "PARTIALLY_FILLED",
-    "SUBMISSION_UNKNOWN",
-)
+#: Terminal attempt states (both stores). Everything ELSE -- DISPATCH_CLAIMED,
+#: SUBMISSION_IN_PROGRESS, SUBMITTED/PAPER_SUBMITTED, ACCEPTED/PAPER_ACCEPTED, PARTIALLY_FILLED,
+#: CANCEL_REQUESTED, SUBMISSION_UNKNOWN and any state a future release adds -- counts as in flight
+#: (fail closed). M100 final audit: the previous allow-list of 'non-terminal' names missed four of
+#: Store B's and five of Store C's real in-flight states.
+_TERMINAL_EXECUTION_STATES: Final = ("FILLED", "CANCELED", "REJECTED", "EXPIRED")
 
 
 def step2_no_inflight(cfg: DeployConfig) -> str:
@@ -745,8 +769,10 @@ def step2_no_inflight(cfg: DeployConfig) -> str:
             with engine.connect() as connection:
                 # `table` is always one of this function's own hardcoded tuple entries above,
                 # never external input.
-                placeholders = ", ".join(f"'{s}'" for s in _NON_TERMINAL_EXECUTION_STATES)
-                statement = f"SELECT attempt_id FROM public.{table} WHERE state IN ({placeholders})"  # noqa: S608
+                placeholders = ", ".join(f"'{s}'" for s in _TERMINAL_EXECUTION_STATES)
+                statement = (
+                    f"SELECT attempt_id FROM public.{table} WHERE state NOT IN ({placeholders})"  # noqa: E501, S608
+                )
                 rows: Sequence[Any] = connection.exec_driver_sql(statement).scalars().all()
                 in_flight.extend(f"Store {store} {table} {attempt_id}" for attempt_id in rows)
         finally:
@@ -838,12 +864,30 @@ def _pg_restore_executable(pg_bin: Path) -> Path:
     return executable
 
 
+def _ensure_maintenance_hold(cfg: DeployConfig) -> bool:
+    """Idempotently creates the maintenance hold in the console's control directory (the
+    manifest's directory). Fails closed: if it cannot be created, nothing is stopped."""
+    try:
+        return console_lifecycle.create_maintenance_hold(
+            cfg.manifest_path.parent, reason="personal_paper_deploy: console stop + migration"
+        )
+    except console_lifecycle.MaintenanceHoldError as error:
+        raise DeploymentBlockedError(
+            STEP_5_SHUTDOWN,
+            f"cannot create the maintenance hold, so the console is NOT stopped: {error}",
+        ) from error
+
+
 def step5_shutdown(cfg: DeployConfig, ports: Ports) -> str:
-    """MILESTONE-098: the PID to stop is the process that ACTUALLY owns `cfg.console_port`
+    """The maintenance hold is created FIRST (see `_ensure_maintenance_hold`), before anything
+    is stopped, then:
+
+    MILESTONE-098: the PID to stop is the process that ACTUALLY owns `cfg.console_port`
     right now, freshly queried at the OS level -- never a blindly-trusted `--console-pid`.
     If `--console-pid` was also given, it must match exactly, or this refuses rather than
     guess which process to signal (rejects a stale or otherwise incorrect PID, including the
     case where the OS has since reused that PID for an unrelated process)."""
+    _ensure_maintenance_hold(cfg)
     if ports.network.port_is_free(cfg.console_host, cfg.console_port):
         if cfg.console_pid is not None and ports.process.is_running(cfg.console_pid):
             raise DeploymentBlockedError(
@@ -1060,13 +1104,32 @@ def step9_verify_unchanged(cfg: DeployConfig) -> str:
     manifest = read_manifest(cfg.manifest_path)
     expected_b = manifest["stores"]["B"]["minimum_attempts"]
     expected_c = manifest["stores"]["C"]["minimum_attempts"]
+    # ADVERSARIAL REVIEW FOLLOW-UP: paper_execution_attempt is NOT the table this migration
+    # (or any Store B migration) actually modifies -- approved_plan is. Checking only
+    # paper_execution_attempt's row count could not have caught a loss of approved_plan rows.
+    # A manifest from before this baseline existed has no such key: refuse clearly rather
+    # than guess (a bare KeyError here would be this exact fail-closed refusal, just opaque).
+    expected_approved_plan = manifest["stores"]["B"].get("minimum_approved_plan_rows")
+    if expected_approved_plan is None:
+        raise DeploymentBlockedError(
+            STEP_9_VERIFY_UNCHANGED,
+            "manifest has no approved_plan row-count baseline; step 4 must run (or be "
+            "re-run) before step 9 can verify approved_plan was unchanged",
+        )
     post_b = _row_count(cfg.store_b_config, "paper_execution_attempt")
     post_c = _row_count(cfg.store_c_config, "position_exit_attempt")
+    post_approved_plan = _row_count(cfg.store_b_config, "approved_plan")
     _, head_c = _identity_and_head(cfg.store_c_config)
     if post_b != expected_b:
         raise DeploymentBlockedError(
             STEP_9_VERIFY_UNCHANGED,
             f"Store B paper_execution_attempt row count changed: {expected_b} -> {post_b}",
+        )
+    if post_approved_plan != expected_approved_plan:
+        raise DeploymentBlockedError(
+            STEP_9_VERIFY_UNCHANGED,
+            f"Store B approved_plan row count changed: {expected_approved_plan} -> "
+            f"{post_approved_plan}",
         )
     if post_c != expected_c:
         raise DeploymentBlockedError(
@@ -1078,8 +1141,9 @@ def step9_verify_unchanged(cfg: DeployConfig) -> str:
             STEP_9_VERIFY_UNCHANGED, f"Store C head changed: now {head_c!r}"
         )
     return (
-        f"Store B paper_execution_attempt={post_b} rows, "
-        f"Store C position_exit_attempt={post_c} rows, both unchanged vs. the backup baseline"
+        f"Store B paper_execution_attempt={post_b} rows, approved_plan={post_approved_plan} "
+        f"rows, Store C position_exit_attempt={post_c} rows, all unchanged vs. the backup "
+        "baseline"
     )
 
 
@@ -1284,7 +1348,24 @@ def run_deployment(
     skipped (each step function is itself idempotent too, so a step re-run after a crash
     mid-step is also safe)."""
     completed = journal.completed_steps() if resume else set()
+    if STEP_7_MIGRATE not in completed:
+        # M100 FOLLOW-UP (independent review, P1): until the migration has actually been
+        # applied, a resumed run must NOT trust that the pre-migration safety gates still hold
+        # -- hours may have passed, the console (or its autostart wrapper) may have been
+        # restarted, the broker may no longer be flat. These four gates are read-only and
+        # cheap, so they are always re-evaluated. (Steps 4/5 are not repeated: a fresh backup
+        # after a half-applied migration would be refused by the identity/head check, and
+        # step 6 re-verifies the console is still stopped.)
+        completed = completed - {
+            STEP_1_BROKER_VERIFY,
+            STEP_2_NO_INFLIGHT,
+            STEP_3_RELEASE_HEAD,
+            STEP_6_VERIFY_STOPPED,
+        }
     backup_location: Path | None = None
+    if STEP_5_SHUTDOWN in completed:
+        # Resumed past the shutdown: the hold must still be in place for steps 6+.
+        _ensure_maintenance_hold(cfg)
 
     def record(step: str, status: StepStatus, detail: str) -> None:
         journal.append(step, status, detail, now=now())
@@ -1343,6 +1424,13 @@ def run_deployment(
         except DeploymentBlockedError as blocked:
             record(step, "failed", blocked.reason)
             raise
+        except OSError as transport_error:
+            # M100 FOLLOW-UP: a refused connection / timeout (urllib's URLError is an OSError)
+            # must be a clean, journaled, fail-closed refusal -- never a raw traceback that
+            # leaves the journal's last record stuck at "started".
+            reason = f"unexpected I/O failure ({type(transport_error).__name__}): {transport_error}"
+            record(step, "failed", reason)
+            raise DeploymentBlockedError(step, reason) from transport_error
         record(step, "completed", detail)
 
     return journal
@@ -1401,17 +1489,26 @@ _DEFAULT_STORE_C_DATABASE: Final = "empirical_platform_paper_exit"
 def _store_c_config(
     store_b_config: PostgreSQLConfigSnapshot, environ: Mapping[str, str]
 ) -> PostgreSQLConfigSnapshot:
-    """Store C's connectivity, resolved the SAME way the real console resolves it.
+    """Store C's connectivity.
 
-    Independent Store C configuration is opt-in and signaled by
-    `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` being set: when it is, every
-    `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_*` field is resolved independently via
-    `_env_config`, exactly as this script always has. When it is absent -- the real topology
-    today, one Postgres server for both stores -- Store C reuses Store B's host/port/user/
-    password verbatim, with only the database name taken from
+    When `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` is absent -- the real topology today,
+    one Postgres server for both stores -- Store C reuses Store B's host/port/user/password
+    verbatim, with only the database name taken from
     `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_DATABASE` (or the same default the real console
-    entrypoint uses). `_PORT`/`_USER`/`_PASSWORD` set WITHOUT `_HOST` is refused rather than
-    silently mixed with Store B's values: that combination cannot mean anything safe.
+    entrypoint uses). This fallback branch genuinely matches
+    `_paper_position_exit_composition.resolve_paper_exit_postgres_config`, and
+    `test_store_c_fallback_constants_match_the_real_console_entrypoint` pins its variable
+    name and default together with that module.
+
+    ADVERSARIAL REVIEW FOLLOW-UP (2026-11-05): the branch below -- independent Store C
+    configuration, opt-in via `EMPIRICAL_PLATFORM_PAPER_EXIT_POSTGRES_HOST` being set -- is
+    NOT mirrored by the real console entrypoint at all: `resolve_paper_exit_postgres_config`
+    has no such branch and will keep silently reusing Store B's host even if that variable is
+    set. This script would then back up/migrate/verify a different server than the one the
+    live console actually talks to, with nothing surfacing the mismatch. Dormant today only
+    because the real environment never sets this variable; before it ever is, the real
+    console entrypoint needs the equivalent branch implemented first -- this script's own
+    handling of it is not evidence that doing so is safe.
     """
     independent = _PAPER_EXIT_HOST_VARIABLE in environ
     partially_configured = any(
@@ -1531,10 +1628,29 @@ def main(argv: Sequence[str] | None = None) -> int:
             "/paper",
             "--no-browser",
         ],
-        env=dict(os.environ),
+        # ADVERSARIAL REVIEW FOLLOW-UP: steps 3/11 rigorously verify the git ref is at the
+        # exact expected commit, but nothing enforced that the LAUNCHED process actually
+        # imports code from this same `--repo-path` -- an ambient PYTHONPATH left over from
+        # another of this machine's many worktrees would silently resolve `empirical_platform`
+        # to a different branch's code, with the git-level checks reporting success regardless.
+        # Always override PYTHONPATH to this exact repo's `src/`, never trust the ambient value.
+        env={**os.environ, "PYTHONPATH": str(arguments.repo_path / "src")},
         log_path=arguments.backup_root.parent / "recovery-console.log",
     )
-    journal = DeploymentJournal.load_or_new(arguments.journal_path)
+    try:
+        journal = DeploymentJournal.load_or_new(arguments.journal_path)
+    except (ValueError, TypeError, AttributeError, KeyError) as error:
+        # M100 final audit: a corrupt, empty or odd-shaped journal is a clean, fail-closed refusal,
+        # never a raw traceback. Nothing has been touched. Do NOT delete it blindly.
+        print(
+            f"REFUSED: the deployment journal at {arguments.journal_path} cannot be read "
+            f"({type(error).__name__}: {error}). Nothing was touched. If steps 1-6 were the only "
+            "ones ever recorded, move the file aside and start over. If the migration may have "
+            "been applied (step 7), do NOT delete it: compare Store B's alembic head and the "
+            "manifest by hand and ask for help before re-running.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         run_deployment(cfg, ports, journal, arguments.journal_path, launch=launch)
     except DeploymentBlockedError as blocked:

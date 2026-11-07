@@ -1367,10 +1367,11 @@ class OperatorConsoleService:
             if intent is None:
                 continue
             if attempt is not None and attempt.is_terminal and not position_is_open(attempt):
-                # A cancelled entry that had filled shares still holds a position (M087).
+                # A cancelled or expired entry that had filled shares still holds a position
+                # (M087; EXPIRED added by the M100 final review).
                 if not (
                     self._exits is not None
-                    and attempt.state is PaperExecutionState.CANCELED
+                    and attempt.state in (PaperExecutionState.CANCELED, PaperExecutionState.EXPIRED)
                     and attempt.filled_quantity is not None
                     and attempt.filled_quantity > 0
                 ):
@@ -1476,6 +1477,7 @@ class OperatorConsoleService:
             from empirical_platform.usecases.operator_console_exits import (
                 CATEGORY_EXPIRED_UNSUBMITTED,
                 CATEGORY_EXTERNALLY_CLOSED,
+                PLAN_MANAGED_ATTEMPT_PREFIXES,
                 deadline_status,
             )
 
@@ -1494,9 +1496,18 @@ class OperatorConsoleService:
                 exit_status = "Expired before it was ever sent to the broker."
                 position_open = False
             elif category == "Exit in progress":
-                exit_status = (
-                    "Exit in progress — nothing further is sent without your confirmation."
-                )
+                if latest_exit is not None and latest_exit.attempt_id.startswith(
+                    PLAN_MANAGED_ATTEMPT_PREFIXES
+                ):
+                    exit_status = (
+                        "Exit in progress — the automatic manager sends and reprices this "
+                        "exit on its own within bounded limits; you may still close the "
+                        "position manually."
+                    )
+                else:
+                    exit_status = (
+                        "Exit in progress — nothing further is sent without your confirmation."
+                    )
             elif category == "Needs attention" and exit_summary is not None:
                 exit_status = "Exit outcome unknown — do not retry."
             elif held:

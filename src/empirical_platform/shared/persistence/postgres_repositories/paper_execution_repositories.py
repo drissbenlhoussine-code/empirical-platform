@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from datetime import time as clock_time
 from decimal import Decimal
 from enum import StrEnum
@@ -66,6 +66,13 @@ from empirical_platform.decision_candidate.paper_execution import (
     ReconciliationRoundOutcome,
     SubmissionPreview,
     absence_evaluation,
+)
+from empirical_platform.decision_candidate.paper_portfolio_limits import (
+    ENTRY_ADMITTED_EVENT_TYPE,
+    EntryLedgerRow,
+    admission_event_id,
+    decode_admission_detail,
+    encode_admission_detail,
 )
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
@@ -1197,6 +1204,46 @@ class PaperDispatchClaim:
         return f"PaperDispatchClaim(won={self._won}, attempt_id={self._attempt.attempt_id!r})"
 
 
+_ENTRY_LEDGER_SELECT = (
+    "SELECT a.attempt_id AS attempt_id, a.client_order_id AS client_order_id, "
+    "a.state AS state, a.failure_code AS failure_code, e.detail AS detail "
+    "FROM public.paper_execution_attempt a LEFT JOIN public.paper_execution_event e "
+    "ON e.attempt_id = a.attempt_id AND e.event_type = :marker "
+    "WHERE a.claimed_at >= :day_start AND a.claimed_at < :day_end "
+    "ORDER BY a.claimed_at ASC, a.attempt_id ASC"
+)
+
+_ENTRY_DAY_LOCK = "SELECT pg_advisory_xact_lock(hashtext(:lock_key))"
+#: P2-6. Count-and-admit is only atomic if the ledger read AFTER the advisory lock sees every
+#: marker committed before the lock was granted. That holds under READ COMMITTED (each
+#: statement takes a fresh snapshot, PostgreSQL's default). Under REPEATABLE READ or
+#: SERIALIZABLE the snapshot is fixed by the FIRST statement (the lock itself), i.e. before
+#: the lock is granted, so two simultaneous submitters could both pass a limit that admits
+#: one. Fail closed instead of silently relying on a server default.
+_TRANSACTION_ISOLATION = "SHOW transaction_isolation"
+
+
+def _entry_lock_key(day_start: datetime) -> str:
+    return "paper-entry-admission:" + day_start.astimezone(UTC).isoformat()
+
+
+def _row_to_ledger(row: Mapping[str, Any]) -> EntryLedgerRow:
+    detail = _optional_str(row, "detail")
+    symbol: str | None = None
+    notional: Decimal | None = None
+    if detail is not None:
+        symbol, notional, _ = decode_admission_detail(detail)
+    return EntryLedgerRow(
+        attempt_id=_str(row, "attempt_id"),
+        client_order_id=_str(row, "client_order_id"),
+        state=_str(row, "state"),
+        failure_code=_optional_str(row, "failure_code"),
+        admitted=detail is not None,
+        symbol=symbol,
+        notional=notional,
+    )
+
+
 class PostgresExecutionAttemptRepository:
     """The dispatch lineage. One attempt per intent, ever, decided here."""
 
@@ -1373,6 +1420,77 @@ class PostgresExecutionAttemptRepository:
                 _ATTEMPT_SELECT_RECENT, {"limit": limit}
             )
         return tuple(_row_to_attempt(row) for row in rows)
+
+    def entry_ledger(self, *, day_start: datetime, day_end: datetime) -> tuple[EntryLedgerRow, ...]:
+        with self._service.unit_of_work() as work:
+            rows: Sequence[Mapping[str, Any]] = work.execute(
+                _ENTRY_LEDGER_SELECT,
+                {
+                    "marker": ENTRY_ADMITTED_EVENT_TYPE,
+                    "day_start": day_start,
+                    "day_end": day_end,
+                },
+            )
+        return tuple(_row_to_ledger(row) for row in rows)
+
+    def admit_entry(
+        self,
+        *,
+        attempt_id: str,
+        day_start: datetime,
+        day_end: datetime,
+        at: datetime,
+        symbol: str,
+        notional: Decimal,
+        client_order_id: str,
+        decide: Callable[[tuple[EntryLedgerRow, ...]], str | None],
+    ) -> str | None:
+        """Count-and-admit under a transaction-scoped advisory lock keyed on the trading day.
+
+        Every submitter takes the SAME lock before reading the ledger and holds it until its
+        admission marker is committed, so the second of two simultaneous submissions reads
+        the first's marker. The lock is released by COMMIT/ROLLBACK (never leaked by a crash).
+        """
+        with self._service.unit_of_work() as work:
+            level_rows = list(work.execute(_TRANSACTION_ISOLATION))
+            level = str(next(iter(level_rows[0].values()))) if level_rows else ""
+            if level.lower() != "read committed":
+                return (
+                    "entry admission requires READ COMMITTED transaction isolation to be "
+                    f"atomic; this connection reports {level!r}; entry refused"
+                )
+            work.execute(_ENTRY_DAY_LOCK, {"lock_key": _entry_lock_key(day_start)})
+            rows: Sequence[Mapping[str, Any]] = work.execute(
+                _ENTRY_LEDGER_SELECT,
+                {
+                    "marker": ENTRY_ADMITTED_EVENT_TYPE,
+                    "day_start": day_start,
+                    "day_end": day_end,
+                },
+            )
+            ledger = tuple(_row_to_ledger(row) for row in rows)
+            refusal = decide(ledger)
+            if refusal is not None:
+                return refusal
+            if any(row.attempt_id == attempt_id and row.admitted for row in ledger):
+                return None
+            attempt = list(work.execute(_ATTEMPT_SELECT_BY_ID, {"key": attempt_id}))
+            if not attempt:
+                raise ValueError(f"no paper execution attempt {attempt_id!r} exists")
+            work.execute(
+                _EVENT_INSERT,
+                {
+                    "event_id": admission_event_id(attempt_id),
+                    "intent_governance_id": _str(attempt[0], "intent_governance_id"),
+                    "attempt_id": attempt_id,
+                    "event_type": ENTRY_ADMITTED_EVENT_TYPE,
+                    "occurred_at": at,
+                    "detail": encode_admission_detail(
+                        symbol=symbol, notional=notional, client_order_id=client_order_id
+                    ),
+                },
+            )
+        return None
 
 
 # ---------------------------------------------------------------------------

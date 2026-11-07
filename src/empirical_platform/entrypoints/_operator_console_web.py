@@ -25,7 +25,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
+import re
 import secrets
+import socket
+import sys
 import threading
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
@@ -42,8 +46,10 @@ __all__ = [
     "Router",
     "SecuritySession",
     "ThreadingWSGIServer",
+    "apply_exclusive_bind",
     "html_response",
     "redirect",
+    "reuse_address_allowed",
     "serve",
 ]
 
@@ -148,6 +154,10 @@ class Router:
         self._security = security
         self._not_found: Callable[[Request], Response] | None = None
         self._refused: Callable[[Request, str], Response] | None = None
+        #: P2-1: lets a route registered AFTER `build_application` (the v1 `/confirm-approval`
+        #: override) put its outcome into the SAME one-shot flash the base handlers use, so
+        #: the Owner sees the reason ("execution blocked ...") on the opportunity page.
+        self.outcome_sink: Callable[[Request, Any], None] | None = None
 
     def get(self, path: str, handler: Handler) -> None:
         self._routes[("GET", path)] = handler
@@ -175,6 +185,16 @@ class Router:
     def __call__(
         self, environ: dict[str, Any], start_response: Callable[..., Any]
     ) -> Iterable[bytes]:
+        # M100 FOLLOW-UP (independent review, P1): without a Host check, a DNS-rebinding page
+        # is same-origin with this loopback console, can read a fresh CSRF token and then
+        # POST approve/submit/kill-switch actions. A browser always sends Host; refuse any
+        # that does not name this machine's loopback.
+        if not _host_header_is_loopback(environ.get("HTTP_HOST")):
+            start_response(
+                "421 Misdirected Request",
+                [("Content-Type", "text/plain; charset=utf-8"), *_SECURITY_HEADERS],
+            )
+            return [b"Refused: this console only answers requests addressed to localhost."]
         request = _read_request(environ)
         service_entry = self._service_routes.get((request.method, request.path))
         if service_entry is not None:
@@ -235,6 +255,45 @@ class Router:
         return [response.body]
 
 
+_LOOPBACK_HOST_NAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
+
+#: Explicit, Owner-set opt-in for a private tunnel (e.g. the tailnet name that Tailscale
+#: `serve` forwards as the Host header): a comma-separated list of EXACT host names. Default
+#: is empty = loopback only. No wildcards, no IP-range shortcuts, no ports; anything that is
+#: not a plain DNS name is ignored, so a typo can only make the console stricter.
+ALLOWED_HOSTS_VARIABLE = "EMPIRICAL_PLATFORM_CONSOLE_ALLOWED_HOSTS"
+_PLAIN_DNS_NAME = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+)
+
+
+#: A Host header is exactly `name` or `name:port` where name is a bracketed IPv6 literal or a
+#: plain dotted name / IPv4 literal and port is digits only. Anything else is refused.
+_HOST_HEADER_SHAPE = re.compile(r"^(?P<name>\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::[0-9]{1,5})?$")
+
+
+def _extra_allowed_host_names() -> frozenset[str]:
+    raw = os.environ.get(ALLOWED_HOSTS_VARIABLE, "")
+    names = {item.strip().lower() for item in raw.split(",")}
+    return frozenset(name for name in names if name and _PLAIN_DNS_NAME.match(name))
+
+
+def _host_header_is_loopback(host_header: object) -> bool:
+    """True when the Host header names a loopback host (any port) or one of the Owner's
+    explicitly allowed private-tunnel names. A missing header (an HTTP/1.0 client or a direct
+    WSGI call, never a browser) is not an attack vector for DNS rebinding, which always
+    carries the attacker's hostname."""
+    if host_header is None:
+        return True
+    if not isinstance(host_header, str):
+        return False
+    match = _HOST_HEADER_SHAPE.match(host_header.strip().lower())
+    if match is None:
+        return False
+    name = match.group("name")
+    return name in _LOOPBACK_HOST_NAMES or name in _extra_allowed_host_names()
+
+
 def _read_request(environ: dict[str, Any]) -> Request:
     method = str(environ.get("REQUEST_METHOD", "GET")).upper()
     path = str(environ.get("PATH_INFO", "/")) or "/"
@@ -276,11 +335,33 @@ def _read_request(environ: dict[str, Any]) -> Request:
     )
 
 
+def reuse_address_allowed(platform: str) -> bool:
+    """False on Windows (SO_REUSEADDR permits a second live listener there), True elsewhere."""
+    return platform != "win32"
+
+
+def apply_exclusive_bind(sock: Any, platform: str) -> None:  # noqa: ANN401
+    """On Windows, forbid any other socket from binding this port (SO_EXCLUSIVEADDRUSE)."""
+    if platform == "win32":
+        option = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if option is None:  # pragma: no cover - always present on Windows
+            raise OSError("SO_EXCLUSIVEADDRUSE is unavailable; refusing to bind a shared port")
+        sock.setsockopt(socket.SOL_SOCKET, option, 1)
+
+
 class ThreadingWSGIServer(WSGIServer):
     """One thread per request, so a slow page never blocks the kill switch."""
 
     daemon_threads = True
-    allow_reuse_address = True
+    # EXPLICIT PORT-BINDING DECISION (RELEASE v1 hardening). On POSIX SO_REUSEADDR only lets a
+    # restart bind through TIME_WAIT; it never allows two live listeners, so it stays on. On
+    # Windows SO_REUSEADDR DOES let a second process bind the same listening port, so it is
+    # off there and SO_EXCLUSIVEADDRUSE is set instead (see `server_bind`).
+    allow_reuse_address = reuse_address_allowed(sys.platform)
+
+    def server_bind(self) -> None:
+        apply_exclusive_bind(self.socket, sys.platform)
+        super().server_bind()
 
     def process_request(self, request: Any, client_address: Any) -> None:  # noqa: ANN401
         thread = threading.Thread(

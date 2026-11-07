@@ -123,7 +123,7 @@ def test_upgrade_and_full_risk_round_trip(engine: Engine) -> None:
             created_at=CHAIN_AT,
             broker_now=chain_clock(),
             quote_captured_at=CHAIN_AT,
-            market_next_close=EVALUATED_AT + timedelta(hours=2),
+            market_next_close=EVALUATED_AT + timedelta(hours=6),
         )
         assert preview.is_authorizable, preview.refusals
         assert paper.submission_previews.save(preview) == preview

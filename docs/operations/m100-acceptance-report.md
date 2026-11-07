@@ -1,0 +1,77 @@
+# M100 -- Cloud launch closure: acceptance report (FINAL)
+
+Consolidated PR: #49 (`claude/empirical-m100-launch-c492oz` -> `release/v1-personal-paper`), draft, not merged.
+It contains PR #47's two commits unchanged (`205e906`, `ac5e649`) plus the follow-up work. PR #46 is untouched
+(its tree is identical to the release branch). Nothing here was run on the Windows host or against any broker.
+
+## Defect register (all independent-review findings; no P0 was ever found)
+
+| ID | Sev | Finding | Status |
+|----|-----|---------|--------|
+| D1 | P1 | Daily loss / order count / position count / exposure never enforced | **FIXED**: enforced pre-claim and inside `before_send`, fail-closed, atomic (day advisory lock + durable admission marker); whole-account broker read taken INSIDE the lock; exits never blocked |
+| D2 | P1 | Duplicate entry (two Prepares) | **FIXED**: submit-time working-order guard + D1 ledger |
+| D3 | P1 | Exit one-shot DAY limit, never repriced/re-armed | **FIXED**: bounded cancel/replace (LIMIT only, <=50 bps concession, <=5 attempts/session, 30 s / 15 s spacing), partial fills, cancel races, ambiguity reconciled never resent, market closed, restart-safe; unknown/non-terminal statuses (`suspended`...) fail closed |
+| D4 | P1 | No Host check (DNS rebinding) | **FIXED** (421) |
+| D5 | P1 | Deploy resume skipped gates 1/2/3/6 | **FIXED** |
+| D6 | P1 | Autostart wrapper restarts console after deliberate stop; no single-instance lock; Windows port reuse | **FIXED**: OS lock, maintenance hold, exit-code contract, bounded backoff + circuit breaker, `SO_EXCLUSIVEADDRUSE`, importable Task XML. **Needs Windows-host verification** |
+| D7 | P1 | MANDATORY_EXIT ack/round ids collided (found by the E2E matrix) | **FIXED** |
+| D8 | P1 | Partial entry: filled shares unprotected; EXPIRED-with-fills entry unattributable | **FIXED**: entry remainder protector (cancel after 120 s, at STOP/TARGET trigger or mandatory deadline; <=5 cancels, 15 s apart); EXPIRED-with-fills is a stable holding state, also shown in the Owner console |
+| D9 | P1 | One plan's exception aborted the whole manager tick; entry `suspended` mapped to REJECTED | **FIXED** (per-plan isolation with durable event; `UNMAPPED_BROKER_STATUS`, fail closed) |
+
+## P2 register (classified; none release-blocking for a supervised PAPER run)
+
+| ID | Finding | Disposition | Evidence / mitigation and operational consequence |
+|----|---------|-------------|---------------------------------------------------|
+| P2-1 | A blocked `/confirm-approval` dropped the outcome message (the Owner saw no reason) and still created an `ApprovedPlan` for an entry that was never sent | **FIXED** | The v1 override now puts the service outcome into the same one-shot flash ("Approved, execution blocked: ...; nothing was sent") shown on the opportunity page. `approve_full_plan` creates the plan only once an entry attempt exists; the Owner's re-confirmation after the block clears is idempotent and creates it then. The old plan was inert (the manager's assessment found no entry execution and sent nothing; it could only ever attach to its own intent) but was re-assessed every tick. Tests: `test_p2_1_a_blocked_approval_shows_the_owner_why_and_creates_no_plan` (route), `test_p2_1_a_blocked_approval_creates_no_plan_and_a_retry_after_the_block_creates_it` (use case) |
+| P2-2 | A refused Prepare followed by another within the same second raised a raw uniqueness error (the refused attempt had already written its evaluation-context row) | **FIXED** | Ids keep the second-resolution stamp; a collision takes the first free `-N` suffix (probing proposal and context ids; nothing parses these ids). A lost same-id race becomes a clean "click Prepare again" refusal. Tests: `tests/unit/test_p2_same_second_prepare.py` (both fail on the previous code) |
+| P2-3 | Wording: a working BUY was reported as "a position of N already exists" | **FIXED** | Now "a position and/or working order(s) of N shares already exist in SYMBOL". Test: `test_m085_paper_execution_domain.py` (pinned text). The checked-in generated evidence still quotes the old sentence until it is next regenerated |
+| P2-4 | `ReconcilePaperOrderHandler` wrote a round row + acknowledgement row on every 15 s manager tick while a partial entry waits | **FIXED for a closed market; DEFERRED (bounded) while open** | While the broker clock explicitly says CLOSED the reconcile of a waiting partial entry runs at most once per 300 s (about 420 rows/day instead of about 11.5k/day per such entry); an open market or an unreadable clock is never throttled, so "reconcile first" is unchanged whenever a cancel/exit decision is possible, and the first open-market tick reconciles at once. While OPEN the growth remains about 2 rows per 15 s (about 3.1k rows/day over a 6.5 h session) but is bounded in practice by the 120 s proactive cancel and the DAY order's expiry at the close; rows are append-only audit and may be archived after the trading day. Tests: `test_p2_4_closed_market_ticks_do_not_grow_the_reconcile_tables_every_tick`, `test_p2_4_an_unreadable_clock_is_never_throttled` |
+| P2-5 | `_select_slot` could resume a stale pre-minted slot that the submit handler then refuses ("no unused human exit authorization exists"), stalling the next exit generation until that authorization expires (<= 300 s) | **FIXED (defensively); not reachable by crash-resume alone** | The submit handler spends the entry's LATEST authorization. A crash between authorize and submit resumes cleanly (that slot's authorization is the latest). The stall needs a LATER, already-consumed authorization (an Owner manual exit authorized after the manager pre-minted), and the single-instance lock rules out a second manager. `_select_slot` now abandons such a slot (ids stay deterministic; the attempt/active-exit guards are untouched, so no second live sell). Test: `test_p2_5_a_pre_minted_slot_shadowed_by_a_later_consumed_authorization_is_skipped` (fails on the previous code) |
+| P2-6 | Admission is keyed by the ET day of "now" but the ledger counts by `claimed_at`; atomicity relies on READ COMMITTED | **Isolation FIXED (fail closed); midnight straddle DEFERRED-WITH-MITIGATION** | `admit_entry` now refuses the entry unless the connection reports READ COMMITTED (under REPEATABLE READ / SERIALIZABLE the snapshot predates the lock). Test: `TestAdmissionFailsClosedOffReadCommitted` (PostgreSQL). Straddle: an entry is claimed and admitted in one call milliseconds apart while the broker reports the market open; regular hours never include ET midnight, so the two day keys cannot differ for a sendable entry. Consequence if ever violated: that one entry would be counted in the previous day's ledger. No change |
+| P2-7 | Racing managers: a loser raised a raw `FoundationError` on a slot primary-key collision | **ALREADY-FIXED / mitigated** | Per-plan isolation turns any exception (including a uniqueness violation) into a NEEDS_ATTENTION outcome with a durable `PLAN_EVALUATION_ERROR` event for that plan only; every other plan is still evaluated. Test: `test_one_plans_exception_does_not_starve_the_next_plan` (`"duplicate key value violates unique constraint"`). A second manager is also prevented by the cross-process single-instance lock |
+| P2-8 | Alpaca specifics untested against the real service: `pending_cancel` latency, DAY-expiry status naming, real `last_equity` semantics (daily P&L proxy = equity - last_equity includes unrealized) | **DEFERRED (needs the real service)** | Unknown statuses fail closed (`UNMAPPED_BROKER_STATUS`); the daily-loss figure is conservative (includes unrealized loss). Verify against a real PAPER account during the supervised run |
+
+## Owner-visible escalations (Audit A, P1-1)
+
+Automatic exit management used to escalate `NEEDS_ATTENTION` outcomes to the process log only. They now reach an in-process
+`AttentionBoard` (re-derived every tick, not durable, cleared by the next non-attention outcome or when the plan is no longer
+evaluated) that `/active` renders as a red banner at the top and on the affected trade card, and `/safety` lists under
+"Plans needing attention" (or "None"). Headline: **AUTOMATIC EXIT STOPPED -- CLOSE THIS POSITION MANUALLY AT THE BROKER**,
+followed by the specific reason and, when the position is held, the manual-exit review link.
+
+| Source | Reason shown |
+|--------|--------------|
+| Exit retry budget spent (`EXIT_RETRIES_EXHAUSTED`) | "... did not close the position; no further orders are sent automatically ... The Owner must close or review this position." |
+| Cancel budget spent / cancel acknowledgement unknown (`EXIT_CANCEL_ERROR`) | "... N cancel requests were not confirmed by the broker; no replacement is sent ..." |
+| Send unresolved longer than 120 s | "... has been unresolved for Ns; it is reconciled by client_order_id every tick and is NEVER re-sent automatically" |
+| Market closed / broker clock unreadable while an exit is triggered | "The market is not in a regular trading session ..." / "The broker clock could not be read ..." |
+| Plan evaluation raised (`PLAN_EVALUATION_ERROR`) | "evaluating this plan raised <type> ..." |
+| Quote spread/age gate blocks a triggered STOP/TARGET/MANDATORY exit for more than 60 s | "a triggered STOP/TARGET/MANDATORY exit cannot be priced: quote spread/age gate; position remains open" + the gate's own reason |
+| Entry remainder cancel budget spent (`ENTRY_REMAINDER_CANCEL_EXHAUSTED`) | the protector's detail |
+| Entry `UNMAPPED_BROKER_STATUS` on a still-non-terminal entry | "UNMAPPED_BROKER_STATUS (entry order): the broker reports status ..." |
+| Whole manager tick raised | banner "AUTOMATIC EXIT MANAGEMENT FAILED -- CHECK EVERY OPEN POSITION MANUALLY AT THE BROKER" |
+
+The Active-card sentence "Exit in progress -- nothing further is sent without your confirmation" was false for plan-managed exits;
+for those it now says the manager sends and reprices on its own within bounded limits and the Owner may still close manually. The
+confirmation wording remains only for Owner-confirmed manual exits. Tests: `tests/unit/test_v1_owner_escalation_board.py`;
+matrix steps ACC-17 / ACC-17b / ACC-17c assert the board is empty on healthy flows and the banner appears on exhaustion.
+
+**OWNER DECISION (not done): the quote gate can block a mandatory exit.** `PreviewPositionExitHandler` reuses the entry quote
+spread/age gate for exits, so a triggered STOP/TARGET/MANDATORY exit is never sent while the spread or quote age is outside the
+gate (for example bid 229.00 / ask 245.00) and the position stays open. This is now visible (banner after 60 s) but not changed:
+exempting exits from the spread gate is a policy change; not done.
+
+## Verification record
+
+See the "Final report" delivered with PR #49 for exact SHA, commands and counts. Evidence of the 24-step matrix:
+`docs/operations/m100-acceptance-evidence.md` (+ `.json`), produced by a real run against throwaway PostgreSQL 16.
+Not-truly-end-to-end: the broker/market data is a scripted local exchange (real HTTP client, real hosts pinned), time is virtual,
+the WSGI app is called in-process and the plan-manager thread is driven by `evaluate_once`.
+
+## Early-close days
+
+Audit A P1-2: the mandatory liquidation is a fixed time of day (15:45 ET) and nothing used to compare it with the broker's `next_close`. On an early-close day (13:00 ET) a 12:30 entry was accepted although the plan manager's mandatory-exit deadline (15:43) falls after the close, so the position would have been held overnight.
+
+Behaviour now (`decision_candidate/session_close_guard.py`): an ENTRY is refused unless `mandatory_liquidation_at - 120 s` (the plan manager's `MANDATORY_EXIT_SAFETY_BUFFER_SECONDS`, imported) is strictly before the broker's `next_close - 300 s` (`SESSION_CLOSE_ENTRY_BUFFER_SECONDS`). A missing or naive close refuses (fail closed). Enforced in Prepare, in the entry preview, and in the final send guard (pre-claim and in-`before_send`), so a proposal prepared earlier cannot be sent after the close changed. Refusal text: "the market closes at HH:MM ET, before the mandatory liquidation time HH:MM ET; no entry today". Risk-reducing exits are unaffected. No configured threshold was changed.
+
+OWNER DECISION REQUIRED: on a 13:00 ET close with the configured 15:45 liquidation, EVERY entry is refused for the day. The early-close dates 2026-11-27 and 2026-12-24 will therefore refuse all entries unless the Owner moves the configured liquidation time earlier (before 12:53 ET, and the latest entry time earlier still, since liquidation must follow it). That decision is not made here. The risk engine `evaluate_trade_proposal` does not receive the broker close and was not widened.

@@ -68,6 +68,15 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
     OperatorTradingConfiguration,
     OrderType,
 )
+from empirical_platform.decision_candidate.paper_portfolio_limits import (
+    EntryLedgerRow,
+    PortfolioEvidence,
+    PortfolioLimits,
+    portfolio_limit_refusal,
+)
+from empirical_platform.decision_candidate.session_close_guard import (
+    session_close_before_liquidation_refusal,
+)
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovalDecision,
     ApprovedOrderIntent,
@@ -2697,7 +2706,8 @@ def build_submission_preview(
         refusals.append(f"{intent.symbol} is not a US equity ({asset_class})")
     if existing_position_quantity != 0:
         refusals.append(
-            f"a position of {existing_position_quantity} already exists in {intent.symbol}"
+            f"a position and/or working order(s) of {existing_position_quantity} shares already "
+            f"exist in {intent.symbol}"
         )
     # BROKER TIMELINE. The session close is the broker's own fact, so a close
     # that MIGHT already have passed is treated as passed.
@@ -2707,6 +2717,14 @@ def build_submission_preview(
         or broker_now.possibly_at_or_after(market_next_close)
     ):
         refusals.append("the regular market session is closed or cannot be established")
+    # Audit A P1-2: the mandatory exit must be able to START before the broker's close.
+    close_refusal = session_close_before_liquidation_refusal(
+        mandatory_liquidation_at=intent.mandatory_liquidation_at,
+        market_next_close=market_next_close,
+        operator_timezone=policy.operator_timezone,
+    )
+    if close_refusal is not None:
+        refusals.append(close_refusal)
     window_refusal = entry_window_refusal(policy=policy, broker_now=broker_now)
     if window_refusal is not None:
         refusals.append(window_refusal)
@@ -2918,8 +2936,20 @@ def final_send_refusal(
     quote_ask: Decimal | None,
     quote_captured_at: datetime | None,
     kill_switch_engaged: bool,
+    portfolio_limits: PortfolioLimits | None,
+    portfolio: PortfolioEvidence | None,
+    entry_ledger: tuple[EntryLedgerRow, ...] | None,
+    attempt_id: str,
 ) -> str | None:
     """Every condition that must hold at the LAST controllable boundary before a send.
+
+    FIX D1. `portfolio_limits`, `portfolio` and `entry_ledger` have no defaults on purpose:
+    a caller that forgets them is a type error, and passing None is a REFUSAL (missing
+    evidence), never a pass. They carry the configuration's daily-loss, daily-order-count,
+    simultaneous-position and total-exposure ceilings, the broker's whole-account state
+    and the trading day's durable order history; this is an ENTRY guard only, risk-reducing
+    exits never reach it. `attempt_id` is the attempt being sent (its own ledger row is
+    not double counted).
 
     CORRECTIVE PASS (item 7). The caller supplies values READ FRESH for this call --
     the kill switch from the database, the configuration re-loaded and re-derived
@@ -2994,13 +3024,33 @@ def final_send_refusal(
         or broker_now.possibly_at_or_after(market_next_close)
     ):
         return "the regular market session is closed"
+    close_refusal = session_close_before_liquidation_refusal(
+        mandatory_liquidation_at=intent.mandatory_liquidation_at,
+        market_next_close=market_next_close,
+        operator_timezone=policy_now.operator_timezone,
+    )
+    if close_refusal is not None:
+        return close_refusal
     window_refusal = entry_window_refusal(policy=policy_now, broker_now=broker_now)
     if window_refusal is not None:
         return window_refusal
-    return quote_refusal(
+    quote_problem = quote_refusal(
         bid=quote_bid,
         ask=quote_ask,
         captured_at=quote_captured_at,
         policy=policy_now,
         broker_now=broker_now,
+    )
+    if quote_problem is not None:
+        return quote_problem
+    # FIX D1: portfolio ceilings, last, on the same fresh evidence. `limit_price` and
+    # `quantity` were verified above (a LIMIT order with a knowable cost ceiling).
+    return portfolio_limit_refusal(
+        limits=portfolio_limits,
+        portfolio=portfolio,
+        ledger=entry_ledger,
+        attempt_id=attempt_id,
+        client_order_id=authorization.client_order_id,
+        symbol=intent.symbol,
+        order_notional=intent.limit_price * Decimal(intent.quantity),
     )

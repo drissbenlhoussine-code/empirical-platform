@@ -104,6 +104,7 @@ __all__ = [
     "CATEGORY_WORKING_ENTRY",
     "DEADLINE_MISSED_TRUTH",
     "EXIT_ACTION",
+    "PLAN_MANAGED_ATTEMPT_PREFIXES",
     "ExitRepositories",
     "ExitReviewView",
     "ExitSummary",
@@ -115,6 +116,10 @@ __all__ = [
 ]
 
 EXIT_ACTION = "EXIT"
+#: Attempt-id prefixes the AUTOMATIC plan manager mints (`position_plan_manager._attempt_id`:
+#: slot 0 `XAT-plan-...`, later generations `XAT-pg<slot>-...`). An Owner-confirmed manual
+#: exit is `XAT-<intent id>-<version>` and never matches. Pinned by a unit test.
+PLAN_MANAGED_ATTEMPT_PREFIXES = ("XAT-plan-", "XAT-pg")
 CATEGORY_WORKING_ENTRY = "Working entry order"
 CATEGORY_OPEN_POSITION = "Open position"
 CATEGORY_EXIT_IN_PROGRESS = "Exit in progress"
@@ -442,7 +447,7 @@ class PositionExitConsole:
             return CATEGORY_NEEDS_ATTENTION
         if entry.state.value == "FILLED" and position_is_open(entry):
             return CATEGORY_OPEN_POSITION
-        if entry.state.value == "CANCELED" and position_is_open_after_cancel(entry):
+        if position_is_open_after_cancel(entry):
             return CATEGORY_OPEN_POSITION
         return CATEGORY_WORKING_ENTRY
 
@@ -1106,9 +1111,13 @@ class PositionExitConsole:
 
 
 def position_is_open_after_cancel(entry: ExecutionAttempt) -> bool:
-    """A cancelled entry that had filled shares before the cancel: a stable open position."""
+    """A cancelled OR expired entry that had filled shares: a stable open position.
+
+    M100 final review (P1): a DAY entry that part-fills and lapses at the close ends EXPIRED
+    with fills; exit attribution already treats it as a held position, so the Owner console
+    must show (and let the Owner exit) it too."""
     return (
-        entry.state.value == "CANCELED"
+        entry.state.value in {"CANCELED", "EXPIRED"}
         and entry.filled_quantity is not None
         and entry.filled_quantity > 0
     )

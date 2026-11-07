@@ -42,7 +42,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -64,8 +64,18 @@ __all__ = [
     "ALLOWED_EXIT_ENVIRONMENTS",
     "ALLOWED_EXIT_TRANSITIONS",
     "BOUND_EXIT_ORDER_STATES",
+    "EXIT_CANCEL_EVENT_TYPES",
     "EXIT_CLIENT_ORDER_ID_PREFIX",
+    "EXIT_CONCESSION_STEP_BPS",
+    "EXIT_MAX_ATTEMPTS_PER_SESSION",
+    "EXIT_MAX_CANCEL_REQUESTS_PER_ATTEMPT",
+    "EXIT_MAX_CONCESSION_BPS",
+    "EXIT_MAX_EXPIRED_SESSIONS",
+    "EXIT_REPRICE_MIN_SPACING_MANDATORY_SECONDS",
+    "EXIT_REPRICE_MIN_SPACING_SECONDS",
+    "EXIT_RETRIES_EXHAUSTED_EVENT_TYPE",
     "EXIT_SEND_BOUNDARY_EVENT_TYPE",
+    "EXIT_UNRESOLVED_ALERT_SECONDS",
     "EXIT_SIDE",
     "EXIT_UNSENT_EVENT_TYPES",
     "EXIT_UNSENT_FAILURE_CODES",
@@ -95,6 +105,8 @@ __all__ = [
     "exit_attempt_may_have_transmitted",
     "exit_authorization_binding_refusal",
     "exit_eligibility",
+    "exit_limit_concession_bps",
+    "exit_limit_price",
     "exit_order_terms_mismatches",
     "exit_request_fingerprint",
     "exit_send_boundary_binding",
@@ -132,6 +144,33 @@ OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE = "EXIT_OVERDUE_RECOVERY_APPROVAL_G
 EXIT_SEND_BOUNDARY_EVENT_TYPE = "EXIT_SEND_BOUNDARY_ENTERED"
 POSITION_CLOSED_VERIFIED_EVENT_TYPE = "POSITION_CLOSED_VERIFIED"
 POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE = "POSITION_NOT_ZERO_AFTER_FILL"
+
+#: RELIABLE EXIT MANAGEMENT (bounded reconciliation / retry). An unfilled exit is NEVER
+#: re-sent while its predecessor might still be live: the manager cancels it, waits for the
+#: broker to report it terminal, and only then sends the next GENERATION (a new preview,
+#: authorization, attempt and `client_order_id`). Escalation stays a LIMIT order: generation
+#: `g` (0 = the original, priced at the bid) is priced `bid - g * STEP bps`, capped at
+#: `EXIT_MAX_CONCESSION_BPS` of the CURRENT bid, so a repriced exit is marketable but can never
+#: be priced absurdly far below the market. There is no market-order path.
+EXIT_CONCESSION_STEP_BPS = 10
+EXIT_MAX_CONCESSION_BPS = 50
+#: Attempts (generations) per trading session, the original included. After this many unfilled
+#: attempts the state is an explicit NEEDS_ATTENTION and nothing more is sent automatically.
+EXIT_MAX_ATTEMPTS_PER_SESSION = 5
+#: A DAY exit that EXPIRES at the close is re-armed next session, at most this many times.
+EXIT_MAX_EXPIRED_SESSIONS = 5
+#: Minimum seconds between sends/replaces (measured from the previous attempt's claim).
+EXIT_REPRICE_MIN_SPACING_SECONDS = 30
+#: A mandatory liquidation has a hard clock, so it reprices faster.
+EXIT_REPRICE_MIN_SPACING_MANDATORY_SECONDS = 15
+#: At most this many cancel requests for one attempt (refused / errored / accepted).
+EXIT_MAX_CANCEL_REQUESTS_PER_ATTEMPT = 5
+#: An attempt that cannot be resolved (UNKNOWN / in progress) this long raises a loud alert.
+EXIT_UNRESOLVED_ALERT_SECONDS = 120
+EXIT_RETRIES_EXHAUSTED_EVENT_TYPE = "EXIT_RETRIES_EXHAUSTED"
+EXIT_CANCEL_EVENT_TYPES: frozenset[str] = frozenset(
+    {"EXIT_CANCEL_REQUESTED", "EXIT_CANCEL_REFUSED", "EXIT_CANCEL_ERROR"}
+)
 
 _MAXIMUM_IDENTIFIER_LENGTH = 64
 _HEX_DIGEST = re.compile(r"^[0-9a-f]{64}$")
@@ -349,6 +388,30 @@ ALLOWED_EXIT_TRANSITIONS: MappingProxyType[PositionExitState, frozenset[Position
 )
 
 
+def exit_limit_concession_bps(generation: int) -> int:
+    """Basis points below the bid that exit generation `generation` may concede. Bounded."""
+    if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+        raise ValueError("generation must be a non-negative int")
+    return min(generation * EXIT_CONCESSION_STEP_BPS, EXIT_MAX_CONCESSION_BPS)
+
+
+def exit_limit_price(bid: Decimal, *, generation: int) -> Decimal:
+    """The LIMIT price of an exit generation: the bid itself for generation 0, otherwise the
+    bid less a bounded concession, rounded DOWN to the cent (more marketable) and never above
+    the bid. A SELL limit at or below the bid is marketable; it can never cross the hard floor
+    `bid * (1 - EXIT_MAX_CONCESSION_BPS / 10000)` (less one cent of rounding)."""
+    _require_positive_money(bid, field="bid")
+    bps = exit_limit_concession_bps(generation)
+    if bps == 0:
+        return bid
+    price = (bid * (Decimal(10000 - bps) / Decimal(10000))).quantize(
+        Decimal("0.01"), rounding=ROUND_DOWN
+    )
+    if price <= 0:
+        raise ValueError("the bid is too low to price a bounded marketable limit exit")
+    return min(price, bid)
+
+
 def is_exit_transition_allowed(current: PositionExitState, target: PositionExitState) -> bool:
     if not isinstance(current, PositionExitState) or not isinstance(target, PositionExitState):
         raise ValueError("both states must be PositionExitState members")
@@ -446,9 +509,11 @@ class PositionSnapshot:
 POSITION_NEEDS_ATTENTION = "Position requires operator attention before it can be closed safely."
 
 #: Entry states from which a stable attributable position can exist. FILLED is the normal
-#: case; CANCELED covers a partially filled entry whose remainder was cancelled and can no
-#: longer fill. PARTIALLY_FILLED is deliberately absent: the remainder may still fill.
-_STABLE_ENTRY_STATES: frozenset[str] = frozenset({"FILLED", "CANCELED"})
+#: case; CANCELED and EXPIRED cover a partially filled entry whose remainder was cancelled or
+#: expired (a DAY limit entry that part-fills and then lapses at the close) and can no
+#: longer fill. Either with zero fills is still refused by the `filled <= 0` check below.
+#: PARTIALLY_FILLED is deliberately absent: the remainder may still fill.
+_STABLE_ENTRY_STATES: frozenset[str] = frozenset({"FILLED", "CANCELED", "EXPIRED"})
 
 
 def exit_eligibility(
@@ -490,7 +555,7 @@ def exit_eligibility(
     elif snapshot.entry_state not in _STABLE_ENTRY_STATES:
         refusals.append(
             f"the entry order is {snapshot.entry_state}; only a filled entry, or a cancelled "
-            "entry that left a proven filled position, can be closed"
+            "or expired entry that left a proven filled position, can be closed"
         )
     filled = _whole(snapshot.entry_filled_quantity)
     if snapshot.entry_filled_quantity is None or filled is None:

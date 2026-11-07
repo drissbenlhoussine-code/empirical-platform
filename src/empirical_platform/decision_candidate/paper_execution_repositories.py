@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
+from decimal import Decimal
 from typing import Protocol
 
 from empirical_platform.decision_candidate.paper_execution import (
@@ -41,6 +42,7 @@ from empirical_platform.decision_candidate.paper_execution import (
     ReconciliationRoundOutcome,
     SubmissionPreview,
 )
+from empirical_platform.decision_candidate.paper_portfolio_limits import EntryLedgerRow
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 
 __all__ = [
@@ -48,6 +50,7 @@ __all__ = [
     "BrokerAssetView",
     "BrokerClockView",
     "BrokerOrderView",
+    "BrokerPortfolioPositionView",
     "BrokerPositionView",
     "BrokerQuoteView",
     "DispatchClaim",
@@ -214,6 +217,39 @@ class ExecutionAttemptRepository(Protocol):
 
     def list_recent(self, limit: int) -> tuple[ExecutionAttempt, ...]: ...
 
+    def entry_ledger(self, *, day_start: datetime, day_end: datetime) -> tuple[EntryLedgerRow, ...]:
+        """Every entry attempt claimed in `[day_start, day_end)`, with its admission marker.
+
+        Durable local truth for the daily order count and for orders admitted but possibly
+        not yet visible at the broker. Raises -- never returns a partial list -- when a
+        stored admission record is unreadable.
+        """
+        ...
+
+    def admit_entry(
+        self,
+        *,
+        attempt_id: str,
+        day_start: datetime,
+        day_end: datetime,
+        at: datetime,
+        symbol: str,
+        notional: Decimal,
+        client_order_id: str,
+        decide: Callable[[tuple[EntryLedgerRow, ...]], str | None],
+    ) -> str | None:
+        """ATOMIC count-and-admit for one ENTRY order (fix D1).
+
+        Under a lock keyed on the trading day, shared by every submitter: read the day's
+        ledger, call `decide(ledger)`, and ONLY IF it returns None durably record that this
+        attempt was admitted -- all before the lock is released. Two simultaneous
+        submissions therefore cannot both be admitted against a limit that allows one: the
+        second sees the first's admission. Returns the refusal text (nothing recorded) or
+        None (admitted). Idempotent for an attempt that is already admitted. `decide` must
+        be pure and fast; it runs while the lock is held.
+        """
+        ...
+
 
 class BrokerAcknowledgementRepository(Protocol):
     """Append-only record of what the broker said, in the order it said it."""
@@ -319,6 +355,24 @@ class BrokerPositionView(Protocol):
     @property
     def quantity(self) -> int: ...
 
+    @property
+    def average_entry_price(self) -> str: ...
+
+
+class BrokerPortfolioPositionView(Protocol):
+    """One position of the whole-account listing (`GET /v2/positions`), values as text."""
+
+    @property
+    def symbol(self) -> str: ...
+
+    @property
+    def quantity(self) -> str:
+        """Signed decimal text; may be fractional (this read does not round)."""
+        ...
+
+    @property
+    def market_value(self) -> str: ...
+
 
 class BrokerOrderView(Protocol):
     """One broker order as the broker currently describes it."""
@@ -402,6 +456,18 @@ class PaperBrokerPort(Protocol):
     def fetch_asset(self, symbol: str) -> BrokerAssetView: ...
 
     def fetch_position(self, symbol: str) -> BrokerPositionView | None: ...
+
+    def fetch_open_orders(self, symbol: str) -> tuple[BrokerOrderView, ...]:
+        """Every order at the broker, for this symbol, not yet in a terminal state."""
+        ...
+
+    def fetch_all_positions(self) -> tuple[BrokerPortfolioPositionView, ...]:
+        """Every position the account holds (read-only, fresh). Fix D1 portfolio limits."""
+        ...
+
+    def fetch_all_open_orders(self) -> tuple[BrokerOrderView, ...]:
+        """Every order not in a terminal state, ACROSS ALL symbols (read-only, fresh)."""
+        ...
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
