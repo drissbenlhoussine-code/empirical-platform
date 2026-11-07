@@ -656,3 +656,24 @@ def test_a_non_terminal_or_unknown_broker_status_never_leads_to_a_second_live_se
     assert all(
         a.state.value not in {"REJECTED", "CANCELED", "EXPIRED"} for a in _attempts(world, intent)
     )
+
+
+@pytest.mark.parametrize("suffix", ["", "-2", "-9", "-101"])
+@pytest.mark.parametrize("kind_name", ["STOP", "TARGET", "MANDATORY_EXIT"])
+def test_slot_zero_ids_never_overflow_the_64_character_columns(kind_name: str, suffix: str) -> None:
+    """M100 final audit (P1): a same-second Prepare suffix on the plan id made the MANDATORY_EXIT
+    slot-0 ids 65-67 characters (varchar(64)); the forced liquidation could never be placed."""
+    from types import SimpleNamespace
+
+    from empirical_platform.decision_candidate.approved_plan import ExitTriggerKind
+    from empirical_platform.usecases import position_plan_manager as ppm
+
+    kind = ExitTriggerKind[kind_name]
+    plan = SimpleNamespace(plan_id=f"PLAN-INT-PRP-089-PAPER-20261106T112150Z{suffix}")
+    for make in (ppm._preview_id, ppm._authorization_id, ppm._attempt_id):
+        for slot in range(4):
+            assert len(make(plan, kind, slot)) <= 64, (make.__name__, slot)  # type: ignore[arg-type]
+    # Ids that already fit are unchanged (already-claimed plans resume with their original ids).
+    short = SimpleNamespace(plan_id="PLAN-INT-PRP-089-PAPER-20261106T112150Z")
+    if len(f"XAT-plan-{short.plan_id}-{kind.value}") <= 64:
+        assert ppm._attempt_id(short, kind, 0) == f"XAT-plan-{short.plan_id}-{kind.value}"  # type: ignore[arg-type]

@@ -181,7 +181,10 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
     ),
     STEP_6_VERIFY_STOPPED: (
         "The prior console process or port 8189 did not clear in time. The migration has NOT "
-        "started. Confirm no process is listening and no stale lock remains before re-running; "
+        "started. Confirm no process is listening on the configured port and that no OTHER "
+        "console (a different port or --safety-directory, which this step does not see) is "
+        "running, and that "
+        "no stale backup lock remains, before re-running; "
         "do not proceed to migration while this is ambiguous."
     ),
     STEP_7_MIGRATE: (
@@ -233,7 +236,11 @@ _RECOVERY_TEXT: Final[Mapping[str, str]] = {
         "time. Check for a stale process already holding the port, check captured "
         "stdout/stderr for a startup exception (most likely `require_personal_identity` "
         "refusing a mismatch -- re-verify the manifest head against the live schema head by "
-        "hand), and re-run step 12 alone once the port is confirmed free."
+        "hand), and re-run the same command (it resumes at step 12) once the port is "
+        "confirmed free. "
+        "If the recovery console started LATE (after the 30 s wait) it now holds the port: stop "
+        "that read-only console first. On Windows the port can also sit in TIME_WAIT for a few "
+        "minutes after the step-5 shutdown; wait and re-run."
     ),
     STEP_13_VERIFY_STARTUP: (
         "The console is running but did not verify cleanly (an HTTP check failed, broker was "
@@ -325,7 +332,15 @@ class DeploymentJournal:
 def _atomic_write_json(path: Path, value: Mapping[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload = (json.dumps(value, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    # M100 final audit: flush to disk before the rename, so a power loss cannot leave an empty or
+    # truncated file where a journal / manifest used to be.
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(descriptor, payload)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
     temporary.replace(path)
 
 
@@ -735,12 +750,12 @@ def step1_broker_verify(cfg: DeployConfig, ports: Ports) -> str:
     return "broker ACTIVE, not blocked, positions=0 open_orders=0 unknown=0"
 
 
-_NON_TERMINAL_EXECUTION_STATES: Final = (
-    "NOT_SUBMITTED",
-    "PAPER_SUBMITTED",
-    "PARTIALLY_FILLED",
-    "SUBMISSION_UNKNOWN",
-)
+#: Terminal attempt states (both stores). Everything ELSE -- DISPATCH_CLAIMED,
+#: SUBMISSION_IN_PROGRESS, SUBMITTED/PAPER_SUBMITTED, ACCEPTED/PAPER_ACCEPTED, PARTIALLY_FILLED,
+#: CANCEL_REQUESTED, SUBMISSION_UNKNOWN and any state a future release adds -- counts as in flight
+#: (fail closed). M100 final audit: the previous allow-list of 'non-terminal' names missed four of
+#: Store B's and five of Store C's real in-flight states.
+_TERMINAL_EXECUTION_STATES: Final = ("FILLED", "CANCELED", "REJECTED", "EXPIRED")
 
 
 def step2_no_inflight(cfg: DeployConfig) -> str:
@@ -754,8 +769,10 @@ def step2_no_inflight(cfg: DeployConfig) -> str:
             with engine.connect() as connection:
                 # `table` is always one of this function's own hardcoded tuple entries above,
                 # never external input.
-                placeholders = ", ".join(f"'{s}'" for s in _NON_TERMINAL_EXECUTION_STATES)
-                statement = f"SELECT attempt_id FROM public.{table} WHERE state IN ({placeholders})"  # noqa: S608
+                placeholders = ", ".join(f"'{s}'" for s in _TERMINAL_EXECUTION_STATES)
+                statement = (
+                    f"SELECT attempt_id FROM public.{table} WHERE state NOT IN ({placeholders})"  # noqa: E501, S608
+                )
                 rows: Sequence[Any] = connection.exec_driver_sql(statement).scalars().all()
                 in_flight.extend(f"Store {store} {table} {attempt_id}" for attempt_id in rows)
         finally:
@@ -1620,7 +1637,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         env={**os.environ, "PYTHONPATH": str(arguments.repo_path / "src")},
         log_path=arguments.backup_root.parent / "recovery-console.log",
     )
-    journal = DeploymentJournal.load_or_new(arguments.journal_path)
+    try:
+        journal = DeploymentJournal.load_or_new(arguments.journal_path)
+    except (ValueError, TypeError, AttributeError, KeyError) as error:
+        # M100 final audit: a corrupt, empty or odd-shaped journal is a clean, fail-closed refusal,
+        # never a raw traceback. Nothing has been touched. Do NOT delete it blindly.
+        print(
+            f"REFUSED: the deployment journal at {arguments.journal_path} cannot be read "
+            f"({type(error).__name__}: {error}). Nothing was touched. If steps 1-6 were the only "
+            "ones ever recorded, move the file aside and start over. If the migration may have "
+            "been applied (step 7), do NOT delete it: compare Store B's alembic head and the "
+            "manifest by hand and ask for help before re-running.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         run_deployment(cfg, ports, journal, arguments.journal_path, launch=launch)
     except DeploymentBlockedError as blocked:

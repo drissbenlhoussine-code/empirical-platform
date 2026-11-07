@@ -10,7 +10,7 @@ action, taken deliberately, never something a coding agent does to a live machin
 own initiative.
 
 To register it (Owner action, do this manually):
-  1. Edit the <Command> and <WorkingDirectory> values below if this repo is not at
+  1. Edit the <WorkingDirectory> and the script path inside <Arguments> below if this repo is not at
      C:\Users\LuxSy\Documents\trading.
   2. Open Task Scheduler -> Action -> Import Task... -> select this file.
   3. On the General tab, set "Run whether user is logged on or not" if you want it to

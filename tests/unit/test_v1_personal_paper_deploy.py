@@ -1552,3 +1552,53 @@ def test_resuming_past_step5_re_establishes_a_missing_hold(
     with pytest.raises(deploy.DeploymentBlockedError):  # step 10 has no real backup to find
         _run(cfg, journal_path)
     assert _hold_file(cfg).exists()
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["", "{", '{"records":[{"step":"x"}]}', '{"records":"no"}', "[1]", "null"],
+)
+def test_a_corrupt_journal_raises_only_the_exceptions_main_turns_into_a_clean_refusal(
+    tmp_path: Path, content: str
+) -> None:
+    """M100 final audit: `main()` catches (ValueError, TypeError, AttributeError, KeyError) from
+    `DeploymentJournal.load_or_new` and refuses with exit code 2 and a no-touch message. Any other
+    exception type would escape as a raw traceback, so pin the contract."""
+    journal = tmp_path / "journal.json"
+    journal.write_text(content, encoding="utf-8")
+    with pytest.raises((ValueError, TypeError, AttributeError, KeyError)):
+        deploy.DeploymentJournal.load_or_new(journal)
+
+
+def test_the_atomic_json_write_is_durable_and_leaves_no_temporary_file(tmp_path: Path) -> None:
+    target = tmp_path / "sub" / "journal.json"
+    deploy._atomic_write_json(target, {"records": []})
+    assert json.loads(target.read_text(encoding="utf-8")) == {"records": []}
+    assert not (tmp_path / "sub" / "journal.json.tmp").exists()
+
+
+def test_step2_treats_every_non_terminal_state_as_in_flight() -> None:
+    """M100 final audit (P1): the old allow-list missed DISPATCH_CLAIMED, SUBMISSION_IN_PROGRESS,
+    PAPER_ACCEPTED, CANCEL_REQUESTED (Store B) and those plus SUBMITTED/ACCEPTED (Store C)."""
+    from empirical_platform.decision_candidate.paper_execution import (
+        TERMINAL_PAPER_STATES,
+        PaperExecutionState,
+    )
+    from empirical_platform.decision_candidate.position_exit import (
+        TERMINAL_EXIT_STATES,
+        PositionExitState,
+    )
+
+    assert set(deploy._TERMINAL_EXECUTION_STATES) == {s.value for s in TERMINAL_PAPER_STATES}
+    assert set(deploy._TERMINAL_EXECUTION_STATES) == {s.value for s in TERMINAL_EXIT_STATES}
+    in_flight_b = {s.value for s in PaperExecutionState} - set(deploy._TERMINAL_EXECUTION_STATES)
+    in_flight_c = {s.value for s in PositionExitState} - set(deploy._TERMINAL_EXECUTION_STATES)
+    for state in (
+        "DISPATCH_CLAIMED",
+        "SUBMISSION_IN_PROGRESS",
+        "PAPER_ACCEPTED",
+        "CANCEL_REQUESTED",
+    ):
+        assert state in in_flight_b
+    for state in ("DISPATCH_CLAIMED", "SUBMISSION_IN_PROGRESS", "SUBMITTED", "ACCEPTED"):
+        assert state in in_flight_c

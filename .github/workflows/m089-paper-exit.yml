@@ -212,6 +212,7 @@ jobs:
           tests/integration/test_m084_m083_compatibility.py
           tests/integration/test_m084_concurrency.py
           tests/integration/test_m084_queue_index.py
+          tests/integration/test_d1_entry_admission_postgres.py
       - name: Pin the matrix's test-only Alpaca placeholders (never real; ACC-10 asserts the key id the wire saw)
         run: |
           echo "EMPIRICAL_ALPACA_PAPER_API_KEY=${EMPIRICAL_PLATFORM_POSTGRES_USER}-ci-only-key-0001" >> "$GITHUB_ENV"

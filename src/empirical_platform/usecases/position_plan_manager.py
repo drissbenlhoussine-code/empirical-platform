@@ -259,6 +259,9 @@ def _spacing_seconds(kind: ExitTriggerKind) -> int:
     )
 
 
+_MAX_IDENTIFIER_LENGTH = 64
+
+
 def _slot_token(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int) -> str:
     material = f"{plan.plan_id}|{kind.value}|{slot}"
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:36]
@@ -268,19 +271,34 @@ def _slot_token(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int) -> str:
 # a digest, so the id can never overflow the 64-character identifier limit.
 def _preview_id(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int = 0) -> str:
     if slot == 0:
-        return f"XPV-plan-{plan.plan_id}-{kind.value}"
+        original = f"XPV-plan-{plan.plan_id}-{kind.value}"
+        # M100 final audit: a long plan id (e.g. a same-second Prepare suffix) must never push the
+        # id past the 64-character column; such ids use the digest form. Ids that already fit are
+        # unchanged, so every already-claimed plan resumes with its original ids.
+        if len(original) <= _MAX_IDENTIFIER_LENGTH:
+            return original
     return f"XPV-pg{slot}-{_slot_token(plan, kind, slot)}"
 
 
 def _authorization_id(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int = 0) -> str:
     if slot == 0:
-        return f"XAU-plan-{plan.plan_id}-{kind.value}"
+        original = f"XAU-plan-{plan.plan_id}-{kind.value}"
+        # M100 final audit: a long plan id (e.g. a same-second Prepare suffix) must never push the
+        # id past the 64-character column; such ids use the digest form. Ids that already fit are
+        # unchanged, so every already-claimed plan resumes with its original ids.
+        if len(original) <= _MAX_IDENTIFIER_LENGTH:
+            return original
     return f"XAU-pg{slot}-{_slot_token(plan, kind, slot)}"
 
 
 def _attempt_id(plan: ApprovedPlan, kind: ExitTriggerKind, slot: int = 0) -> str:
     if slot == 0:
-        return f"XAT-plan-{plan.plan_id}-{kind.value}"
+        original = f"XAT-plan-{plan.plan_id}-{kind.value}"
+        # M100 final audit: a long plan id (e.g. a same-second Prepare suffix) must never push the
+        # id past the 64-character column; such ids use the digest form. Ids that already fit are
+        # unchanged, so every already-claimed plan resumes with its original ids.
+        if len(original) <= _MAX_IDENTIFIER_LENGTH:
+            return original
     return f"XAT-pg{slot}-{_slot_token(plan, kind, slot)}"
 
 

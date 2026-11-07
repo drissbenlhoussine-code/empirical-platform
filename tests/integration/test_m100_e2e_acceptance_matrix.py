@@ -2124,8 +2124,9 @@ def run_full_lifecycle(world: World, stack: Stack) -> dict[str, Any]:
 
 def test_ACC_22_kill_switch_enforced(world: World, evidence: EvidenceRecorder) -> None:
     """ACC-22 -- the Owner's kill switch, engaged through the real Safety route, stops every NEW
-    entry (the approval is refused before anything is decided or sent) and does NOT stop a
-    position-reducing exit: neither the automatic STOP exit nor the Owner's own manual exit.
+    entry (the approval is refused: no intent and no execution attempt exist and nothing is
+    sent) and does NOT stop a position-reducing exit: neither the automatic STOP exit nor the
+    Owner's own manual exit.
     Releasing it restores entries."""
     ex = world.exchange
     with world.stack() as stack:
@@ -2218,7 +2219,7 @@ def test_ACC_22_kill_switch_enforced(world: World, evidence: EvidenceRecorder) -
         ],
         entry_refusal=refusal[:240],
         buy_orders_added_while_engaged=0,
-        decision_or_intent_created_while_engaged=False,
+        asserted_no_intent_and_no_attempt_while_engaged=True,  # asserted above, not observed
         automatic_exit_while_engaged={
             "tick": outcomes,
             "attempt": automatic.attempt_id,
