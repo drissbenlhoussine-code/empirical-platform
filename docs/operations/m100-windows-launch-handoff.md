@@ -674,6 +674,8 @@ The recovery console was started detached in its own process group, so Ctrl+C in
 ```powershell
 # 10.2 Release the maintenance hold. Refuses unless the journal shows steps 12, 13, 14 completed
 #      (the only override is --owner-override; do not use it here).
+# If you ran the optional 9.2 repeat, pass the LATEST journal (deploy-journal-2.json) instead of $Journal;
+# if that repeat did not reach step 14, do NOT release: stop and follow the failure table.
 & $Py -m empirical_platform.entrypoints.release_maintenance_hold --journal-path $Journal
 "release exit code: $LASTEXITCODE"          # 0 = "maintenance hold removed ..."
 "hold present (must be False): $(Test-Path $HoldFile)"
@@ -716,7 +718,7 @@ first tick), Kill switch **released**, "Live: UNAVAILABLE".
 - the account is no longer flat.
 
 **Owner approval gate A5.**
-Exact sentence: `A5 approved on <date time>: release the maintenance hold and start the PAPER console in NORMAL mode on 127.0.0.1:8189 with the automatic Plan Manager on, for this supervised session. This does not authorize any order, and does not authorize re-enabling the autostart task.`
+Exact sentence: `A5 approved on <date time>: stop the read-only recovery console, release the maintenance hold and start the PAPER console in NORMAL mode on 127.0.0.1:8189 with the automatic Plan Manager on, for this supervised session. This does not authorize any order, and does not authorize re-enabling the autostart task.`
 
 ---
 

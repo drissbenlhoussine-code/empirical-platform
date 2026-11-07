@@ -267,6 +267,11 @@ _PLAIN_DNS_NAME = re.compile(
 )
 
 
+#: A Host header is exactly `name` or `name:port` where name is a bracketed IPv6 literal or a
+#: plain dotted name / IPv4 literal and port is digits only. Anything else is refused.
+_HOST_HEADER_SHAPE = re.compile(r"^(?P<name>\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::[0-9]{1,5})?$")
+
+
 def _extra_allowed_host_names() -> frozenset[str]:
     raw = os.environ.get(ALLOWED_HOSTS_VARIABLE, "")
     names = {item.strip().lower() for item in raw.split(",")}
@@ -282,11 +287,10 @@ def _host_header_is_loopback(host_header: object) -> bool:
         return True
     if not isinstance(host_header, str):
         return False
-    host = host_header.strip().lower()
-    if host.startswith("["):
-        name = host.split("]", 1)[0] + "]"
-    else:
-        name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    match = _HOST_HEADER_SHAPE.match(host_header.strip().lower())
+    if match is None:
+        return False
+    name = match.group("name")
     return name in _LOOPBACK_HOST_NAMES or name in _extra_allowed_host_names()
 
 
