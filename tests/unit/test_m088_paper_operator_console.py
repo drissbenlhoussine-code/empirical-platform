@@ -109,7 +109,8 @@ class _OpenMarketClock:
         if self.next_open is None:
             self.next_open = now + timedelta(hours=20)
         if self.next_close is None:
-            self.next_close = now + timedelta(hours=2)
+            # beyond today's mandatory exit deadline at any time of day (Audit A P1-2)
+            self.next_close = now + timedelta(hours=48)
 
 
 def _open_broker() -> FakeBroker:

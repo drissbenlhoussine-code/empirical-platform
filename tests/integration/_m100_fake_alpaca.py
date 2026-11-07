@@ -36,6 +36,28 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 from empirical_platform.shared.brokerage.paper_time import PaperTimeReading
+from empirical_platform.usecases.operator_console_fixtures import simulation_timezone_for
+
+#: The operator's day for the whole acceptance world, fixed ONCE so the configuration and the
+#: scripted exchange agree for the entire run (the zone is placed so "now" reads ~10:00).
+WORLD_OPERATOR_TIMEZONE = simulation_timezone_for(datetime.now(UTC))
+
+
+def regular_session_close(now: datetime) -> datetime:
+    """The next ordinary 16:00 close, in the world's operator day (Audit A P1-2).
+
+    A normal full-length session: the mandatory liquidation is 15:45 and the close 16:00, so
+    the exit deadline (15:43) lies well before the close. An early-close day is exercised by
+    the unit tests, not by this regular-day matrix.
+    """
+    from zoneinfo import ZoneInfo
+
+    zone = ZoneInfo(WORLD_OPERATOR_TIMEZONE)
+    local = now.astimezone(zone)
+    close = local.replace(hour=16, minute=0, second=0, microsecond=0)
+    if close <= local:
+        close += timedelta(days=1)
+    return close.astimezone(UTC)
 
 
 class VirtualClock:
@@ -328,7 +350,7 @@ class FakeAlpacaExchange:
                         "is_open": self.market_open,
                         "timestamp": now.isoformat(),
                         "next_open": (now + timedelta(hours=16)).isoformat(),
-                        "next_close": (now + timedelta(hours=3)).isoformat(),
+                        "next_close": regular_session_close(now).isoformat(),
                     },
                 )
         elif method == "GET" and path.startswith("/v2/assets/"):

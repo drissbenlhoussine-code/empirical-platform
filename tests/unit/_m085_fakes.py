@@ -250,7 +250,7 @@ def a_preview(**overrides: object) -> SubmissionPreview:
         "preview_version": 1,
         "market_is_open": True,
         "market_next_open": _NOW + timedelta(hours=20),
-        "market_next_close": _NOW + timedelta(hours=2),
+        "market_next_close": _NOW + timedelta(hours=6),
         "quote_bid": Decimal("299.63"),
         "quote_ask": Decimal("299.70"),
         "quote_captured_at": _NOW - timedelta(seconds=5),
@@ -812,7 +812,7 @@ class FakeClock:
     is_open = True
     timestamp = _NOW
     next_open = _NOW + timedelta(hours=20)
-    next_close = _NOW + timedelta(hours=2)
+    next_close = _NOW + timedelta(hours=6)
 
 
 class FakeAsset:

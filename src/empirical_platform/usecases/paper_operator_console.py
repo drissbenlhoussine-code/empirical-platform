@@ -81,6 +81,9 @@ from empirical_platform.decision_candidate.product_repositories import (
     OperatorTradingConfigurationRepository,
     TradeProposalRepository,
 )
+from empirical_platform.decision_candidate.session_close_guard import (
+    session_close_before_liquidation_refusal,
+)
 from empirical_platform.decision_candidate.trade_proposal import RiskCheckOutcome, TradeProposal
 from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
 from empirical_platform.usecases.operator_console_fixtures import simulation_timezone_for
@@ -588,6 +591,23 @@ def prepare_v1_paper_candidate(
         raise V1PaperCandidateRefusedError(
             f"the market is closed (next open {clock.next_open}); nothing was prepared"
         )
+
+    # Audit A P1-2: refuse an entry whose mandatory liquidation cannot start before the
+    # broker's close (early-close days, unscheduled early closes, unknown close time).
+    local_now = now.astimezone(ZoneInfo(configuration.operator_timezone))
+    liquidation_time = configuration.mandatory_liquidation_time
+    close_refusal = session_close_before_liquidation_refusal(
+        mandatory_liquidation_at=local_now.replace(
+            hour=liquidation_time.hour,
+            minute=liquidation_time.minute,
+            second=liquidation_time.second,
+            microsecond=0,
+        ),
+        market_next_close=clock.next_close,
+        operator_timezone=configuration.operator_timezone,
+    )
+    if close_refusal is not None:
+        raise V1PaperCandidateRefusedError(f"{close_refusal}; nothing was prepared")
 
     quote = market_data.fetch_quote(symbol)
     if quote is None or quote.bid is None or quote.ask is None:

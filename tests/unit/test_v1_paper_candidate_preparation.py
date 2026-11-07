@@ -13,7 +13,7 @@ PostgreSQL, no network. Nothing in this file can reach the real Alpaca paper end
 from __future__ import annotations
 
 import time as _time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 
@@ -93,7 +93,9 @@ class _Clock:
             far = timedelta(hours=10) if not self.is_open else timedelta(hours=20)
             self.next_open = now + far
         if self.next_close is None:
-            recent = -timedelta(hours=2) if not self.is_open else timedelta(hours=2)
+            # Real wall-clock fixtures: the session close must lie beyond today's mandatory
+            # exit deadline (Audit A P1-2) whatever the time of day the suite runs at.
+            recent = -timedelta(hours=2) if not self.is_open else timedelta(hours=48)
             self.next_close = now + recent
 
 
@@ -250,6 +252,55 @@ class TestRefusalsWriteNothing:
         )
         with pytest.raises(V1PaperCandidateRefusedError, match="risk contract v2"):
             _prepare(configuration=legacy)
+
+    def test_an_early_close_before_the_mandatory_liquidation_refuses_and_persists_nothing(
+        self,
+    ) -> None:
+        # Audit A P1-2: the configured liquidation is 23:59 UTC today; a broker close one
+        # second from now (an early close) is before the exit deadline at every time of day.
+        configurations, contexts, proposals = _repositories()
+        broker = _open_broker(_Clock(is_open=True, next_close=_now() + timedelta(seconds=1)))
+        with pytest.raises(V1PaperCandidateRefusedError, match="the market closes at .* ET"):
+            prepare_v1_paper_candidate(
+                configurations=configurations,
+                contexts=contexts,
+                proposals=proposals,
+                watermarks=MemoryWatermarks(),
+                time_bases=FakeTimeBases(),
+                broker=broker,
+                market_data=FakeMarketData(quote=_LiveQuote()),
+                bars=FakeMarketData(quote=_LiveQuote()),
+                attempts=FakeAttempts(),
+                time_source=SystemPaperTimeSource(),
+                now=_now(),
+            )
+        assert proposals.rows == {}
+        assert contexts.rows == {}
+
+    def test_an_unknown_close_time_refuses_and_persists_nothing(self) -> None:
+        @dataclass
+        class _NoCloseClock:
+            is_open: bool = True
+            timestamp: datetime = field(default_factory=_now)
+            next_open: datetime = field(default_factory=lambda: _now() + timedelta(hours=20))
+            next_close: datetime | None = None
+
+        configurations, contexts, proposals = _repositories()
+        with pytest.raises(V1PaperCandidateRefusedError, match="close time is unknown"):
+            prepare_v1_paper_candidate(
+                configurations=configurations,
+                contexts=contexts,
+                proposals=proposals,
+                watermarks=MemoryWatermarks(),
+                time_bases=FakeTimeBases(),
+                broker=_open_broker(_NoCloseClock()),
+                market_data=FakeMarketData(quote=_LiveQuote()),
+                bars=FakeMarketData(quote=_LiveQuote()),
+                attempts=FakeAttempts(),
+                time_source=SystemPaperTimeSource(),
+                now=_now(),
+            )
+        assert proposals.rows == {}
 
     def test_a_closed_market_refuses_and_persists_nothing(self) -> None:
         configurations, contexts, proposals = _repositories()

@@ -31,6 +31,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 from tests.integration._m085_support import config
 from tests.integration._m100_fake_alpaca import (
+    WORLD_OPERATOR_TIMEZONE,
     FakeAlpacaExchange,
     VirtualClock,
     serve_exchange,
@@ -53,7 +54,6 @@ from empirical_platform.entrypoints._paper_position_exit_composition import (
     paper_operator_console_with_exit_runtime,
 )
 from empirical_platform.entrypoints.paper_operator_console_app import build_paper_application
-from empirical_platform.shared.brokerage import paper_time
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
 from empirical_platform.shared.persistence.postgres_repositories.runtime import (
     PostgresRepositoryRuntime,
@@ -76,9 +76,6 @@ def v1_configuration(**overrides: Any) -> Any:
     that "now" reads mid-morning (the same device `_default_configuration` uses), so the real
     chronology rules neither fire nor are weakened.
     """
-    from empirical_platform.usecases.operator_console_fixtures import simulation_timezone_for
-
-    now = paper_time.SystemPaperTimeSource().read().utc
     from datetime import time as clock_time
 
     defaults: dict[str, Any] = dict(
@@ -100,9 +97,9 @@ def v1_configuration(**overrides: Any) -> Any:
         stop_loss_percent=Decimal("1"),
         profit_exit_percent=Decimal("2"),
         earliest_entry_time=clock_time(0, 1),
-        latest_entry_time=clock_time(23, 58),
-        mandatory_liquidation_time=clock_time(23, 59),
-        operator_timezone=simulation_timezone_for(now),
+        latest_entry_time=clock_time(15, 30),
+        mandatory_liquidation_time=clock_time(15, 45),
+        operator_timezone=WORLD_OPERATOR_TIMEZONE,
         proposal_expiry_seconds=3600,
         approval_expiry_seconds=1800,
         minimum_price=Decimal("1"),

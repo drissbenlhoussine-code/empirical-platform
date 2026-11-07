@@ -67,3 +67,11 @@ See the "Final report" delivered with PR #49 for exact SHA, commands and counts.
 `docs/operations/m100-acceptance-evidence.md` (+ `.json`), produced by a real run against throwaway PostgreSQL 16.
 Not-truly-end-to-end: the broker/market data is a scripted local exchange (real HTTP client, real hosts pinned), time is virtual,
 the WSGI app is called in-process and the plan-manager thread is driven by `evaluate_once`.
+
+## Early-close days
+
+Audit A P1-2: the mandatory liquidation is a fixed time of day (15:45 ET) and nothing used to compare it with the broker's `next_close`. On an early-close day (13:00 ET) a 12:30 entry was accepted although the plan manager's mandatory-exit deadline (15:43) falls after the close, so the position would have been held overnight.
+
+Behaviour now (`decision_candidate/session_close_guard.py`): an ENTRY is refused unless `mandatory_liquidation_at - 120 s` (the plan manager's `MANDATORY_EXIT_SAFETY_BUFFER_SECONDS`, imported) is strictly before the broker's `next_close - 300 s` (`SESSION_CLOSE_ENTRY_BUFFER_SECONDS`). A missing or naive close refuses (fail closed). Enforced in Prepare, in the entry preview, and in the final send guard (pre-claim and in-`before_send`), so a proposal prepared earlier cannot be sent after the close changed. Refusal text: "the market closes at HH:MM ET, before the mandatory liquidation time HH:MM ET; no entry today". Risk-reducing exits are unaffected. No configured threshold was changed.
+
+OWNER DECISION REQUIRED: on a 13:00 ET close with the configured 15:45 liquidation, EVERY entry is refused for the day. The early-close dates 2026-11-27 and 2026-12-24 will therefore refuse all entries unless the Owner moves the configured liquidation time earlier (before 12:53 ET, and the latest entry time earlier still, since liquidation must follow it). That decision is not made here. The risk engine `evaluate_trade_proposal` does not receive the broker close and was not widened.

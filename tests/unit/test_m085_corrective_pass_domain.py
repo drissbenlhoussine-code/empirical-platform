@@ -481,7 +481,7 @@ def _guard(
         "host_now": _NOW,
         "broker_now": _at(_NOW),
         "market_is_open": True,
-        "market_next_close": _NOW + timedelta(hours=2),
+        "market_next_close": _NOW + timedelta(hours=6),
         "quote_bid": Decimal("299.63"),
         "quote_ask": Decimal("299.70"),
         "quote_captured_at": _NOW - timedelta(seconds=5),
@@ -535,7 +535,9 @@ class TestTheFinalSendGuard:
         assert "spread" in (_guard(quote_bid=Decimal("97.5"), quote_ask=Decimal("102.51")) or "")
 
     def test_the_market_close_is_inclusive_to_the_tick(self) -> None:
-        assert _guard(market_next_close=_NOW + _TICK) is None
+        # One tick after "now" the session is still open, so the "closed" rule does not
+        # fire; the (separate) Audit A P1-2 close-before-liquidation rule does.
+        assert _guard(market_next_close=_NOW + _TICK) != "the regular market session is closed"
         assert _guard(market_next_close=_NOW) == "the regular market session is closed"
         assert _guard(market_is_open=False) == "the regular market session is closed"
         assert _guard(market_next_close=None) == "the regular market session is closed"

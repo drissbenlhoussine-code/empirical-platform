@@ -74,6 +74,9 @@ from empirical_platform.decision_candidate.paper_portfolio_limits import (
     PortfolioLimits,
     portfolio_limit_refusal,
 )
+from empirical_platform.decision_candidate.session_close_guard import (
+    session_close_before_liquidation_refusal,
+)
 from empirical_platform.decision_candidate.trade_approval import (
     ApprovalDecision,
     ApprovedOrderIntent,
@@ -2714,6 +2717,14 @@ def build_submission_preview(
         or broker_now.possibly_at_or_after(market_next_close)
     ):
         refusals.append("the regular market session is closed or cannot be established")
+    # Audit A P1-2: the mandatory exit must be able to START before the broker's close.
+    close_refusal = session_close_before_liquidation_refusal(
+        mandatory_liquidation_at=intent.mandatory_liquidation_at,
+        market_next_close=market_next_close,
+        operator_timezone=policy.operator_timezone,
+    )
+    if close_refusal is not None:
+        refusals.append(close_refusal)
     window_refusal = entry_window_refusal(policy=policy, broker_now=broker_now)
     if window_refusal is not None:
         refusals.append(window_refusal)
@@ -3013,6 +3024,13 @@ def final_send_refusal(
         or broker_now.possibly_at_or_after(market_next_close)
     ):
         return "the regular market session is closed"
+    close_refusal = session_close_before_liquidation_refusal(
+        mandatory_liquidation_at=intent.mandatory_liquidation_at,
+        market_next_close=market_next_close,
+        operator_timezone=policy_now.operator_timezone,
+    )
+    if close_refusal is not None:
+        return close_refusal
     window_refusal = entry_window_refusal(policy=policy_now, broker_now=broker_now)
     if window_refusal is not None:
         return window_refusal

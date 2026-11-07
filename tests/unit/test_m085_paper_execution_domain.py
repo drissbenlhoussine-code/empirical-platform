@@ -172,7 +172,7 @@ def a_preview(**overrides: object):  # noqa: ANN201 - returns SubmissionPreview
         "preview_version": 1,
         "market_is_open": True,
         "market_next_open": None,
-        "market_next_close": _NOW + timedelta(hours=3),
+        "market_next_close": _NOW + timedelta(hours=6),
         "quote_bid": Decimal("199.95"),
         "quote_ask": Decimal("200.10"),
         "quote_captured_at": _NOW - timedelta(seconds=5),

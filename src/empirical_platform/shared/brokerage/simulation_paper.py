@@ -685,7 +685,11 @@ class SimulatedPaperBroker:
             is_open=is_open,
             timestamp=now,
             next_open=None if is_open else now + timedelta(hours=12),
-            next_close=now + timedelta(hours=4) if is_open else None,
+            # The simulation has no market calendar and never closes by itself (the store's
+            # open flag is its only control). Its fixtures liquidate as late as 23:59, so the
+            # reported close must lie beyond any same-day mandatory-exit deadline plus the
+            # session-close entry buffer (Audit A P1-2); 30h clears it at every time of day.
+            next_close=now + timedelta(hours=30) if is_open else None,
         )
 
     def fetch_asset(self, symbol: str) -> SimulatedAssetView:
