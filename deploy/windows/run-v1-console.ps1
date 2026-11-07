@@ -46,6 +46,20 @@ $RestartWindowSeconds = 600
 $InitialBackoffSeconds = 10
 $MaxBackoffSeconds = 300
 
+# TEST SEAM (tests/unit/test_windows_lifecycle_proofs.py ONLY). When the environment variable
+# EMPIRICAL_WRAPPER_TEST_SLEEP_SCALE holds a number in (0, 1], every backoff sleep is multiplied
+# by it so the CI proof does not wait minutes. It can only SHORTEN sleeps (anything unset,
+# unparsable, <= 0 or > 1 is ignored), it changes no limit, window or exit-code rule, and the
+# production task never sets it. Production behaviour is the scale 1.0 below.
+$SleepScale = 1.0
+$scaleRaw = $Env:EMPIRICAL_WRAPPER_TEST_SLEEP_SCALE
+if (-not [string]::IsNullOrWhiteSpace($scaleRaw)) {
+    $parsedScale = 0.0
+    if ([double]::TryParse($scaleRaw, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$parsedScale) -and $parsedScale -gt 0 -and $parsedScale -le 1) {
+        $SleepScale = $parsedScale
+    }
+}
+
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $VenvActivate = Join-Path $RepoRoot ".venv\Scripts\Activate.ps1"
 $Env:PYTHONPATH = Join-Path $RepoRoot "src"
@@ -96,6 +110,6 @@ while ($true) {
     }
 
     Write-Warning "console crashed (exit code $exitCode). Restarting in $backoff s."
-    Start-Sleep -Seconds $backoff
+    Start-Sleep -Milliseconds ([int][Math]::Round($backoff * 1000 * $SleepScale))
     $backoff = [Math]::Min($backoff * 2, $MaxBackoffSeconds)
 }
