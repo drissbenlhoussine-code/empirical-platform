@@ -783,6 +783,12 @@ within a normal tick. The config exists and is what the Owner intended.
 **Purpose.** Place exactly one small whole-share PAPER entry order through the real Owner flow (Prepare, review,
 approve once) and let the Plan Manager protect it. This is the first phase that can change the broker.
 
+**Early-close days.** The system refuses EVERY entry when the market's close is not later than the mandatory
+liquidation time minus its safety buffers (the refusal reads "the market closes at HH:MM ET, before the mandatory
+liquidation time HH:MM ET; no entry today"). On a 13:00 ET early close (2026-11-27, 2026-12-24) the configured
+15:45 liquidation time therefore refuses all entries; do not run Phase 12 on such a day unless the Owner has
+separately decided to move the liquidation time earlier (an Owner decision, not made in this procedure).
+
 **Preconditions.** Phases 10-11 passed. Market open with enough time left: at least about an hour before the
 configured `liquidate` time, so the exit path can run in daylight. Account flat. Kill switch **released**. Manager
 **HEALTHY**. **A6 on record, naming the symbol, a maximum share count and a maximum notional.** Nothing else
@@ -909,6 +915,14 @@ position at zero), Store C exit attempt terminal.
 **Purpose.** See the position leave through the protected path, and see the entry limits for what they are.
 
 **Preconditions.** Phase 12 position open, manager HEALTHY, A6 on record (it names the exit).
+
+**Owner-visible escalation.** If the automatic manager stops making progress on a position (retries exhausted,
+cancel budget exhausted, unresolved send, a blocked quote gate, market closed or clock unreadable at a trigger,
+an evaluation error, or a failed tick) the console shows a red banner on `/active`, the affected card, and a
+section on `/safety`: **"AUTOMATIC EXIT STOPPED -- CLOSE THIS POSITION MANUALLY AT THE BROKER"** (or **"AUTOMATIC EXIT
+MANAGEMENT FAILED -- CHECK EVERY OPEN POSITION MANUALLY AT THE BROKER"**). Treat it as a STOP criterion: use the
+manual exit review link if shown, otherwise close the position at the broker, and end the session. The banner is
+in-process state and reappears on the next 15 s tick after a restart.
 
 **How exits work.**
 - The Plan Manager (one tick every 15 s) watches the stop price, target price and the mandatory liquidation
