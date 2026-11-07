@@ -154,6 +154,10 @@ class Router:
         self._security = security
         self._not_found: Callable[[Request], Response] | None = None
         self._refused: Callable[[Request, str], Response] | None = None
+        #: P2-1: lets a route registered AFTER `build_application` (the v1 `/confirm-approval`
+        #: override) put its outcome into the SAME one-shot flash the base handlers use, so
+        #: the Owner sees the reason ("execution blocked ...") on the opportunity page.
+        self.outcome_sink: Callable[[Request, Any], None] | None = None
 
     def get(self, path: str, handler: Handler) -> None:
         self._routes[("GET", path)] = handler

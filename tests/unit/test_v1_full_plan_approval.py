@@ -220,3 +220,54 @@ def test_a_rejected_or_expired_approval_creates_no_plan(world: World) -> None:
             candidate_id="OPP-TEST-5",
         )
     assert plans.rows == {}
+
+
+def _hold_a_position(world: World, monkeypatch: pytest.MonkeyPatch, symbol: str) -> None:
+    """Make the broker report an existing position so the preview refuses (nothing is sent)."""
+    from types import SimpleNamespace
+
+    held = SimpleNamespace(
+        symbol=symbol, quantity=Decimal("3"), average_entry_price="100.00", market_value="300.00"
+    )
+    monkeypatch.setattr(world.broker, "fetch_position", lambda requested: held)
+
+
+def test_p2_1_a_blocked_approval_creates_no_plan_and_a_retry_after_the_block_creates_it(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P2-1: approved-but-blocked (preview refused, nothing sent) must NOT leave an
+    ApprovedPlan behind for an entry that was never sent; once the block clears the Owner's
+    re-confirmation (same ticket, idempotent) sends the order and creates the plan then."""
+    world.load_day(("AAPL",))
+    proposal_id = world.proposal_id("AAPL")
+    review = world.service.prepare_approval(proposal_id)
+    plans = FakeApprovedPlans()
+    with monkeypatch.context() as patch:
+        _hold_a_position(world, patch, "AAPL")
+        blocked = approve_full_plan(
+            world.service,
+            world.repositories,
+            plans,
+            proposal_id=proposal_id,
+            token=review.ticket,
+            candidate_id="OPP-TEST-P21",
+        )
+    assert blocked.approval.sent == "nothing_sent" and not blocked.approval.ok
+    assert "blocked" in blocked.approval.title.lower()
+    assert blocked.plan is None and blocked.plan_created_now is False
+    assert plans.rows == {}
+    intent = world.repositories.intents.for_proposal(proposal_id)
+    assert intent is not None  # the approval itself IS recorded
+    assert world.repositories.attempts.for_intent(intent.intent_governance_id) is None
+
+    retried = approve_full_plan(
+        world.service,
+        world.repositories,
+        plans,
+        proposal_id=proposal_id,
+        token=review.ticket,
+        candidate_id="OPP-TEST-P21",
+    )
+    assert retried.approval.sent == "sent"
+    assert retried.plan is not None and retried.plan_created_now is True
+    assert world.repositories.attempts.for_intent(intent.intent_governance_id) is not None

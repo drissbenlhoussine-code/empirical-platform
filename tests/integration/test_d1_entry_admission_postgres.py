@@ -289,3 +289,42 @@ class TestTheLedgerIsDurableLocalTruth:
             paper.execution_attempts.entry_ledger(day_start=DAY_START, day_end=DAY_END)
         with pytest.raises(PortfolioEvidenceError):
             _admit(paper, attempt_id, _limits())
+
+
+class TestAdmissionFailsClosedOffReadCommitted:
+    """P2-6: the count-and-admit is atomic only under READ COMMITTED (the PostgreSQL default).
+    A connection reporting any other level must refuse the entry rather than rely on it."""
+
+    def test_a_repeatable_read_connection_refuses_and_records_nothing(
+        self, engine: Engine, paper: PostgresPaperExecutionRuntime
+    ) -> None:
+        (attempt_id,) = _claimed_attempts(paper, 1)
+        with engine.connect() as connection:
+            database = connection.execute(text("SELECT current_database()")).scalar_one()
+        quoted = '"' + str(database).replace('"', '""') + '"'
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as admin:
+            admin.execute(
+                text(
+                    f"ALTER DATABASE {quoted} SET default_transaction_isolation = 'repeatable read'"
+                )
+            )
+        strict = PostgresPersistenceService(config("d1-admission-rr"))
+        strict.initialize()
+        try:
+            refusal = PostgresPaperExecutionRuntime(strict).execution_attempts.admit_entry(
+                attempt_id=attempt_id,
+                day_start=DAY_START,
+                day_end=DAY_END,
+                at=CHAIN_AT,
+                symbol="AAPL",
+                notional=Decimal("4"),
+                client_order_id=f"coid-{attempt_id}",
+                decide=lambda ledger: None,
+            )
+        finally:
+            strict.close()
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as admin:
+                admin.execute(text(f"ALTER DATABASE {quoted} RESET default_transaction_isolation"))
+        assert refusal is not None and "READ COMMITTED" in refusal
+        ledger = paper.execution_attempts.entry_ledger(day_start=DAY_START, day_end=DAY_END)
+        assert all(not row.admitted for row in ledger)

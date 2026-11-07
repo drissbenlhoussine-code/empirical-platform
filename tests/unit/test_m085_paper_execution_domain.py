@@ -419,7 +419,7 @@ class TestThePreviewCollectsEveryRefusal:
             ({"asset_tradable": False}, "not tradable"),
             ({"asset_status": "inactive"}, "not an active asset"),
             ({"asset_class": "crypto"}, "not a US equity"),
-            ({"existing_position_quantity": 5}, "position of 5 already exists"),
+            ({"existing_position_quantity": 5}, "working order(s) of 5 shares already exist"),
             ({"policy": _policy(maximum_capital_per_trade=Decimal("1"))}, "exceeds the limit"),
             ({"account": an_account(buying_power=Decimal("1"))}, "exceeds paper buying power"),
             ({"quote_captured_at": None}, "no quote was captured"),

@@ -849,6 +849,20 @@ class PositionPlanManager:
                 return slot
             if authorization.is_consumed or now >= authorization.expires_at:
                 continue
+            # P2-5: the submit handler spends the entry's LATEST authorization, not this
+            # slot's. If a later one exists (e.g. an Owner's manual exit authorized after
+            # this slot was pre-minted) and is itself unusable, resuming this slot would be
+            # refused ("no unused human exit authorization exists") on every tick until this
+            # authorization expires (<= 300 s) -- a stall that must not touch a mandatory
+            # exit. Abandon the slot instead; the next one is minted fresh (its authorization
+            # becomes the latest). A usable later authorization keeps the old behaviour.
+            latest = self._authorizations.latest_for_entry(plan.entry_intent_governance_id)
+            if (
+                latest is not None
+                and latest.authorization_id != authorization.authorization_id
+                and (latest.is_consumed or now >= latest.expires_at)
+            ):
+                continue
             return slot
         return None
 

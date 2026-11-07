@@ -2703,7 +2703,8 @@ def build_submission_preview(
         refusals.append(f"{intent.symbol} is not a US equity ({asset_class})")
     if existing_position_quantity != 0:
         refusals.append(
-            f"a position of {existing_position_quantity} already exists in {intent.symbol}"
+            f"a position and/or working order(s) of {existing_position_quantity} shares already "
+            f"exist in {intent.symbol}"
         )
     # BROKER TIMELINE. The session close is the broker's own fact, so a close
     # that MIGHT already have passed is treated as passed.

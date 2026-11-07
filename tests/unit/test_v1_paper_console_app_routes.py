@@ -223,3 +223,53 @@ def test_approving_through_http_creates_the_plan_and_renders_it_on_active_and_hi
     assert history_page.code == 200
     assert "<th>Plan</th>" in history_page.body
     assert f"Candidate {proposal.proposal_governance_id}" in history_page.body
+
+
+def test_p2_1_a_blocked_approval_shows_the_owner_why_and_creates_no_plan() -> None:
+    """P2-1: the v1 `/confirm-approval` override dropped the outcome flash, so an approval
+    recorded-but-blocked (preview refused, nothing sent) showed the Owner NO reason, and
+    still created an ApprovedPlan for an entry that was never sent."""
+    from types import SimpleNamespace
+
+    from empirical_platform.usecases.paper_operator_console import prepare_paper_candidate
+
+    backend = _backend(market_data=FakeMarketData(quote=_FreshQuote()))
+    client = Client(build_paper_application(backend, security=SecuritySession()))  # type: ignore[arg-type]
+    proposal = prepare_paper_candidate(
+        configurations=backend._repositories.configurations,
+        contexts=backend._repositories.contexts,
+        proposals=backend._repositories.proposals,
+        watermarks=backend._watermarks,
+        time_bases=backend._repositories.time_bases,
+        broker=backend._broker,  # type: ignore[arg-type]
+        market_data=backend._market_data,  # type: ignore[arg-type]
+        attempts=backend._repositories.attempts,
+        time_source=backend._time_source,
+        now=_now(),
+    )
+    review = client.get(f"/confirm?action=APPROVE&proposal={proposal.proposal_governance_id}")
+    ticket = re.search(r'name="ticket" value="([^"]+)"', review.body)
+    csrf = re.search(r'name="csrf_token" value="([^"]+)"', review.body)
+    assert ticket and csrf
+    # The broker now reports an open position: the preview refuses; nothing may be sent.
+    backend._broker.position = SimpleNamespace(  # type: ignore[attr-defined]
+        symbol=APPROVED_SYMBOL, quantity=3, average_entry_price="100.00", market_value="300.00"
+    )
+    confirm = client.post(
+        "/confirm-approval",
+        form={
+            "proposal": proposal.proposal_governance_id,
+            "ticket": ticket.group(1),
+            "csrf_token": csrf.group(1),
+        },
+    )
+    assert confirm.code == 303, confirm.body
+    landed = client.get(confirm.headers["location"])
+    assert landed.code == 200
+    assert "execution blocked" in landed.body.lower()
+    assert "nothing was sent" in landed.body.lower()
+
+    intent = backend._repositories.intents.for_proposal(proposal.proposal_governance_id)
+    assert intent is not None  # the approval is recorded...
+    assert backend._repositories.attempts.for_intent(intent.intent_governance_id) is None
+    assert backend._plans.for_entry(intent.intent_governance_id) is None  # type: ignore[union-attr]

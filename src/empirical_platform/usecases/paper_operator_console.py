@@ -681,12 +681,26 @@ def prepare_v1_paper_candidate(
 
     spread_percent = ((ask - bid) / ask * Decimal("100")).quantize(Decimal("0.0001"))
 
-    stamp = now.strftime("%Y%m%dT%H%M%SZ")
-    proposal_id = f"PRP-089-PAPER-{stamp}"
-    if proposals.get(proposal_id) is not None:
+    # P2-2: the ids carry the second-resolution stamp (unchanged for the first candidate of
+    # any second). A REFUSED earlier Prepare in the same second has already written its
+    # evaluation-context row (the engine's NO_TRADE writes no proposal, but the context
+    # precedes it), so the stamp alone can collide -- previously a raw uniqueness error.
+    # Take the first free `-N` suffix instead: unique, deterministic given the stored state,
+    # and never parsed by anything.
+    base_stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    stamp = base_stamp
+    for suffix_number in range(2, 102):
+        if (
+            proposals.get(f"PRP-089-PAPER-{stamp}") is None
+            and contexts.get(f"ECX-089-PAPER-{stamp}") is None
+        ):
+            break
+        stamp = f"{base_stamp}-{suffix_number}"
+    else:
         raise V1PaperCandidateRefusedError(
-            "a candidate was already prepared this same second; click Prepare again"
+            "too many candidates were prepared in the same second; click Prepare again"
         )
+    proposal_id = f"PRP-089-PAPER-{stamp}"
 
     watermark = watermarks.capture(watermark_governance_id=f"WM-089-PAPER-{stamp}")
     context = build_evaluation_context(
@@ -701,7 +715,15 @@ def prepare_v1_paper_candidate(
         strategy_version="V1-OWNER-CONSOLE-PREPARATION",
         created_at=now,
     )
-    contexts.save(context)
+    try:
+        contexts.save(context)
+    except Exception as error:  # noqa: BLE001 - a lost same-id race must be a clean refusal
+        if contexts.get(context.evaluation_context_id) is None:
+            raise
+        raise V1PaperCandidateRefusedError(
+            "another candidate was being prepared at the same moment; nothing was prepared "
+            "by this click -- click Prepare again"
+        ) from error
 
     evaluated_near = datetime.now(UTC)
     evidence_age_seconds = max(

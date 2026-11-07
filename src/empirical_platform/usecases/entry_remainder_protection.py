@@ -67,6 +67,7 @@ from empirical_platform.usecases.paper_execution import (
 __all__ = [
     "ENTRY_CANCEL_ERROR_EVENT_TYPE",
     "ENTRY_CANCEL_MIN_SPACING_SECONDS",
+    "ENTRY_CLOSED_MARKET_RECONCILE_SECONDS",
     "ENTRY_MAX_CANCEL_REQUESTS",
     "ENTRY_PARTIAL_PROACTIVE_CANCEL_SECONDS",
     "ENTRY_REMAINDER_EXHAUSTED_EVENT_TYPE",
@@ -84,6 +85,13 @@ ENTRY_PARTIAL_PROACTIVE_CANCEL_SECONDS = 120
 
 #: Minimum spacing between two cancel requests for the same entry.
 ENTRY_CANCEL_MIN_SPACING_SECONDS = 15
+
+#: P2-4. While the broker CLOCK explicitly says the market is CLOSED, nothing can be cancelled
+#: or sold and a DAY entry turns terminal only at the close, so reconciling a waiting partial
+#: entry on every 15 s tick only grows the round/acknowledgement tables (about 11.5k rows a
+#: day per such entry). Within a closed market the reconcile is repeated at most this often.
+#: With the market open, or the clock unreadable, EVERY tick still reconciles first.
+ENTRY_CLOSED_MARKET_RECONCILE_SECONDS = 300
 
 #: Hard bound on cancel requests (accepted, refused or of unknown outcome) per entry.
 ENTRY_MAX_CANCEL_REQUESTS = 5
@@ -167,6 +175,14 @@ class EntryRemainderProtector:
         self, entry: ExecutionAttempt, *, now: datetime, urgent_reason: str | None
     ) -> EntryRemainderResult:
         intent = entry.intent_governance_id
+        if self._closed_and_recently_reconciled(entry, now):
+            return EntryRemainderResult(
+                EntryRemainderStatus.WAITING,
+                f"partial entry {entry.attempt_id} state={entry.state.value}: the market is "
+                f"closed, so nothing can be cancelled; reconciled within the last "
+                f"{ENTRY_CLOSED_MARKET_RECONCILE_SECONDS}s, next check after that. The first "
+                "tick with the market open reconciles immediately",
+            )
         # ALWAYS reconcile first, by client_order_id: no decision is taken on stale state.
         try:
             entry = self._reconcile.handle(ReconcilePaperOrderCommand(intent, at=now))
@@ -261,6 +277,18 @@ class EntryRemainderProtector:
         )
 
     # -- helpers ---------------------------------------------------------------------------
+
+    def _closed_and_recently_reconciled(self, entry: ExecutionAttempt, now: datetime) -> bool:
+        """P2-4: True only when the broker clock EXPLICITLY reports the market closed AND the
+        newest durable acknowledgement for this entry is younger than the closed-market
+        interval. An unreadable clock (`None`) or an open market is never throttled, so the
+        'reconcile first' rule is untouched whenever a decision could be taken."""
+        if self._market_is_open() is not False:
+            return False
+        moments = [ack.observed_at for ack in self._acknowledgements.for_attempt(entry.attempt_id)]
+        if not moments:
+            return False
+        return (now - max(moments)).total_seconds() < ENTRY_CLOSED_MARKET_RECONCILE_SECONDS
 
     def _after_failed_cancel(
         self, entry: ExecutionAttempt, base: str, why: str, now: datetime

@@ -365,6 +365,10 @@ def build_paper_application(
             except Exception as error:  # noqa: BLE001 - never a traceback to the browser
                 print(f"paper-console: unexpected {type(error).__name__}: {error}", file=sys.stderr)
                 return refusal(error, "500 Internal Server Error")
+            # P2-1: the outcome (notably "Approved, execution blocked: <reasons>. Nothing was
+            # sent.") used to be dropped here, so a blocked approval showed the Owner nothing.
+            if router.outcome_sink is not None:
+                router.outcome_sink(request, result.approval)
             if result.plan is not None:
                 print(
                     f"paper-console: plan {result.plan.plan_id} for {proposal} "

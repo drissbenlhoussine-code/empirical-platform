@@ -1214,6 +1214,13 @@ _ENTRY_LEDGER_SELECT = (
 )
 
 _ENTRY_DAY_LOCK = "SELECT pg_advisory_xact_lock(hashtext(:lock_key))"
+#: P2-6. Count-and-admit is only atomic if the ledger read AFTER the advisory lock sees every
+#: marker committed before the lock was granted. That holds under READ COMMITTED (each
+#: statement takes a fresh snapshot, PostgreSQL's default). Under REPEATABLE READ or
+#: SERIALIZABLE the snapshot is fixed by the FIRST statement (the lock itself), i.e. before
+#: the lock is granted, so two simultaneous submitters could both pass a limit that admits
+#: one. Fail closed instead of silently relying on a server default.
+_TRANSACTION_ISOLATION = "SHOW transaction_isolation"
 
 
 def _entry_lock_key(day_start: datetime) -> str:
@@ -1445,6 +1452,13 @@ class PostgresExecutionAttemptRepository:
         the first's marker. The lock is released by COMMIT/ROLLBACK (never leaked by a crash).
         """
         with self._service.unit_of_work() as work:
+            level_rows = list(work.execute(_TRANSACTION_ISOLATION))
+            level = str(next(iter(level_rows[0].values()))) if level_rows else ""
+            if level.lower() != "read committed":
+                return (
+                    "entry admission requires READ COMMITTED transaction isolation to be "
+                    f"atomic; this connection reports {level!r}; entry refused"
+                )
             work.execute(_ENTRY_DAY_LOCK, {"lock_key": _entry_lock_key(day_start)})
             rows: Sequence[Mapping[str, Any]] = work.execute(
                 _ENTRY_LEDGER_SELECT,

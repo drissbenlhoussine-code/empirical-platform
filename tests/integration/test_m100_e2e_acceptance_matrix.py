@@ -161,7 +161,7 @@ def approve_refused(stack: Stack, proposal_id: str, *, resume: bool = False) -> 
     A refusal raised by the submit handler is an error page (4xx). An approval that was
     RECORDED but whose preview is not authorizable redirects (303) back to the opportunity
     page; the reasons then live in the stored preview row's `refusals`, which is what is
-    returned (the v1 route override does not show the outcome flash -- see the ACC report).
+    returned (the Owner also sees the reason as the outcome flash on that page since P2-1).
     """
     reply = stack.approve_via_route(proposal_id, resume=resume)
     if reply.code == 303:
@@ -177,6 +177,7 @@ def approve_refused(stack: Stack, proposal_id: str, *, resume: bool = False) -> 
         assert reasons, "a blocked approval must carry its refusal reasons"
         landed = page_text(stack.client.get(reply.headers["location"]).body)
         assert "nothing was sent" in landed.lower()
+        assert "execution blocked" in landed.lower(), "P2-1: the Owner must see the outcome flash"
         return "execution is blocked: " + "; ".join(reasons)
     assert reply.code >= 400, f"expected a refusal, got {reply.code}"
     return page_text(reply.body)

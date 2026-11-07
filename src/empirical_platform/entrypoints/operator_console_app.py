@@ -420,6 +420,7 @@ def build_application(
             "403 Forbidden",
         )
 
+    router.outcome_sink = lambda request, outcome: flash.put(session_of(request), outcome)
     router.get("/static/console.css", stylesheet)
     router.get("/", guarded(home))
     router.get("/today", guarded(today))

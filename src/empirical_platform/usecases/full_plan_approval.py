@@ -8,7 +8,9 @@ M086-M089's console already uses, with its full existing safety logic (stale-tic
 refusal, kill-switch check, "terms changed" cross-check, idempotent resumption). This
 module adds NOTHING to that chain's own decisions about whether an entry may be sent; it
 only reads what `confirm_approval` already produced and, the moment a real entry
-authorization exists, creates the plan that lets the automatic manager take over.
+attempt exists (the order was actually claimed for sending), creates the plan that lets the
+automatic manager take over. A BLOCKED approval (preview refused, nothing sent) creates NO
+plan (P2-1); the Owner's re-confirmation once the block clears is idempotent and creates it.
 
 THE ORDERING GUARANTEE, STATED HONESTLY. The mission's own architecture note asks for
 "never a window where an entry is authorized without its corresponding ApprovedPlan
@@ -85,6 +87,15 @@ def approve_full_plan(
     existing = plans.for_entry(intent.intent_governance_id)
     if existing is not None:
         return FullPlanApprovalOutcome(approval=approval, plan=existing, plan_created_now=False)
+
+    if repositories.attempts.for_intent(intent.intent_governance_id) is None:
+        # P2-1: the approval was recorded and the intent issued, but NO order was ever sent
+        # (e.g. the preview refused: "Approved, execution blocked ... Nothing was sent.").
+        # A plan for an entry that does not exist would be a dangling ApprovedPlan the
+        # manager re-assesses on every tick. Create it only once the entry was actually
+        # submitted; the Owner's re-confirmation after the block clears is idempotent and
+        # reaches this point again with the attempt on record.
+        return FullPlanApprovalOutcome(approval=approval, plan=None, plan_created_now=False)
 
     proposal = repositories.proposals.get(proposal_id)
     if proposal is None:

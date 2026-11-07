@@ -36,6 +36,7 @@ from empirical_platform.shared.brokerage.simulation_paper import (
 )
 from empirical_platform.usecases.entry_remainder_protection import (
     ENTRY_CANCEL_MIN_SPACING_SECONDS,
+    ENTRY_CLOSED_MARKET_RECONCILE_SECONDS,
     ENTRY_MAX_CANCEL_REQUESTS,
     ENTRY_PARTIAL_PROACTIVE_CANCEL_SECONDS,
     ENTRY_REMAINDER_EXHAUSTED_EVENT_TYPE,
@@ -315,6 +316,9 @@ def test_no_cancel_is_attempted_while_the_market_is_closed(world: World) -> None
     plans, _ = _plan_for(world, intent, stop="430", bid="418.10")
     manager = _guarded_manager(world, plans)
     world.store.set_market_open(False)
+    # P2-4: a closed-market tick within the throttle interval of the last reconcile is skipped
+    # (see the dedicated test below); wait it out so this tick really reconciles and decides.
+    world.clock.advance(ENTRY_CLOSED_MARKET_RECONCILE_SECONDS + 1)
     outcomes = manager.evaluate_once(now=world.clock.utc)
     assert outcomes[0].kind is PlanOutcomeKind.NOT_ELIGIBLE
     assert "no cancel attempted" in outcomes[0].detail
@@ -322,6 +326,58 @@ def test_no_cancel_is_attempted_while_the_market_is_closed(world: World) -> None
     assert _entry(world, intent).state is PaperExecutionState.PARTIALLY_FILLED
     world.store.set_market_open(True)
     assert manager.evaluate_once(now=world.clock.utc)[0].kind is PlanOutcomeKind.EXIT_CLAIMED
+
+
+def _ack_count(world: World, intent: str) -> int:
+    return len(world.repositories.acknowledgements.for_attempt(_entry(world, intent).attempt_id))
+
+
+def test_p2_4_closed_market_ticks_do_not_grow_the_reconcile_tables_every_tick(
+    world: World,
+) -> None:
+    """P2-4: while the broker clock says CLOSED, a waiting partial entry is reconciled at most
+    once per ENTRY_CLOSED_MARKET_RECONCILE_SECONDS (not on every 15 s tick); the first tick
+    with the market OPEN reconciles at once, and an unreadable clock is never throttled."""
+    intent = _partial_entry(world)
+    plans, _ = _plan_for(world, intent, stop="430", bid="418.10")
+    manager = _guarded_manager(world, plans)
+    world.store.set_market_open(False)
+    world.clock.advance(ENTRY_CLOSED_MARKET_RECONCILE_SECONDS + 1)
+    manager.evaluate_once(now=world.clock.utc)  # reconciles once
+    baseline = _ack_count(world, intent)
+    for _ in range(10):  # ten 15 s ticks, all inside the interval
+        world.clock.advance(15)
+        outcome = manager.evaluate_once(now=world.clock.utc)[0]
+        assert outcome.kind is PlanOutcomeKind.NOT_ELIGIBLE
+        assert "market is closed" in outcome.detail
+    assert _ack_count(world, intent) == baseline
+    world.clock.advance(ENTRY_CLOSED_MARKET_RECONCILE_SECONDS)
+    manager.evaluate_once(now=world.clock.utc)
+    assert _ack_count(world, intent) == baseline + 1
+    # market open again: reconcile-first on the very next tick, no waiting
+    world.store.set_market_open(True)
+    world.clock.advance(1)
+    manager.evaluate_once(now=world.clock.utc)
+    assert _ack_count(world, intent) > baseline + 1
+
+
+def test_p2_4_an_unreadable_clock_is_never_throttled(world: World) -> None:
+    intent = _partial_entry(world)
+    plans, _ = _plan_for(world, intent, stop="430", bid="418.10")
+
+    class _ClockDown:
+        def __getattr__(self, name: str) -> object:
+            return getattr(world.broker, name)
+
+        def fetch_clock(self) -> object:
+            raise RuntimeError("clock endpoint down")
+
+    manager = _guarded_manager(world, plans, _ClockDown())
+    world.clock.advance(15)
+    outcome = manager.evaluate_once(now=world.clock.utc)[0]
+    # NOT throttled: the reconcile was attempted (and, the clock being down, loudly failed).
+    assert outcome.kind is PlanOutcomeKind.NEEDS_ATTENTION
+    assert "reconciliation raised" in outcome.detail
 
 
 def test_an_entry_with_zero_fills_is_never_cancelled(world: World) -> None:
@@ -586,3 +642,74 @@ def test_console_treats_an_expired_entry_with_fills_as_an_open_position(
         filled_quantity=None if filled is None else Decimal(filled),
     )
     assert position_is_open_after_cancel(entry) is expected  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# P2-5: a resumable pre-minted slot that the submit handler would refuse is abandoned
+# ---------------------------------------------------------------------------
+
+
+def test_p2_5_a_pre_minted_slot_shadowed_by_a_later_consumed_authorization_is_skipped(
+    world: World,
+) -> None:
+    """The submit handler spends the entry's LATEST authorization. A slot-0 preview and
+    authorization minted earlier (unused, unexpired) but followed by a later, already-consumed
+    authorization (the Owner's manual exit) used to be resumed and refused on every tick
+    ("no unused human exit authorization exists") until it expired -- a stall for up to 300 s
+    that could hit a mandatory exit. The slot is now abandoned and a fresh one minted."""
+    first, plans = _two_open_positions(world)
+    manager = _manager(world, plans)
+    plan = next(p for p in plans.rows.values() if p.entry_intent_governance_id == first)
+    kind = ExitTriggerKind.STOP
+    # A racing / crashed manager pre-mints slot 0: preview + authorization, never submitted.
+    from empirical_platform.usecases.position_exit import (
+        AuthorizePositionExitCommand,
+        PreviewPositionExitCommand,
+    )
+    from empirical_platform.usecases.position_plan_manager import (
+        _authorization_id,
+        _preview_id,
+    )
+
+    preview = manager._preview_handler.handle(
+        PreviewPositionExitCommand(
+            entry_intent_governance_id=first,
+            preview_id=_preview_id(plan, kind, 0),
+            created_at=world.clock.utc,
+            reprice_generation=0,
+        )
+    )
+    stale = manager._authorize_handler.handle(
+        AuthorizePositionExitCommand(
+            authorization_id=_authorization_id(plan, kind, 0),
+            preview_id=preview.preview_id,
+            expected_request_fingerprint=preview.request_fingerprint,
+            authorized_by="SYSTEM-TEST",
+            authorized_at=world.clock.utc,
+        )
+    )
+    # Later, the Owner's manual exit authorization for the same entry exists and is consumed.
+    world.clock.advance(30)
+    later = replace(
+        stale,
+        authorization_id="XAU-manual-1",
+        preview_id="XPV-manual-1",
+        authorized_at=world.clock.utc,
+        expires_at=world.clock.utc + timedelta(seconds=300),
+        basis_host_requested_at=world.clock.utc,
+        basis_host_at=world.clock.utc,
+        basis_broker_earliest_at=world.clock.utc,
+        basis_broker_latest_at=world.clock.utc,
+        consumed_at=world.clock.utc,
+        consumed_by_attempt_id="XAT-manual-1",
+    )
+    world.exits.authorizations.rows[later.authorization_id] = later
+    assert world.exits.authorizations.latest_for_entry(first).authorization_id == "XAU-manual-1"
+
+    assert manager._select_slot(plan, kind, world.clock.utc) == 1
+    assert _sells(world) == []
+    outcomes = manager.evaluate_once(now=world.clock.utc)
+    kinds = {o.kind for o in outcomes if o.plan_id == "PLAN-A"}
+    assert PlanOutcomeKind.EXIT_CLAIMED in kinds, outcomes
+    assert PlanOutcomeKind.NEEDS_ATTENTION not in kinds, outcomes
+    assert len([s for s in _sells(world) if s.symbol == "AAPL"]) == 1
