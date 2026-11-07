@@ -256,6 +256,52 @@ def test_an_exit_in_progress_or_filled_forbids_another_and_a_rejected_one_does_n
 
 
 # ---------------------------------------------------------------------------
+# RELEASE v1 EXTERNAL POSITION CLOSURE ATTRIBUTION FIX
+# ---------------------------------------------------------------------------
+
+
+def test_an_entry_with_its_own_external_closure_is_refused_unconditionally() -> None:
+    """Even a snapshot that is otherwise PERFECTLY eligible (clean fill, broker agrees, no
+    competitor, no existing exit) must be refused the instant `external_closure_id` is set --
+    the live-incident fix's core invariant."""
+    snapshot = a_snapshot(external_closure_id="XEC-INT-1")
+    refusals = exit_eligibility(snapshot, existing_exit=None)
+    assert refusals == (
+        "this entry's position was already closed externally (closure 'XEC-INT-1'); it can "
+        "never be exited again through this platform",
+    )
+
+
+def test_external_closure_refusal_is_checked_before_any_other_evidence() -> None:
+    """The short-circuit fires even when the broker-quantity math would ALSO refuse (or, as
+    here, would otherwise have nothing to refuse on) -- it is checked FIRST, unconditionally,
+    never merged with or masked by another reason."""
+    snapshot = a_snapshot(
+        external_closure_id="XEC-INT-1",
+        broker_position_quantity=999,  # would otherwise be a DIFFERENT entry's live shares
+        competing_entry_attempt_ids=("ATT-9",),
+    )
+    refusals = exit_eligibility(snapshot, existing_exit=None)
+    assert len(refusals) == 1
+    assert "closed externally" in refusals[0]
+
+
+def test_external_closure_id_is_part_of_the_snapshot_digest() -> None:
+    """The fingerprint a human authorization is bound to must change if this evidence
+    changes, exactly like every other field `PositionSnapshot.digest` already covers."""
+    without = a_snapshot()
+    with_closure = a_snapshot(external_closure_id="XEC-INT-1")
+    assert without.digest != with_closure.digest
+
+
+def test_external_closure_id_defaults_to_none_for_every_pre_existing_construction() -> None:
+    """Every direct construction of `PositionSnapshot` that predates this field (tests, the
+    Postgres row mapper rebuilding a historical preview) keeps working unchanged."""
+    snapshot = a_snapshot()
+    assert snapshot.external_closure_id is None
+
+
+# ---------------------------------------------------------------------------
 # Attempt invariants, transitions, closed position, P&L
 # ---------------------------------------------------------------------------
 

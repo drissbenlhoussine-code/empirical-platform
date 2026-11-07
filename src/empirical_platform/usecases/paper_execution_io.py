@@ -259,6 +259,7 @@ def render_account_text(account: PaperAccountSnapshot) -> str:
 
 def render_preview_json(preview: SubmissionPreview) -> dict[str, Any]:
     return {
+        **({"entry_risk": preview.entry_risk.document()} if preview.entry_risk else {}),
         "preview_id": preview.preview_id,
         "intent_governance_id": preview.intent_governance_id,
         "preview_version": preview.preview_version,
@@ -364,6 +365,17 @@ def render_preview_text(preview: SubmissionPreview) -> str:
         f"REQUEST FINGERPRINT : {preview.request_fingerprint}",
         "",
     ]
+    if preview.entry_risk is not None:
+        risk = preview.entry_risk
+        lines.extend(
+            [
+                f"  approved stop     : {risk.stop_price}",
+                f"  planned loss      : {risk.planned_loss}",
+                f"  max shares        : {risk.maximum_position_quantity_shares}",
+                f"  max planned loss  : {risk.maximum_planned_loss_per_trade}",
+                f"  risk fingerprint  : {risk.fingerprint}",
+            ]
+        )
     if preview.refusals:
         lines.append("REFUSED -- this preview CANNOT be authorized:")
         lines.extend(f"  - {reason}" for reason in preview.refusals)

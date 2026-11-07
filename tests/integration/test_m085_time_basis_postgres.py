@@ -127,7 +127,7 @@ class TruthfulBroker(FakeBroker):
             timestamp=self.world.true,
             is_open=True,
             next_open=None,
-            next_close=EVALUATED_AT + timedelta(hours=3),
+            next_close=EVALUATED_AT + timedelta(hours=6),
         )
 
 
@@ -624,7 +624,7 @@ class TestAnIntentWithoutItsOwnBasisIsNotDispatchable:
                     preview_version=1,
                     market_is_open=True,
                     market_next_open=None,
-                    market_next_close=EVALUATED_AT + timedelta(hours=3),
+                    market_next_close=EVALUATED_AT + timedelta(hours=6),
                     quote_bid=Decimal("199.95"),
                     quote_ask=Decimal("200"),
                     quote_captured_at=now,

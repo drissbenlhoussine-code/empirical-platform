@@ -32,9 +32,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_DOWN, Decimal
 from enum import StrEnum
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 from zoneinfo import ZoneInfo
 
+from empirical_platform.decision_candidate.entry_risk_contract import (
+    EntryRiskContract,
+    planned_loss,
+)
 from empirical_platform.decision_candidate.operator_trading_configuration import (
     KillSwitchState,
     LimitPricePolicy,
@@ -132,6 +136,7 @@ class NoTradeReason(StrEnum):
     CASH_INSUFFICIENT = "CASH_INSUFFICIENT"
     CASH_RESERVE_BREACHED = "CASH_RESERVE_BREACHED"
     QUANTITY_ZERO_AFTER_SIZING = "QUANTITY_ZERO_AFTER_SIZING"
+    ENTRY_RISK_CONTRACT_REFUSED = "ENTRY_RISK_CONTRACT_REFUSED"
     NO_ELIGIBLE_CANDIDATE = "NO_ELIGIBLE_CANDIDATE"
 
 
@@ -165,6 +170,7 @@ _REASON_PRECEDENCE: tuple[NoTradeReason, ...] = (
     NoTradeReason.CASH_RESERVE_BREACHED,
     NoTradeReason.CASH_INSUFFICIENT,
     NoTradeReason.QUANTITY_ZERO_AFTER_SIZING,
+    NoTradeReason.ENTRY_RISK_CONTRACT_REFUSED,
     NoTradeReason.NO_ELIGIBLE_CANDIDATE,
 )
 
@@ -235,7 +241,15 @@ class TradeProposal:
     #: Fixed for the lifetime of MILESTONE-084.
     side: str = _BUY_SIDE
 
+    entry_risk: EntryRiskContract | None = None
+
     def __post_init__(self) -> None:
+        if self.entry_risk is not None and (
+            self.entry_risk.quantity != self.quantity
+            or self.entry_risk.entry_ceiling != self.limit_price
+            or self.entry_risk.stop_price != self.stop_loss_price
+        ):
+            raise ValueError("proposal terms differ from immutable risk contract")
         for field_name in (
             "proposal_governance_id",
             "evaluation_context_id",
@@ -345,6 +359,7 @@ class _AuthorizedTerms(TypedDict):
     impossible for a proposal to be fingerprinted over terms other than its own.
     """
 
+    entry_risk: NotRequired[EntryRiskContract | None]
     proposal_governance_id: str
     proposal_version: int
     evaluation_context_id: str
@@ -410,6 +425,9 @@ def _fingerprint_digest(terms: _AuthorizedTerms) -> str:
             terms["expires_at"].astimezone(UTC).isoformat(),
         )
     )
+    risk = terms.get("entry_risk")
+    if risk is not None:
+        payload += "\nrisk-v2:" + risk.fingerprint
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -423,6 +441,7 @@ def compute_fingerprint(proposal: TradeProposal) -> str:
     """
     return _fingerprint_digest(
         _AuthorizedTerms(
+            entry_risk=proposal.entry_risk,
             proposal_governance_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
             evaluation_context_id=proposal.evaluation_context_id,
@@ -754,6 +773,10 @@ def evaluate_trade_proposal(
         raw = (budget / entry_price).to_integral_value(rounding=ROUND_DOWN)
         lots = (raw / Decimal(instrument.lot_size)).to_integral_value(rounding=ROUND_DOWN)
         quantity = int(lots) * instrument.lot_size
+    if configuration.risk_contract_version == 2:
+        assert configuration.maximum_position_quantity_shares is not None
+        quantity = min(quantity, configuration.maximum_position_quantity_shares)
+        quantity = quantity // instrument.lot_size * instrument.lot_size
     record(
         "sized_quantity",
         RiskCheckOutcome.PASSED if quantity > 0 else RiskCheckOutcome.FAILED,
@@ -783,6 +806,39 @@ def evaluate_trade_proposal(
         f"total cash required {total_cash}",
         NoTradeReason.CASH_INSUFFICIENT,
     )
+
+    entry_risk = None
+    if configuration.risk_contract_version == 2:
+        stop = (
+            entry_price * (Decimal("100") - configuration.stop_loss_percent) / Decimal("100")
+        ).quantize(_CENT)
+        try:
+            if order_type is not OrderType.LIMIT:
+                raise ValueError("risk v2 requires an immutable LIMIT ceiling")
+            assert configuration.maximum_position_quantity_shares is not None
+            assert configuration.maximum_planned_loss_per_trade is not None
+            entry_risk = EntryRiskContract(
+                entry_price,
+                stop,
+                quantity,
+                configuration.maximum_position_quantity_shares,
+                configuration.maximum_planned_loss_per_trade,
+                planned_loss(entry_price, stop, quantity),
+            )
+        except ValueError as error:
+            record(
+                "planned_loss",
+                RiskCheckOutcome.FAILED,
+                str(error),
+                NoTradeReason.ENTRY_RISK_CONTRACT_REFUSED,
+            )
+        else:
+            record(
+                "planned_loss",
+                RiskCheckOutcome.PASSED,
+                f"evaluated planned loss {entry_risk.planned_loss}",
+                NoTradeReason.ENTRY_RISK_CONTRACT_REFUSED,
+            )
 
     frozen_checks = tuple(checks)
     if reasons:
@@ -814,6 +870,7 @@ def evaluate_trade_proposal(
         liquidation_at=liquidation_at.astimezone(UTC),
         created_at=evaluated_at.astimezone(UTC),
         checks=frozen_checks,
+        entry_risk=entry_risk,
     )
     return TradeProposalOutcome(proposal=draft, no_trade_reason=None, risk_checks=frozen_checks)
 
@@ -836,6 +893,7 @@ def _assemble(
     liquidation_at: datetime,
     created_at: datetime,
     checks: tuple[RiskCheck, ...],
+    entry_risk: EntryRiskContract | None = None,
 ) -> TradeProposal:
     """Build the one and only proposal object, already carrying its digest.
 
@@ -845,6 +903,7 @@ def _assemble(
     `__post_init__` validates that, on the real object, with no bypass.
     """
     terms = _AuthorizedTerms(
+        entry_risk=entry_risk,
         proposal_governance_id=proposal_governance_id,
         proposal_version=1,
         evaluation_context_id=evaluation_context_id,

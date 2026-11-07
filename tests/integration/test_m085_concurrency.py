@@ -182,7 +182,7 @@ def a_chain(
         ),
         market_is_open=True,
         market_next_open=None,
-        market_next_close=EVALUATED_AT + timedelta(hours=3),
+        market_next_close=EVALUATED_AT + timedelta(hours=6),
         quote_bid=Decimal("199.95"),
         quote_ask=Decimal("200.10"),
         quote_captured_at=EVALUATED_AT - timedelta(seconds=5),

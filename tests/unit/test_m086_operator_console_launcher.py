@@ -184,7 +184,9 @@ class TestTheReconcilerIsStoppedAndJoined:
 
         # Stacked-milestone evolution (M087): the launcher composes the exit-capable runtime.
         monkeypatch.setattr(launcher, "simulation_exit_console_runtime", fake_runtime)
-        monkeypatch.setattr(launcher, "build_application", lambda runtime, security: object())
+        monkeypatch.setattr(
+            launcher, "build_application", lambda runtime, security, base_path="": object()
+        )
         monkeypatch.setattr(launcher, "serve", fake_serve)
 
         outcome: list[int] = []

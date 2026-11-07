@@ -109,7 +109,8 @@ class _OpenMarketClock:
         if self.next_open is None:
             self.next_open = now + timedelta(hours=20)
         if self.next_close is None:
-            self.next_close = now + timedelta(hours=2)
+            # beyond today's mandatory exit deadline at any time of day (Audit A P1-2)
+            self.next_close = now + timedelta(hours=48)
 
 
 def _open_broker() -> FakeBroker:
@@ -268,6 +269,7 @@ class TestOwnerGateAndExactlyOnce:
             time_bases=repositories.time_bases,
             broker=broker,  # type: ignore[arg-type]
             market_data=market_data,  # type: ignore[arg-type]
+            attempts=repositories.attempts,  # type: ignore[arg-type]
             time_source=SystemPaperTimeSource(),
             now=_now(),
         )
@@ -389,6 +391,7 @@ class TestUiIsExplicitAndLeaksNoCredential:
             time_bases=repositories.time_bases,
             broker=broker,
             market_data=market_data,
+            attempts=repositories.attempts,  # type: ignore[arg-type]
             time_source=SystemPaperTimeSource(),
             now=_now(),
         )

@@ -29,6 +29,10 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 
+from empirical_platform.decision_candidate.approved_plan_repositories import ApprovedPlanRepository
+from empirical_platform.decision_candidate.external_position_closure_repositories import (
+    ExternalPositionClosureRepository,
+)
 from empirical_platform.decision_candidate.operator_trading_configuration import OrderType
 from empirical_platform.decision_candidate.paper_execution import (
     MINIMUM_SECONDS_BEFORE_NOT_FOUND_COUNTS,
@@ -51,6 +55,9 @@ from empirical_platform.decision_candidate.position_exit import (
     EXIT_SEND_BOUNDARY_EVENT_TYPE,
     EXIT_SIDE,
     MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS,
+    OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE,
+    OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS,
+    OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX,
     POSITION_CLOSED_VERIFIED_EVENT_TYPE,
     POSITION_NEEDS_ATTENTION,
     POSITION_NOT_ZERO_AFTER_FILL_EVENT_TYPE,
@@ -62,13 +69,16 @@ from empirical_platform.decision_candidate.position_exit import (
     PositionExitState,
     PositionSnapshot,
     derive_exit_client_order_id,
+    derive_overdue_recovery_identity,
     exit_absence_evaluation,
     exit_attempt_may_have_transmitted,
     exit_authorization_binding_refusal,
     exit_eligibility,
+    exit_limit_price,
     exit_order_terms_mismatches,
     exit_request_fingerprint,
     exit_send_boundary_binding,
+    is_exit_transition_allowed,
 )
 from empirical_platform.decision_candidate.position_exit_repositories import (
     ExitBrokerPort,
@@ -103,12 +113,17 @@ from empirical_platform.usecases.paper_execution import _account_reference
 __all__ = [
     "MAXIMUM_EXIT_PREVIEW_AGE_SECONDS",
     "AssessPositionExitHandler",
+    "AuthorizeOverduePositionRecoveryCommand",
+    "AuthorizeOverduePositionRecoveryHandler",
+    "GrantOverduePositionRecoveryApprovalCommand",
+    "GrantOverduePositionRecoveryApprovalHandler",
     "AuthorizePositionExitCommand",
     "AuthorizePositionExitHandler",
     "CancelPositionExitCommand",
     "CancelPositionExitHandler",
     "ExitSubmissionResult",
     "POSITION_NEEDS_ATTENTION",
+    "QUOTE_UNUSABLE_FOR_EXIT_MARKER",
     "PositionAssessment",
     "PositionExitRefusedError",
     "PreviewPositionExitCommand",
@@ -118,6 +133,11 @@ __all__ = [
     "SubmitAuthorizedPositionExitCommand",
     "SubmitAuthorizedPositionExitHandler",
 ]
+
+#: The exact wording `PreviewPositionExitHandler` refuses with when the quote spread/age gate
+#: blocks pricing an exit. Shared so the plan manager's attention board can recognise a
+#: quote-gate block without paraphrasing (the gate itself is unchanged).
+QUOTE_UNUSABLE_FOR_EXIT_MARKER = " The quote is not usable to price this exit: "
 
 #: A review page older than this cannot be authorized: the position must be re-reviewed.
 MAXIMUM_EXIT_PREVIEW_AGE_SECONDS = 900
@@ -134,7 +154,9 @@ _BROKER_STATUS_TO_STATE = MappingProxyType(
         "canceled": PositionExitState.CANCELED,
         "expired": PositionExitState.EXPIRED,
         "rejected": PositionExitState.REJECTED,
-        "suspended": PositionExitState.REJECTED,
+        # `suspended` is deliberately ABSENT (M100 final review, P1): Alpaca documents it as
+        # not eligible for trading but NOT terminal, so it must fail closed (NEEDS_ATTENTION)
+        # rather than count as a rejection that lets a second live sell be sent.
         "pending_cancel": PositionExitState.CANCEL_REQUESTED,
     }
 )
@@ -144,6 +166,7 @@ _ENTRY_HOLDING_STATES: frozenset[PaperExecutionState] = frozenset(
         PaperExecutionState.FILLED,
         PaperExecutionState.PARTIALLY_FILLED,
         PaperExecutionState.CANCELED,
+        PaperExecutionState.EXPIRED,
         PaperExecutionState.CANCEL_REQUESTED,
     }
 )
@@ -255,7 +278,7 @@ class PositionAssessment:
 class AssessPositionExitHandler:
     """Judge whether an entry's position can be closed now. Reads only; writes nothing."""
 
-    __slots__ = ("_intents", "_entry_attempts", "_exit_attempts", "_broker")
+    __slots__ = ("_intents", "_entry_attempts", "_exit_attempts", "_external_closures", "_broker")
 
     def __init__(
         self,
@@ -263,11 +286,13 @@ class AssessPositionExitHandler:
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
         exit_attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         broker: ExitBrokerPort,
     ) -> None:
         self._intents = intents
         self._entry_attempts = entry_attempts
         self._exit_attempts = exit_attempts
+        self._external_closures = external_closures
         self._broker = broker
 
     def handle(self, entry_intent_governance_id: str, *, at: datetime) -> PositionAssessment:
@@ -279,6 +304,7 @@ class AssessPositionExitHandler:
         sold = sum((x.filled_quantity or Decimal(0)) for x in exits)
         existing = self._exit_attempts.active_for_entry(entry_intent_governance_id)
         position = self._broker.fetch_position(intent.symbol)
+        own_closure = self._external_closures.for_entry(entry_intent_governance_id)
         snapshot = PositionSnapshot(
             symbol=intent.symbol,
             entry_intent_governance_id=entry_intent_governance_id,
@@ -290,6 +316,7 @@ class AssessPositionExitHandler:
             broker_position_quantity=0 if position is None else int(position.quantity),
             competing_entry_attempt_ids=self._competitors(intent, entry),
             captured_at=at,
+            external_closure_id=None if own_closure is None else own_closure.closure_id,
         )
         return PositionAssessment(
             entry_intent=intent,
@@ -302,7 +329,19 @@ class AssessPositionExitHandler:
     def _competitors(
         self, intent: ApprovedOrderIntent, entry: ExecutionAttempt | None
     ) -> tuple[str, ...]:
-        """Other entry attempts in the same symbol still holding shares (not closed by an exit)."""
+        """Other entry attempts in the same symbol still holding shares (not closed by an
+        exit, and not proven closed by an independent `ExternalPositionClosure`).
+
+        RELEASE v1 EXTERNAL POSITION CLOSURE ATTRIBUTION FIX. A same-symbol entry that this
+        platform never dispatched an exit for is NOT necessarily still open: an Owner may
+        have closed it directly at the broker, and `RecordExternalPositionClosureHandler`
+        durably recorded that fact. Such an entry's PROVEN-closed position must never block
+        a DIFFERENT entry's attribution -- that was the live-incident bug (Oct 9 entry,
+        externally closed, with zero platform exit attempts, blocking the Oct 16 entry's own
+        exit). A `PositionExitAttempt` that exists but is non-terminal, unresolved, or
+        `SUBMISSION_UNKNOWN` still counts as a competitor exactly as before: only a
+        `position_closed` platform exit OR a recorded `ExternalPositionClosure` excludes.
+        """
         found: list[str] = []
         for other in self._entry_attempts.list_recent(500):
             if entry is not None and other.attempt_id == entry.attempt_id:
@@ -316,6 +355,8 @@ class AssessPositionExitHandler:
                 continue
             closer = self._exit_attempts.active_for_entry(other.intent_governance_id)
             if closer is not None and closer.position_closed:
+                continue
+            if self._external_closures.for_entry(other.intent_governance_id) is not None:
                 continue
             found.append(other.attempt_id)
         return tuple(sorted(found))
@@ -331,6 +372,10 @@ class PreviewPositionExitCommand:
     entry_intent_governance_id: str
     preview_id: str
     created_at: datetime
+    #: RELIABLE EXIT MANAGEMENT: 0 prices the LIMIT at the bid (the original behaviour);
+    #: `g > 0` concedes a bounded number of basis points below the CURRENT bid
+    #: (`position_exit.exit_limit_price`). Still a LIMIT order, never a market order.
+    reprice_generation: int = 0
 
 
 class PreviewPositionExitHandler:
@@ -367,6 +412,7 @@ class PreviewPositionExitHandler:
         intents: ApprovedOrderIntentRepository,
         entry_attempts: ExecutionAttemptRepository,
         exit_attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         previews: PositionExitPreviewRepository,
         events: PositionExitEventRepository,
         broker: ExitBrokerPort,
@@ -379,6 +425,7 @@ class PreviewPositionExitHandler:
             intents=intents,
             entry_attempts=entry_attempts,
             exit_attempts=exit_attempts,
+            external_closures=external_closures,
             broker=broker,
         )
         self._previews = previews
@@ -416,7 +463,7 @@ class PreviewPositionExitHandler:
         if stale is not None:
             raise PositionExitRefusedError(
                 POSITION_NEEDS_ATTENTION
-                + " The quote is not usable to price this exit: "
+                + QUOTE_UNUSABLE_FOR_EXIT_MARKER
                 + stale
                 + ". Nothing was prepared."
             )
@@ -426,7 +473,9 @@ class PreviewPositionExitHandler:
             side=EXIT_SIDE,
             quantity=quantity,
             order_type=OrderType.LIMIT,
-            limit_price=bid,
+            limit_price=exit_limit_price(bid, generation=command.reprice_generation)
+            if bid is not None
+            else None,
             time_in_force="DAY",
             extended_hours=False,
             client_order_id=derive_exit_client_order_id(
@@ -516,6 +565,22 @@ class AuthorizePositionExitHandler:
         self._time = time_source or SystemPaperTimeSource()
 
     def handle(self, command: AuthorizePositionExitCommand) -> PositionExitAuthorization:
+        # RELEASE v1 RECOVERY HARDENING SECURITY GATE. The overdue-position-recovery
+        # identity prefix may ONLY ever be minted by `AuthorizeOverduePositionRecoveryHandler`
+        # itself (which never accepts `authorized_by` from a caller -- it always derives its
+        # own). This handler is the ONE place both a manual `confirm()` (always
+        # `authorized_by=self._operator`, never caller-supplied) and the automatic manager
+        # (always `authorized_by=plan.system_identity`) funnel through, so refusing the
+        # reserved prefix HERE, structurally, closes the forgery question for good: no
+        # future caller of this handler -- today's or tomorrow's -- can ever produce a
+        # normal authorization that `exit_authorization_binding_refusal` would mistake for
+        # a recovery-kind one and judge by the looser recovery rule instead of the normal
+        # one.
+        if command.authorized_by.startswith(OVERDUE_RECOVERY_AUTHORIZED_BY_PREFIX):
+            raise PositionExitRefusedError(
+                "authorized_by may not use the overdue-position-recovery identity prefix "
+                "through the normal exit authorization path; nothing was authorized"
+            )
         preview = self._previews.get(command.preview_id)
         if preview is None:
             raise NotFoundError(f"no exit preview {command.preview_id!r} exists")
@@ -528,10 +593,9 @@ class AuthorizePositionExitHandler:
             raise PositionExitRefusedError(
                 "the exit review page is too old; open the review again to see current terms"
             )
-        if self._kill_switch.is_engaged():
-            raise PositionExitRefusedError(
-                "the execution kill switch is engaged; release it before a close can be authorized"
-            )
+        # RELEASE v1: the kill switch blocks NEW ENTRIES only (see `paper_execution.py`); it
+        # must never trap an already-open position, so a position-reducing exit authorization
+        # is never refused for the kill switch being engaged. See `docs/operations/kill-switch.md`.
         validity = min(int(command.validity_seconds), MAXIMUM_EXIT_AUTHORIZATION_VALIDITY_SECONDS)
         if validity <= 0:
             raise PositionExitRefusedError("an exit authorization needs a positive validity")
@@ -583,6 +647,347 @@ class AuthorizePositionExitHandler:
                 detail=(
                     f"{authorization.authorized_by} confirmed exit preview {preview.preview_id}; "
                     f"expires {expires_at.isoformat()}"
+                )[:500],
+            )
+        )
+        return authorization
+
+
+# ---------------------------------------------------------------------------
+# Overdue-position recovery authorization (RELEASE v1 recovery hardening)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class GrantOverduePositionRecoveryApprovalCommand:
+    entry_intent_governance_id: str
+    #: A FRESH, explicit Owner approval reference -- never the original plan's own
+    #: `owner_approval_id`, replayed or reused (see the handler's own refusal).
+    recovery_approval_id: str
+    granted_at: datetime
+
+
+class GrantOverduePositionRecoveryApprovalHandler:
+    """Record, durably, ONE fresh and explicit Owner decision to recover an overdue
+    position -- the real, persisted approval `AuthorizeOverduePositionRecoveryHandler`
+    requires to exist before it will authorize anything.
+
+    SECURITY GATE (RELEASE v1 recovery hardening review). A distinct, nonempty
+    `recovery_approval_id` string handed straight to the authorize step is NOT a Owner
+    approval -- it is just a string an HTTP caller typed. This handler is the ONE place
+    that string becomes a real, durable, independently-queryable record: it re-verifies,
+    fresh, right now, that the position is actually overdue, that an approved plan exists,
+    that the new id is genuinely distinct from the original `owner_approval_id` (which it
+    reads only to prove the difference, never rewrites), and that the position is
+    currently eligible to be closed (re-running the SAME `AssessPositionExitHandler` every
+    other exit step uses) -- and only then appends an event recording the EXACT symbol,
+    quantity and account this approval covers. `AuthorizeOverduePositionRecoveryHandler`
+    later requires a grant matching ALL of those fields, not merely a matching id string,
+    before it will authorize anything against the current preview.
+    """
+
+    __slots__ = ("_assess", "_intents", "_plans", "_broker", "_events", "_time")
+
+    def __init__(
+        self,
+        *,
+        intents: ApprovedOrderIntentRepository,
+        entry_attempts: ExecutionAttemptRepository,
+        exit_attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
+        plans: ApprovedPlanRepository,
+        broker: ExitBrokerPort,
+        events: PositionExitEventRepository,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._assess = AssessPositionExitHandler(
+            intents=intents,
+            entry_attempts=entry_attempts,
+            exit_attempts=exit_attempts,
+            external_closures=external_closures,
+            broker=broker,
+        )
+        self._intents = intents
+        self._plans = plans
+        self._broker = broker
+        self._events = events
+        self._time = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: GrantOverduePositionRecoveryApprovalCommand) -> PositionExitEvent:
+        intent = self._intents.get(command.entry_intent_governance_id)
+        if intent is None:
+            raise NotFoundError(
+                f"no approved order intent {command.entry_intent_governance_id!r} exists"
+            )
+        # THE NARROW GATE, AT GRANT TIME TOO. The original mandatory deadline
+        # (`intent.mandatory_liquidation_at`) is read here, never altered.
+        if command.granted_at < intent.mandatory_liquidation_at:
+            raise PositionExitRefusedError(
+                "this position is not overdue; the mandatory liquidation deadline has not "
+                "yet passed. Nothing was recorded"
+            )
+        if (
+            not isinstance(command.recovery_approval_id, str)
+            or not command.recovery_approval_id.strip()
+        ):
+            raise PositionExitRefusedError(
+                "an overdue-position-recovery approval requires a fresh, explicit Owner "
+                "approval id; nothing was recorded"
+            )
+        plan = self._plans.for_entry(command.entry_intent_governance_id)
+        if plan is None:
+            raise PositionExitRefusedError(
+                "no approved plan exists for this position; an overdue-position-recovery "
+                "approval requires the original Owner-approved plan"
+            )
+        # THE ORIGINAL APPROVAL IS NEVER REPLAYED OR EXTENDED. `plan.owner_approval_id` is
+        # read-only evidence here -- this handler never writes to `plan` at all.
+        if command.recovery_approval_id == plan.owner_approval_id:
+            raise PositionExitRefusedError(
+                "the recovery approval id must be a NEW, fresh Owner approval, distinct "
+                "from the original plan's own owner_approval_id; the original approval is "
+                "never replayed or extended"
+            )
+        assessment = self._assess.handle(command.entry_intent_governance_id, at=command.granted_at)
+        if not assessment.eligible:
+            raise PositionExitRefusedError(
+                POSITION_NEEDS_ATTENTION
+                + " The position cannot be recovered right now: "
+                + "; ".join(assessment.refusals)
+            )
+        quantity = assessment.snapshot.attributable_quantity
+        assert quantity is not None  # eligibility guarantees it
+        payload = {
+            "recovery_approval_id": command.recovery_approval_id,
+            "entry_intent_governance_id": command.entry_intent_governance_id,
+            "symbol": intent.symbol,
+            "quantity": str(quantity),
+            "account_reference": _account_reference_of(self._broker),
+        }
+        return self._events.append(
+            PositionExitEvent(
+                event_id=_event_id(
+                    command.entry_intent_governance_id,
+                    command.recovery_approval_id,
+                    command.granted_at.isoformat(),
+                    OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE,
+                ),
+                entry_intent_governance_id=command.entry_intent_governance_id,
+                attempt_id=None,
+                event_type=OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE,
+                occurred_at=command.granted_at,
+                detail=json.dumps(payload)[:500],
+            )
+        )
+
+
+def _matching_recovery_grant(
+    *,
+    events: PositionExitEventRepository,
+    entry_intent_governance_id: str,
+    recovery_approval_id: str,
+    symbol: str,
+    quantity: int,
+    account_reference: str,
+) -> PositionExitEvent | None:
+    """The persisted `GrantOverduePositionRecoveryApprovalHandler` record, if any, whose
+    EXACT symbol, quantity and account match -- never just a matching id string alone."""
+    for event in events.for_entry(entry_intent_governance_id):
+        if event.event_type != OVERDUE_RECOVERY_APPROVAL_GRANTED_EVENT_TYPE:
+            continue
+        try:
+            payload = json.loads(event.detail)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if (
+            payload.get("recovery_approval_id") == recovery_approval_id
+            and payload.get("symbol") == symbol
+            and payload.get("quantity") == str(quantity)
+            and payload.get("account_reference") == account_reference
+        ):
+            return event
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizeOverduePositionRecoveryCommand:
+    authorization_id: str
+    preview_id: str
+    expected_request_fingerprint: str
+    #: A FRESH, explicit Owner approval reference for THIS recovery -- never the original
+    #: plan's own `owner_approval_id`, replayed or reused (see the handler's own refusal).
+    recovery_approval_id: str
+    authorized_at: datetime
+    validity_seconds: int = OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS
+
+
+class AuthorizeOverduePositionRecoveryHandler:
+    """Record a fresh, explicit Owner approval to close ONE already-overdue position.
+
+    THE NARROW GATE THIS EXISTS FOR. A normal `AuthorizePositionExitHandler` authorization
+    can never again satisfy `exit_authorization_binding_refusal` once a position's mandatory
+    liquidation deadline has passed: every possible expiry a NEW authorization could carry is,
+    by construction, strictly later than `authorized_at`, which is itself already later than
+    the deadline -- so the ordinary "must not outlive the deadline" rule becomes permanently
+    unsatisfiable, and an overdue position could never be closed again, manually or
+    automatically, by any path. This handler is the ONE place that gap is closed, and it is
+    closed narrowly: it refuses outright unless the position is ALREADY overdue (RELEASE v1
+    recovery hardening's own narrow-scope requirement -- this is never a way to skip the
+    normal path for a position that is not yet overdue), and it requires a FRESH, explicit
+    Owner approval id, distinct from the plan's original `owner_approval_id`, which this
+    handler never reads, rewrites or extends -- it is read ONLY to prove the new id differs
+    from it. Every other safeguard a normal exit relies on is unchanged and shared: the SAME
+    preview freshness check below, the SAME broker-clock uncertainty check below, and --
+    because `SubmitAuthorizedPositionExitHandler` is untouched -- the SAME re-verified
+    position/quote/account/idempotent dispatch-claim at submit time.
+    """
+
+    __slots__ = ("_previews", "_authorizations", "_events", "_plans", "_broker", "_time")
+
+    def __init__(
+        self,
+        *,
+        previews: PositionExitPreviewRepository,
+        authorizations: PositionExitAuthorizationRepository,
+        events: PositionExitEventRepository,
+        plans: ApprovedPlanRepository,
+        broker: ExitBrokerPort,
+        time_source: PaperTimeSource | None = None,
+    ) -> None:
+        self._previews = previews
+        self._authorizations = authorizations
+        self._events = events
+        self._plans = plans
+        self._broker = broker
+        self._time = time_source or SystemPaperTimeSource()
+
+    def handle(self, command: AuthorizeOverduePositionRecoveryCommand) -> PositionExitAuthorization:
+        preview = self._previews.get(command.preview_id)
+        if preview is None:
+            raise NotFoundError(f"no exit preview {command.preview_id!r} exists")
+        if preview.request_fingerprint != command.expected_request_fingerprint:
+            raise PositionExitRefusedError(
+                "the exit review shown does not match the stored preview; nothing was authorized"
+            )
+        age = (command.authorized_at - preview.created_at).total_seconds()
+        if age < 0 or age > MAXIMUM_EXIT_PREVIEW_AGE_SECONDS:
+            raise PositionExitRefusedError(
+                "the exit review page is too old; open the review again to see current terms"
+            )
+        timing = PaperTimeWindow(self._time)
+        basis = timing.measure_broker_basis(lambda: self._broker.fetch_clock().timestamp)
+        authorized_at = command.authorized_at
+        if authorized_at > basis.host_at:
+            raise PaperTimeUncertainError(
+                "the authorization instant is later than this host's reading of the broker "
+                "basis; nothing was authorized"
+            )
+        # THE NARROW GATE: this path exists ONLY for a position that is ALREADY overdue. The
+        # original mandatory deadline (`preview.liquidation_deadline`) is read here, never
+        # altered -- it is carried unchanged from the original Owner-approved plan.
+        if authorized_at < preview.liquidation_deadline:
+            raise PositionExitRefusedError(
+                "this position is not overdue; the mandatory liquidation deadline has not yet "
+                "passed. Use the normal exit authorization, not overdue-position recovery"
+            )
+        if (
+            not isinstance(command.recovery_approval_id, str)
+            or not command.recovery_approval_id.strip()
+        ):
+            raise PositionExitRefusedError(
+                "an overdue-position-recovery authorization requires a fresh, explicit Owner "
+                "approval id; nothing was authorized"
+            )
+        plan = self._plans.for_entry(preview.entry_intent_governance_id)
+        if plan is None:
+            raise PositionExitRefusedError(
+                "no approved plan exists for this position; an overdue-position-recovery "
+                "authorization requires the original Owner-approved plan"
+            )
+        # THE ORIGINAL APPROVAL IS NEVER REPLAYED OR EXTENDED. `plan.owner_approval_id` is
+        # read-only evidence here -- this handler never writes to `plan` at all. Redundant
+        # with `GrantOverduePositionRecoveryApprovalHandler`'s OWN identical check at grant
+        # time -- kept here too, deliberately, as defense in depth.
+        if command.recovery_approval_id == plan.owner_approval_id:
+            raise PositionExitRefusedError(
+                "the recovery approval id must be a NEW, fresh Owner approval, distinct from "
+                "the original plan's own owner_approval_id; the original approval is never "
+                "replayed or extended"
+            )
+        # SECURITY GATE (RELEASE v1 recovery hardening review): a distinct nonempty string
+        # alone is NOT sufficient. A REAL, persisted Owner approval -- recorded by a
+        # SEPARATE, prior `GrantOverduePositionRecoveryApprovalHandler` call -- must exist,
+        # and its exact symbol, quantity and account must match THIS preview's, not merely
+        # its id string.
+        grant = _matching_recovery_grant(
+            events=self._events,
+            entry_intent_governance_id=preview.entry_intent_governance_id,
+            recovery_approval_id=command.recovery_approval_id,
+            symbol=preview.request.symbol,
+            quantity=preview.request.quantity,
+            account_reference=preview.account_reference,
+        )
+        if grant is None:
+            raise PositionExitRefusedError(
+                "no persisted Owner recovery approval matches this exact position, account "
+                "and quantity; grant a fresh overdue-position-recovery approval first. "
+                "Nothing was authorized"
+            )
+        validity = min(
+            int(command.validity_seconds), OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS
+        )
+        if validity <= 0:
+            raise PositionExitRefusedError(
+                "an overdue-position-recovery authorization needs a positive validity"
+            )
+        # No clamp against `preview.liquidation_deadline`: once overdue, that deadline can no
+        # longer bound a NEW authorization's expiry (every possible expiry is already past
+        # it -- see this class's own docstring). The short, fixed
+        # `OVERDUE_RECOVERY_AUTHORIZATION_VALIDITY_SECONDS` ceiling is the sole bound instead.
+        expires_at = authorized_at + timedelta(seconds=validity)
+        authorized_by = derive_overdue_recovery_identity(
+            entry_intent_governance_id=preview.entry_intent_governance_id,
+            recovery_approval_id=command.recovery_approval_id,
+        )
+        authorization = self._authorizations.save(
+            PositionExitAuthorization(
+                authorization_id=command.authorization_id,
+                entry_intent_governance_id=preview.entry_intent_governance_id,
+                preview_id=preview.preview_id,
+                preview_version=preview.preview_version,
+                request_fingerprint=preview.request_fingerprint,
+                preview_binding_fingerprint=preview.binding_fingerprint,
+                account_reference=preview.account_reference,
+                client_order_id=preview.request.client_order_id,
+                symbol=preview.request.symbol,
+                quantity=preview.request.quantity,
+                authorized_by=authorized_by,
+                authorized_at=authorized_at,
+                expires_at=expires_at,
+                basis_host_requested_at=basis.host_requested_at,
+                basis_host_at=basis.host_at,
+                basis_broker_earliest_at=basis.broker_earliest_at,
+                basis_broker_latest_at=basis.broker_latest_at,
+                consumed_at=None,
+                consumed_by_attempt_id=None,
+            )
+        )
+        self._events.append(
+            PositionExitEvent(
+                event_id=_event_id(
+                    authorization.authorization_id, "EXIT_OVERDUE_RECOVERY_AUTHORIZED"
+                ),
+                entry_intent_governance_id=authorization.entry_intent_governance_id,
+                attempt_id=None,
+                event_type="EXIT_OVERDUE_RECOVERY_AUTHORIZED",
+                occurred_at=authorized_at,
+                detail=(
+                    f"OVERDUE RECOVERY authorized by fresh Owner approval "
+                    f"{command.recovery_approval_id!r} (original plan approval "
+                    f"{plan.owner_approval_id!r} preserved, untouched); exit preview "
+                    f"{preview.preview_id}; expires {expires_at.isoformat()}"
                 )[:500],
             )
         )
@@ -643,6 +1048,7 @@ class SubmitAuthorizedPositionExitHandler:
         previews: PositionExitPreviewRepository,
         authorizations: PositionExitAuthorizationRepository,
         attempts: PositionExitAttemptRepository,
+        external_closures: ExternalPositionClosureRepository,
         acknowledgements: PositionExitAcknowledgementRepository,
         events: PositionExitEventRepository,
         broker: ExitBrokerPort,
@@ -651,7 +1057,11 @@ class SubmitAuthorizedPositionExitHandler:
         time_source: PaperTimeSource | None = None,
     ) -> None:
         self._assess = AssessPositionExitHandler(
-            intents=intents, entry_attempts=entry_attempts, exit_attempts=attempts, broker=broker
+            intents=intents,
+            entry_attempts=entry_attempts,
+            exit_attempts=attempts,
+            external_closures=external_closures,
+            broker=broker,
         )
         self._previews = previews
         self._authorizations = authorizations
@@ -690,19 +1100,32 @@ class SubmitAuthorizedPositionExitHandler:
         if binding is not None:
             raise PositionExitRefusedError(f"this exit is not authorized: {binding}")
 
-        # THE KILL SWITCH FIRST. An engaged stop blocks a new outbound exit; the Owner must
-        # release it before a close can be submitted (nothing is reinterpreted).
-        if self._kill_switch.is_engaged():
-            raise PositionExitRefusedError(
-                "the execution kill switch is engaged; release it on the Safety page before a "
-                "close can be submitted"
-            )
+        # RELEASE v1: the kill switch blocks NEW ENTRIES only. A position-reducing exit
+        # (stop, target, mandatory liquidation, or an Owner's manual SELL_TO_CLOSE) is never
+        # blocked by it -- the engaged state must never silently trap an open position. See
+        # `docs/operations/kill-switch.md`.
 
         timing = PaperTimeWindow(self._time)
         # The broker clock, so the authorization can be judged on the broker's timeline.
         sent = timing.read_monotonic()
         clock = self._broker.fetch_clock()
         timing.observe_broker_clock(clock.timestamp, sent, timing.read_monotonic())
+
+        # RELEASE v1 RECOVERY HARDENING: a position-reducing exit is still fail-closed outside
+        # regular trading hours. `clock.is_open` is the SAME broker-reported regular-session
+        # flag `_measure_broker_now`'s caller already paid for above -- no new broker call.
+        # This blocks BOTH dispatch paths that reach this one handler alike: a manual Owner
+        # confirm (`operator_console_exits.PositionExitConsole.confirm`) and the automatic
+        # manager (`position_plan_manager.PositionPlanManager._attempt_exit`), including an
+        # overdue mandatory-exit trigger claimed while the market was shut. It never widens
+        # anything: every existing refusal/freshness/authorization check below still runs in
+        # full once the market is open; this only adds one more gate, never removes one.
+        if not clock.is_open:
+            raise PositionExitRefusedError(
+                POSITION_NEEDS_ATTENTION + " The market is not in a regular trading session; "
+                "exits are not dispatched outside regular hours. Nothing was sent; this attempt "
+                "will be retried the next time the plan is evaluated."
+            )
 
         # THE POSITION, RE-VERIFIED NOW. Same entry, same quantity, same broker position, no
         # competing lot, no other exit: the digest must be the one the human confirmed.
@@ -821,10 +1244,8 @@ class SubmitAuthorizedPositionExitHandler:
                     ),
                     timing.last_safe_at,
                 )
-                if self._kill_switch.is_engaged():
-                    raise PositionExitRefusedError(
-                        "the execution kill switch was engaged before the exit was sent"
-                    )
+                # RELEASE v1: the kill switch does not gate the send boundary either -- see
+                # the handler docstring and `docs/operations/kill-switch.md`.
                 final = authorization.refusal_against(
                     request_fingerprint_now=fingerprint_now,
                     account_reference_now=account_reference,
@@ -1071,6 +1492,21 @@ class SubmitAuthorizedPositionExitHandler:
         )
 
 
+def _acknowledgement_id(attempt_id: str, sequence: int) -> str:
+    """A UNIQUE acknowledgement id that always fits the 64-character identifier limit.
+
+    The readable form is kept whenever it fits (so every id already persisted is unchanged).
+    It used to be cut with `[:64]` instead, which for a plan-minted MANDATORY_EXIT attempt id
+    (63 characters) dropped the sequence suffix: the SECOND acknowledgement of that attempt
+    then collided with the first on the primary key, and every reconcile of the mandatory
+    liquidation raised. A longer attempt id is digested rather than truncated.
+    """
+    readable = f"XACK-{attempt_id}-{sequence}"
+    if len(readable) <= 64:
+        return readable
+    return f"XACK-{_digest(attempt_id)[:40]}-{sequence}"
+
+
 def _acknowledge(
     repository: PositionExitAcknowledgementRepository,
     attempt_id: str,
@@ -1083,7 +1519,7 @@ def _acknowledge(
     sequence = repository.next_sequence(attempt_id)
     repository.append(
         BrokerAcknowledgement(
-            acknowledgement_id=f"XACK-{attempt_id}-{sequence}"[:64],
+            acknowledgement_id=_acknowledgement_id(attempt_id, sequence),
             attempt_id=attempt_id,
             sequence=sequence,
             kind=kind,
@@ -1106,9 +1542,16 @@ def _apply_status(
     at: datetime,
 ) -> PositionExitAttempt:
     target = _BROKER_STATUS_TO_STATE.get(view.status)
+    # A stale or out-of-order broker status (e.g. `accepted` after a cancel request) that the
+    # closed transition table does not allow is RECORDED but never forced into the state.
+    keep = (
+        target is None
+        or target is attempt.state
+        or not is_exit_transition_allowed(attempt.state, target)
+    )
     return attempts.transition(
         attempt_id=attempt.attempt_id,
-        target=attempt.state if target is None or target is attempt.state else target,
+        target=attempt.state if keep or target is None else target,
         at=at,
         broker_order_id=view.broker_order_id,
         broker_status=view.status,
@@ -1475,31 +1918,41 @@ class CancelPositionExitHandler:
             self._acknowledgements, attempt.attempt_id, "CANCEL", command.at, status, None, body
         )
         if status not in {200, 202, 204}:
-            self._events.append(
-                PositionExitEvent(
-                    event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REFUSED", str(status)),
-                    entry_intent_governance_id=attempt.entry_intent_governance_id,
-                    attempt_id=attempt.attempt_id,
-                    event_type="EXIT_CANCEL_REFUSED",
-                    occurred_at=command.at,
-                    detail=f"HTTP {status}"[:500],
-                )
-            )
+            self._append(attempt, "EXIT_CANCEL_REFUSED", f"HTTP {status}", command.at, str(status))
             return attempt
         moved = self._attempts.transition(
             attempt_id=attempt.attempt_id, target=PositionExitState.CANCEL_REQUESTED, at=command.at
         )
-        self._events.append(
-            PositionExitEvent(
-                event_id=_event_id(attempt.attempt_id, "EXIT_CANCEL_REQUESTED"),
-                entry_intent_governance_id=attempt.entry_intent_governance_id,
-                attempt_id=attempt.attempt_id,
-                event_type="EXIT_CANCEL_REQUESTED",
-                occurred_at=command.at,
-                detail=f"cancel requested for broker_order_id={attempt.broker_order_id}"[:500],
-            )
+        self._append(
+            attempt,
+            "EXIT_CANCEL_REQUESTED",
+            f"cancel requested for broker_order_id={attempt.broker_order_id}",
+            command.at,
+            "",
         )
         return moved
+
+    def _append(
+        self, attempt: PositionExitAttempt, event_type: str, detail: str, at: datetime, suffix: str
+    ) -> None:
+        """Append one audit event. A repeated cancel request on the same attempt (the reliable
+        exit manager may ask more than once, bounded) gets a time-suffixed id instead of
+        colliding with the first one."""
+        parts = (attempt.attempt_id, event_type, *((suffix,) if suffix else ()))
+        event_id = _event_id(*parts)
+        existing = {e.event_id for e in self._events.for_entry(attempt.entry_intent_governance_id)}
+        if event_id in existing:
+            event_id = _event_id(*parts, at.isoformat())
+        self._events.append(
+            PositionExitEvent(
+                event_id=event_id,
+                entry_intent_governance_id=attempt.entry_intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type=event_type,
+                occurred_at=at,
+                detail=detail[:500],
+            )
+        )
 
 
 def broker_now_for(timing: PaperTimeWindow) -> BoundedInstant:

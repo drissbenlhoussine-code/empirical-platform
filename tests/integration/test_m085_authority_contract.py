@@ -813,14 +813,20 @@ class TestTheMechanicalClaimsMatchTheCode:
             "canceled": PaperExecutionState.CANCELED,
             "expired": PaperExecutionState.EXPIRED,
             "rejected": PaperExecutionState.REJECTED,
-            "suspended": PaperExecutionState.REJECTED,
             "pending_cancel": PaperExecutionState.CANCEL_REQUESTED,
         }
 
     def test_no_unmapped_alpaca_status_is_silently_given_a_destination(self) -> None:
         from empirical_platform.usecases.paper_execution import _BROKER_STATUS_TO_STATE
 
-        for absent in ("done_for_day", "replaced", "pending_replace", "stopped", "calculated"):
+        for absent in (
+            "done_for_day",
+            "replaced",
+            "pending_replace",
+            "stopped",
+            "calculated",
+            "suspended",
+        ):
             assert absent not in _BROKER_STATUS_TO_STATE, absent
 
     def test_the_credential_claim_holds_for_every_persisted_domain_type(self) -> None:

@@ -91,6 +91,16 @@ from empirical_platform.decision_candidate.paper_execution_repositories import (
     SubmissionPreviewRepository,
     TimeBasisRepository,
 )
+from empirical_platform.decision_candidate.paper_portfolio_limits import (
+    EntryLedgerRow,
+    PortfolioEvidence,
+    PortfolioEvidenceError,
+    PortfolioLimits,
+    portfolio_limit_refusal,
+    portfolio_limits_from_configuration,
+    read_portfolio_evidence,
+    trading_day_bounds,
+)
 from empirical_platform.decision_candidate.product_market_inputs import (
     AccountSnapshot,
     InstrumentMetadata,
@@ -215,7 +225,12 @@ _BROKER_STATUS_TO_STATE = MappingProxyType(
         "canceled": PaperExecutionState.CANCELED,
         "expired": PaperExecutionState.EXPIRED,
         "rejected": PaperExecutionState.REJECTED,
-        "suspended": PaperExecutionState.REJECTED,
+        # `suspended` is deliberately ABSENT (M100 final review, P1): Alpaca documents it as
+        # not eligible for trading but NOT terminal, so an entry that may still go live must
+        # never be recorded as REJECTED (never sent => an untracked, unprotected position and
+        # a freed symbol). Unmapped => the state is left alone (non-terminal, still counted by
+        # the duplicate/D1 guards) and the reconciler records a loud UNMAPPED_BROKER_STATUS
+        # event for the Owner.
         "pending_cancel": PaperExecutionState.CANCEL_REQUESTED,
     }
 )
@@ -263,14 +278,17 @@ class PaperEvidence:
     kill_switch_engaged: bool
 
 
-def _policy_for(
+def _policy_and_limits_for(
     intent: ApprovedOrderIntent, configurations: OperatorTradingConfigurationRepository
-) -> ExecutionPolicy:
-    """The send-time policy of the EXACT configuration version the intent names.
+) -> tuple[ExecutionPolicy, PortfolioLimits]:
+    """The send-time policy AND portfolio ceilings of the EXACT configuration version the
+    intent names, from ONE read of the append-only configuration store.
 
-    Read from the append-only configuration store every time it is needed, never
-    from a caller. A missing version is a refusal: without it there are no limits,
-    and no limits is not the same thing as no refusals.
+    Read every time it is needed, never from a caller. A missing version is a refusal:
+    without it there are no limits, and no limits is not the same thing as no refusals.
+    FIX D1: the daily-loss, daily-order-count, simultaneous-position and total-exposure
+    ceilings come from the same configuration row (they are deliberately NOT part of
+    `ExecutionPolicy`, whose fingerprint is sealed into authorizations).
     """
     configuration = configurations.get(
         intent.configuration_governance_id, intent.configuration_version
@@ -281,7 +299,25 @@ def _policy_for(
             f"{intent.configuration_version} named by the intent does not exist; there are "
             "no send-time limits to judge this order under"
         )
-    return execution_policy_from_configuration(configuration)
+    if (
+        getattr(configurations, "requires_current_risk_contract", False)
+        and configuration.risk_contract_version != 2
+    ):
+        raise PaperExecutionRefusedError("legacy configuration cannot authorize current v1 entry")
+    try:
+        limits = portfolio_limits_from_configuration(configuration)
+    except (ValueError, AttributeError) as error:
+        raise PaperExecutionRefusedError(
+            f"the configuration's portfolio limits are unreadable ({error}); entry refused"
+        ) from error
+    return execution_policy_from_configuration(configuration), limits
+
+
+def _policy_for(
+    intent: ApprovedOrderIntent, configurations: OperatorTradingConfigurationRepository
+) -> ExecutionPolicy:
+    """The send-time policy alone (preview path)."""
+    return _policy_and_limits_for(intent, configurations)[0]
 
 
 def _read_account_snapshot(
@@ -341,6 +377,26 @@ def _read_account_snapshot(
     )
 
 
+def _read_portfolio(broker: PaperBrokerPort) -> PortfolioEvidence:
+    """Fresh whole-account reads, strictly parsed. ANY failure is a refusal (fix D1)."""
+    try:
+        status, payload = broker.fetch_account()
+        if status != 200:
+            raise PortfolioEvidenceError(f"the account could not be read (HTTP {status})")
+        return read_portfolio_evidence(
+            account_payload=payload,
+            positions=broker.fetch_all_positions(),
+            open_orders=broker.fetch_all_open_orders(),
+        )
+    except PaperExecutionRefusedError:
+        raise
+    except Exception as error:  # noqa: BLE001 - every failure to establish the portfolio refuses
+        raise PaperExecutionRefusedError(
+            "portfolio risk evidence could not be established "
+            f"({type(error).__name__}: {error}); entry refused"
+        ) from error
+
+
 def _gather(
     *,
     broker: PaperBrokerPort,
@@ -366,6 +422,22 @@ def _gather(
     timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
     asset = broker.fetch_asset(symbol)
     position = broker.fetch_position(symbol)
+    # M100 FOLLOW-UP (independent review, P1): Prepare checks for a working order, but two
+    # proposals prepared BEFORE either was sent both passed it. Submit/recheck time is the
+    # choke point, so it must see working orders too. Fail closed: any working order in this
+    # symbol is folded into the "already exposed" quantity, which refuses the dispatch.
+    # Alpaca's `status=open` listing is queried fresh; fractional quantities round UP so a
+    # working order can never read as zero exposure.
+    held = 0 if position is None else position.quantity
+    working_quantity = 0
+    for working_order in broker.fetch_open_orders(symbol):
+        try:
+            quantity = Decimal(str(working_order.quantity))
+        except InvalidOperation as error:
+            raise PaperExecutionRefusedError(
+                f"a working order for {symbol} has an unreadable quantity; refusing"
+            ) from error
+        working_quantity += max(1, int(quantity.to_integral_value(rounding="ROUND_CEILING")))
     quote = market_data.fetch_quote(symbol)
     return PaperEvidence(
         account=account,
@@ -381,7 +453,7 @@ def _gather(
         asset_class=asset.asset_class,
         asset_exchange=asset.exchange,
         asset_fractionable=asset.fractionable,
-        existing_position_quantity=0 if position is None else position.quantity,
+        existing_position_quantity=held + working_quantity,
         kill_switch_engaged=kill_switch.is_engaged(),
     )
 
@@ -1241,7 +1313,7 @@ class SubmitAuthorizedPaperOrderHandler:
         binding_refusal = authorization_binding_refusal(authorization=authorization, preview=shown)
         if binding_refusal is not None:
             raise PaperExecutionRefusedError(f"this dispatch is not authorized: {binding_refusal}")
-        policy = _policy_for(intent, self._configurations)
+        policy, limits = _policy_and_limits_for(intent, self._configurations)
         if policy.fingerprint != authorization.policy_fingerprint:
             raise PaperExecutionRefusedError(
                 "this dispatch is not authorized: the execution policy of the intent's "
@@ -1344,7 +1416,13 @@ class SubmitAuthorizedPaperOrderHandler:
         # The final send guard, once BEFORE the claim on the evidence just gathered, so a
         # dispatch that could never pass it does not spend the authorization. It runs
         # again, on fresh reads, inside `before_send`.
+        pre_claim_portfolio = _read_portfolio(self._broker)
+        day_start, day_end = trading_day_bounds(timing.broker_now().latest)
         pre_claim_refusal = final_send_refusal(
+            portfolio_limits=limits,
+            portfolio=pre_claim_portfolio,
+            entry_ledger=self._attempts.entry_ledger(day_start=day_start, day_end=day_end),
+            attempt_id=command.attempt_id,
             intent=intent,
             provenance=provenance,
             authorization=authorization,
@@ -1436,12 +1514,57 @@ class SubmitAuthorizedPaperOrderHandler:
                         sanitized_body=lookup_body,
                     )
                 # 2. The remaining reads: configuration, broker clock, quote.
-                policy_now = _policy_for(intent, self._configurations)
+                policy_now, limits_now = _policy_and_limits_for(intent, self._configurations)
                 sent_monotonic = timing.read_monotonic()
                 clock = self._broker.fetch_clock()
                 received_monotonic = timing.read_monotonic()
                 timing.observe_broker_clock(clock.timestamp, sent_monotonic, received_monotonic)
                 quote = self._market_data.fetch_quote(intent.symbol)
+                # 2b. FIX D1 -- portfolio limits, FRESH reads, then the ATOMIC count-and-admit.
+                #     The whole-account reads come first; `admit_entry` then takes the trading
+                #     day's lock, re-reads the order ledger under it, applies the same pure
+                #     decision and records the admission before releasing the lock, so two
+                #     simultaneous entries cannot both pass a limit that allows one. It is a
+                #     database write that may block, so time is sampled AFTER it (step 5).
+                #     M100 FINAL REVIEW (P1): the whole-account read is taken INSIDE the
+                #     day lock (in `decide`), never before it. A read taken before the lock
+                #     could pre-date a concurrent entry that is admitted, sent and acked
+                #     while this one waits, so that entry would count neither as in-flight
+                #     nor as visible at the broker. Under the lock, every earlier admitted
+                #     entry is either still in flight (ledger) or already visible (broker).
+                portfolio_seen: list[PortfolioEvidence] = []
+                day_start_now, day_end_now = trading_day_bounds(timing.broker_now().latest)
+                if fresh.order.limit_price is None:
+                    raise PaperExecutionRefusedError(
+                        "only a LIMIT order has a knowable cost ceiling; entry refused"
+                    )
+                order_notional = fresh.order.limit_price * Decimal(fresh.order.quantity)
+
+                def decide(ledger: tuple[EntryLedgerRow, ...]) -> str | None:
+                    portfolio_locked = _read_portfolio(self._broker)
+                    portfolio_seen.append(portfolio_locked)
+                    return portfolio_limit_refusal(
+                        limits=limits_now,
+                        portfolio=portfolio_locked,
+                        ledger=ledger,
+                        attempt_id=attempt.attempt_id,
+                        client_order_id=fresh.order.client_order_id,
+                        symbol=intent.symbol,
+                        order_notional=order_notional,
+                    )
+
+                admission_refusal = self._attempts.admit_entry(
+                    attempt_id=attempt.attempt_id,
+                    day_start=day_start_now,
+                    day_end=day_end_now,
+                    at=timing.now(),
+                    symbol=intent.symbol,
+                    notional=order_notional,
+                    client_order_id=fresh.order.client_order_id,
+                    decide=decide,
+                )
+                if admission_refusal is not None:
+                    raise PaperExecutionRefusedError(admission_refusal)
                 # 3. The send-capable boundary, DURABLY (L1). The identity is verified
                 #    absent and every preparatory read is complete: record that THIS attempt
                 #    reached the phase in which transmission is possible, bound to the
@@ -1454,6 +1577,12 @@ class SubmitAuthorizedPaperOrderHandler:
                 # 5. Time sampled after every read and write; the decision on that evidence.
                 timing.require_broker_certainty_within(policy_now.quote_maximum_age_seconds)
                 refusal = final_send_refusal(
+                    portfolio_limits=limits_now,
+                    portfolio=portfolio_seen[-1],
+                    entry_ledger=self._attempts.entry_ledger(
+                        day_start=day_start_now, day_end=day_end_now
+                    ),
+                    attempt_id=attempt.attempt_id,
                     intent=intent,
                     provenance=provenance,
                     authorization=authorization,
@@ -2269,6 +2398,8 @@ class ReconcilePaperOrderHandler:
             )
 
         target = _BROKER_STATUS_TO_STATE.get(view.status)
+        if target is None:
+            self._note_unmapped_status(attempt, view.status, command.at)
         if target is None or target is attempt.state:
             return self._attempts.transition(
                 attempt_id=attempt.attempt_id,
@@ -2297,6 +2428,34 @@ class ReconcilePaperOrderHandler:
             broker_status=view.status,
             filled_quantity=view.filled_quantity,
             filled_avg_price=view.filled_avg_price,
+        )
+
+    def _note_unmapped_status(self, attempt: ExecutionAttempt, status: str, at: datetime) -> None:
+        """A status this product does not map (e.g. `suspended`) is NOT terminal and NOT
+        known: the attempt keeps its non-terminal state and a durable event tells the Owner,
+        once per (attempt, status). The order may still go live, so nothing is freed."""
+        import hashlib
+
+        digest = hashlib.sha256(f"{attempt.attempt_id}|{status}".encode()).hexdigest()[:40]
+        event_id = f"EVT-UNMAPPED-{digest}"
+        if any(
+            e.event_id == event_id for e in self._events.for_intent(attempt.intent_governance_id)
+        ):
+            return
+        self._events.append(
+            PaperExecutionEvent(
+                event_id=event_id,
+                intent_governance_id=attempt.intent_governance_id,
+                attempt_id=attempt.attempt_id,
+                event_type="UNMAPPED_BROKER_STATUS",
+                occurred_at=at,
+                detail=(
+                    f"the broker reports status {status!r}, which this product does not map to "
+                    "a terminal outcome; the order may still become live, so the attempt stays "
+                    f"{attempt.state.value} and blocks a new entry in this symbol until the "
+                    "Owner resolves it"
+                )[:500],
+            )
         )
 
     def _sample_broker_clock(self, window: PaperTimeWindow) -> BoundedInstant:

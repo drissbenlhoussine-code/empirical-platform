@@ -34,9 +34,10 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from datetime import time as clock_time
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from empirical_platform.decision_candidate.evaluation_context import build_evaluation_context
 from empirical_platform.decision_candidate.evaluation_evidence_watermark_repository import (
@@ -50,10 +51,18 @@ from empirical_platform.decision_candidate.operator_trading_configuration import
     OrderType,
     TradingSession,
 )
+from empirical_platform.decision_candidate.opportunity_engine_repositories import IntradayBarsPort
 from empirical_platform.decision_candidate.paper_execution_repositories import (
+    ExecutionAttemptRepository,
     PaperBrokerPort,
     PaperMarketDataPort,
     TimeBasisRepository,
+)
+from empirical_platform.decision_candidate.paper_portfolio_limits import (
+    PortfolioEvidenceError,
+    ledger_counts_order,
+    read_portfolio_evidence,
+    trading_day_bounds,
 )
 from empirical_platform.decision_candidate.product_market_inputs import (
     AccountSnapshot,
@@ -61,6 +70,8 @@ from empirical_platform.decision_candidate.product_market_inputs import (
     InstrumentMetadata,
     LiquiditySnapshot,
     MarketStatus,
+    OpenOrderSnapshot,
+    PositionSnapshot,
     QuoteSnapshot,
     SessionSnapshot,
     TradingCostEstimate,
@@ -70,7 +81,10 @@ from empirical_platform.decision_candidate.product_repositories import (
     OperatorTradingConfigurationRepository,
     TradeProposalRepository,
 )
-from empirical_platform.decision_candidate.trade_proposal import TradeProposal
+from empirical_platform.decision_candidate.session_close_guard import (
+    session_close_before_liquidation_refusal,
+)
+from empirical_platform.decision_candidate.trade_proposal import RiskCheckOutcome, TradeProposal
 from empirical_platform.shared.brokerage.paper_time import PaperTimeSource
 from empirical_platform.usecases.operator_console_fixtures import simulation_timezone_for
 from empirical_platform.usecases.paper_execution import (
@@ -82,8 +96,12 @@ __all__ = [
     "APPROVED_SYMBOL",
     "PaperCandidateBlockedError",
     "PaperHealthView",
+    "V1_CONFIGURATION_ID",
+    "V1PaperCandidateRefusedError",
+    "V1PreparedCandidate",
     "paper_health",
     "prepare_paper_candidate",
+    "prepare_v1_paper_candidate",
 ]
 
 #: MILESTONE-088's own configuration identity: same bounds as M085's acceptance contract
@@ -224,6 +242,82 @@ def _default_configuration(*, now: datetime) -> OperatorTradingConfiguration:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _PrepareRiskInputs:
+    """REAL values for the Prepare path's portfolio-conflict and daily-limit checks (fix D1).
+
+    Replaces the hardcoded `realized_pnl_today=0`, `orders_submitted_today=0`, and a position
+    list that only saw the target symbol. `daily_pnl` is `equity - last_equity` (includes
+    unrealized; conservative) and `orders_today` is the durable local count of entry orders
+    sent today in the market's trading day. `other_positions` / `other_open_orders` are every
+    holding / working order in a symbol OTHER than the target (the target's own are read by
+    the callers' existing per-symbol code).
+    """
+
+    daily_pnl: Decimal
+    orders_today: int
+    other_positions: tuple[PositionSnapshot, ...]
+    other_open_orders: tuple[OpenOrderSnapshot, ...]
+
+
+def _prepare_risk_inputs(
+    *,
+    broker: PaperBrokerPort,
+    attempts: ExecutionAttemptRepository,
+    account_payload: object,
+    symbol: str,
+    now: datetime,
+) -> _PrepareRiskInputs:
+    """Read the real portfolio. Raises `PortfolioEvidenceError` (a refusal) on anything odd."""
+    all_positions = broker.fetch_all_positions()
+    all_orders = broker.fetch_all_open_orders()
+    evidence = read_portfolio_evidence(
+        account_payload=account_payload, positions=all_positions, open_orders=all_orders
+    )
+    day_start, day_end = trading_day_bounds(now)
+    ledger = attempts.entry_ledger(day_start=day_start, day_end=day_end)
+    other_positions: list[PositionSnapshot] = []
+    for position in evidence.positions:
+        if position.symbol == symbol or position.quantity == 0:
+            continue
+        quantity = abs(position.quantity)
+        if quantity != quantity.to_integral_value() or position.market_value == 0:
+            raise PortfolioEvidenceError(
+                f"the {position.symbol} position is fractional or has no market value; "
+                "refusing to reason about it"
+            )
+        other_positions.append(
+            PositionSnapshot(
+                symbol=position.symbol,
+                quantity=int(quantity),
+                average_price=abs(position.market_value) / quantity,
+            )
+        )
+    other_orders: list[OpenOrderSnapshot] = []
+    for order in all_orders:
+        if order.symbol == symbol:
+            continue
+        quantity = Decimal(order.quantity)
+        if quantity != quantity.to_integral_value() or quantity <= 0:
+            raise PortfolioEvidenceError(
+                f"a working {order.symbol} order has a fractional or non-positive quantity"
+            )
+        other_orders.append(
+            OpenOrderSnapshot(
+                order_reference=order.client_order_id,
+                symbol=order.symbol,
+                side=order.side.upper(),
+                quantity=int(quantity),
+            )
+        )
+    return _PrepareRiskInputs(
+        daily_pnl=evidence.daily_pnl,
+        orders_today=sum(1 for row in ledger if ledger_counts_order(row)),
+        other_positions=tuple(other_positions),
+        other_open_orders=tuple(other_orders),
+    )
+
+
 def prepare_paper_candidate(
     *,
     configurations: OperatorTradingConfigurationRepository,
@@ -233,6 +327,7 @@ def prepare_paper_candidate(
     time_bases: TimeBasisRepository,
     broker: PaperBrokerPort,
     market_data: PaperMarketDataPort,
+    attempts: ExecutionAttemptRepository,
     time_source: PaperTimeSource,
     now: datetime,
 ) -> TradeProposal:
@@ -283,6 +378,24 @@ def prepare_paper_candidate(
             f"{MAXIMUM_LIMIT_FRACTION_OF_BID} ceiling; not raised to get past it"
         )
 
+    account_status, account_payload = broker.fetch_account()
+    if account_status != 200:
+        raise PaperCandidateBlockedError(
+            "the account endpoint did not answer; no candidate was prepared"
+        )
+    try:
+        risk_inputs = _prepare_risk_inputs(
+            broker=broker,
+            attempts=attempts,
+            account_payload=account_payload,
+            symbol=APPROVED_SYMBOL,
+            now=now,
+        )
+    except PortfolioEvidenceError as error:
+        raise PaperCandidateBlockedError(
+            f"the real portfolio state could not be established ({error}); nothing was prepared"
+        ) from error
+
     watermark = watermarks.capture(watermark_governance_id=f"WM-088-PAPER-{today}")
     context = build_evaluation_context(
         evaluation_context_id=f"ECX-088-PAPER-{today}",
@@ -330,8 +443,8 @@ def prepare_paper_candidate(
                 base_currency="USD",
                 cash_available=Decimal("5000"),
                 equity_total=Decimal("10000"),
-                realized_pnl_today=Decimal("0"),
-                orders_submitted_today=0,
+                realized_pnl_today=risk_inputs.daily_pnl,
+                orders_submitted_today=risk_inputs.orders_today,
                 observed_at=now - timedelta(seconds=5),
             ),
             session=SessionSnapshot(
@@ -361,8 +474,8 @@ def prepare_paper_candidate(
                 estimated_slippage_percent=Decimal("0.1"),
                 observed_at=now - timedelta(seconds=5),
             ),
-            positions=(),
-            open_orders=(),
+            positions=risk_inputs.other_positions,
+            open_orders=risk_inputs.other_open_orders,
             evidence_age_seconds=Decimal("60"),
         )
     )
@@ -372,3 +485,346 @@ def prepare_paper_candidate(
             f"MILESTONE-084 refused to propose: {outcome.no_trade_reason}"
         )
     return outcome.proposal
+
+
+# ---------------------------------------------------------------------------
+# RELEASE v1 -- the real Owner configuration, real live evidence
+# ---------------------------------------------------------------------------
+
+#: RELEASE v1 Release Blocker (in-console Owner gate). The Owner's own governed
+#: configuration -- never `_CONFIGURATION_ID` above, which stays M088's synthetic-quote
+#: acceptance envelope, untouched, for the plain PAPER composition that still uses it.
+#: `prepare_v1_paper_candidate` reads whichever version is current via `.latest(...)`
+#: rather than a pinned one: the Owner, not this module, owns that configuration's history.
+V1_CONFIGURATION_ID = "CFG-089-PAPER"
+
+
+class V1PaperCandidateRefusedError(RuntimeError):
+    """RELEASE v1: a gate refused before any proposal was written, under the Owner's real
+    `CFG-089-PAPER` configuration and real live Alpaca evidence. Never relaxed and never
+    retried automatically here -- the caller shows this message and does nothing else."""
+
+
+@dataclass(frozen=True, slots=True)
+class V1PreparedCandidate:
+    """RELEASE v1: what `prepare_v1_paper_candidate` hands the route after success -- the
+    stored proposal plus the raw quote evidence it was prepared from, so the Owner can see
+    the exact bid/ask/timestamp once, without a schema change to `TradeProposal` (whose
+    fingerprint-bound fields are frozen by the risk-governance contract)."""
+
+    proposal: TradeProposal
+    quote_bid: Decimal
+    quote_ask: Decimal
+    quote_captured_at: datetime
+
+
+def _previous_completed_regular_session(now: datetime) -> tuple[datetime, datetime]:
+    """RELEASE v1: the most recently COMPLETED XNAS regular session window, for a real
+    (not fabricated) average-daily-volume figure. Skips weekends; does not know exchange
+    holidays -- a liquidity-EVIDENCE approximation, never a trading-risk one. The liquidity
+    gate only ever needs a real number far above its configured floor, not a perfect one."""
+    ny = ZoneInfo("America/New_York")
+    previous = now.astimezone(ny).date() - timedelta(days=1)
+    while previous.weekday() >= 5:
+        previous -= timedelta(days=1)
+    start = datetime.combine(previous, clock_time(9, 30), tzinfo=ny)
+    end = datetime.combine(previous, clock_time(16, 0), tzinfo=ny)
+    return start.astimezone(UTC), end.astimezone(UTC)
+
+
+def prepare_v1_paper_candidate(
+    *,
+    configurations: OperatorTradingConfigurationRepository,
+    contexts: EvaluationContextRepository,
+    proposals: TradeProposalRepository,
+    watermarks: EvaluationEvidenceWatermarkRepository,
+    time_bases: TimeBasisRepository,
+    broker: PaperBrokerPort,
+    market_data: PaperMarketDataPort,
+    bars: IntradayBarsPort,
+    attempts: ExecutionAttemptRepository,
+    time_source: PaperTimeSource,
+    now: datetime,
+) -> V1PreparedCandidate:
+    """RELEASE v1 Release Blocker: prepare (not decide, not issue) ONE bounded PAPER
+    candidate under the Owner's real `CFG-089-PAPER` configuration, from real live Alpaca
+    evidence -- never the M088 synthetic safety-input quote `prepare_paper_candidate` above
+    uses. `M084`'s `evaluate_trade_proposal` is the SAME unchanged evaluation engine every
+    CLI path already runs; this function only assembles real inputs for it, exactly as an
+    operator running `prepare-paper-bound-trade-proposal` by hand would.
+
+    NOT day-idempotent, unlike `prepare_paper_candidate`: the whole point of this action is
+    a fresh, market-priced candidate every time the Owner clicks Prepare, so the proposal
+    governance id carries a full timestamp, not a date. Raises
+    `V1PaperCandidateRefusedError` -- never relaxing a bound, never retrying -- for a
+    missing/legacy configuration, a watchlist that is not exactly one symbol, a closed
+    market, an unusable or stale-feed quote, a non-tradable asset, missing liquidity
+    evidence, or M084's own engine answering NO_TRADE. Every refusal before the engine call
+    writes nothing because nothing has been written yet; a NO_TRADE from the engine itself
+    writes nothing because `evaluate_trade_proposal` already guarantees that.
+
+    `bars` is `IntradayBarsPort` (MILESTONE-090), a SEPARATE port from `PaperMarketDataPort`
+    on purpose -- see that port's own module docstring: adding a bars method to the
+    quotes-only `PaperMarketDataPort` would force every M085-M089 fake to grow a method it
+    never uses. `AlpacaPaperMarketDataClient` already implements both; the composition root
+    passes the one real object for both parameters.
+    """
+    configuration = configurations.latest(V1_CONFIGURATION_ID)
+    if configuration is None:
+        raise V1PaperCandidateRefusedError(
+            f"no Owner configuration {V1_CONFIGURATION_ID!r} exists; nothing was prepared"
+        )
+    if configuration.risk_contract_version != 2:
+        raise V1PaperCandidateRefusedError(
+            f"{V1_CONFIGURATION_ID} is not on risk contract v2; refusing to prepare a "
+            "candidate under a legacy configuration"
+        )
+    if len(configuration.watchlist) != 1:
+        raise V1PaperCandidateRefusedError(
+            f"{V1_CONFIGURATION_ID} watchlist has {len(configuration.watchlist)} symbols; "
+            "this one-candidate action requires exactly one"
+        )
+    symbol = configuration.watchlist[0]
+
+    clock = broker.fetch_clock()
+    if not clock.is_open:
+        raise V1PaperCandidateRefusedError(
+            f"the market is closed (next open {clock.next_open}); nothing was prepared"
+        )
+
+    # Audit A P1-2: refuse an entry whose mandatory liquidation cannot start before the
+    # broker's close (early-close days, unscheduled early closes, unknown close time).
+    local_now = now.astimezone(ZoneInfo(configuration.operator_timezone))
+    liquidation_time = configuration.mandatory_liquidation_time
+    close_refusal = session_close_before_liquidation_refusal(
+        mandatory_liquidation_at=local_now.replace(
+            hour=liquidation_time.hour,
+            minute=liquidation_time.minute,
+            second=liquidation_time.second,
+            microsecond=0,
+        ),
+        market_next_close=clock.next_close,
+        operator_timezone=configuration.operator_timezone,
+    )
+    if close_refusal is not None:
+        raise V1PaperCandidateRefusedError(f"{close_refusal}; nothing was prepared")
+
+    quote = market_data.fetch_quote(symbol)
+    if quote is None or quote.bid is None or quote.ask is None:
+        raise V1PaperCandidateRefusedError(
+            f"no live quote is available for {symbol}; nothing was prepared"
+        )
+    bid = Decimal(quote.bid)
+    ask = Decimal(quote.ask)
+    if bid <= 0 or ask <= 0:
+        raise V1PaperCandidateRefusedError(
+            f"the live quote for {symbol} is not usable (bid={quote.bid!r} ask={quote.ask!r})"
+        )
+
+    recent_bars = bars.fetch_minute_bars(
+        symbol, start=now - timedelta(minutes=10), end=now, limit=10
+    )
+    if not recent_bars:
+        raise V1PaperCandidateRefusedError(
+            f"no recent trade bar is available for {symbol}; nothing was prepared"
+        )
+    last_trade = Decimal(recent_bars[-1].close)
+
+    asset = broker.fetch_asset(symbol)
+    if not asset.tradable:
+        raise V1PaperCandidateRefusedError(f"{symbol} is not currently tradable at the broker")
+
+    session_start, session_end = _previous_completed_regular_session(now)
+    session_bars = bars.fetch_minute_bars(symbol, start=session_start, end=session_end, limit=1000)
+    average_daily_volume = sum(bar.volume for bar in session_bars)
+    if average_daily_volume <= 0:
+        raise V1PaperCandidateRefusedError(
+            f"no liquidity evidence is available for {symbol}; nothing was prepared"
+        )
+
+    status, account_payload = broker.fetch_account()
+    if status != 200:
+        raise V1PaperCandidateRefusedError(
+            "the account endpoint did not answer; nothing was prepared"
+        )
+
+    # PORTFOLIO-CONFLICT EVIDENCE GAP FOLLOW-UP: `evaluate_trade_proposal`'s
+    # no_existing_position/no_open_order/position_count checks are only as honest as what
+    # they are given. A hardcoded empty tuple here would make all three pass unconditionally
+    # regardless of real broker state -- including while an earlier, still-unfilled LIMIT BUY
+    # for this same symbol sits working at the broker. Both are freshly queried, never cached.
+    #
+    # FIX D1: the daily-loss / daily-order-count / position-count checks get REAL numbers too:
+    # `equity - last_equity`, the durable count of orders sent today, and EVERY position and
+    # working order (not only this symbol's). Anything missing or odd refuses.
+    try:
+        risk_inputs = _prepare_risk_inputs(
+            broker=broker,
+            attempts=attempts,
+            account_payload=account_payload,
+            symbol=symbol,
+            now=now,
+        )
+    except PortfolioEvidenceError as error:
+        raise V1PaperCandidateRefusedError(
+            f"the real portfolio state could not be established ({error}); nothing was prepared"
+        ) from error
+    broker_position = broker.fetch_position(symbol)
+    positions = (
+        ()
+        if broker_position is None or broker_position.quantity == 0
+        else (
+            PositionSnapshot(
+                symbol=broker_position.symbol,
+                quantity=broker_position.quantity,
+                average_price=Decimal(broker_position.average_entry_price),
+            ),
+        )
+    ) + risk_inputs.other_positions
+    open_orders: list[OpenOrderSnapshot] = list(risk_inputs.other_open_orders)
+    for working_order in broker.fetch_open_orders(symbol):
+        order_quantity = Decimal(working_order.quantity)
+        if order_quantity != order_quantity.to_integral_value():
+            raise V1PaperCandidateRefusedError(
+                f"a working order at the broker for {symbol} has a fractional quantity "
+                f"{working_order.quantity!r}; refusing to prepare a candidate against "
+                "evidence this product cannot represent"
+            )
+        open_orders.append(
+            OpenOrderSnapshot(
+                order_reference=working_order.client_order_id,
+                symbol=working_order.symbol,
+                side=working_order.side.upper(),
+                quantity=int(order_quantity),
+            )
+        )
+
+    spread_percent = ((ask - bid) / ask * Decimal("100")).quantize(Decimal("0.0001"))
+
+    # P2-2: the ids carry the second-resolution stamp (unchanged for the first candidate of
+    # any second). A REFUSED earlier Prepare in the same second has already written its
+    # evaluation-context row (the engine's NO_TRADE writes no proposal, but the context
+    # precedes it), so the stamp alone can collide -- previously a raw uniqueness error.
+    # Take the first free `-N` suffix instead: unique, deterministic given the stored state,
+    # and never parsed by anything.
+    base_stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    stamp = base_stamp
+    for suffix_number in range(2, 102):
+        if (
+            proposals.get(f"PRP-089-PAPER-{stamp}") is None
+            and contexts.get(f"ECX-089-PAPER-{stamp}") is None
+        ):
+            break
+        stamp = f"{base_stamp}-{suffix_number}"
+    else:
+        raise V1PaperCandidateRefusedError(
+            "too many candidates were prepared in the same second; click Prepare again"
+        )
+    proposal_id = f"PRP-089-PAPER-{stamp}"
+
+    watermark = watermarks.capture(watermark_governance_id=f"WM-089-PAPER-{stamp}")
+    context = build_evaluation_context(
+        evaluation_context_id=f"ECX-089-PAPER-{stamp}",
+        configuration=configuration,
+        watermark=watermark,
+        quote_id=f"QTE-089-PAPER-{stamp}",
+        account_snapshot_id=f"ACC-089-PAPER-{stamp}",
+        session_id=f"SES-089-PAPER-{stamp}",
+        cost_estimate_id=f"CST-089-PAPER-{stamp}",
+        instrument_universe_version="ALPACA-LIVE",
+        strategy_version="V1-OWNER-CONSOLE-PREPARATION",
+        created_at=now,
+    )
+    try:
+        contexts.save(context)
+    except Exception as error:  # noqa: BLE001 - a lost same-id race must be a clean refusal
+        if contexts.get(context.evaluation_context_id) is None:
+            raise
+        raise V1PaperCandidateRefusedError(
+            "another candidate was being prepared at the same moment; nothing was prepared "
+            "by this click -- click Prepare again"
+        ) from error
+
+    evaluated_near = datetime.now(UTC)
+    evidence_age_seconds = max(
+        Decimal("0"), Decimal(str(round((evaluated_near - quote.captured_at).total_seconds(), 3)))
+    )
+
+    prepared = PreparePaperBoundTradeProposalHandler(
+        configurations=configurations,
+        contexts=contexts,
+        proposals=proposals,
+        time_bases=time_bases,
+        broker=broker,
+        time_source=time_source,
+    ).handle(
+        PreparePaperBoundTradeProposalCommand(
+            proposal_governance_id=proposal_id,
+            evaluation_context_id=context.evaluation_context_id,
+            symbol=symbol,
+            quote=QuoteSnapshot(
+                quote_id=f"QTE-089-PAPER-{stamp}",
+                provider_id="ALPACA-PAPER-MARKET-DATA-IEX",
+                symbol=symbol,
+                bid=bid,
+                ask=ask,
+                last_trade=last_trade,
+                observed_at=quote.captured_at,
+                feed_kind=DataFeedKind.REAL_TIME,
+            ),
+            account=AccountSnapshot(
+                account_snapshot_id=f"ACC-089-PAPER-{stamp}",
+                provider_id="ALPACA-PAPER-ACCOUNT",
+                account_reference="ALPACA-PAPER-ACCOUNT",
+                base_currency=str(account_payload.get("currency", configuration.base_currency)),
+                cash_available=Decimal(str(account_payload.get("cash", "0"))),
+                equity_total=Decimal(str(account_payload.get("equity", "0"))),
+                realized_pnl_today=risk_inputs.daily_pnl,
+                orders_submitted_today=risk_inputs.orders_today,
+                observed_at=now,
+            ),
+            session=SessionSnapshot(
+                session_id=f"SES-089-PAPER-{stamp}",
+                provider_id="ALPACA-PAPER-CLOCK",
+                market="XNAS",
+                status=MarketStatus.OPEN,
+                observed_at=now,
+            ),
+            instrument=InstrumentMetadata(
+                symbol=symbol,
+                market="XNAS",
+                currency="USD",
+                is_fractionable=asset.fractionable,
+                lot_size=1,
+            ),
+            liquidity=LiquiditySnapshot(
+                symbol=symbol,
+                average_daily_volume_shares=int(average_daily_volume),
+                observed_at=now,
+            ),
+            cost_estimate=TradingCostEstimate(
+                estimate_id=f"CST-089-PAPER-{stamp}",
+                provider_id="DERIVED-FROM-REAL-SPREAD",
+                symbol=symbol,
+                commission=Decimal("0.00"),
+                estimated_slippage_percent=spread_percent,
+                observed_at=now,
+            ),
+            positions=positions,
+            open_orders=tuple(open_orders),
+            evidence_age_seconds=evidence_age_seconds,
+        )
+    )
+    outcome = prepared.outcome
+    if outcome.proposal is None:
+        failed = [c for c in outcome.risk_checks if c.outcome is not RiskCheckOutcome.PASSED]
+        detail = "; ".join(f"{c.check_id}: {c.detail}" for c in failed)
+        reason = outcome.no_trade_reason.value if outcome.no_trade_reason else "NO_TRADE"
+        raise V1PaperCandidateRefusedError(reason + (f" ({detail})" if detail else ""))
+
+    return V1PreparedCandidate(
+        proposal=outcome.proposal,
+        quote_bid=bid,
+        quote_ask=ask,
+        quote_captured_at=quote.captured_at,
+    )
