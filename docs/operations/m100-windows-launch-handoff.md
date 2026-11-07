@@ -188,10 +188,10 @@ printed, not a remembered one.
 | What you see | Meaning | Action |
 |---|---|---|
 | Nothing on 8189/8086, no task, no matching process, no hold | Clean host | Go to Phase 3 |
-| A task exists and is `Ready`/`Running` | It will relaunch a console (wrapper port is **8086**, see below) | Needs A2: disable it |
+| A task exists and is `Ready`/`Running` | It will relaunch a console (a wrapper loop started from the OLD script uses port **8086**; the current script uses 8189) | Needs A2: disable it |
 | A matching `run-v1-console` PowerShell process | A wrapper loop, possibly OLD code with no hold/lock protection | Needs A2: end that PowerShell PID only |
 | A listener on 8189 | A console the deploy tool can stop | Check for its token file (below) |
-| A listener on 8086 only | A console from the autostart wrapper (it passes no `--port`, so it uses the default 8086). `personal_paper_deploy.py` looks at 8189 and will **not** see it | Needs A2: stop it by hand (below) before Phase 7 |
+| A listener on 8086 only | A console from an OLD autostart wrapper loop (the pre-M100 script passed no `--port`, so it used the default 8086; the current script passes `--port 8189 --base-path /paper`). `personal_paper_deploy.py` looks at 8189 and will **not** see it | Needs A2: stop it by hand (below) before Phase 7 |
 | A hold file present | A previous deployment attempt left it, deliberately | Do not delete it. Note it; Phase 7 resumes/uses it |
 
 **Is the running console one the deploy tool can stop gracefully?** Only a console started with M098-or-later
@@ -575,7 +575,7 @@ Select-String -Path (Join-Path $Local "recovery-console.log") -Pattern "SECURITY
 Also open `http://127.0.0.1:8189/safety` and `/health` in a browser and take screenshots. **Type the URLs.** This
 console was started with `--base-path /paper`, so links *inside* its pages point at `/paper/...` and 404 on the
 direct local address; the pages themselves are served at the unprefixed paths. Always use `127.0.0.1` (or
-`localhost`): any other Host name is refused with HTTP 421.
+`localhost`): any other Host name is refused with HTTP 421. To reach the console through a private tunnel (e.g. Tailscale `serve` from the iPhone) the Owner may list the EXACT tunnel host name(s) in the user environment variable `EMPIRICAL_PLATFORM_CONSOLE_ALLOWED_HOSTS` (comma-separated plain DNS names; no wildcards, no ranges, no ports; default empty = loopback only) **before** starting the console. This is optional and never needed for the procedure itself.
 
 **Expected result.** One listener on `127.0.0.1:8189`; hold present; token file present; command line contains
 `--recovery-mode`; `/safety` shows PAPER, "Live: UNAVAILABLE", **Automatic position manager: RECOVERY_MODE**
@@ -1088,8 +1088,8 @@ Owner sign-off: ____________________   time: ____________
    command in this repository to re-create it (only the deploy tool creates it), so the protection against an
    unattended relaunch is the disabled task.
 5. **Re-enabling autostart is a separate Owner decision, only at the very end, never as part of this procedure.**
-   Known problems to settle first: the wrapper (`deploy/windows/run-v1-console.ps1`) passes no `--port`, so it
-   starts the console on **8086**, not 8189, and the deploy tool will not see it; it writes no log file; and it
+   Known problems to settle first: the wrapper (`deploy/windows/run-v1-console.ps1`) now starts the console on
+   `127.0.0.1:8189 --base-path /paper` (same as the deploy tool); it writes no log file; and it
    needs the `EMPIRICAL_*` variables to be persistent *user* variables. Only if the Owner decides after weighing
    these: `Enable-ScheduledTask -TaskName "<TaskName>"`.
 

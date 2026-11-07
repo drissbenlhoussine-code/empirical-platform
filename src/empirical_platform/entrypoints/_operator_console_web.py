@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
+import re
 import secrets
 import socket
 import sys
@@ -251,11 +253,27 @@ class Router:
 
 _LOOPBACK_HOST_NAMES = frozenset({"127.0.0.1", "localhost", "[::1]"})
 
+#: Explicit, Owner-set opt-in for a private tunnel (e.g. the tailnet name that Tailscale
+#: `serve` forwards as the Host header): a comma-separated list of EXACT host names. Default
+#: is empty = loopback only. No wildcards, no IP-range shortcuts, no ports; anything that is
+#: not a plain DNS name is ignored, so a typo can only make the console stricter.
+ALLOWED_HOSTS_VARIABLE = "EMPIRICAL_PLATFORM_CONSOLE_ALLOWED_HOSTS"
+_PLAIN_DNS_NAME = re.compile(
+    r"^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
+)
+
+
+def _extra_allowed_host_names() -> frozenset[str]:
+    raw = os.environ.get(ALLOWED_HOSTS_VARIABLE, "")
+    names = {item.strip().lower() for item in raw.split(",")}
+    return frozenset(name for name in names if name and _PLAIN_DNS_NAME.match(name))
+
 
 def _host_header_is_loopback(host_header: object) -> bool:
-    """True when the Host header names a loopback host (any port). A missing header (an
-    HTTP/1.0 client or a direct WSGI call, never a browser) is not an attack vector for DNS
-    rebinding, which always carries the attacker's hostname."""
+    """True when the Host header names a loopback host (any port) or one of the Owner's
+    explicitly allowed private-tunnel names. A missing header (an HTTP/1.0 client or a direct
+    WSGI call, never a browser) is not an attack vector for DNS rebinding, which always
+    carries the attacker's hostname."""
     if host_header is None:
         return True
     if not isinstance(host_header, str):
@@ -265,7 +283,7 @@ def _host_header_is_loopback(host_header: object) -> bool:
         name = host.split("]", 1)[0] + "]"
     else:
         name = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
-    return name in _LOOPBACK_HOST_NAMES
+    return name in _LOOPBACK_HOST_NAMES or name in _extra_allowed_host_names()
 
 
 def _read_request(environ: dict[str, Any]) -> Request:

@@ -86,7 +86,9 @@ while ($true) {
     & $VenvActivate
     $exitCode = 1
     try {
-        & python -m empirical_platform.entrypoints.operator_console --capability paper-exit --no-browser
+        # Same host/port/base-path the deployment tool uses for its recovery console (step 12, port 8189),
+        # so the deploy tool's port-ownership checks always see the console this wrapper starts.
+        & python -m empirical_platform.entrypoints.operator_console --capability paper-exit --host 127.0.0.1 --port 8189 --base-path /paper --no-browser
         $exitCode = $LASTEXITCODE
     } catch {
         Write-Warning "console launch failed: $_"
