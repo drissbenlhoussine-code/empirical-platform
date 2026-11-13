@@ -507,6 +507,39 @@ class TestEachLimitRefusesAtTheSubmissionBoundary:
         assert broker.submitted == []
         assert reads["count"] == 2  # pre-claim read, then the read taken inside the day lock
 
+    def test_an_entry_that_fills_between_the_two_broker_reads_is_never_missed(self) -> None:
+        """M101: the whole-account read takes working orders BEFORE positions. A working BUY in
+        another symbol fills in the gap between the two reads; reading positions first would see
+        no position and then no working order (counted as neither), and admit this entry past a
+        one-position limit. Orders-first sees it as both, so the limit holds."""
+        world = _world_with(maximum_simultaneous_positions=1)
+        h._authorize(world)
+        broker = world["broker"]
+        filled = {"yes": False}
+        order = FakeView(
+            symbol="NVDA", side="buy", quantity="1", limit_price="9.00", client_order_id="w1"
+        )
+        calls: list[str] = []
+
+        def orders() -> tuple[object, ...]:
+            calls.append("orders")
+            seen = () if filled["yes"] else (order,)
+            filled["yes"] = True  # the fill lands right after the first read
+            return seen
+
+        def positions() -> tuple[object, ...]:
+            calls.append("positions")
+            seen = (_held("NVDA", quantity="1", market_value="9"),) if filled["yes"] else ()
+            filled["yes"] = True
+            return seen
+
+        broker.fetch_all_open_orders = orders  # type: ignore[method-assign]
+        broker.fetch_all_positions = positions  # type: ignore[method-assign]
+        with pytest.raises(PaperExecutionRefusedError, match="simultaneous position limit"):
+            h._submit(world)
+        assert calls[:2] == ["orders", "positions"]
+        assert broker.submitted == []
+
     def test_one_slot_left_dispatches(self) -> None:
         world = _world_with(maximum_simultaneous_positions=2)
         h._authorize(world)

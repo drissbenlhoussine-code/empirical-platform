@@ -383,10 +383,16 @@ def _read_portfolio(broker: PaperBrokerPort) -> PortfolioEvidence:
         status, payload = broker.fetch_account()
         if status != 200:
             raise PortfolioEvidenceError(f"the account could not be read (HTTP {status})")
+        # ORDER MATTERS (M101): working orders are read BEFORE positions. An entry that fills
+        # between the two reads is then seen as a working BUY *and* as a position (counted twice
+        # -- conservative), never as neither (an under-count that could admit one entry too
+        # many). The previous order -- positions first -- could miss exactly that fill.
+        open_orders = broker.fetch_all_open_orders()
+        positions = broker.fetch_all_positions()
         return read_portfolio_evidence(
             account_payload=payload,
-            positions=broker.fetch_all_positions(),
-            open_orders=broker.fetch_all_open_orders(),
+            positions=positions,
+            open_orders=open_orders,
         )
     except PaperExecutionRefusedError:
         raise
