@@ -1,5 +1,10 @@
 # Operator Console — runbook (MILESTONE-086, SIMULATION only)
 
+> **Superseded for PAPER (M101).** This runbook describes the SIMULATION console. For the PERSONAL PAPER console use
+> `paper-operator-handbook.md`. Two statements below do **not** hold in v1: the kill switch now blocks new entries
+> **only** and never blocks an exit (`kill-switch.md`), and plan-managed positions are exited automatically
+> (stop/target/15:45 ET mandatory exit) with the Owner able to close manually.
+
 The Operator Console is the daily screen over the trading engine: Today, Active trades,
 History and Safety, in one local web page. In this milestone it runs against a deterministic
 **simulated broker** only. No order can reach Alpaca or any other venue from it, no brokerage
