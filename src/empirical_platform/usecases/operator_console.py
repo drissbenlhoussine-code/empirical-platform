@@ -307,6 +307,35 @@ def position_is_open(attempt: ExecutionAttempt) -> bool:
     )
 
 
+def intent_expired_unsubmitted(
+    intent: ApprovedOrderIntent, attempt: ExecutionAttempt | None, now: datetime
+) -> bool:
+    """M101: an approved intent that expired with ZERO entry attempts -- it was never a live
+    order and never will be. The same predicate `PositionExitConsole.category` uses for
+    `CATEGORY_EXPIRED_UNSUBMITTED` (a unit test pins the two together), so Today, Active and
+    the execution page cannot disagree about it."""
+    return (
+        attempt is None
+        and intent.submission_state.value == "NOT_SUBMITTED"
+        and now >= intent.expires_at
+    )
+
+
+def _settled_execution_categories() -> frozenset[str]:
+    """M101: execution categories that are finished business -- a position closed (by a
+    verified platform exit or by an Owner-recorded external sale) or an intent that expired
+    unsent. Imported lazily: `operator_console_exits` imports this module."""
+    from empirical_platform.usecases.operator_console_exits import (
+        CATEGORY_EXPIRED_UNSUBMITTED,
+        CATEGORY_EXTERNALLY_CLOSED,
+        CATEGORY_POSITION_CLOSED,
+    )
+
+    return frozenset(
+        {CATEGORY_EXPIRED_UNSUBMITTED, CATEGORY_EXTERNALLY_CLOSED, CATEGORY_POSITION_CLOSED}
+    )
+
+
 def human_state_for_attempt(attempt: ExecutionAttempt) -> HumanState:
     """The operator's word for an execution attempt. UNKNOWN is 'Needs attention', never a guess."""
     if attempt.state is PaperExecutionState.REJECTED and attempt.failure_code == "NOT_SENT":
@@ -428,7 +457,12 @@ class OpportunityCard:
     def state_is_settled(self) -> bool:
         """Whether this card has nothing left for the operator to see on Today."""
         if self.execution is not None:
-            return self.execution.is_terminal
+            # M101: an externally closed position and an intent that expired unsent are settled
+            # even though no terminal attempt exists for the latter.
+            return (
+                self.execution.is_terminal
+                or self.execution.category in _settled_execution_categories()
+            )
         return self.state in {HumanState.REJECTED, HumanState.EXPIRED, HumanState.BLOCKED}
 
 
@@ -826,12 +860,16 @@ class OperatorConsoleService:
             )
         except Exception as error:  # noqa: BLE001 - a status page must not fail closed
             market = f"Unknown ({type(error).__name__})"
+        # M101: a position is counted only while the durable records say it is still HELD.
+        # `position_open` is False for a position closed by a verified platform exit, by an
+        # Owner-recorded external sale, or for an intent that expired unsent. (Previously only
+        # the first case was excluded, so externally closed entries kept counting.)
         positions = sum(
             1
             for c in cards
             if c.execution is not None
             and c.execution.state in {HumanState.FILLED, HumanState.PARTIALLY_FILLED}
-            and not c.execution.position_closed
+            and c.execution.position_open
         )
         return TodayView(
             session_date=today.isoformat(),
@@ -975,11 +1013,21 @@ class OperatorConsoleService:
             return HumanState.NEEDS_DECISION, None, None
         if proposal.status is ProposalStatus.APPROVED:
             if intent is None:
+                if proposal.expired_at(now):
+                    # M101: the approval was never turned into an order and can no longer be.
+                    return (
+                        HumanState.EXPIRED,
+                        None,
+                        "Approved, but no order intent was issued before it expired. "
+                        "Nothing was sent.",
+                    )
                 return (
                     HumanState.APPROVED,
                     None,
                     "Approved, but no order intent was issued. Nothing was sent.",
                 )
+            if intent_expired_unsubmitted(intent, attempt, now):
+                return HumanState.EXPIRED, None, "Expired — never submitted. Nothing was sent."
             return HumanState.APPROVED, None, "Approved; awaiting execution. Nothing was sent yet."
         if proposal.status is ProposalStatus.REJECTED:
             return HumanState.REJECTED, None, None
@@ -1378,7 +1426,13 @@ class OperatorConsoleService:
                     continue
             if self._position_closed(intent.intent_governance_id):
                 continue  # a VERIFIED closed position belongs to History, not Active trades
-            rows.append(self._summary(proposal, decision, intent, attempt))
+            summary = self._summary(proposal, decision, intent, attempt)
+            if summary.category in _settled_execution_categories():
+                # M101: an Owner-recorded external closure and an intent that expired unsent
+                # are finished business (the Active page never rendered them; the Today
+                # counter must not count them either).
+                continue
+            rows.append(summary)
         rows.sort(key=lambda s: s.claimed_at or s.decided_at or datetime.min.replace(tzinfo=UTC))
         return tuple(rows)
 
@@ -1484,6 +1538,9 @@ class OperatorConsoleService:
             if closed:
                 exit_status = "Position closed — verified at the broker."
                 position_open = False
+                # M101: the entry-time "Open position — exit locked" sentence computed above
+                # must not survive next to a verified closure.
+                pending = None
             elif category == CATEGORY_EXTERNALLY_CLOSED:
                 # RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX: a durable closure
                 # record exists, independent of whether any `PositionExitAttempt` ever ran.
@@ -1492,9 +1549,12 @@ class OperatorConsoleService:
                     "order this platform never dispatched."
                 )
                 position_open = False
+                pending = None  # M101: no contradictory "Open position ..." line
             elif category == CATEGORY_EXPIRED_UNSUBMITTED:
                 exit_status = "Expired before it was ever sent to the broker."
                 position_open = False
+                # M101: not "Approved; nothing has been sent." -- it can never be sent now.
+                pending = "Expired — never submitted. Nothing was sent."
             elif category == "Exit in progress":
                 if latest_exit is not None and latest_exit.attempt_id.startswith(
                     PLAN_MANAGED_ATTEMPT_PREFIXES
