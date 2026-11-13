@@ -1,0 +1,43 @@
+{
+  "kind": "OWNER_AUTHORIZED_SAFETY_CORRECTION",
+  "authorization_date": "2026-10-01",
+  "path": "tools/m084_mutation_campaign.py",
+  "original_commit": [
+    "11271346",
+    "23b25178",
+    "b4d98236",
+    "d5ab75f8",
+    "f2134760"
+  ],
+  "original_blob": [
+    "3b9c3e03",
+    "eccc4bc2",
+    "07737175",
+    "63d87771",
+    "0d54c8fe"
+  ],
+  "corrected_blob": [
+    "51665c99",
+    "decd9c84",
+    "bd486bc5",
+    "acc3a471",
+    "7acc6256"
+  ],
+  "historical_copy": "external-review/RELEASE-V1/database-safety/original-tool.py.txt",
+  "reason": "Superseding operational baseline for destructive-tool safety only; original M084 evidence preserved.",
+  "guard_path": "src/empirical_platform/shared/persistence/database_safety.py",
+  "guard_blob": [
+    "15f80e48",
+    "442ff5c3",
+    "b94c29bd",
+    "4473d4fe",
+    "b432565f"
+  ],
+  "corrected_commit": [
+    "d8d91266",
+    "5e527fee",
+    "df19c691",
+    "f3592253",
+    "95d6a8ef"
+  ]
+}

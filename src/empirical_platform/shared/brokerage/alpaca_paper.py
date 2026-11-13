@@ -115,6 +115,10 @@ __all__ = [
 #: unpaginated single page is the narrowest capability this milestone's actual need requires.
 MAXIMUM_BARS_PER_REQUEST: Final = 1000
 
+#: EXIT SIGNAL QUALITY GATE (2026-10-21): mirrors MAXIMUM_BARS_PER_REQUEST's own bound on a
+#: single unpaginated page -- see `fetch_recent_quotes`.
+MAXIMUM_QUOTES_PER_REQUEST: Final = 1000
+
 REDACTED: Final = "<redacted>"
 
 #: Header names whose VALUES must never be rendered. Compared case-folded,
@@ -413,6 +417,16 @@ class _AssetView:
 class _PositionView:
     symbol: str
     quantity: int
+    average_entry_price: str
+
+
+@dataclass(frozen=True, slots=True)
+class _PortfolioPositionView:
+    """One entry of `GET /v2/positions`: decimal TEXT, parsed strictly by the consumer."""
+
+    symbol: str
+    quantity: str
+    market_value: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -808,7 +822,86 @@ class AlpacaPaperClient:
                 f"the {symbol} position {quantity_text} is fractional; this product "
                 "only reasons about whole shares"
             )
-        return _PositionView(symbol=returned, quantity=int(quantity))
+        average_entry_price = _decimal_text(payload.get("avg_entry_price"), field="avg_entry_price")
+        return _PositionView(
+            symbol=returned, quantity=int(quantity), average_entry_price=average_entry_price
+        )
+
+    def fetch_all_positions(self) -> tuple[_PortfolioPositionView, ...]:
+        """Every position the account holds, freshly queried (fix D1 portfolio limits).
+
+        Read-only. `qty` and `market_value` are required decimal strings; anything else
+        (a non-list body, a non-object entry, a missing field) raises, which the caller
+        turns into a refusal. Never defaults a missing value to zero.
+        """
+        status, body, sanitized = self._json("GET", "/v2/positions")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the positions endpoint answered HTTP {status}: {sanitized}"
+            )
+        views: list[_PortfolioPositionView] = []
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("the positions endpoint returned a non-object")
+            views.append(
+                _PortfolioPositionView(
+                    symbol=_require_text(entry, "symbol"),
+                    quantity=_decimal_text(entry.get("qty"), field="qty"),
+                    market_value=_decimal_text(entry.get("market_value"), field="market_value"),
+                )
+            )
+        return tuple(views)
+
+    def fetch_all_open_orders(self) -> tuple[_OrderView, ...]:
+        """Every open order across ALL symbols, freshly queried (fix D1 portfolio limits).
+
+        Alpaca's `status=open` filter excludes every terminal state; `limit` is raised to the
+        documented maximum so a long list is not silently truncated, and a list that fills
+        that page is refused rather than trusted.
+        """
+        page = 500
+        status, body, sanitized = self._json("GET", f"/v2/orders?status=open&limit={page}")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the orders endpoint answered HTTP {status}: {sanitized}"
+            )
+        if len(body) >= page:
+            raise BrokerResponseInvalidError("the open-orders listing may be truncated; refusing")
+        views: list[_OrderView] = []
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("the orders endpoint returned a non-object order")
+            views.append(self._order_view(entry))
+        return tuple(views)
+
+    def fetch_open_orders(self, symbol: str) -> tuple[_OrderView, ...]:
+        """Every order the broker still considers open for this symbol, freshly queried.
+
+        RISK-CHECK EVIDENCE GAP FOLLOW-UP: `evaluate_trade_proposal`'s `no_open_order`/
+        `OPEN_ORDER_CONFLICT` check is only as good as what it is given; before this method
+        existed, every real caller passed it a hardcoded empty tuple regardless of broker
+        state. Alpaca's own `status=open` filter already excludes every terminal state
+        (filled/canceled/expired/rejected/done_for_day), so nothing further is filtered here.
+        """
+        self._require_plain_symbol(symbol)
+        status, body, sanitized = self._json("GET", f"/v2/orders?status=open&symbols={symbol}")
+        if status != 200 or not isinstance(body, list):
+            raise BrokerResponseInvalidError(
+                f"the orders endpoint answered HTTP {status} for {symbol}: {sanitized}"
+            )
+        views: list[_OrderView] = []
+        for entry in body:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError(
+                    f"the orders endpoint returned a non-object order entry for {symbol}"
+                )
+            view = self._order_view(entry)
+            if view.symbol != symbol:
+                raise BrokerResponseInvalidError(
+                    f"asked for {symbol}'s open orders and was told about {view.symbol}"
+                )
+            views.append(view)
+        return tuple(views)
 
     def submit_order(
         self, order: PaperOrderRequest, *, before_send: Callable[[], None] | None = None
@@ -1146,6 +1239,72 @@ class AlpacaPaperMarketDataClient:
             captured_at=_parse_instant(quote.get("t"), field="quote timestamp"),
             source="alpaca-iex",
         )
+
+    def fetch_recent_quotes(
+        self, symbol: str, *, start: datetime, end: datetime, limit: int = 1000
+    ) -> tuple[_QuoteView, ...]:
+        """EXIT SIGNAL QUALITY GATE (2026-10-21): real, IEX-feed, individual quote ticks over
+        `[start, end]`, oldest first -- the one additional capability this hardening adds
+        beyond the single-snapshot `fetch_quote`. Re-derived fresh from Alpaca on every call,
+        exactly like `fetch_minute_bars`: never remembered in RAM between manager ticks, so a
+        crash/restart loses nothing a fresh call would not already re-establish.
+
+        Read-only evidence, nothing else. `start`/`end` must be timezone-aware; a single
+        unpaginated page of up to `limit` ticks is returned (see MAXIMUM_QUOTES_PER_REQUEST)
+        -- a thin/illiquid stretch simply returns fewer, which the caller treats as "too few
+        to assess agreement" rather than as an error (see `position_plan_manager`).
+        """
+        AlpacaPaperClient._require_plain_symbol(symbol)
+        if start.tzinfo is None or end.tzinfo is None:
+            raise ValueError("start and end must be timezone-aware")
+        if end <= start:
+            raise ValueError("end must be after start")
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or not (1 <= limit <= MAXIMUM_QUOTES_PER_REQUEST)
+        ):
+            raise ValueError(f"limit must be an int between 1 and {MAXIMUM_QUOTES_PER_REQUEST}")
+        query = (
+            f"start={_urlquote(start.astimezone(UTC).isoformat())}"
+            f"&end={_urlquote(end.astimezone(UTC).isoformat())}"
+            f"&limit={limit}&feed=iex&sort=asc"
+        )
+        status, _, raw = self._connection.request("GET", f"/v2/stocks/{symbol}/quotes?{query}")
+        if status != 200:
+            return ()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return ()
+        if not isinstance(payload, dict):
+            return ()
+        returned_symbol = payload.get("symbol")
+        if returned_symbol is not None and returned_symbol != symbol:
+            raise BrokerResponseInvalidError(
+                f"asked for {symbol} quotes and was given {returned_symbol}"
+            )
+        raw_quotes = payload.get("quotes")
+        if raw_quotes is None:
+            return ()
+        if not isinstance(raw_quotes, list):
+            raise BrokerResponseInvalidError("the quotes payload is not a list")
+        views: list[_QuoteView] = []
+        for entry in raw_quotes:
+            if not isinstance(entry, dict):
+                raise BrokerResponseInvalidError("a quote entry is not an object")
+            bid = entry.get("bp")
+            ask = entry.get("ap")
+            views.append(
+                _QuoteView(
+                    symbol=symbol,
+                    bid=None if bid is None else str(bid),
+                    ask=None if ask is None else str(ask),
+                    captured_at=_parse_instant(entry.get("t"), field="quote timestamp"),
+                    source="alpaca-iex",
+                )
+            )
+        return tuple(views)
 
     def fetch_minute_bars(
         self, symbol: str, *, start: datetime, end: datetime, limit: int = 100

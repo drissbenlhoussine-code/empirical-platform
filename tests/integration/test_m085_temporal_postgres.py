@@ -78,7 +78,7 @@ def world(engine: Engine) -> Iterator[dict[str, Any]]:
                     timestamp=clock.utc,
                     is_open=True,
                     next_open=None,
-                    next_close=EVALUATED_AT + timedelta(hours=3),
+                    next_close=EVALUATED_AT + timedelta(hours=6),
                 )
 
         class MarketData:

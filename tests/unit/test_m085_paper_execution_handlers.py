@@ -279,6 +279,41 @@ class TestPreviewPaperSubmission:
         assert render_preview_json(preview)["is_authorizable"] is True
         assert "REQUEST FINGERPRINT" in render_preview_text(preview)
 
+    def test_an_early_close_before_the_liquidation_deadline_refuses_the_entry_preview(
+        self,
+    ) -> None:
+        # Audit A P1-2: the intent liquidates at _NOW+3h; a close at _NOW+2h (12:00 ET) is
+        # before it, so the position could not be exited and would be held overnight.
+        broker = FakeBroker()
+        original_clock = broker.fetch_clock
+
+        def early_close() -> object:
+            value = original_clock()
+            value.next_close = _NOW + timedelta(hours=2)
+            return value
+
+        broker.fetch_clock = early_close  # type: ignore[method-assign]
+        preview = self._handler(broker=broker).handle(self._command())
+        assert preview.is_authorizable is False
+        assert any(
+            "the market closes at 12:00 ET, before the mandatory liquidation time 13:00 ET"
+            in reason
+            for reason in preview.refusals
+        )
+
+    def test_an_unknown_close_refuses_the_entry_preview(self) -> None:
+        broker = FakeBroker()
+        original_clock = broker.fetch_clock
+
+        def no_close() -> object:
+            value = original_clock()
+            value.next_close = None
+            return value
+
+        broker.fetch_clock = no_close  # type: ignore[method-assign]
+        preview = self._handler(broker=broker).handle(self._command())
+        assert preview.is_authorizable is False
+
     def test_an_engaged_kill_switch_produces_a_refusal_not_an_exception(self) -> None:
         preview = self._handler(kill_switch=FakeKillSwitch(engaged=True)).handle(self._command())
         assert preview.is_authorizable is False
@@ -620,7 +655,7 @@ class TestSubmitAuthorizedPaperOrder:
         def truthful_broker_clock() -> object:
             value = original_clock()
             value.timestamp = broker_time
-            value.next_close = broker_time + timedelta(hours=2)
+            value.next_close = broker_time + timedelta(hours=6)
             return value
 
         class TruthfulQuote(FakeQuote):
@@ -746,9 +781,15 @@ class TestSubmitAuthorizedPaperOrder:
 
             original_clock = world["broker"].fetch_clock
 
+            close_announced = {"yes": False}
+
             def closing_soon() -> object:
                 value = original_clock()
-                value.next_close = _NOW + timedelta(seconds=30)
+                # The early close is announced only DURING the slow connect: any earlier
+                # sighting is refused by the pre-claim guard (Audit A P1-2), not by this
+                # in-before_send re-check, which is the boundary under test.
+                if close_announced["yes"]:
+                    value.next_close = _NOW + timedelta(seconds=30)
                 return value
 
             world["broker"].fetch_clock = closing_soon
@@ -759,6 +800,7 @@ class TestSubmitAuthorizedPaperOrder:
             ) -> tuple[int, object | None, str]:
                 def guard() -> None:
                     clock.tick(delta=timedelta(seconds=90))
+                    close_announced["yes"] = True
                     if before_send is not None:
                         before_send()
 
@@ -889,6 +931,25 @@ class TestSubmitAuthorizedPaperOrder:
         operation_clock.tick(delta=timedelta(seconds=30))
         with pytest.raises(PaperExecutionRefusedError, match="expired"):
             self._handler(world).handle(self._command(at=_NOW + timedelta(seconds=30)))
+        assert world["broker"].submitted == []
+
+    def test_a_stale_preview_cannot_be_sent_after_the_close_moved_before_liquidation(
+        self,
+    ) -> None:
+        # Audit A P1-2: authorized on a regular day's evidence, then the broker reports an
+        # early close (12:00 ET) before the intent's 13:00 ET mandatory liquidation.
+        world = self._world()
+        self._authorize(world)
+        original_clock = world["broker"].fetch_clock
+
+        def early_close() -> object:
+            value = original_clock()
+            value.next_close = _NOW + timedelta(hours=2)
+            return value
+
+        world["broker"].fetch_clock = early_close
+        with pytest.raises(PaperExecutionRefusedError, match="the market closes at 12:00 ET"):
+            self._handler(world).handle(self._command())
         assert world["broker"].submitted == []
 
     def test_a_dispatch_inside_the_validity_window_is_allowed(self) -> None:

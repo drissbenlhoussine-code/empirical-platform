@@ -307,6 +307,35 @@ def position_is_open(attempt: ExecutionAttempt) -> bool:
     )
 
 
+def intent_expired_unsubmitted(
+    intent: ApprovedOrderIntent, attempt: ExecutionAttempt | None, now: datetime
+) -> bool:
+    """M101: an approved intent that expired with ZERO entry attempts -- it was never a live
+    order and never will be. The same predicate `PositionExitConsole.category` uses for
+    `CATEGORY_EXPIRED_UNSUBMITTED` (a unit test pins the two together), so Today, Active and
+    the execution page cannot disagree about it."""
+    return (
+        attempt is None
+        and intent.submission_state.value == "NOT_SUBMITTED"
+        and now >= intent.expires_at
+    )
+
+
+def _settled_execution_categories() -> frozenset[str]:
+    """M101: execution categories that are finished business -- a position closed (by a
+    verified platform exit or by an Owner-recorded external sale) or an intent that expired
+    unsent. Imported lazily: `operator_console_exits` imports this module."""
+    from empirical_platform.usecases.operator_console_exits import (
+        CATEGORY_EXPIRED_UNSUBMITTED,
+        CATEGORY_EXTERNALLY_CLOSED,
+        CATEGORY_POSITION_CLOSED,
+    )
+
+    return frozenset(
+        {CATEGORY_EXPIRED_UNSUBMITTED, CATEGORY_EXTERNALLY_CLOSED, CATEGORY_POSITION_CLOSED}
+    )
+
+
 def human_state_for_attempt(attempt: ExecutionAttempt) -> HumanState:
     """The operator's word for an execution attempt. UNKNOWN is 'Needs attention', never a guess."""
     if attempt.state is PaperExecutionState.REJECTED and attempt.failure_code == "NOT_SENT":
@@ -403,6 +432,13 @@ class OpportunityCard:
     target_price: str
     risk_amount: str
     risk_percent: str
+    #: RELEASE v1 Research Candidate fields: maximum dollar gain if the target is reached,
+    #: the reward:risk ratio, and the mandatory-liquidation deadline this candidate would
+    #: carry if approved. All three are derived from the SAME proposal fields `risk_amount`
+    #: already uses -- no new data source, no new freshness question.
+    target_gain: str
+    reward_risk_ratio: str
+    mandatory_exit: datetime
     reason: str
     evidence: tuple[str, ...]
     created_at: datetime
@@ -415,10 +451,18 @@ class OpportunityCard:
     execution: ExecutionSummary | None
     scenario: str | None
 
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
+
     def state_is_settled(self) -> bool:
         """Whether this card has nothing left for the operator to see on Today."""
         if self.execution is not None:
-            return self.execution.is_terminal
+            # M101: an externally closed position and an intent that expired unsent are settled
+            # even though no terminal attempt exists for the latter.
+            return (
+                self.execution.is_terminal
+                or self.execution.category in _settled_execution_categories()
+            )
         return self.state in {HumanState.REJECTED, HumanState.EXPIRED, HumanState.BLOCKED}
 
 
@@ -504,6 +548,21 @@ class ConfirmationView:
     approval_expires_at: datetime | None
     ticket: str
     kill_switch_engaged: bool
+
+    stop_price: str = "Historical: not specified"
+    target_price: str = "Historical: not specified"
+    planned_loss: str = "Historical: not specified"
+    maximum_quantity_shares: str = "Historical: not specified"
+    maximum_planned_loss: str = "Historical: not specified"
+    #: RELEASE v1 Owner Gate: the Owner must see the complete plan on THIS screen, the one
+    #: bound to the ticket they are about to confirm -- not only on the Today card, which is
+    #: a separate read of the same proposal and is never what `confirm_approval` re-reads.
+    target_gain: str = NOT_AVAILABLE
+    reward_risk_ratio: str = NOT_AVAILABLE
+    mandatory_exit: datetime | None = None
+    configuration_governance_id: str = NOT_AVAILABLE
+    configuration_version: str = NOT_AVAILABLE
+    fingerprint_full: str = NOT_AVAILABLE
 
 
 @dataclass(frozen=True, slots=True)
@@ -801,12 +860,16 @@ class OperatorConsoleService:
             )
         except Exception as error:  # noqa: BLE001 - a status page must not fail closed
             market = f"Unknown ({type(error).__name__})"
+        # M101: a position is counted only while the durable records say it is still HELD.
+        # `position_open` is False for a position closed by a verified platform exit, by an
+        # Owner-recorded external sale, or for an intent that expired unsent. (Previously only
+        # the first case was excluded, so externally closed entries kept counting.)
         positions = sum(
             1
             for c in cards
             if c.execution is not None
             and c.execution.state in {HumanState.FILLED, HumanState.PARTIALLY_FILLED}
-            and not c.execution.position_closed
+            and c.execution.position_open
         )
         return TodayView(
             session_date=today.isoformat(),
@@ -828,6 +891,36 @@ class OperatorConsoleService:
             raise NotFoundError(f"no trade proposal {proposal_id!r} exists")
         return self._card(proposal, self._clock(), self._r.kill_switch.is_engaged())
 
+    def _risk_reward(
+        self, proposal: TradeProposal
+    ) -> tuple[Decimal | None, Decimal | None, Decimal | None, Decimal | None]:
+        """Risk amount, risk percent, target gain and reward:risk -- ONE computation, shared
+        by the Today card and the Owner Gate confirmation screen, so the numbers an Owner
+        approves are never derived twice by two slightly different formulas."""
+        risk_amount = (
+            (proposal.limit_price - proposal.stop_loss_price) * Decimal(proposal.quantity)
+            if proposal.limit_price is not None
+            else None
+        )
+        if proposal.entry_risk is not None:
+            risk_amount = proposal.entry_risk.planned_loss
+        risk_percent = (
+            (risk_amount / proposal.estimated_total_cash_required * Decimal(100))
+            if risk_amount is not None and proposal.estimated_total_cash_required > 0
+            else None
+        )
+        target_gain = (
+            (proposal.profit_exit_price - proposal.limit_price) * Decimal(proposal.quantity)
+            if proposal.limit_price is not None
+            else None
+        )
+        reward_risk_ratio = (
+            (target_gain / risk_amount)
+            if target_gain is not None and risk_amount is not None and risk_amount > 0
+            else None
+        )
+        return risk_amount, risk_percent, target_gain, reward_risk_ratio
+
     def _card(self, proposal: TradeProposal, now: datetime, engaged: bool) -> OpportunityCard:
         decision, intent, attempt = self._execution_for(proposal)
         execution = None if intent is None else self._summary(proposal, decision, intent, attempt)
@@ -841,17 +934,18 @@ class OperatorConsoleService:
         strategy = context.strategy_version if context is not None else NOT_AVAILABLE
         scenario = self._staged_scenarios().get(proposal.symbol)
         evidence = tuple(f"{c.check_id}: {c.detail}" for c in proposal.risk_checks[:6])
-        risk_amount = (
-            (proposal.limit_price - proposal.stop_loss_price) * Decimal(proposal.quantity)
-            if proposal.limit_price is not None
-            else None
-        )
-        risk_percent = (
-            (risk_amount / proposal.estimated_total_cash_required * Decimal(100))
-            if risk_amount is not None and proposal.estimated_total_cash_required > 0
-            else None
-        )
+        risk_amount, risk_percent, target_gain, reward_risk_ratio = self._risk_reward(proposal)
         return OpportunityCard(
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
             symbol=proposal.symbol,
@@ -865,6 +959,11 @@ class OperatorConsoleService:
             target_price=_money(proposal.profit_exit_price),
             risk_amount=_money(risk_amount),
             risk_percent=(f"{risk_percent:.2f}%" if risk_percent is not None else NOT_AVAILABLE),
+            target_gain=_money(target_gain),
+            reward_risk_ratio=(
+                f"{reward_risk_ratio:.2f}:1" if reward_risk_ratio is not None else NOT_AVAILABLE
+            ),
+            mandatory_exit=proposal.mandatory_liquidation_at,
             reason=(
                 f"Proposed by strategy {strategy}: {len(passed)} of {len(proposal.risk_checks)} "
                 f"risk checks passed" + ("" if not failed else f", {len(failed)} not passed")
@@ -914,11 +1013,21 @@ class OperatorConsoleService:
             return HumanState.NEEDS_DECISION, None, None
         if proposal.status is ProposalStatus.APPROVED:
             if intent is None:
+                if proposal.expired_at(now):
+                    # M101: the approval was never turned into an order and can no longer be.
+                    return (
+                        HumanState.EXPIRED,
+                        None,
+                        "Approved, but no order intent was issued before it expired. "
+                        "Nothing was sent.",
+                    )
                 return (
                     HumanState.APPROVED,
                     None,
                     "Approved, but no order intent was issued. Nothing was sent.",
                 )
+            if intent_expired_unsubmitted(intent, attempt, now):
+                return HumanState.EXPIRED, None, "Expired — never submitted. Nothing was sent."
             return HumanState.APPROVED, None, "Approved; awaiting execution. Nothing was sent yet."
         if proposal.status is ProposalStatus.REJECTED:
             return HumanState.REJECTED, None, None
@@ -966,7 +1075,25 @@ class OperatorConsoleService:
             fingerprint=proposal.content_fingerprint,
             issued_at=now,
         )
+        _, _, target_gain, reward_risk_ratio = self._risk_reward(proposal)
         return ConfirmationView(
+            stop_price=_money(proposal.stop_loss_price),
+            target_price=_money(proposal.profit_exit_price),
+            planned_loss=(
+                str(proposal.entry_risk.planned_loss)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_quantity_shares=(
+                str(proposal.entry_risk.maximum_position_quantity_shares)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
+            maximum_planned_loss=(
+                str(proposal.entry_risk.maximum_planned_loss_per_trade)
+                if proposal.entry_risk
+                else "Historical: not specified"
+            ),
             action=action,
             proposal_id=proposal.proposal_governance_id,
             proposal_version=proposal.proposal_version,
@@ -977,6 +1104,14 @@ class OperatorConsoleService:
             approval_expires_at=approval_expires,
             ticket=ticket.encode(self._signer),
             kill_switch_engaged=self._r.kill_switch.is_engaged(),
+            target_gain=_money(target_gain) if target_gain is not None else NOT_AVAILABLE,
+            reward_risk_ratio=(
+                f"{reward_risk_ratio:.2f}:1" if reward_risk_ratio is not None else NOT_AVAILABLE
+            ),
+            mandatory_exit=proposal.mandatory_liquidation_at,
+            configuration_governance_id=proposal.configuration_governance_id,
+            configuration_version=str(proposal.configuration_version),
+            fingerprint_full=proposal.content_fingerprint,
         )
 
     def _authoritative(self, ticket: ConfirmationTicket, now: datetime) -> TradeProposal:
@@ -1280,17 +1415,24 @@ class OperatorConsoleService:
             if intent is None:
                 continue
             if attempt is not None and attempt.is_terminal and not position_is_open(attempt):
-                # A cancelled entry that had filled shares still holds a position (M087).
+                # A cancelled or expired entry that had filled shares still holds a position
+                # (M087; EXPIRED added by the M100 final review).
                 if not (
                     self._exits is not None
-                    and attempt.state is PaperExecutionState.CANCELED
+                    and attempt.state in (PaperExecutionState.CANCELED, PaperExecutionState.EXPIRED)
                     and attempt.filled_quantity is not None
                     and attempt.filled_quantity > 0
                 ):
                     continue
             if self._position_closed(intent.intent_governance_id):
                 continue  # a VERIFIED closed position belongs to History, not Active trades
-            rows.append(self._summary(proposal, decision, intent, attempt))
+            summary = self._summary(proposal, decision, intent, attempt)
+            if summary.category in _settled_execution_categories():
+                # M101: an Owner-recorded external closure and an intent that expired unsent
+                # are finished business (the Active page never rendered them; the Today
+                # counter must not count them either).
+                continue
+            rows.append(summary)
         rows.sort(key=lambda s: s.claimed_at or s.decided_at or datetime.min.replace(tzinfo=UTC))
         return tuple(rows)
 
@@ -1380,19 +1522,52 @@ class OperatorConsoleService:
             now = self._clock()
             exit_summary = self._exits.summary(intent, attempt, now)
             latest_exit = self._exits.latest_exit(intent.intent_governance_id)
-            category = self._exits.category(attempt, latest_exit)
+            category = self._exits.category(intent, attempt, latest_exit, now=now)
             closed = latest_exit is not None and latest_exit.position_closed
             held = category == "Open position"
             # "Review exit" is offered for every held position; the review page itself shows
             # an engaged kill switch, and the confirmation refuses while it is engaged.
             can_review = held
+            from empirical_platform.usecases.operator_console_exits import (
+                CATEGORY_EXPIRED_UNSUBMITTED,
+                CATEGORY_EXTERNALLY_CLOSED,
+                PLAN_MANAGED_ATTEMPT_PREFIXES,
+                deadline_status,
+            )
+
             if closed:
                 exit_status = "Position closed — verified at the broker."
                 position_open = False
-            elif category == "Exit in progress":
+                # M101: the entry-time "Open position — exit locked" sentence computed above
+                # must not survive next to a verified closure.
+                pending = None
+            elif category == CATEGORY_EXTERNALLY_CLOSED:
+                # RELEASE v1 EXTERNAL POSITION CLOSURE VISIBILITY FIX: a durable closure
+                # record exists, independent of whether any `PositionExitAttempt` ever ran.
                 exit_status = (
-                    "Exit in progress — nothing further is sent without your confirmation."
+                    "Position closed externally — verified by an Owner-recorded broker "
+                    "order this platform never dispatched."
                 )
+                position_open = False
+                pending = None  # M101: no contradictory "Open position ..." line
+            elif category == CATEGORY_EXPIRED_UNSUBMITTED:
+                exit_status = "Expired before it was ever sent to the broker."
+                position_open = False
+                # M101: not "Approved; nothing has been sent." -- it can never be sent now.
+                pending = "Expired — never submitted. Nothing was sent."
+            elif category == "Exit in progress":
+                if latest_exit is not None and latest_exit.attempt_id.startswith(
+                    PLAN_MANAGED_ATTEMPT_PREFIXES
+                ):
+                    exit_status = (
+                        "Exit in progress — the automatic manager sends and reprices this "
+                        "exit on its own within bounded limits; you may still close the "
+                        "position manually."
+                    )
+                else:
+                    exit_status = (
+                        "Exit in progress — nothing further is sent without your confirmation."
+                    )
             elif category == "Needs attention" and exit_summary is not None:
                 exit_status = "Exit outcome unknown — do not retry."
             elif held:
@@ -1400,7 +1575,6 @@ class OperatorConsoleService:
                 position_open = True
             if attempt is not None and attempt.state is PaperExecutionState.FILLED and held:
                 pending = OPEN_POSITION_REVIEWABLE_STATUS
-            from empirical_platform.usecases.operator_console_exits import deadline_status
 
             tone, note = deadline_status(
                 deadline=intent.mandatory_liquidation_at,

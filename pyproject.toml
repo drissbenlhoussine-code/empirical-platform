@@ -77,6 +77,7 @@ empirical-platform-authorize-paper-submission = "empirical_platform.entrypoints.
 empirical-platform-submit-authorized-paper-order = "empirical_platform.entrypoints.submit_authorized_paper_order:main"
 empirical-platform-reconcile-paper-order = "empirical_platform.entrypoints.reconcile_paper_order:main"
 empirical-platform-cancel-paper-order = "empirical_platform.entrypoints.cancel_paper_order:main"
+empirical-platform-record-external-position-closure = "empirical_platform.entrypoints.record_external_position_closure:main"
 empirical-platform-show-paper-execution = "empirical_platform.entrypoints.show_paper_execution:main"
 empirical-platform-list-paper-executions = "empirical_platform.entrypoints.list_paper_executions:main"
 empirical-platform-paper-execution-status = "empirical_platform.entrypoints.paper_execution_status:main"
@@ -190,6 +191,13 @@ ignore = [
 # strings; wrapping markup at 100 columns would only fragment the tags. Every other
 # rule still applies to it.
 "src/empirical_platform/entrypoints/_operator_console_html.py" = ["E501"]
+# M100 end-to-end acceptance matrix: test names must carry the Owner's literal step identifier
+# (`test_ACC_07_...`), and its scripted-wire helpers take the loosely typed fixtures and
+# JSON-ish facts a recorder necessarily handles. Scoped to these files only.
+"tests/integration/test_m100_e2e_acceptance_matrix.py" = ["N802", "ANN401"]
+"tests/integration/_m100_world.py" = ["ANN401"]
+"tests/integration/_m100_fake_alpaca.py" = ["ANN401"]
+"tests/integration/_acceptance_evidence.py" = ["ANN401"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -21,10 +21,12 @@ from empirical_platform.shared.persistence.postgres import PostgresPersistenceSe
 
 __all__ = ["M089_SCHEMA_HEAD", "PaperExitSchemaHeadError", "require_exact_m089_schema_head"]
 
-#: The ONE revision `migrations_paper_exit`'s single migration produces. Grouped so the
+#: The ONE revision `migrations_paper_exit`'s chain currently produces. Grouped so the
 #: literal is plainly a revision id rather than a credential-shaped token (the M085/M087
-#: convention).
-M089_SCHEMA_HEAD = "f083b6c2" + "9d17"
+#: convention). RELEASE v1 EXTERNAL POSITION CLOSURE: bumped from `f083b6c29d17` to
+#: `d4e9c2a7f183`, which adds the independent `external_position_closure` table and touches
+#: nothing else -- see that migration's own docstring.
+M089_SCHEMA_HEAD = "d4e9c2a7" + "f183"
 _SCHEMA_HEAD_SELECT = "SELECT version_num FROM public.alembic_version"
 
 

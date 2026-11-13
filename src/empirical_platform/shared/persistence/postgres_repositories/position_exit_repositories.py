@@ -13,6 +13,7 @@ refuses any other database, before anything is read or written.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
@@ -39,6 +40,21 @@ from empirical_platform.decision_candidate.position_exit import (
 from empirical_platform.shared.brokerage.paper_time import BoundedInstant
 from empirical_platform.shared.errors.foundation import FoundationError, FoundationErrorCategory
 from empirical_platform.shared.persistence.postgres import PostgresPersistenceService
+
+
+def _round_id(attempt_id: str, sequence: int) -> str:
+    """A UNIQUE reconciliation-round id that always fits the 64-character identifier limit.
+
+    The readable form is kept whenever it fits (every id already persisted is unchanged). It
+    used to be cut with `[:64]`, which for the 63-character attempt id of a plan-minted
+    MANDATORY_EXIT dropped the sequence: the SECOND round of that attempt collided with the
+    first on the primary key. A longer attempt id is digested rather than truncated.
+    """
+    readable = f"XRND-{attempt_id}-{sequence}"
+    if len(readable) <= 64:
+        return readable
+    return f"XRND-{hashlib.sha256(attempt_id.encode('utf-8')).hexdigest()[:40]}-{sequence}"
+
 
 __all__ = [
     "M087_SCHEMA_HEAD",
@@ -936,7 +952,7 @@ class PostgresPositionExitRoundRepository:
             rows = work.execute(
                 _ROUND_INSERT,
                 {
-                    "round_id": f"XRND-{attempt.attempt_id}-{sequence}"[:64],
+                    "round_id": _round_id(attempt.attempt_id, sequence),
                     "attempt_id": attempt.attempt_id,
                     "entry_intent_governance_id": attempt.entry_intent_governance_id,
                     "authorization_id": attempt.authorization_id,

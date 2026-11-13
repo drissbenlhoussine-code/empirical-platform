@@ -904,3 +904,48 @@ class TestTheAccountPathIsEquallyStrict:
     ) -> None:
         hostile.then(_json_response(404, {"message": "position does not exist"}))
         assert client.fetch_position("AAPL") is None
+
+    def test_a_held_position_carries_its_average_entry_price(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        # ADVERSARIAL REVIEW FOLLOW-UP: a real held position must be fully convertible to a
+        # `PositionSnapshot` for the risk engine's portfolio-conflict checks -- the quantity
+        # alone was already covered above, but `average_price` is required too.
+        hostile.then(
+            _json_response(200, {"symbol": "AAPL", "qty": "3", "avg_entry_price": "330.12"})
+        )
+        view = client.fetch_position("AAPL")
+        assert view is not None
+        assert view.quantity == 3
+        assert view.average_entry_price == "330.12"
+
+    def test_open_orders_for_the_symbol_are_returned(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, [an_order_payload(status="accepted")]))
+        orders = client.fetch_open_orders("AAPL")
+        assert len(orders) == 1
+        assert orders[0].symbol == "AAPL"
+        assert orders[0].status == "accepted"
+
+    def test_no_open_orders_is_an_empty_tuple_not_an_error(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, []))
+        assert client.fetch_open_orders("AAPL") == ()
+
+    def test_an_open_order_naming_the_wrong_symbol_is_refused(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        # Mirrors `fetch_position`'s own symbol-echo check: a peer answering about a
+        # different symbol than asked must never be silently trusted.
+        hostile.then(_json_response(200, [an_order_payload(symbol="MSFT")]))
+        with pytest.raises(BrokerResponseInvalidError, match="MSFT"):
+            client.fetch_open_orders("AAPL")
+
+    def test_a_non_list_open_orders_answer_is_refused(
+        self, client: AlpacaPaperClient, hostile: _Script
+    ) -> None:
+        hostile.then(_json_response(200, {"not": "a list"}))
+        with pytest.raises(BrokerResponseInvalidError):
+            client.fetch_open_orders("AAPL")

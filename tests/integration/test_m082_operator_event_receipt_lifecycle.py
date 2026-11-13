@@ -569,7 +569,7 @@ def test_the_rendered_report_states_the_causal_claim_and_the_retraction(
 
 @pytest.fixture
 def second_database(engine: Engine) -> Iterator[str]:
-    name = "m082_probe"
+    name = "m082_probe_test"
     with engine.connect() as conn:
         conn.execution_options(isolation_level="AUTOCOMMIT")
         conn.execute(text(f'DROP DATABASE IF EXISTS "{name}"'))

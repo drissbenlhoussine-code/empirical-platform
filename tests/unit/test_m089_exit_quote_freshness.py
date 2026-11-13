@@ -96,6 +96,7 @@ def _preview_with_quote(world: World, intent: str, quote: _Quote | None) -> None
         intents=world.repositories.intents,
         entry_attempts=world.repositories.attempts,
         exit_attempts=world.exits.attempts,
+        external_closures=world.external_closures,
         previews=world.exits.previews,
         events=world.exits.events,
         broker=world.broker,
