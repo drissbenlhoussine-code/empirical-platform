@@ -164,7 +164,11 @@ def paper_health(
     asset = broker.fetch_asset(APPROVED_SYMBOL)
     position = broker.fetch_position(APPROVED_SYMBOL)
     quote = market_data.fetch_quote(APPROVED_SYMBOL)
-    age = "" if quote is None else f"{(now - quote.captured_at).total_seconds():.1f}"
+    # DISPLAY ONLY (M101). `now` is read before the four broker calls above, so a quote that is
+    # fresh when fetched can be stamped a second or two AFTER `now`, which used to print a
+    # negative age. An age cannot be negative: show 0.0. Quote freshness is judged elsewhere
+    # (`paper_execution` on the broker clock interval) and is not touched by this value.
+    age = "" if quote is None else f"{max((now - quote.captured_at).total_seconds(), 0.0):.1f}"
     account_id = payload.get("id")
     return PaperHealthView(
         trading_endpoint=broker.endpoint_host,

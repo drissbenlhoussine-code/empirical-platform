@@ -1636,5 +1636,8 @@ table.history th{font-size:12px;text-transform:uppercase;letter-spacing:.06em;co
 .inline{display:inline}
 @media (max-width:600px){.page{padding:14px 12px 40px}h1{font-size:24px}.cards{grid-template-columns:1fr}
 .kv{grid-template-columns:1fr}.kv dt{margin-top:6px}.stat-value{font-size:20px}.env-badge{font-size:12px;padding:5px 9px}
-.numbers{grid-template-columns:repeat(2,1fr)}.chip{margin-left:0}.step{grid-template-columns:1fr}}
+.numbers{grid-template-columns:repeat(2,1fr)}.chip{margin-left:0}.step{grid-template-columns:1fr}
+.table-wrap{-webkit-overflow-scrolling:touch}table.history{font-size:13px}
+table.history th,table.history td{padding:8px 8px}
+table.history th:first-child,table.history td:first-child{position:sticky;left:0;z-index:1;background:var(--surface);box-shadow:1px 0 0 var(--line)}}
 """
